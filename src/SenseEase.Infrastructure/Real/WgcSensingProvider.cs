@@ -1,0 +1,531 @@
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
+using SenseEase.Core.Abstractions;
+using SenseEase.Core.Configuration;
+using Windows.Graphics.Capture;
+using Windows.Graphics.DirectX;
+using Windows.Graphics.DirectX.Direct3D11;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Direct3D;
+using Windows.Win32.Graphics.Direct3D11;
+using Windows.Win32.System.WinRT.Graphics.Capture;
+using Windows.Win32.System.WinRT.Direct3D11;
+using Windows.Win32.System.WinRT;
+using WinRT;
+
+namespace SenseEase.Infrastructure.Real;
+
+/// <summary>
+/// Phase-2.2 real sensing: derives OFI from pixel-diff of captured screen frames via
+/// Windows.Graphics.Capture (WGC) + Direct3D11.
+///
+/// Pipeline:
+///   WGC session (primary monitor, item.Size) -> D3D11 staging texture (full resolution) ->
+///   CPU Map -> nearest-neighbour step-sample to WgcDownsampleWidth x WgcDownsampleHeight
+///   greyscale -> MAD vs previous frame -> EMA smooth -> emit OpticalFlowSampled on UI thread.
+///
+/// CsWin32 0.3.x generates ID3D11Resource (and related parent interfaces) as plain C#
+/// interfaces without [ComImport], so CLR InterfaceMarshaler.ConvertToNative fails when
+/// they are passed to CopyResource / Map / Unmap. Fix: bypass CLR marshaling entirely by
+/// calling those three methods through the raw D3D11 DeviceContext vtable with IntPtr args.
+/// Vtable offsets are stable ABI (IUnknown:0-2, ID3D11DeviceChild:3-6, DeviceContext:7+).
+/// </summary>
+public sealed class WgcSensingProvider : ISensingProvider, IDisposable
+{
+    // UnmanagedType.HString is .NET Framework-only; create HSTRING manually via combase.dll.
+    [DllImport("combase.dll", ExactSpelling = true)]
+    private static extern int WindowsCreateString(
+        [MarshalAs(UnmanagedType.LPWStr)] string? src, int length, out IntPtr hstring);
+
+    [DllImport("combase.dll", ExactSpelling = true)]
+    private static extern int WindowsDeleteString(IntPtr hstring);
+
+    [DllImport("combase.dll", ExactSpelling = true)]
+    private static extern int RoGetActivationFactory(
+        IntPtr activatableClassId,
+        in Guid iid,
+        [MarshalAs(UnmanagedType.IUnknown)] out object factory);
+
+    // ── D3D11 vtable indices (ID3D11DeviceContext inherits IUnknown+ID3D11DeviceChild) ──────
+    // IUnknown        : 0-2  (QI, AddRef, Release)
+    // ID3D11DeviceChild: 3-6  (GetDevice, GetPrivateData, SetPrivateData, SetPrivateDataInterface)
+    // ID3D11DeviceContext starts at 7:
+    //   +7  VSSetConstantBuffers … +13 Draw  →  Map=14, Unmap=15
+    //   +40 CopySubresourceRegion  →  CopyResource=47
+    private const int VtblMap          = 14;
+    private const int VtblUnmap        = 15;
+    private const int VtblCopyResource = 47;
+
+    private static readonly Guid IID_ID3D11Resource =
+        new("dc8e63f3-d12b-4952-b47b-5e45026a862d");
+
+    // ── Diagnostic log ───────────────────────────────────────────────────────────────────────
+    private static readonly string DiagFile =
+        Path.Combine(Path.GetTempPath(), "wgc_diag.txt");
+
+    private static void WgcLog(string msg)
+    {
+        string line = $"{DateTime.Now:HH:mm:ss.fff} {msg}";
+        Debug.WriteLine($"[WGC] {msg}");
+        try { File.AppendAllText(DiagFile, line + Environment.NewLine); } catch { }
+    }
+
+    // Returns a raw AddRef'd interface pointer for the given IID; caller must Release.
+    private static IntPtr GetRawComPtr(object comObj, Guid iid)
+    {
+        IntPtr unk = Marshal.GetIUnknownForObject(comObj);
+        try
+        {
+            int hr = Marshal.QueryInterface(unk, ref iid, out IntPtr ptr);
+            if (hr < 0 || ptr == IntPtr.Zero)
+                throw new COMException($"QI for {iid} hr=0x{hr:X8}", hr);
+            return ptr;
+        }
+        finally
+        {
+            Marshal.Release(unk);
+        }
+    }
+
+    private static void SafeRelease(ref IntPtr ptr)
+    {
+        if (ptr != IntPtr.Zero) { Marshal.Release(ptr); ptr = IntPtr.Zero; }
+    }
+
+    // ── Instance state ───────────────────────────────────────────────────────────────────────
+    private readonly SynchronizationContext? _ctx;
+    private readonly Timer _timer;
+    private bool   _running;
+    private byte[]? _prevFrame;
+    private double  _smoothedOfi;
+    private readonly double[] _ofiHistory = new double[SenseDefaults.VimsMedianTaps];
+    private int _ofiHistoryFilled;   // how many slots are populated (until the buffer is full)
+    private int _ofiHistoryHead;     // ring-buffer write index
+
+    // ── Fix #5: ping-pong buffers (allocated once in Start, toggled per tick) ──────────────
+    private byte[]? _bufA;
+    private byte[]? _bufB;
+    private bool _useBufA; // which buffer is written this tick; toggles each call
+    // Returned for all early-outs where there is no frame data. Zero-filled, never mutated.
+    private static readonly byte[] EmptyFrameSentinel =
+        new byte[SenseDefaults.WgcDownsampleWidth * SenseDefaults.WgcDownsampleHeight];
+
+    // ── Fix #6: cached nearest-neighbour index tables (rebuilt only on srcW/srcH change) ───
+    private int[]? _srcXIndex;  // dstX -> byte offset within a source row (srcX * 4 for BGRA)
+    private int[]? _srcYIndex;  // dstY -> source row index (in pixels)
+    private int _indexedSrcW = -1, _indexedSrcH = -1;
+
+    // ── Fix #7: cached SendOrPostCallback to avoid per-tick closure allocation ─────────────
+    private OpticalFlowSample _pendingSample;
+    private System.Threading.SendOrPostCallback? _raiseSampleCallback;
+
+    // D3D11 / WGC managed objects
+    private ID3D11Device?          _d3dDevice;
+    private ID3D11DeviceContext?   _d3dContext;
+    private GraphicsCaptureItem?   _captureItem;
+    private GraphicsCaptureSession? _captureSession;
+    private Direct3D11CaptureFramePool? _framePool;
+    private ID3D11Texture2D?       _stagingTexture;
+    private IDirect3DDevice?       _winrtDevice;
+
+    // Raw COM interface pointers cached at Start(); bypasses CsWin32 marshaling limitations.
+    private IntPtr _ctxPtr;        // ID3D11DeviceContext*
+    private IntPtr _stagingResPtr; // ID3D11Resource* for the staging texture
+
+    private int _contentWidth;
+    private int _contentHeight;
+
+    public event EventHandler<OpticalFlowSample>? OpticalFlowSampled;
+
+    public WgcSensingProvider()
+    {
+        _ctx          = SynchronizationContext.Current;
+        _timer        = new Timer(OnTick, null, Timeout.Infinite, Timeout.Infinite);
+        _pendingSample = new OpticalFlowSample();
+        // Fix #7: cache the callback once so OnTick never allocates a closure.
+        _raiseSampleCallback = _ => OpticalFlowSampled?.Invoke(this, _pendingSample);
+    }
+
+    public void Start()
+    {
+        if (_running) return;
+
+        try { File.WriteAllText(DiagFile, $"=== WGC Start {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}"); } catch { }
+
+        if (!GraphicsCaptureSession.IsSupported())
+        {
+            WgcLog("GraphicsCaptureSession not supported on this OS.");
+            return;
+        }
+
+        unsafe
+        {
+            try
+            {
+                // Step 1: D3D11 hardware device
+                WgcLog("Step 1: D3D11CreateDevice...");
+                int hr = PInvoke.D3D11CreateDevice(
+                    null,
+                    D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE,
+                    new HMODULE(IntPtr.Zero),
+                    D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    null, 0, 7,
+                    out _d3dDevice, null, out _d3dContext);
+                if (hr < 0 || _d3dDevice == null || _d3dContext == null)
+                    throw new COMException($"D3D11CreateDevice hr=0x{hr:X8}", hr);
+                WgcLog("Step 1: OK");
+
+                // Step 2: Wrap D3D11 device in WinRT IDirect3DDevice
+                WgcLog("Step 2: Wrap IDirect3DDevice...");
+                var dxgiDevice = (Windows.Win32.Graphics.Dxgi.IDXGIDevice)(object)_d3dDevice;
+                hr = PInvoke.CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice,
+                    out Windows.Win32.System.WinRT.IInspectable inspectableDevice);
+                if (hr < 0)
+                    throw new COMException($"CreateDirect3D11DeviceFromDXGIDevice hr=0x{hr:X8}", hr);
+
+                IntPtr inspPtr = Marshal.GetIUnknownForObject(inspectableDevice);
+                try   { _winrtDevice = MarshalInterface<IDirect3DDevice>.FromAbi(inspPtr); }
+                finally { Marshal.Release(inspPtr); }
+                WgcLog("Step 2: OK");
+
+                // Step 3: GraphicsCaptureItem for primary monitor
+                WgcLog("Step 3: GraphicsCaptureItem...");
+                var hmon = PInvoke.MonitorFromPoint(
+                    new System.Drawing.Point(0, 0),
+                    Windows.Win32.Graphics.Gdi.MONITOR_FROM_FLAGS.MONITOR_DEFAULTTOPRIMARY);
+
+                string className = "Windows.Graphics.Capture.GraphicsCaptureItem";
+                int wsHr = WindowsCreateString(className, className.Length, out IntPtr classHStr);
+                if (wsHr < 0) throw new COMException($"WindowsCreateString hr=0x{wsHr:X8}", wsHr);
+                Guid factoryIid = typeof(IGraphicsCaptureItemInterop).GUID;
+                hr = RoGetActivationFactory(classHStr, in factoryIid, out object factoryObj);
+                _ = WindowsDeleteString(classHStr);
+                if (hr < 0) throw new COMException($"RoGetActivationFactory hr=0x{hr:X8}", hr);
+
+                var interop = (IGraphicsCaptureItemInterop)factoryObj;
+                Guid itemIid = new("79C3F95B-31F7-4EC2-A464-632EF5D30760");
+                interop.CreateForMonitor(hmon, &itemIid, out object itemObj);
+
+                IntPtr itemPtr = Marshal.GetIUnknownForObject(itemObj);
+                try   { _captureItem = MarshalInterface<GraphicsCaptureItem>.FromAbi(itemPtr); }
+                finally { Marshal.Release(itemPtr); }
+                WgcLog("Step 3: OK");
+
+                // Step 4: Record monitor resolution
+                var contentSize = _captureItem.Size;
+                _contentWidth  = contentSize.Width;
+                _contentHeight = contentSize.Height;
+                WgcLog($"Step 4: Monitor resolution = {_contentWidth}x{_contentHeight}");
+
+                // Step 5: Frame pool + capture session
+                WgcLog("Step 5: CreateFreeThreaded frame pool...");
+                _framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
+                    _winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, contentSize);
+
+                _captureSession = _framePool.CreateCaptureSession(_captureItem);
+                _captureSession.IsCursorCaptureEnabled = false;
+                _captureSession.StartCapture();
+                WgcLog("Step 5: OK — capture started (yellow border visible)");
+
+                // Step 6: Staging texture (CPU-readable, full monitor resolution)
+                WgcLog($"Step 6: CreateTexture2D {_contentWidth}x{_contentHeight} STAGING...");
+                var desc = new D3D11_TEXTURE2D_DESC
+                {
+                    Width      = (uint)_contentWidth,
+                    Height     = (uint)_contentHeight,
+                    MipLevels  = 1,
+                    ArraySize  = 1,
+                    Format     = Windows.Win32.Graphics.Dxgi.Common.DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
+                    SampleDesc = new Windows.Win32.Graphics.Dxgi.Common.DXGI_SAMPLE_DESC { Count = 1, Quality = 0 },
+                    Usage      = D3D11_USAGE.D3D11_USAGE_STAGING,
+                    BindFlags  = 0,
+                    CPUAccessFlags = D3D11_CPU_ACCESS_FLAG.D3D11_CPU_ACCESS_READ,
+                    MiscFlags  = 0,
+                };
+                _d3dDevice.CreateTexture2D(desc, null, out _stagingTexture);
+                if (_stagingTexture == null)
+                    throw new InvalidOperationException("CreateTexture2D returned null.");
+                WgcLog("Step 6: OK");
+
+                // Step 7: Cache raw COM pointers — bypasses CsWin32 [ComImport]-less marshaling.
+                WgcLog("Step 7: Caching raw vtable pointers...");
+                _ctxPtr        = GetRawComPtr(_d3dContext,    typeof(ID3D11DeviceContext).GUID);
+                _stagingResPtr = GetRawComPtr(_stagingTexture, IID_ID3D11Resource);
+                WgcLog($"Step 7: OK  ctxPtr=0x{_ctxPtr:X}  stagingResPtr=0x{_stagingResPtr:X}");
+            }
+            catch (COMException ex)
+            {
+                WgcLog($"FAILED (COMException): 0x{ex.HResult:X8} — {ex.Message}");
+                Stop();
+                return;
+            }
+            catch (Exception ex)
+            {
+                WgcLog($"FAILED ({ex.GetType().Name}): {ex.Message}\n{ex.StackTrace}");
+                Stop();
+                return;
+            }
+        }
+
+        _running     = true;
+        _prevFrame   = null;
+        _smoothedOfi = 0;
+        Array.Clear(_ofiHistory);
+        _ofiHistoryFilled = 0;
+        _ofiHistoryHead   = 0;
+        WgcLog("Start complete — timer running.");
+        _timer.Change(SenseDefaults.WgcCaptureIntervalMs, SenseDefaults.WgcCaptureIntervalMs);
+    }
+
+    public void Stop()
+    {
+        _running = false;
+        _timer.Change(Timeout.Infinite, Timeout.Infinite);
+
+        // Release cached raw pointers first.
+        SafeRelease(ref _ctxPtr);
+        SafeRelease(ref _stagingResPtr);
+
+        // Dispose WinRT objects.
+        try { _captureSession?.Dispose(); } catch { }
+        try { _framePool?.Dispose();      } catch { }
+        try { _winrtDevice?.Dispose();    } catch { }
+
+        // Release CsWin32 COM objects (only if proper RCW).
+        try { if (_stagingTexture != null && Marshal.IsComObject(_stagingTexture)) Marshal.ReleaseComObject(_stagingTexture); } catch { }
+        try { if (_d3dContext     != null && Marshal.IsComObject(_d3dContext))     Marshal.ReleaseComObject(_d3dContext);     } catch { }
+        try { if (_d3dDevice      != null && Marshal.IsComObject(_d3dDevice))      Marshal.ReleaseComObject(_d3dDevice);     } catch { }
+
+        _captureSession = null;
+        _framePool      = null;
+        _winrtDevice    = null;
+        _captureItem    = null;
+        _stagingTexture = null;
+        _d3dContext     = null;
+        _d3dDevice      = null;
+    }
+
+    /// <summary>Releases all D3D11/WGC resources. Safe to call multiple times.</summary>
+    public void Dispose() => Stop();
+
+    private void OnTick(object? state)
+    {
+        if (!_running) return;
+        if (_contentWidth == 0 || _contentHeight == 0) return;
+
+        try
+        {
+            byte[] current = CaptureAndDownsample();
+
+            double rawOfi = 0;
+            if (_prevFrame != null && current.Length == _prevFrame.Length)
+                rawOfi = ComputeMad(current, _prevFrame) * SenseDefaults.WgcMadNormFactor;
+
+            _prevFrame   = current;
+
+            // OS-CHROME MOTION EXCLUSION (Phase 2.2.1):
+            // Suppress raw MAD-derived OFI whenever Windows itself is generating the on-screen
+            // motion (Alt+Tab, menu, window move, notification, typing). Zeroing BEFORE the
+            // median+EMA chain lets the median fill with zeros during the suppression window
+            // so onsets recover cleanly once the user-driven event ends.
+            if (WindowsActivityFilter.Instance.ShouldSuppressOfi)
+                rawOfi = 0;
+
+            double clamped  = Math.Clamp(rawOfi, 0, 150);
+            double filtered = PushAndMedian(clamped);
+            _smoothedOfi    = (SenseDefaults.CursorEmaAlpha * _smoothedOfi)
+                            + ((1.0 - SenseDefaults.CursorEmaAlpha) * filtered);
+
+            var sample = new OpticalFlowSample
+            {
+                OpticalFlowIndex = _smoothedOfi,
+                SampledAt        = DateTime.UtcNow,
+            };
+
+            // Use cached SendOrPostCallback + _pendingSample field to avoid per-tick
+            // closure allocations (~30 obj/sec at 15 Hz). Race trade-off accepted:
+            // back-to-back ticks before dispatcher drains → latest sample wins (intermediate
+            // dropped). Engine's leaky integrator absorbs single skipped samples cleanly.
+            _pendingSample = sample;
+            if (_ctx != null && _raiseSampleCallback != null)
+                _ctx.Post(_raiseSampleCallback, null);
+            else
+                OpticalFlowSampled?.Invoke(this, sample);
+        }
+        catch (Exception ex)
+        {
+            WgcLog($"OnTick FATAL ({ex.GetType().Name}): {ex.Message}\n{ex.StackTrace}");
+            Stop();
+        }
+    }
+
+    private byte[] CaptureAndDownsample()
+    {
+        int dstW = SenseDefaults.WgcDownsampleWidth;
+        int dstH = SenseDefaults.WgcDownsampleHeight;
+
+        if (_framePool == null || _ctxPtr == IntPtr.Zero || _stagingResPtr == IntPtr.Zero)
+            return EmptyFrameSentinel;  // shared zero buffer, never mutated
+
+        var frame = _framePool.TryGetNextFrame();
+        if (frame == null)
+            return _prevFrame ?? EmptyFrameSentinel;
+
+        // Ping-pong buffer: alternate writing into _bufA / _bufB so the previous tick's
+        // _prevFrame (which aliases one of them) is never overwritten this tick.
+        // Lazy-init on first call since dstW*dstH is constant from SenseDefaults.
+        if (_bufA is null || _bufB is null)
+        {
+            int n = dstW * dstH;
+            _bufA = new byte[n];
+            _bufB = new byte[n];
+        }
+        byte[] result = _useBufA ? _bufA : _bufB;
+        _useBufA = !_useBufA;
+
+        // Hold these outside the try so the finally can release them unconditionally —
+        // leaving any of them un-released at 15 Hz piles up +1 refs on the frame's GPU
+        // texture, defeats the FramePool's 2-buffer recycling, and grows native memory
+        // unbounded until GC pressure stalls the app.
+        IDirect3DSurface? surface = null;
+        IDirect3DDxgiInterfaceAccess? dxgiAccess = null;
+        object? texObj = null;
+        IntPtr gpuResPtr = IntPtr.Zero;
+
+        try
+        {
+            // Guard: CopyResource requires dimensions to match exactly.
+            var frameSize = frame.ContentSize;
+            if (frameSize.Width != _contentWidth || frameSize.Height != _contentHeight)
+            {
+                WgcLog($"Frame size mismatch: {frameSize.Width}x{frameSize.Height} vs {_contentWidth}x{_contentHeight}");
+                return _prevFrame ?? EmptyFrameSentinel;
+            }
+
+            unsafe
+            {
+                // QI the frame surface to IDirect3DDxgiInterfaceAccess, then get the GPU texture.
+                surface    = frame.Surface;
+                dxgiAccess = surface.As<IDirect3DDxgiInterfaceAccess>();
+                if (dxgiAccess == null) return _prevFrame ?? EmptyFrameSentinel;
+
+                Guid texIid = typeof(ID3D11Texture2D).GUID;
+                dxgiAccess.GetInterface(&texIid, out texObj);
+
+                // Get ID3D11Resource* raw pointer for the GPU frame texture.
+                gpuResPtr = GetRawComPtr(texObj, IID_ID3D11Resource);
+
+                try
+                {
+                    // ── Raw vtable calls — bypass CsWin32's non-[ComImport] ID3D11Resource ──
+
+                    void** vtbl = *(void***)_ctxPtr;
+
+                    // CopyResource(pDst, pSrc) — vtable[47]
+                    ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, IntPtr, void>)
+                        vtbl[VtblCopyResource])(_ctxPtr, _stagingResPtr, gpuResPtr);
+
+                    // Map(pResource, Subresource, MapType, MapFlags, pMapped) — vtable[14]
+                    D3D11_MAPPED_SUBRESOURCE mapped;
+                    int hr = ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, uint, uint, uint, D3D11_MAPPED_SUBRESOURCE*, int>)
+                        vtbl[VtblMap])(_ctxPtr, _stagingResPtr, 0, (uint)D3D11_MAP.D3D11_MAP_READ, 0, &mapped);
+                    if (hr < 0) throw new COMException($"D3D11 Map hr=0x{hr:X8}", hr);
+
+                    try
+                    {
+                        byte* src   = (byte*)mapped.pData;
+                        uint  pitch = mapped.RowPitch;
+                        int   srcW  = _contentWidth;
+                        int   srcH  = _contentHeight;
+
+                        // Build / refresh precomputed index tables when the source resolution
+                        // changes. Saves ~14,400 long-multiply+divide ops per tick on the inner loop.
+                        if (_srcXIndex is null || _srcYIndex is null
+                            || _srcXIndex.Length != dstW || _srcYIndex.Length != dstH
+                            || _indexedSrcW != srcW || _indexedSrcH != srcH)
+                        {
+                            _srcXIndex = new int[dstW];
+                            _srcYIndex = new int[dstH];
+                            for (int dx = 0; dx < dstW; dx++) _srcXIndex[dx] = (int)((long)dx * srcW / dstW) * 4; // BGRA byte offset
+                            for (int dy = 0; dy < dstH; dy++) _srcYIndex[dy] = (int)((long)dy * srcH / dstH);
+                            _indexedSrcW = srcW;
+                            _indexedSrcH = srcH;
+                        }
+
+                        // Nearest-neighbour step-sample: full res -> 160x90 greyscale
+                        for (int dstY = 0; dstY < dstH; dstY++)
+                        {
+                            byte* srcRow = src + ((long)_srcYIndex[dstY] * pitch);
+                            int dstRowOffset = dstY * dstW;
+                            for (int dstX = 0; dstX < dstW; dstX++)
+                            {
+                                int offset = _srcXIndex[dstX];
+                                byte b = srcRow[offset];
+                                byte g = srcRow[offset + 1];
+                                byte r = srcRow[offset + 2];
+                                // BT.601 integer greyscale: (0.114B + 0.587G + 0.299R) x 256
+                                result[dstRowOffset + dstX] = (byte)((19 * b + 150 * g + 77 * r) >> 8);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        // Unmap(pResource, Subresource) — vtable[15]
+                        ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, uint, void>)
+                            vtbl[VtblUnmap])(_ctxPtr, _stagingResPtr, 0);
+                    }
+                }
+                finally
+                {
+                    // (releases moved to the outer finally so they also clean up the
+                    //  pre-CopyResource failure paths above.)
+                }
+            }
+        }
+        finally
+        {
+            SafeRelease(ref gpuResPtr);
+            try { if (texObj is not null && Marshal.IsComObject(texObj)) Marshal.ReleaseComObject(texObj); } catch { }
+            // dxgiAccess is a legacy [ComImport] RCW (from .As<T>() on a [ComImport] interface);
+            // ReleaseComObject decrements the RCW so the underlying +1 ref on the frame texture
+            // is dropped this tick instead of waiting for GC.
+            try { if (dxgiAccess is not null && Marshal.IsComObject(dxgiAccess)) Marshal.ReleaseComObject(dxgiAccess); } catch { }
+            // The WinRT projected IDirect3DSurface is IDisposable in CsWinRT; disposing it
+            // releases the projection's +1 ref on the same underlying surface.
+            try { (surface as IDisposable)?.Dispose(); } catch { }
+            frame.Dispose();
+        }
+
+        return result;
+    }
+
+    // Mean absolute difference per pixel (input range 0-255).
+    private static double ComputeMad(byte[] a, byte[] b)
+    {
+        long sum = 0;
+        for (int i = 0; i < a.Length; i++)
+            sum += Math.Abs(a[i] - b[i]);
+        return (double)sum / a.Length;
+    }
+
+    /// <summary>
+    /// N-tap (configured via SenseDefaults.VimsMedianTaps) running median on raw OFI.
+    /// Rejects 1–2 frame outliers (scene cuts, cursor flicks) before they corrupt the EMA.
+    /// Until the buffer is full, returns the input.
+    /// </summary>
+    private double PushAndMedian(double sample)
+    {
+        _ofiHistory[_ofiHistoryHead] = sample;
+        _ofiHistoryHead = (_ofiHistoryHead + 1) % _ofiHistory.Length;
+        if (_ofiHistoryFilled < _ofiHistory.Length) _ofiHistoryFilled++;
+        if (_ofiHistoryFilled < _ofiHistory.Length) return sample;
+
+        Span<double> sorted = stackalloc double[_ofiHistory.Length];
+        _ofiHistory.AsSpan().CopyTo(sorted);
+        sorted.Sort();
+        return sorted[_ofiHistory.Length / 2];
+    }
+}

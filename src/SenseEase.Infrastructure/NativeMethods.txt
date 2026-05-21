@@ -1,0 +1,15 @@
+RoGetActivationFactory
+MonitorFromPoint
+CreateDirect3D11DeviceFromDXGIDevice
+D3D11CreateDevice
+ID3D11Texture2D
+ID3D11Device
+ID3D11DeviceContext
+D3D11_USAGE
+D3D11_CPU_ACCESS_FLAG
+D3D11_MAP
+D3D11_MAPPED_SUBRESOURCE
+MONITOR_FROM_FLAGS
+IGraphicsCaptureItemInterop
+IDirect3DDxgiInterfaceAccess
+D3D11_TEXTURE2D_DESC

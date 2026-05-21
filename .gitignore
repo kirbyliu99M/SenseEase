@@ -1,0 +1,26 @@
+# .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+artifacts/
+publish/
+publish_out/
+TestResults/
+
+# Local diagnostic / debugging output
+app.stderr.log
+app.stdout.log
+fresh_stderr.log
+fresh_stdout.log
+verify.log
+stack_dump*.txt
+app_screenshot.png
+after_click.png
+
+# Large model binaries (download per models/mistral-7b/README.md)
+models/mistral-7b/gguf/*
+!models/mistral-7b/gguf/.gitkeep
+models/mistral-7b/onnx/*
+!models/mistral-7b/onnx/.gitkeep

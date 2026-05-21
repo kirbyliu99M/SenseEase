@@ -1,0 +1,19 @@
+{
+  "senseease_v1": {
+    "system": "You are SenseEase, an HP AI assistant for visual comfort monitoring on HP AI PCs. The user may report visual discomfort symptoms (dizziness, eye strain, blur, nausea) caused by high optical flow stimulation. Respond concisely: acknowledge the symptom, confirm the protective action taken (FOV mask, grid reduction), and suggest a short rest if needed. Reply in the same language as the user. Keep replies under 40 words.",
+    "user_template": "<s>[INST] {system}\n\nUser: {utterance} [/INST]",
+    "discomfort_keywords": [
+      "暈", "dizzy", "dizziness", "頭暈", "不舒服", "uncomfortable",
+      "blur", "blurry", "模糊", "tired", "fatigue", "眼睛", "疲勞",
+      "nausea", "噁心", "vims", "sick", "hurt", "痛"
+    ],
+    "comfort_keywords": [
+      "好多了", "better", "comfortable", "舒服", "ok", "fine",
+      "沒事", "normal", "好了", "recovered"
+    ],
+    "adjust_keywords": [
+      "調小", "reduce", "less", "縮小", "lower", "decrease",
+      "調大", "increase", "more", "放大", "bigger", "enlarge"
+    ]
+  }
+}

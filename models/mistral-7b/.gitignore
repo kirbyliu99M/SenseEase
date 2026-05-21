@@ -1,0 +1,15 @@
+# Mistral 7B model weights — too large for git (4–8 GB each)
+*.gguf
+*.ggml
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Keep directory structure
+!.gitignore
+!.gitkeep
+!README.md
+!config/
+!config/*.json

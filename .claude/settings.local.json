@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "PowerShell(& \"C:\\\\Users\\\\Kirby Liu\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Scripts\\\\pip.exe\" install huggingface_hub 2>&1)",
+      "Bash(dotnet package *)",
+      "Bash(dotnet test *)",
+      "Bash(ls \"/c/Users/Kirby Liu/Desktop/SenseEase Workspace/\" 2>&1 | head -30)",
+      "Read(//c/Users/Kirby Liu/Desktop/SenseEase Workspace//**)",
+      "PowerShell(dotnet build \"SenseEase.Windows.sln\" -c Debug --nologo -v minimal)",
+      "PowerShell(dotnet test \"SenseEase.Windows.sln\" -c Debug --nologo --no-build -v minimal 2>&1)",
+      "PowerShell($today = \\(Get-Date -Hour 13 -Minute 0 -Second 0\\); Get-Process -Name \"dotnet\",\"SenseEase.App\" -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt $today } | ForEach-Object { try { Stop-Process -Id $_.Id -Force; \"Killed $\\($_.Id\\) \\($\\($_.ProcessName\\)\\)\" } catch { \"Skip $\\($_.Id\\): $_\" } }; Remove-Item \"app.stdout.log\",\"app.stderr.log\" -ErrorAction SilentlyContinue; \"Cleaned.\")",
+      "PowerShell($p = Start-Process -FilePath \"dotnet\" -ArgumentList \"run\",\"--project\",\"src\\\\SenseEase.App\\\\SenseEase.App.csproj\",\"-c\",\"Debug\",\"--no-build\" -RedirectStandardOutput \"app.stdout.log\" -RedirectStandardError \"app.stderr.log\" -PassThru; Write-Output \"Parent PID: $\\($p.Id\\)\"; Write-Output \"Started: $\\(Get-Date -Format 'HH:mm:ss'\\)\")",
+      "PowerShell(try { $r = Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/llamasharp/index.json\" -TimeoutSec 15; Write-Output \"Total versions: $\\($r.versions.Count\\)\"; Write-Output \"Last 10:\"; $r.versions | Select-Object -Last 10 | ForEach-Object { Write-Output \"  $_\" } } catch { Write-Output \"FAIL: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(Remove-Item \"app.stdout.log\",\"app.stderr.log\" -ErrorAction SilentlyContinue; $p = Start-Process -FilePath \"dotnet\" -ArgumentList \"run\",\"--project\",\"src\\\\SenseEase.App\\\\SenseEase.App.csproj\",\"-c\",\"Debug\",\"--no-build\" -RedirectStandardOutput \"app.stdout.log\" -RedirectStandardError \"app.stderr.log\" -PassThru; Write-Output \"Parent PID: $\\($p.Id\\), launched $\\(Get-Date -Format HH:mm:ss\\)\")",
+      "PowerShell(dotnet build \"SenseEase.Windows.sln\" -c Debug --nologo -v minimal 2>&1)",
+      "PowerShell(dotnet test \"SenseEase.Windows.sln\" -c Debug --no-build --nologo --filter \"FullyQualifiedName~MainWindowSmokeTests\" -v normal 2>&1)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet --list-runtimes)",
+      "Bash(start \"\" \"src/SenseEase.App/bin/Debug/net8.0-windows10.0.19041.0/SenseEase.App.exe\")",
+      "Bash(powershell -Command \"Get-Process -Name SenseEase.App -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, Responding, MainWindowTitle | Format-List\")",
+      "Bash(ls \"c:/Users/kirby/AppData/Local/SenseEase\" 2>&1)",
+      "Read(//c/Users/kirby/AppData/Local/SenseEase/**)",
+      "Bash(powershell -Command \"Get-Process -Name SenseEase.App -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 500; 'ok'\")",
+      "Bash(dotnet tool *)",
+      "PowerShell(Get-Process -Name SenseEase.App -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force)",
+      "PowerShell('killed deadlocked instance')",
+      "PowerShell('killed')"
+    ]
+  }
+}

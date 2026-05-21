@@ -1,0 +1,758 @@
+﻿using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Threading;
+using SenseEase.App.Configuration;
+using SenseEase.App.Comfort;
+using SenseEase.Core.Abstractions;
+using SenseEase.Core.Configuration;
+using SenseEase.Core.Models;
+using SenseEase.Infrastructure.Mock;
+using SenseEase.Infrastructure.Real;
+using SenseEase.Infrastructure.Storage;
+using System.IO;
+
+namespace SenseEase.App.ViewModels;
+
+/// <summary>
+/// Dashboard view model. Wires the mock Sensing ??Inference ??Feedback loop and
+/// exposes bindable state for the dashboard and overlay.
+/// </summary>
+public sealed class MainViewModel : INotifyPropertyChanged
+{
+    // _mockSensing:   always available for the demo slider override.
+    // _cursorSensing: Phase 2.1 Win32 GetCursorPos provider.
+    // _wgcSensing:    Phase 2.2 Windows.Graphics.Capture pixel-diff provider (stub until Gemini implements).
+    // _sensing:       active provider, swapped at runtime by ToggleSensingMode.
+    private readonly MockSensingProvider _mockSensing = new();
+    private ISensingProvider _sensing;
+    private readonly CursorVelocityProvider _cursorSensing = new(AppConfig.RejectCursorDragOfi);
+    private readonly WgcSensingProvider _wgcSensing = new();
+    private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
+    private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
+    // Auto Driver/Passenger mode detector — polls Win32 GetLastInputInfo at 1 Hz and
+    // raises ModeChanged when OS-level input idleness crosses the hysteresis band.
+    private readonly UserActivityModeDetector _activityDetector = new();
+    private readonly IInferenceEngine _engine;
+    public  IInferenceEngine Engine => _engine;
+    public  ChatbotViewModel ChatbotVm { get; }
+    private readonly IEventLogStore _log = new InMemoryEventLogStore();
+    private readonly INluService _nlu;
+    private readonly DispatcherTimer _demoTimer;
+    private readonly DispatcherTimer _idleTimer; // keeps decay visible in Demo Mode when slider is idle
+    private readonly DispatcherTimer _metricsTimer;
+    private DateTime _lastDemoInputAtUtc = DateTime.UtcNow;
+    private DateTime _lastRealSampleAt   = DateTime.UtcNow;
+    private DateTime _lastMetricsTickUtc = DateTime.UtcNow;
+    private bool _prevMaskActiveForIntercept;
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+
+    private bool _lastMaskActive;
+    private double _demoOfi;
+
+    // Phase 4 — Lux Comfort
+    public LuxComfortController? LuxController { get; private set; }
+
+    private ISensingProvider ProviderFor(SensingMode mode) => mode switch
+    {
+        SensingMode.Demo => _mockSensing,
+        SensingMode.Wgc  => _wgcSensing,
+        _                => _cursorSensing,
+    };
+
+    public MainViewModel()
+    {
+        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore);
+        var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
+        ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
+        ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
+        _nlu = new ChatbotNluService(mistral);
+
+        _sensing = ProviderFor(AppConfig.Mode);
+
+        _demoTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _demoTimer.Tick += OnDemoTick;
+
+        // Fires every 300 ms to keep the LeakyIntegrator decaying when no real samples arrive.
+        // Demo mode: push 0 (idle) or current slider value (active).
+        // Real modes (Cursor/WGC): push OFI=0 so pressure decays if the provider stops unexpectedly.
+        _idleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _idleTimer.Tick += (_, _) =>
+        {
+            if (AppConfig.UseMockSensing && !IsRunning)
+            {
+                bool idle = (DateTime.UtcNow - _lastDemoInputAtUtc).TotalMilliseconds >= 300;
+                _mockSensing.Push(idle ? 0.0 : _opticalFlowIndex);
+            }
+            else if (!AppConfig.UseMockSensing)
+            {
+                // If no sample has arrived in the last 600 ms the real provider has stalled;
+                // step the engine with OFI=0 so pressure decays rather than freezing.
+                if ((DateTime.UtcNow - _lastRealSampleAt).TotalMilliseconds > 600)
+                    UpdateFromState(_engine.Update(0, Mode, DateTime.UtcNow));
+            }
+        };
+        _idleTimer.Start();
+
+        // ── Eye-Protection Dashboard: 1 Hz metrics ticker ──────────────────
+        _metricsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _metricsTimer.Tick += (_, _) =>
+        {
+            DateTime now = DateTime.UtcNow;
+            SessionUptime = now - _sessionStartUtc;
+            if (MaskActive) SessionMaskActiveDuration += now - _lastMetricsTickUtc;
+            _lastMetricsTickUtc = now;
+
+            // Cross-component status: surface OS-chrome suppression reason from
+            // WindowsActivityFilter so the Eye-Protection tab can show users when
+            // OFI sensing is being intentionally paused (typing, window drag, etc.).
+            try
+            {
+                string reason = SenseEase.Infrastructure.Real.WindowsActivityFilter.Instance.SuppressionReason;
+                ActivityStatus = string.IsNullOrEmpty(reason) ? "Idle" : $"Suppressed: {reason}";
+            }
+            catch { /* filter unavailable — leave previous status */ }
+
+            // Auto Driver/Passenger summary. Show live idle reading when auto-detection
+            // is on, "Manual" when the user has overridden or disabled the feature.
+            if (AppConfig.AutoDriverPassengerModeEnabled)
+            {
+                int idle = _activityDetector.LastIdleMs;
+                AutoModeText = $"Auto · {Mode} · idle {idle / 1000.0:F1}s";
+            }
+            else
+            {
+                AutoModeText = "Manual";
+            }
+        };
+        _metricsTimer.Start();
+
+        StartDemoCommand  = new RelayCommand(_ => StartDemo(),  _ => !IsRunning);
+        StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
+        ResetStateCommand = new RelayCommand(_ => ResetState());
+        ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
+        ToggleModeCommand    = new RelayCommand(_ =>
+        {
+            string newMode = Mode == "Driver" ? "Passenger" : "Driver";
+            Mode = newMode;
+            // Manual toggle is a one-shot override, not a feature kill switch. Auto
+            // detection keeps polling; it will reassert its own decision the next time
+            // the idle counter crosses a threshold. Sync the detector's internal mode
+            // to the user's choice so its asymmetric debounce starts measuring from
+            // the manually-chosen state rather than its stale prior state.
+            if (AppConfig.AutoDriverPassengerModeEnabled)
+            {
+                _activityDetector.OverrideMode(newMode);
+                AppendLog("System",
+                    $"手動切換至 {newMode}（自動偵測持續中 / auto continues）",
+                    CurrentState);
+            }
+            else
+            {
+                AppendLog("System", $"手動切換至 {newMode}", CurrentState);
+            }
+        });
+        ToggleDemoModeCommand = new RelayCommand(_ => ToggleDemoMode());
+        AnalyzeFeedbackCommand = new RelayCommand(async _ => await SubmitFeedbackAsync(),
+                                                  _ => !string.IsNullOrWhiteSpace(FeedbackText));
+        ToggleHabituationCommand = new RelayCommand(_ =>
+        {
+            _engine.SetHabituationPaused(!HabituationPaused);
+            UpdateFromState(_engine.Current);
+            AppendLog("Habituation",
+                HabituationPaused ? "再適應已暫停 (Habituation paused)" : "再適應已恢復 (Habituation resumed)",
+                CurrentState);
+        });
+
+        _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
+        _sensing.Start();
+
+        // Auto Driver/Passenger mode wiring. The detector polls OS-level input idleness
+        // (Win32 GetLastInputInfo) at 1 Hz and pushes mode transitions through the
+        // existing Mode property setter so MockInferenceEngine.Update sees the new mode
+        // on the next OFI sample. The == guard avoids redundant PropertyChanged spam.
+        if (AppConfig.AutoDriverPassengerModeEnabled)
+        {
+            _activityDetector.ModeChanged += (_, newMode) =>
+                _dispatcher.Invoke(() =>
+                {
+                    if (Mode != newMode) Mode = newMode;
+                });
+            _activityDetector.Start();
+        }
+
+        CurrentState = _engine.Current;
+        UpdateFromState(CurrentState);
+        AppendLog("System", "SenseEase started, inference loop ready.", CurrentState);
+    }
+
+    private void ToggleDemoMode()
+    {
+        ISensingProvider previous = _sensing;
+        SensingMode previousMode = AppConfig.Mode;
+
+        try
+        {
+            _sensing.Stop();
+            _sensing.OpticalFlowSampled -= OnOpticalFlowSampled;
+
+            AppConfig.Mode = AppConfig.Mode switch
+            {
+                SensingMode.Demo   => SensingMode.Cursor,
+                SensingMode.Cursor => SensingMode.Wgc,
+                _                  => SensingMode.Demo,
+            };
+            _sensing = ProviderFor(AppConfig.Mode);
+
+            _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
+            _sensing.Start();
+
+            SensingModeLabel = ModeLabel(AppConfig.Mode);
+            AppendLog("System", $"感測模式切換: {SensingModeLabel}", CurrentState);
+        }
+        catch (Exception ex)
+        {
+            AppConfig.Mode = previousMode;
+            _sensing = previous;
+            _sensing.OpticalFlowSampled -= OnOpticalFlowSampled;
+            _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
+            _sensing.Start();
+            AppendLog("Error", $"感測模式切換失敗: {ex.GetType().Name}: {ex.Message}", CurrentState);
+        }
+    }
+
+    private static string ModeLabel(SensingMode mode) => mode switch
+    {
+        SensingMode.Demo => "DEMO MODE",
+        SensingMode.Wgc  => "SCREEN CAPTURE",
+        _                => "CURSOR VELOCITY",
+    };
+
+    // ?? Bindable state ??????????????????????????????????????????????????????
+
+    private string _sensingModeLabel = ModeLabel(AppConfig.Mode);
+    public string SensingModeLabel
+    {
+        get => _sensingModeLabel;
+        private set => Set(ref _sensingModeLabel, value);
+    }
+
+    // Phase 4 — Lux Comfort bindable state
+    private double _currentLux;
+    public double CurrentLux { get => _currentLux; private set => Set(ref _currentLux, value); }
+
+    private int _targetContrast, _targetBrightness, _targetSharpness;
+    public int TargetContrast   { get => _targetContrast;   private set => Set(ref _targetContrast,   value); }
+    public int TargetBrightness { get => _targetBrightness; private set => Set(ref _targetBrightness, value); }
+    public int TargetSharpness  { get => _targetSharpness;  private set => Set(ref _targetSharpness,  value); }
+
+    private bool _luxComfortEnabled;
+    public bool LuxComfortEnabled
+    {
+        get => _luxComfortEnabled;
+        set { if (Set(ref _luxComfortEnabled, value)) LuxController?.SetEnabled(value); }
+    }
+
+    private bool _displaySupported, _alsAvailable;
+    public bool DisplaySupported { get => _displaySupported; private set => Set(ref _displaySupported, value); }
+    public bool AlsAvailable     { get => _alsAvailable;     private set => Set(ref _alsAvailable,     value); }
+
+    private double _mockLux = 300.0;
+    public double MockLux
+    {
+        get => _mockLux;
+        set
+        {
+            if (Set(ref _mockLux, value) && AppConfig.LuxMode == LuxSensingMode.Mock)
+                LuxController?.PushMockLux(value);
+        }
+    }
+
+    public string LuxStatusText
+    {
+        get
+        {
+            string baseText;
+            if (!AlsAvailable && AppConfig.LuxMode == LuxSensingMode.Real)
+                baseText = "未偵測到環境光感測器 / No ambient light sensor detected";
+            else if (!DisplaySupported)
+                baseText = "此螢幕不支援 DDC/CI 控制 / This display does not support DDC/CI control";
+            else
+                baseText = LuxComfortEnabled
+                    ? "啟用中 / Active"
+                    : "已停用 / Disabled — toggle to enable";
+            // Append the lux source so users can see whether ambient lux is coming
+            // from ALS hardware, the RGB webcam fallback, the mock slider, etc.
+            return $"{baseText} · Source: {_luxSourceLabel}";
+        }
+    }
+
+    private double _opticalFlowIndex;
+    public double OpticalFlowIndex
+    {
+        get => _opticalFlowIndex;
+        set
+        {
+            if (Set(ref _opticalFlowIndex, value) && AppConfig.UseMockSensing)
+            {
+                _lastDemoInputAtUtc = DateTime.UtcNow;
+                _mockSensing.Push(value); // only push from slider when in mock/demo mode
+            }
+        }
+    }
+
+    private double _pressure;
+    public double Pressure { get => _pressure; private set => Set(ref _pressure, value); }
+
+    private string _mode = "Passenger";
+    public string Mode
+    {
+        get => _mode;
+        set
+        {
+            if (!Set(ref _mode, value)) return;
+            // Force a fresh inference tick so mode impact is immediate in overlay/state.
+            if (AppConfig.UseMockSensing)
+                _mockSensing.Push(_opticalFlowIndex);
+        }
+    }
+
+    private int _fovRadiusPercent = SenseDefaults.OuterTransitionRadiusPercent;
+    public int FovRadiusPercent { get => _fovRadiusPercent; private set => Set(ref _fovRadiusPercent, value); }
+
+    private bool _maskActive;
+    public bool MaskActive { get => _maskActive; private set => Set(ref _maskActive, value); }
+
+    private int _fmsScore;
+    public int FmsScore { get => _fmsScore; private set => Set(ref _fmsScore, value); }
+
+    // VIMS tier (0..10). Mirrored from SenseState as a proper notifying property
+    // because CurrentState is replaced wholesale by UpdateFromState and does NOT
+    // raise PropertyChanged itself, so bindings like {Binding CurrentState.VimsTier}
+    // would only refresh when WPF coincidentally re-evaluated them (e.g. on tab
+    // switch). Bind to this property instead.
+    private int _vimsTier;
+    public int VimsTier { get => _vimsTier; private set => Set(ref _vimsTier, value); }
+
+    // Human-readable label for the current lux source. Surfaces in the Display
+    // Comfort card so users can see whether the lux reading is from ALS hardware,
+    // the RGB webcam fallback, the mock slider, or "Not available".
+    private string _luxSourceLabel = "—";
+    public string LuxSourceLabel
+    {
+        get => _luxSourceLabel;
+        private set
+        {
+            if (Set(ref _luxSourceLabel, value))
+                OnPropertyChanged(nameof(LuxStatusText)); // status text concatenates this
+        }
+    }
+
+    // Live OS-chrome suppression status from WindowsActivityFilter. Refreshed at
+    // 1 Hz from the metrics timer. Empty filter reason → "Idle"; otherwise
+    // "Suppressed: <reason>". Drives the small status pill in the Eye-Protection
+    // tab so users can see when sensing is intentionally paused.
+    private string _activityStatus = "Idle";
+    public string ActivityStatus { get => _activityStatus; private set => Set(ref _activityStatus, value); }
+
+    // Auto Driver/Passenger summary string for the metrics strip. Shows the
+    // current detected mode plus the live idle reading when auto-detection is on,
+    // or "Manual" when the user has opted out / overridden via the toggle button.
+    private string _autoModeText = "Auto";
+    public string AutoModeText { get => _autoModeText; private set => Set(ref _autoModeText, value); }
+
+    private int _habituationLevel;
+    public int HabituationLevel
+    {
+        get => _habituationLevel;
+        private set => Set(ref _habituationLevel, value);
+    }
+
+    private bool _habituationPaused;
+    public bool HabituationPaused
+    {
+        get => _habituationPaused;
+        private set
+        {
+            if (Set(ref _habituationPaused, value))
+                OnPropertyChanged(nameof(HabituationButtonText));
+        }
+    }
+
+    public string HabituationButtonText => HabituationPaused ? "恢復再適應 / Resume" : "暫停再適應 / Pause";
+
+    private bool _overlayVisible;
+    public bool OverlayVisible
+    {
+        get => _overlayVisible;
+        set { if (Set(ref _overlayVisible, value)) OverlayVisibilityChanged?.Invoke(this, value); }
+    }
+
+    private string _feedbackText = string.Empty;
+    public string FeedbackText
+    {
+        get => _feedbackText;
+        set
+        {
+            if (Set(ref _feedbackText, value))
+                ((RelayCommand)AnalyzeFeedbackCommand).RaiseCanExecuteChanged();
+        }
+    }
+
+    private string _nluResponse = string.Empty;
+    public string NluResponse { get => _nluResponse; private set => Set(ref _nluResponse, value); }
+
+    public Visibility NluResponseVisible =>
+        string.IsNullOrEmpty(_nluResponse) ? Visibility.Collapsed : Visibility.Visible;
+
+    private bool _isRunning;
+    public bool IsRunning
+    {
+        get => _isRunning;
+        private set
+        {
+            if (!Set(ref _isRunning, value)) return;
+            ((RelayCommand)StartDemoCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)StopDemoCommand).RaiseCanExecuteChanged();
+        }
+    }
+
+    public ObservableCollection<EventLogEntry> EventLog { get; } = new();
+    public SenseState CurrentState { get; private set; }
+
+    // ── Eye-Protection Dashboard: session metrics ─────────────────────────────
+    private int _sessionFovIntercepts;
+    public  int SessionFovIntercepts { get => _sessionFovIntercepts; private set => Set(ref _sessionFovIntercepts, value); }
+
+    private double _sessionPeakOfi;
+    public  double SessionPeakOfi { get => _sessionPeakOfi; private set => Set(ref _sessionPeakOfi, value); }
+
+    private double _sessionPeakPressure;
+    public  double SessionPeakPressure { get => _sessionPeakPressure; private set => Set(ref _sessionPeakPressure, value); }
+
+    private TimeSpan _sessionMaskActiveDuration;
+    public  TimeSpan SessionMaskActiveDuration { get => _sessionMaskActiveDuration; private set { if (Set(ref _sessionMaskActiveDuration, value)) OnPropertyChanged(nameof(SessionMaskActiveText)); } }
+    public  string SessionMaskActiveText => FormatDuration(SessionMaskActiveDuration);
+
+    private DateTime _sessionStartUtc = DateTime.UtcNow;
+    private TimeSpan _sessionUptime;
+    public  TimeSpan SessionUptime { get => _sessionUptime; private set { if (Set(ref _sessionUptime, value)) OnPropertyChanged(nameof(SessionUptimeText)); } }
+    public  string SessionUptimeText => FormatDuration(SessionUptime);
+
+    private static string FormatDuration(TimeSpan ts) =>
+        ts.TotalHours >= 1
+            ? $"{(int)ts.TotalHours}h{ts.Minutes:00}m"
+            : ts.TotalMinutes >= 1
+                ? $"{(int)ts.TotalMinutes}m{ts.Seconds:00}s"
+                : $"{(int)ts.TotalSeconds}s";
+
+    // Cumulative pressure integral — proxy for "visual load over the session".
+    private double _cumulativePressureLoad;
+    public  double CumulativePressureLoad { get => _cumulativePressureLoad; private set => Set(ref _cumulativePressureLoad, value); }
+
+    // Ring-buffer history for the live chart (OFI, Pressure samples, both ~last 120 ticks).
+    public RingHistory OfiHistory { get; } = new(ChartHistoryMax);
+    public RingHistory PressureHistory { get; } = new(ChartHistoryMax);
+    private const int ChartHistoryMax = 120;
+
+    // O(1)-append fixed-size ring history. Indexed access yields oldest→newest order.
+    public sealed class RingHistory : System.Collections.Generic.IReadOnlyList<double>,
+                                        System.Collections.Specialized.INotifyCollectionChanged
+    {
+        private readonly double[] _buf;
+        private int _head; // next write slot
+        private int _count;
+        public RingHistory(int capacity) { _buf = new double[capacity]; }
+        public int Count => _count;
+        public double this[int i] => _buf[(_head - _count + i + _buf.Length) % _buf.Length];
+        public void Append(double v)
+        {
+            _buf[_head] = v;
+            _head = (_head + 1) % _buf.Length;
+            if (_count < _buf.Length) _count++;
+            CollectionChanged?.Invoke(this,
+                new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+                    System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+        }
+        public System.Collections.Generic.IEnumerator<double> GetEnumerator()
+        {
+            for (int i = 0; i < _count; i++) yield return this[i];
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        public event System.Collections.Specialized.NotifyCollectionChangedEventHandler? CollectionChanged;
+    }
+
+    // ?? Events / commands ??????????????????????????????????????????????????
+
+    public event EventHandler<bool>? OverlayVisibilityChanged;
+    public event EventHandler<SenseState>? StateChanged;
+
+    public ICommand StartDemoCommand { get; }
+    public ICommand StopDemoCommand { get; }
+    public ICommand ResetStateCommand { get; }
+    public ICommand ToggleOverlayCommand { get; }
+    public ICommand ToggleModeCommand { get; }
+    public ICommand ToggleDemoModeCommand { get; }
+    public ICommand AnalyzeFeedbackCommand { get; }
+    public ICommand ToggleHabituationCommand { get; }
+
+    // ?? Demo loop ??????????????????????????????????????????????????????????
+
+    private void StartDemo()
+    {
+        _demoOfi = 0;
+        OpticalFlowIndex = 0;
+        IsRunning = true;
+        _demoTimer.Start();
+        AppendLog("Demo", "Demo started, OFI auto-increment running.", CurrentState);
+    }
+
+    private void StopDemo()
+    {
+        _demoTimer.Stop();
+        IsRunning = false;
+        AppendLog("Demo", $"Demo stopped, final OFI = {OpticalFlowIndex:F1}", CurrentState);
+    }
+
+    private void ResetState()
+    {
+        if (IsRunning) StopDemo();
+        OpticalFlowIndex = 0;
+        _engine.ResetPersonalization();
+        UpdateFromState(_engine.Current);
+        _adjustmentLog.Append(new AdjustmentRecord { Parameter = "Reset", Source = "reset" });
+        NluResponse = string.Empty;
+        OnPropertyChanged(nameof(NluResponseVisible));
+        AppendLog("System", "State reset.", CurrentState);
+    }
+
+    private void OnDemoTick(object? sender, EventArgs e)
+    {
+        _demoOfi = Math.Min(_demoOfi + 3.5, 150);
+        OpticalFlowIndex = _demoOfi;
+
+        if (_demoOfi >= 150)
+        {
+            StopDemo();
+            AppendLog("Demo", "OFI reached max 150, demo ended.", CurrentState);
+        }
+    }
+
+    // ?? Inference loop ?????????????????????????????????????????????????????
+
+    private void OnOpticalFlowSampled(object? sender, OpticalFlowSample sample)
+    {
+        // Sync OFI display from real provider (bypasses Push to avoid loop).
+        if (!AppConfig.UseMockSensing)
+        {
+            _lastRealSampleAt = DateTime.UtcNow;
+            _opticalFlowIndex = sample.OpticalFlowIndex;
+            OnPropertyChanged(nameof(OpticalFlowIndex));
+        }
+
+        SenseState state = _engine.Update(sample.OpticalFlowIndex, Mode, sample.SampledAt);
+        UpdateFromState(state);
+
+        if (state.MaskActive != _lastMaskActive)
+        {
+            _lastMaskActive = state.MaskActive;
+            AppendLog("Inference", state.MaskActive
+                ? $"Pressure {state.Pressure:F0} exceeded threshold, FOV mask activated."
+                : "Pressure returned below threshold, FOV mask released.", state);
+        }
+    }
+    private void UpdateFromState(SenseState state)
+    {
+        CurrentState = state;
+        Pressure = state.Pressure;
+        FovRadiusPercent = state.FovRadiusPercent;
+        MaskActive = state.MaskActive;
+        FmsScore = state.FmsScore;
+        HabituationLevel  = state.HabituationLevel;
+        HabituationPaused = state.HabituationPaused;
+        VimsTier          = state.VimsTier;
+
+        // ── Eye-Protection session metrics ───────────────────────────────────────
+        if (state.OpticalFlowIndex > SessionPeakOfi) SessionPeakOfi = state.OpticalFlowIndex;
+        if (state.Pressure > SessionPeakPressure) SessionPeakPressure = state.Pressure;
+
+        // FOV intercept: count the rising edge of MaskActive.
+        if (state.MaskActive && !_prevMaskActiveForIntercept)
+            SessionFovIntercepts++;
+        _prevMaskActiveForIntercept = state.MaskActive;
+
+        // Cumulative pressure load (rough integral, capped to avoid runaway).
+        CumulativePressureLoad = Math.Min(CumulativePressureLoad + (state.Pressure / 60.0), 1_000_000.0);
+
+        // History ring-buffer — O(1) append via RingHistory.
+        OfiHistory.Append(state.OpticalFlowIndex);
+        PressureHistory.Append(state.Pressure);
+
+        StateChanged?.Invoke(this, state);
+    }
+
+    // ?? Feedback ???????????????????????????????????????????????????????????
+
+    private async Task SubmitFeedbackAsync()
+    {
+        if (string.IsNullOrWhiteSpace(FeedbackText)) return;
+        string utterance = FeedbackText.Trim();
+        NluResult result = await _nlu.InterpretAsync(utterance);
+        if (result.Intent == "ResetRequest")
+        {
+            _engine.ResetPersonalization();
+            _adjustmentLog.Append(new AdjustmentRecord { Parameter = "Reset", Source = "reset", Utterance = utterance });
+        }
+        else
+        {
+            if (result.FovDelta != 0)
+            {
+                int oldOffset = _engine.UserFovOffset;
+                _engine.ApplyUserFeedback(result.FovDelta);
+                int newOffset = _engine.UserFovOffset;
+                if (newOffset != oldOffset)
+                {
+                    _adjustmentLog.Append(new AdjustmentRecord
+                    {
+                        Parameter = "FovRadius", Delta = newOffset - oldOffset,
+                        OldValue = oldOffset, NewValue = newOffset,
+                        Source = "user", Utterance = utterance,
+                    });
+                }
+            }
+            if (result.MaskDepthDelta != 0 || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0)
+            {
+                var before = _engine.Current.Shader.Clone();
+                _engine.ApplyShaderAdjustment(result.MaskDepthDelta, result.GridVisibilityDelta, result.FeatherWidthDelta);
+                var after = _engine.Current.Shader.Clone();
+                AppendAdjustment("MaskDepth",      result.MaskDepthDelta,      before.MaskDepth,      after.MaskDepth,      utterance);
+                AppendAdjustment("GridVisibility", result.GridVisibilityDelta, before.GridVisibility, after.GridVisibility, utterance);
+                AppendAdjustment("FeatherWidth",   result.FeatherWidthDelta,   before.FeatherWidth,   after.FeatherWidth,   utterance);
+            }
+        }
+        UpdateFromState(_engine.Current);
+        NluResponse = result.Response;
+        OnPropertyChanged(nameof(NluResponseVisible));
+        AppendLog("Feedback", $"\"{utterance}\" -> {result.Intent}", CurrentState);
+    }
+
+    private void AppendAdjustment(string parameter, double delta, double oldValue, double newValue, string utterance)
+    {
+        if (delta == 0) return;
+        _adjustmentLog.Append(new AdjustmentRecord
+        {
+            Parameter = parameter, Delta = delta,
+            OldValue = oldValue, NewValue = newValue,
+            Source = "user", Utterance = utterance,
+        });
+    }
+
+    // ?? Log ????????????????????????????????????????????????????????????????
+
+    // Phase 4 — Lux Comfort wiring
+
+    public void WireLuxComfort(IntPtr hwnd)
+    {
+        IAmbientLightProvider provider;
+        LightSensorProvider.LuxSourceKind sourceKind;
+        if (AppConfig.LuxMode == LuxSensingMode.Mock)
+        {
+            provider   = new SenseEase.Infrastructure.Mock.MockAmbientLightProvider();
+            sourceKind = LightSensorProvider.LuxSourceKind.None; // labelled "Mock" below
+        }
+        else
+        {
+            // Keep the concrete type local so we can read Source — the interface
+            // intentionally does not expose it (UI-only concern).
+            var lsp = new LightSensorProvider(AppConfig.UseWebcamLuxFallback);
+            provider   = lsp;
+            sourceKind = lsp.Source;
+        }
+        LuxSourceLabel = sourceKind switch
+        {
+            LightSensorProvider.LuxSourceKind.Als    => "ALS",
+            LightSensorProvider.LuxSourceKind.Webcam => "Webcam",
+            _ => AppConfig.LuxMode == LuxSensingMode.Mock ? "Mock" : "Not available",
+        };
+
+        IDisplayComfortActuator actuator = hwnd == IntPtr.Zero
+            ? (IDisplayComfortActuator)new NullDisplayActuator()
+            : new Dxva2DisplayActuator(hwnd);
+
+        var store = new SenseEase.Infrastructure.Storage.FileDisplayBaselineStore(AppConfig.DisplayBaselinePath);
+        LuxController = new LuxComfortController(provider, actuator, store);
+        App.RegisterLuxController(LuxController);
+        LuxController.StateChanged += (_, _) => _dispatcher.Invoke(OnLuxControllerStateChanged);
+
+        _ = LuxController.InitializeAsync().ContinueWith(_ =>
+        {
+            _dispatcher.Invoke(() =>
+            {
+                LuxController.Start();
+                AlsAvailable = LuxController.AlsAvailable;
+                DisplaySupported = LuxController.DisplaySupported;
+                OnPropertyChanged(nameof(LuxStatusText));
+                // If feature flag is on (default OFF), respect it; user toggles from UI.
+                LuxComfortEnabled = AppConfig.AmbientLightComfortEnabled;
+                AppendLog("Lux", DisplaySupported
+                    ? "顯示器舒適模式已就緒 / Display comfort ready"
+                    : "顯示器不支援 DDC/CI 控制 / Display does not support DDC/CI", CurrentState);
+            });
+        });
+    }
+
+    private void OnLuxControllerStateChanged()
+    {
+        if (LuxController is null) return;
+        CurrentLux       = LuxController.CurrentLux;
+        TargetContrast   = LuxController.TargetContrast;
+        TargetBrightness = LuxController.TargetBrightness;
+        TargetSharpness  = LuxController.TargetSharpness;
+        DisplaySupported = LuxController.DisplaySupported;
+        AlsAvailable     = LuxController.AlsAvailable;
+        OnPropertyChanged(nameof(LuxStatusText));
+    }
+
+    private void AppendLog(string category, string message, SenseState? state = null)
+    {
+        var entry = new EventLogEntry
+        {
+            Category    = category,
+            Message     = message,
+            Ofi         = state?.OpticalFlowIndex ?? 0,
+            Pressure    = state?.Pressure ?? 0,
+            FovRadius   = state?.FovRadiusPercent ?? 0,
+            MaskSnapshot = state?.MaskActive == true ? "ON" : "off",
+        };
+
+        _log.Append(entry);
+        EventLog.Insert(0, entry);
+        while (EventLog.Count > SenseDefaults.EventLogMaxCount)
+            EventLog.RemoveAt(EventLog.Count - 1);
+    }
+
+    // ?? INotifyPropertyChanged ?????????????????????????????????????????????
+
+    /// <summary>Stop auxiliary services (timers, hooks) on window close.</summary>
+    public void DisposeServices()
+    {
+        try { _activityDetector.Dispose(); } catch { }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string name) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(name!);
+        return true;
+    }
+}

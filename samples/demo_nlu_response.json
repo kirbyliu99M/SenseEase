@@ -1,0 +1,16 @@
+{
+  "samples": [
+    {
+      "input": "覺得有點暈",
+      "result": { "intent": "ReportDiscomfort", "fovDelta": -15, "response": "已縮小視野範圍以降低光流刺激。" }
+    },
+    {
+      "input": "現在舒服多了",
+      "result": { "intent": "ReportComfort", "fovDelta": 0, "response": "好的，維持目前設定。" }
+    },
+    {
+      "input": "畫面看起來還好",
+      "result": { "intent": "Unknown", "fovDelta": 0, "response": "已記錄您的回饋。" }
+    }
+  ]
+}
