@@ -266,7 +266,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// </summary>
     private void UpdateVimsTier(DateTime nowUtc)
     {
-        double t      = Math.Clamp((100.0 - Current.FovRadiusPercent) / 85.0, 0.0, 1.0);
+        // Mask alpha is driven by current VECTION RISK (pressure), not by how far the
+        // user has narrowed the FOV. Earlier this used FovRadiusPercent, which meant a
+        // user-initiated chatbot "I feel dizzy" (which legitimately shrinks FOV via
+        // ApplyUserFeedback) would also make the peripheral mask appear on a static
+        // screen — wrong, because there's no current motion to dim out.
+        //
+        // Pressure already gates MaskActive via TriggerPressure; using the same signal
+        // here keeps mask onset / alpha ramp internally consistent. The user's narrower
+        // FOV is preserved as a PREFERENCE that takes effect when pressure DOES spike,
+        // but it no longer makes the mask appear on its own.
+        double t      = Math.Clamp(Current.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
         double levelF = 1.0 + (9.0 * t); // 1..10
 
         // ── Fast-onset bypass ────────────────────────────────────────────────
@@ -278,6 +288,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
         if (gap >= SenseDefaults.VimsTierFastOnsetGap)
         {
             int snap = Math.Clamp((int)Math.Round(levelF), _vimsTier + 1, 10);
+            _vimsTier             = snap;
+            _pendingTierCandidate = snap;
+            _pendingTierSinceUtc  = DateTime.MinValue;
+            return;
+        }
+
+        // Mirror bypass for RELEASE: a sustained-low levelF that's already collapsed
+        // past current tier by VimsTierFastReleaseGap (e.g. user alt-tabbed, OFI got
+        // suppressed by the activity filter, pressure decayed quickly) snaps tier
+        // straight down. Without this, tier walks down by 1 per debounce window, so
+        // the user sees residual peripheral dimming for ~2 s after motion stops.
+        if (-gap >= SenseDefaults.VimsTierFastReleaseGap)
+        {
+            int snap = Math.Clamp((int)Math.Round(levelF), 1, _vimsTier - 1);
             _vimsTier             = snap;
             _pendingTierCandidate = snap;
             _pendingTierSinceUtc  = DateTime.MinValue;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -8,8 +9,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using SenseEase.App.Configuration;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
+using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.App.ViewModels;
 
@@ -22,9 +25,19 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private readonly IEventLogStore? _eventLog;
     private readonly Dispatcher _dispatcher;
     private readonly Func<bool> _isOverlayVisible;
+    private readonly FileChatHistoryStore _historyStore;
+    private CancellationTokenSource _streamCts = new();
 
     /// <summary>How many recent adjustment / event records to embed in each model prompt.</summary>
     private const int HistoryWindow = 6;
+
+    /// <summary>How many most-recent transcript bubbles to keep on disk. Older lines
+    /// are dropped on startup so the file can't grow without bound.</summary>
+    private const int PersistedHistoryMax = 100;
+
+    /// <summary>Total cap on fake-stream animation duration, regardless of reply length.</summary>
+    private const int FakeStreamMaxMs = 1500;
+    private const int FakeStreamStepMs = 30;
 
     private bool _isGenerating;
     private string _inputText = string.Empty;
@@ -76,15 +89,47 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         ClearCommand = new RelayCommand(_ => Clear());
 
         StatusText = chatbot.IsModelAvailable
-            ? "Loading Mistral 3B… (first load ~30s on CPU; chat is disabled meanwhile)"
-            : "Model not found. Place a Q4_K_M .gguf at: models\\mistral-3b\\model.gguf";
+            ? "Loading Ministral 3B… (first load ~30s on CPU; chat is disabled meanwhile)"
+            : $"Model not found at: {AppConfig.ModelPath}";
 
         _ = InitModelAsync();
 
-        Messages.Add(new ChatMessageViewModel(
-            "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。\n" +
-            "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.",
-            ChatRole.Assistant));
+        // Phase 4: persist transcript across restarts. Load existing history first;
+        // if any prior bubbles exist they replace the welcome (returning user — the
+        // welcome bubble would be noise above their previous conversation).
+        _historyStore = new FileChatHistoryStore(AppConfig.ChatHistoryPath);
+        var prior = _historyStore.Load();
+        if (prior.Count > PersistedHistoryMax)
+        {
+            _historyStore.Trim(PersistedHistoryMax);
+            prior = _historyStore.Load();
+        }
+
+        if (prior.Count > 0)
+        {
+            foreach (var m in prior)
+                Messages.Add(new ChatMessageViewModel(m.Content, m.Role));
+        }
+        else
+        {
+            Messages.Add(new ChatMessageViewModel(
+                "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。\n" +
+                "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.",
+                ChatRole.Assistant));
+        }
+    }
+
+    /// <summary>Persist a non-transient bubble to the chat-history file. Safe to call
+    /// for any real message; typing-indicator placeholders must NOT pass through here.</summary>
+    private void PersistMessage(ChatRole role, string content)
+    {
+        if (string.IsNullOrEmpty(content)) return;
+        _historyStore.Append(new ChatMessage
+        {
+            Role = role,
+            Content = content,
+            Timestamp = DateTime.Now,
+        });
     }
 
     private async Task InitModelAsync()
@@ -94,7 +139,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             await _chatbot.LoadAsync().ConfigureAwait(false);
             _dispatcher.Invoke(() =>
             {
-                StatusText = "Mistral 3B ready";
+                StatusText = _chatbot.IsModelLoaded
+                    ? "Ministral 3B ready"
+                    : $"Lexicon fallback (no GGUF found at: {AppConfig.ModelPath})";
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
         }
@@ -113,6 +160,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         string text = InputText.Trim();
         if (string.IsNullOrEmpty(text)) return;
 
+        // Cancel any in-flight fake-stream animation from the prior turn so its
+        // dispatcher updates can't overwrite this turn's bubble content.
+        try { _streamCts.Cancel(); } catch { /* ignore */ }
+        _streamCts.Dispose();
+        _streamCts = new CancellationTokenSource();
+        var streamToken = _streamCts.Token;
+
         InputText = string.Empty;
         IsGenerating = true;
 
@@ -120,24 +174,99 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         _dispatcher.Invoke(() =>
         {
             Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
-            placeholder = new ChatMessageViewModel("SenseEase AI 正在思考… / thinking…", ChatRole.Assistant);
+            PersistMessage(ChatRole.User, text);
+            // Typing-indicator bubble: rendered as animated dots by the DataTemplate,
+            // not as literal text. Removed when the real reply arrives. NOT persisted.
+            placeholder = new ChatMessageViewModel(string.Empty, ChatRole.Assistant, isTyping: true);
             Messages.Add(placeholder);
         });
 
         try
         {
-            string contextualInput =
-                BuildContextualInput(text);
+            string contextualInput = BuildContextualInput(text);
 
             var result = await _chatbot.SendAsync(contextualInput, CancellationToken.None).ConfigureAwait(false);
+            ChatMessageViewModel? assistantBubble = null;
+            string assistantContentForPersist = string.Empty;
+            string deferredSummary = string.Empty;
+            bool fakeStream = false;
+
             _dispatcher.Invoke(() =>
             {
                 if (placeholder is not null) Messages.Remove(placeholder);
                 string summary = ApplyNluResult(result, text);
-                Messages.Add(new ChatMessageViewModel(result.Response, ChatRole.Assistant));
+
+                // Followup-requesting replies get rendered with option cards. The
+                // assistant text is the question itself (FollowupQuestion); if the
+                // model only set Response, fall back to that.
+                bool hasFollowup = result.FollowupOptions is { Length: > 0 }
+                                && !string.IsNullOrWhiteSpace(result.FollowupQuestion ?? result.Response);
+                if (hasFollowup)
+                {
+                    string q = !string.IsNullOrWhiteSpace(result.FollowupQuestion)
+                        ? result.FollowupQuestion!
+                        : result.Response;
+                    // Followup questions are NOT fake-streamed (must show with their option cards).
+                    Messages.Add(new ChatMessageViewModel(
+                        q,
+                        ChatRole.Assistant,
+                        followupOptions: result.FollowupOptions,
+                        onFollowupSelected: AnswerWithFollowup));
+                    PersistMessage(ChatRole.Assistant, q);
+                }
+                else
+                {
+                    // Only fake-stream lexicon-mode replies. When the real model is
+                    // generating, Phase 5 will deliver true incremental streaming.
+                    fakeStream = !_chatbot.IsModelLoaded && !string.IsNullOrEmpty(result.Response);
+                    if (fakeStream)
+                    {
+                        assistantBubble = new ChatMessageViewModel(string.Empty, ChatRole.Assistant);
+                        Messages.Add(assistantBubble);
+                        assistantContentForPersist = result.Response;
+                        // Persist the reply BEFORE the summary so reload order matches
+                        // the rendered order. (Also acts as crash safety for the
+                        // fake-stream window — file has the full reply even if the
+                        // animation aborts.)
+                        PersistMessage(ChatRole.Assistant, result.Response);
+                    }
+                    else
+                    {
+                        Messages.Add(new ChatMessageViewModel(result.Response, ChatRole.Assistant));
+                        PersistMessage(ChatRole.Assistant, result.Response);
+                    }
+                }
+
                 if (summary.Length > 0)
-                    Messages.Add(new ChatMessageViewModel(summary, ChatRole.Assistant));
+                {
+                    // Persist the summary now so reload order stays user→reply→summary
+                    // and a mid-animation crash doesn't lose it. The VISIBLE bubble is
+                    // deferred until the fake-stream finishes (see below) so it never
+                    // races ahead of the reply that explains it.
+                    PersistMessage(ChatRole.Assistant, summary);
+                    if (fakeStream)
+                        deferredSummary = summary;
+                    else
+                        Messages.Add(new ChatMessageViewModel(summary, ChatRole.Assistant));
+                }
             });
+
+            if (fakeStream && assistantBubble is not null)
+            {
+                // Run the animation, THEN flip the deferred summary into the visible
+                // collection on the dispatcher. Order: reply animation completes →
+                // summary appears, matching what the user expects to read top-down.
+                string summaryToShow = deferredSummary;
+                _ = Task.Run(async () =>
+                {
+                    await FakeStreamAsync(assistantBubble, assistantContentForPersist, streamToken)
+                          .ConfigureAwait(false);
+                    if (streamToken.IsCancellationRequested) return;
+                    if (summaryToShow.Length > 0)
+                        _dispatcher.Invoke(() =>
+                            Messages.Add(new ChatMessageViewModel(summaryToShow, ChatRole.Assistant)));
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -156,6 +285,80 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 IsGenerating = false;
             });
         }
+    }
+
+    /// <summary>
+    /// Animate <paramref name="full"/> into <paramref name="bubble"/>.Content in
+    /// chunks so the typing-indicator gets visible airtime in lexicon-only mode.
+    /// Total wall-clock duration is capped at <see cref="FakeStreamMaxMs"/>; chunk
+    /// size scales with response length to honour that cap for long replies.
+    /// Cooperatively cancellable so a follow-up Send aborts the prior animation.
+    /// </summary>
+    private async Task FakeStreamAsync(ChatMessageViewModel bubble, string full, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(full)) return;
+        int maxSteps = Math.Max(1, FakeStreamMaxMs / FakeStreamStepMs);
+        int chunkSize = Math.Max(3, (int)Math.Ceiling(full.Length / (double)maxSteps));
+
+        try
+        {
+            for (int i = 0; i < full.Length; i += chunkSize)
+            {
+                if (ct.IsCancellationRequested) return;
+                int end = Math.Min(full.Length, i + chunkSize);
+                string slice = full.Substring(0, end);
+                _dispatcher.Invoke(() => { if (!ct.IsCancellationRequested) bubble.Content = slice; });
+                if (end >= full.Length) break;
+                await Task.Delay(FakeStreamStepMs, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { /* expected */ }
+        finally
+        {
+            // On cancellation, snap to the full string so the UI never gets stuck
+            // mid-word if the user immediately sends a new message.
+            if (!ct.IsCancellationRequested)
+                _dispatcher.Invoke(() => bubble.Content = full);
+        }
+    }
+
+    /// <summary>
+    /// Invoked when the user taps one of the followup option cards. Treats the
+    /// chosen option as the next user message and runs it through SendAsync, so
+    /// the model sees the option verbatim (and the picked card persists in the
+    /// transcript as a normal "You: <option>" bubble). Public so the spike popup
+    /// window can route its option clicks through the same path.
+    /// </summary>
+    public void SubmitFollowupAnswer(string option)
+    {
+        if (string.IsNullOrWhiteSpace(option) || IsGenerating) return;
+        InputText = option;
+        // Fire-and-forget — SendCommand handles its own dispatcher work.
+        if (SendCommand.CanExecute(null)) SendCommand.Execute(null);
+    }
+
+    // Keep the old private name as a thin shim so call sites in the same VM
+    // (the option-card constructor) read naturally.
+    private void AnswerWithFollowup(string option) => SubmitFollowupAnswer(option);
+
+    /// <summary>
+    /// Inject a system-initiated assistant message that opens a followup picker.
+    /// Used by the VIMS-spike popup path: the spike detector decides the bot
+    /// should proactively ask "what are you feeling right now?" rather than
+    /// waiting for the user to type. Safe to call from any thread.
+    /// </summary>
+    public void RaiseFollowup(string question, string[] options)
+    {
+        if (string.IsNullOrWhiteSpace(question) || options is null || options.Length == 0) return;
+        _dispatcher.Invoke(() =>
+        {
+            Messages.Add(new ChatMessageViewModel(
+                question,
+                ChatRole.Assistant,
+                followupOptions: options,
+                onFollowupSelected: AnswerWithFollowup));
+            PersistMessage(ChatRole.Assistant, question);
+        });
     }
 
     /// <summary>
@@ -317,6 +520,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     {
         _chatbot.ClearHistory();
         Messages.Clear();
+        try { _streamCts.Cancel(); } catch { /* ignore */ }
+        _historyStore.DeleteFile();
     }
 
     /// <summary>Raised after an NLU result mutates the shared engine, so the host can refresh rendering.</summary>
@@ -333,9 +538,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     }
 }
 
-public sealed class ChatMessageViewModel
+public sealed class ChatMessageViewModel : INotifyPropertyChanged
 {
-    public string Content { get; }
+    private string _content;
+    private bool _isTyping;
+
     public ChatRole Role { get; }
     public string Author => Role == ChatRole.User ? "You" : "SenseEase AI";
     public bool IsUser => Role == ChatRole.User;
@@ -343,10 +550,70 @@ public sealed class ChatMessageViewModel
     public Visibility UserVisibility => IsUser ? Visibility.Visible : Visibility.Collapsed;
     public Visibility AssistantVisibility => IsUser ? Visibility.Collapsed : Visibility.Visible;
 
-    public ChatMessageViewModel(string content, ChatRole role)
+    public string Content
     {
-        Content = content;
+        get => _content;
+        set
+        {
+            if (_content == value) return;
+            _content = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Content)));
+        }
+    }
+
+    /// <summary>
+    /// When true, the bubble shows an animated "thinking" indicator instead of
+    /// the Content text. Used by the placeholder bubble during model/lexicon work
+    /// so the user has visible feedback that something is happening.
+    /// </summary>
+    public bool IsTyping
+    {
+        get => _isTyping;
+        set
+        {
+            if (_isTyping == value) return;
+            _isTyping = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsTyping)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TypingVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ContentVisibility)));
+        }
+    }
+
+    /// <summary>2–4 quick-reply option strings shown as clickable cards beneath the
+    /// assistant message. Null/empty when no followup is offered.</summary>
+    public string[]? FollowupOptions { get; }
+
+    public Visibility FollowupVisibility =>
+        FollowupOptions is { Length: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility TypingVisibility => IsTyping ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ContentVisibility => IsTyping ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>Invoked when the user taps one of the followup option cards.
+    /// Receives the chosen option's display string. Null on messages with no
+    /// followup options (the visibility binding prevents that path).</summary>
+    public Action<string>? OnFollowupSelected { get; }
+
+    public ICommand SelectFollowupCommand { get; }
+
+    public ChatMessageViewModel(
+        string content,
+        ChatRole role,
+        string[]? followupOptions = null,
+        Action<string>? onFollowupSelected = null,
+        bool isTyping = false)
+    {
+        _content = content ?? string.Empty;
         Role = role;
         Timestamp = DateTime.Now.ToString("HH:mm");
+        FollowupOptions = followupOptions;
+        OnFollowupSelected = onFollowupSelected;
+        _isTyping = isTyping;
+        SelectFollowupCommand = new RelayCommand(o =>
+        {
+            if (o is string s && OnFollowupSelected is not null) OnFollowupSelected(s);
+        });
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }

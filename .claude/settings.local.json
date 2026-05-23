@@ -26,7 +26,20 @@
       "PowerShell(Get-Process -Name SenseEase.App -ErrorAction SilentlyContinue)",
       "PowerShell(Stop-Process -Force)",
       "PowerShell('killed deadlocked instance')",
-      "PowerShell('killed')"
+      "PowerShell('killed')",
+      "PowerShell('app stopped')",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(dotnet restore *)",
+      "WebSearch",
+      "Bash(find /c/Users/kirby/.nuget/packages/llamasharp/0.27.0 -name \"*.xml\" 2>/dev/null | head -3 && echo \"---\" && grep -rA 2 \"public.*Apply\" /c/Users/kirby/.nuget/packages/llamasharp/0.27.0/lib/net8.0/LLamaSharp.xml 2>/dev/null | grep -A 4 \"LLamaTemplate\" | head -40)",
+      "Read(//c/Users/kirby/.nuget/packages/llamasharp/0.27.0/**)",
+      "Read(//c/Users/kirby/.nuget/packages/llamasharp/0.27.0/lib/net8.0/**)",
+      "Bash(powershell -Command \"Get-Process -Name SenseEase.App,llama-server -ErrorAction SilentlyContinue | Format-Table -AutoSize\")",
+      "PowerShell($log = \"$env:LOCALAPPDATA\\\\SenseEase\\\\llama-server.log\"; if \\(Test-Path $log\\) { Write-Output \"--- llama-server.log \\(last 80 lines\\) ---\"; Get-Content $log -Tail 80 } else { Write-Output \"no llama-server.log present\" })",
+      "PowerShell($t = \"$env:LOCALAPPDATA\\\\SenseEase\\\\model_trace.jsonl\"; if \\(Test-Path $t\\) { Write-Output \"--- model_trace.jsonl \\(last 15 lines\\) ---\"; Get-Content $t -Tail 15 } else { Write-Output \"no model_trace.jsonl yet\" })",
+      "PowerShell($t = \"$env:LOCALAPPDATA\\\\SenseEase\\\\model_trace.jsonl\"; if \\(Test-Path $t\\) { Write-Output \"--- model_trace.jsonl \\(last 20 entries\\) ---\"; Get-Content $t -Tail 20 } else { Write-Output \"no model_trace.jsonl yet\" })",
+      "PowerShell($log = \"$env:LOCALAPPDATA\\\\SenseEase\\\\llama-server.log\"; if \\(Test-Path $log\\) { Write-Output \"--- llama-server.log \\(last 50 lines\\) ---\"; Get-Content $log -Tail 50 } else { Write-Output \"no log\" })"
     ]
   }
 }

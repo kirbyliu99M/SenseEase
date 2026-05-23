@@ -435,15 +435,22 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double intensity = ComputeAdaptiveIntensity(state);
         _smoothedIntensity = 0.85 * _smoothedIntensity + 0.15 * intensity;
 
-        // Grid presence tracks clear-zone shrinkage: it is FULLY GONE at FovRadius 100%
-        // (coverage 0 = no protection needed) and rises toward `ceiling` as the zone
-        // tightens under pressure. No opacity floor — a 100% clear zone shows no grid.
-        // The pressure-EMA modulates intensity within that coverage-gated envelope.
-        double coverage = Math.Clamp(1.0 - (state.FovRadiusPercent / 100.0), 0.0, 1.0);
-        double gv       = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
-        double ceiling  = Math.Min(1.0, 0.40 + (0.80 * gv));
-        double target   = Math.Clamp(coverage * ceiling * (0.55 + (0.45 * _smoothedIntensity)),
-                                     0.0, ceiling);
+        // Grid presence now tracks the SAME VIMS tier signal as the FOV mask alpha
+        // (issue #4 fix): pressure-driven, not FOV-driven. The previous coverage-based
+        // formula (1 − FovRadius/100) kept the grid visible after a user "I feel dizzy"
+        // had narrowed FOV even when current pressure was zero — wrong, because no
+        // motion → no vection risk → no anchor grid needed.
+        //
+        // Also: when always-on overlay is enabled, the floor applied to state.VimsTier
+        // by MainWindow.OnStateChanged flows through here automatically (issue #1 fix),
+        // so the Chang-Hain anchor grid appears at the user's baseline tier even on a
+        // calm screen.
+        int    tier        = Math.Clamp(state.VimsTier, 1, 10);
+        double tierFraction = (tier - 1) / 9.0;                  // 0 at L1, 1 at L10
+        double gv          = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
+        double ceiling     = Math.Min(1.0, 0.40 + (0.80 * gv));
+        double target      = Math.Clamp(tierFraction * ceiling * (0.55 + (0.45 * _smoothedIntensity)),
+                                        0.0, ceiling);
 
         // FIX #14: reuse the single pre-allocated DoubleAnimation; only mutate .To.
         // From is left unset → WPF animates from the current animated value (identical

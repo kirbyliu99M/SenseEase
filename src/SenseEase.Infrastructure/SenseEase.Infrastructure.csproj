@@ -11,9 +11,23 @@
     <ProjectReference Include="..\SenseEase.Core\SenseEase.Core.csproj" />
   </ItemGroup>
 
+  <!-- Expose internal lexicon / NLU helpers to the unit-test assembly so we don't
+       have to widen their public surface just for testing. SenseEase.App needs
+       FeedbackLexicon.BuildSpikeFollowup() for the VIMS-spike chatbot popup. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SenseEase.Tests" />
+    <InternalsVisibleTo Include="SenseEase.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <!-- Phase 5: GPU inference via CUDA. RTX 5060 (Blackwell) on driver 596.49
+         supports CUDA 13.2; we side-load llama.cpp b9294 CUDA 13.1 native binaries
+         on top of this package's runtimes folder to get gemma4 architecture
+         support (LLamaSharp 0.27 itself bundles a pre-gemma4 llama.cpp). The
+         "12.Windows" naming is purely the package SKU — the version of the
+         actual native CUDA binaries is controlled by which set we side-load. -->
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" />
   </ItemGroup>
 
   <ItemGroup>

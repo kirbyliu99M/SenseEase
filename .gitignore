@@ -24,3 +24,11 @@ models/mistral-7b/gguf/*
 !models/mistral-7b/gguf/.gitkeep
 models/mistral-7b/onnx/*
 !models/mistral-7b/onnx/.gitkeep
+
+# large model artifacts - keep out of git
+models/Ministral-3-3B-Instruct-2512-GGUF/
+models/gemma-4-E4B-it-GGUF/
+# smoke-test screenshots
+/chat_*.png
+/persistence_smoke.png
+/phase3_smoke.png

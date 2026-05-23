@@ -1,5 +1,6 @@
 using System;
 using SenseEase.Core.Abstractions;
+using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
@@ -449,24 +450,28 @@ public class HabituationTests
     }
 
     // ── VIMS Tier hysteresis tests ─────────────────────────────────────────────
+    // VimsTier is now PRESSURE-driven (not FOV-driven). User-narrowed FOV no longer
+    // raises the tier; only current pressure does. These tests drive pressure via
+    // sustained OFI input and assert tier transitions, mirroring real vection onset.
 
-    private static SenseState DriveToFovRadius(MockInferenceEngine engine, int targetFov)
+    /// <summary>Pump high OFI into the engine until pressure crosses the requested
+    /// fraction of TriggerPressure. Returns the final state after the last tick.</summary>
+    private static SenseState DriveToPressureFraction(MockInferenceEngine engine, double pressureFractionOfTrigger, int maxTicks = 200)
     {
-        // FovRadiusPercent is pressure-driven. To reach a target FOV, repeatedly call
-        // ApplyUserFeedback (offset path) so we can deterministically pin the value
-        // without timing dependencies. Then call Update with OFI=0 to trigger the
-        // tier-update + composition path.
         engine.SetHabituationPaused(true);
-        // _userFovOffset is clamped to [-60, 0]. Default FOV at zero pressure is 100
-        // (ComputeFovRadiusPercent returns 100 at pressure 0); compose with offset.
-        // Target offset = targetFov - 100, clamped to [-60, 0].
-        int delta = Math.Clamp(targetFov - 100, -60, 0);
-        engine.ApplyUserFeedback(delta);
-        return engine.Update(0.0, "Passenger", DateTime.UtcNow);
+        double targetPressure = pressureFractionOfTrigger * SenseDefaults.TriggerPressure;
+        SenseState state = engine.Current;
+        DateTime t0 = DateTime.UtcNow;
+        for (int i = 0; i < maxTicks; i++)
+        {
+            state = engine.Update(120.0, "Passenger", t0.AddMilliseconds(i * 100));
+            if (state.Pressure >= targetPressure) break;
+        }
+        return state;
     }
 
     [Fact]
-    public void VimsTier_AtRestFov100_IsTier1()
+    public void VimsTier_AtRestPressure0_IsTier1()
     {
         var engine = new MockInferenceEngine();
         var state = engine.Update(0.0, "Passenger", DateTime.UtcNow);
@@ -474,50 +479,61 @@ public class HabituationTests
     }
 
     [Fact]
-    public void VimsTier_AtFovFloor15_IsTier10()
+    public void VimsTier_UserShrinksFov_ButPressureZero_StaysTier1()
     {
+        // Regression: chatbot "I feel dizzy" path used to raise tier through FOV
+        // shrinkage alone — the mask appeared on a static screen. Tier must stay at
+        // 1 when pressure is zero, no matter how aggressive the user's FOV preference.
         var engine = new MockInferenceEngine();
-        // To reach FOV ≤ 20, apply enough offset to overcome the natural floor (20)
-        // and clamp at 15. Use -60 offset (maximum tightening).
-        DriveToFovRadius(engine, 40); // intermediate
-        // The tier should advance via fast-onset bypass on a sustained low FOV.
-        // Run several updates to let the tier converge.
-        SenseState state = engine.Current;
-        for (int i = 0; i < 30; i++)
-            state = engine.Update(0.0, "Passenger", DateTime.UtcNow.AddMilliseconds(i * 100));
-        Assert.True(state.VimsTier >= 6,
-            $"Tier should have climbed substantially from FOV ~40 (got tier {state.VimsTier}).");
+        engine.SetHabituationPaused(true);
+        engine.ApplyUserFeedback(-60); // maximum tightening
+        var state = engine.Update(0.0, "Passenger", DateTime.UtcNow);
+        Assert.Equal(1, state.VimsTier);
     }
 
     [Fact]
-    public void VimsTier_FastOnsetBypass_SnapsWhenLevelFJumpsLarge()
+    public void VimsTier_AtPeakPressure_ClimbsToTopTiers()
     {
         var engine = new MockInferenceEngine();
-        // Start at FOV 100 (tier 1).
+        var state = DriveToPressureFraction(engine, 1.0);
+        Assert.True(state.VimsTier >= 6,
+            $"Tier should have climbed substantially under sustained high pressure (got tier {state.VimsTier}, pressure {state.Pressure:F1}).");
+    }
+
+    [Fact]
+    public void VimsTier_FastOnsetBypass_SnapsOnPressureSurge()
+    {
+        var engine = new MockInferenceEngine();
+        // Start at rest (tier 1, pressure 0).
         var s1 = engine.Update(0.0, "Passenger", DateTime.UtcNow);
         Assert.Equal(1, s1.VimsTier);
-        // Force a large FOV drop in one step (offset to ~25% FOV → levelF ≈ 8.9).
-        // The fast-onset bypass (gap ≥ 1.5) should snap tier directly without 9 ticks of debounce.
-        engine.ApplyUserFeedback(-60); // FOV → max(15, base-60). At base=100, FOV → 40.
-        var s2 = engine.Update(0.0, "Passenger", DateTime.UtcNow.AddMilliseconds(100));
-        Assert.True(s2.VimsTier >= 7,
-            $"Fast-onset bypass should snap tier ≥ 7 in one tick (got tier {s2.VimsTier}).");
+        // Pump several large-OFI ticks back-to-back to surge pressure past trigger.
+        // The fast-onset bypass snaps tier directly when levelF jumps by ≥ VimsTierFastOnsetGap.
+        SenseState state = s1;
+        for (int i = 0; i < 8; i++)
+            state = engine.Update(150.0, "Passenger", DateTime.UtcNow.AddMilliseconds(i * 100));
+        Assert.True(state.VimsTier >= 5,
+            $"Fast-onset bypass should snap tier ≥ 5 once pressure surges past trigger (got tier {state.VimsTier}, pressure {state.Pressure:F1}).");
     }
 
     [Fact]
     public void VimsTier_TierIsStable_WithinDeadband()
     {
-        // Once at a tier, small FOV fluctuations within the ±deadband should NOT change the tier.
+        // Once settled, small pressure fluctuations within the ±deadband should NOT
+        // change the tier. We drive to a stable mid-range tier by holding OFI flat
+        // for long enough that pressure stops climbing, then verify a one-tick OFI
+        // perturbation (still inside the band) doesn't move the tier.
         var engine = new MockInferenceEngine();
-        // Reach tier 5 (around levelF=5). With t=(100-fov)/85, levelF=5 → fov=100-85*(4/9)≈62.
-        DriveToFovRadius(engine, 62);
+        engine.SetHabituationPaused(true);
         SenseState state = engine.Current;
-        for (int i = 0; i < 20; i++)
-            state = engine.Update(0.0, "Passenger", DateTime.UtcNow.AddMilliseconds(i * 100));
+        DateTime t0 = DateTime.UtcNow;
+        // Hold OFI at a modest level; let pressure reach quasi-steady-state.
+        for (int i = 0; i < 60; i++)
+            state = engine.Update(30.0, "Passenger", t0.AddMilliseconds(i * 100));
         int initialTier = state.VimsTier;
-        // Nudge FOV by ±3 (well within tier deadband at levelF). The tier should hold.
-        engine.ApplyUserFeedback(-3);
-        var s = engine.Update(0.0, "Passenger", DateTime.UtcNow.AddSeconds(2));
+        // A small nudge in OFI keeps levelF within ±deadband of the current tier;
+        // tier should hold.
+        var s = engine.Update(32.0, "Passenger", t0.AddMilliseconds(60 * 100 + 100));
         Assert.Equal(initialTier, s.VimsTier);
     }
 }

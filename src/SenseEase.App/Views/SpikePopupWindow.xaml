@@ -1,0 +1,65 @@
+<Window x:Class="SenseEase.App.Views.SpikePopupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SenseEase — VIMS Alert"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual">
+    <Border Background="White" CornerRadius="14" Padding="20"
+            Margin="14" MaxWidth="420">
+        <Border.Effect>
+            <DropShadowEffect Color="#5B82C6" BlurRadius="24"
+                              ShadowDepth="4" Opacity="0.22"/>
+        </Border.Effect>
+        <StackPanel>
+            <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                <TextBlock DockPanel.Dock="Left"
+                           Text="● VIMS spike"
+                           Foreground="#D8024A"
+                           FontWeight="Bold" FontSize="12"/>
+                <Button DockPanel.Dock="Right"
+                        x:Name="CloseBtn"
+                        Content="×"
+                        Width="22" Height="22"
+                        Padding="0" BorderThickness="0"
+                        Background="Transparent"
+                        Foreground="#7B8DB0"
+                        FontSize="16" FontWeight="Bold"
+                        Cursor="Hand"
+                        Click="OnClose"/>
+            </DockPanel>
+            <TextBlock x:Name="QuestionText"
+                       FontSize="14" FontWeight="SemiBold"
+                       Foreground="#0A1F5C" TextWrapping="Wrap"
+                       Margin="0,0,0,12"/>
+            <ItemsControl x:Name="OptionList">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Content="{Binding}"
+                                Click="OnOptionClicked"
+                                Background="#EEF3FF"
+                                Foreground="#024AD8"
+                                BorderThickness="0"
+                                Padding="14,8"
+                                Margin="0,0,8,8"
+                                FontSize="12"
+                                Cursor="Hand"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="點選選項後將自動寫入聊天助理 / Selected answer is sent to AI Assistant."
+                       FontSize="10" Foreground="#7B8DB0"
+                       TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
+    </Border>
+</Window>

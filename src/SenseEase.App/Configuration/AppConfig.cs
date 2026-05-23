@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace SenseEase.App.Configuration;
@@ -21,9 +23,63 @@ public static class AppConfig
     // Backward-compat: true only in Demo mode (used by idleTimer and slider Push guard).
     public static bool UseMockSensing => Mode == SensingMode.Demo;
 
-    // Phase 2.4: local Mistral 3B model — drop the .gguf here.
-    public static string ModelPath { get; } = Path.Combine(
-        AppDomain.CurrentDomain.BaseDirectory, "models", "mistral-3b", "model.gguf");
+    // Phase 5: local Gemma 4 E4B (instruction-tuned, Q4_K_M GGUF).
+    // The chatbot is optional — if no GGUF is found, the app falls back to the
+    // rule-based FeedbackLexicon path. We probe two locations so both development
+    // (file in the repo's models/ folder) and shipping (file alongside the EXE)
+    // work without manual moves:
+    //   1) <bin>/models/...  — what `dotnet publish` produces if the folder is
+    //                          copied to output. Preferred so the EXE is portable.
+    //   2) <repo>/models/... — convenient during development; we walk up from the
+    //                          bin folder to find a sibling models/ directory.
+    // Phase 5b: switched back to Ministral 3B after Gemma 4's GGUF tokenizer
+    // hit an ABI gap with LLamaSharp 0.27 — the b9294 native binaries worked for
+    // llama-cli directly but LLamaSharp's tokenize-without-special-parsing path
+    // produced only <unused24>/<unused49> filler tokens. Ministral 3B uses the
+    // Mistral chat template, which LLamaSharp 0.27 was built/tested against,
+    // and it's the same model the prior PC ran successfully.
+    private const string ModelFileRelative = "models/Ministral-3-3B-Instruct-2512-GGUF/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf";
+
+    public static string ModelPath { get; } = ResolveModelPath();
+
+    /// <summary>Returns the list of paths probed by ResolveModelPath, in order.
+    /// Surfaced to the UI when the model isn't found so the user can see exactly
+    /// where the app looked.</summary>
+    public static IReadOnlyList<string> ModelPathProbes { get; private set; } = Array.Empty<string>();
+
+    private static string ResolveModelPath()
+    {
+        var probes = new List<string>();
+        string rel = ModelFileRelative.Replace('/', Path.DirectorySeparatorChar);
+        // Strip any trailing slash from BaseDirectory so DirectoryInfo.Parent walks
+        // up reliably (with a trailing slash some .NET versions treat it as already
+        // pointing at the parent — the walk silently no-ops).
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // 1) Alongside the EXE (canonical install location after publish).
+        string inBin = Path.Combine(baseDir, rel);
+        probes.Add(inBin);
+        if (File.Exists(inBin)) { ModelPathProbes = probes; return inBin; }
+
+        // 2) Walk up to 8 levels looking for a sibling models/ folder.
+        var info = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 8 && info is not null; i++)
+        {
+            info = info.Parent;
+            if (info is null) break;
+            string candidate = Path.Combine(info.FullName, rel);
+            probes.Add(candidate);
+            if (File.Exists(candidate))
+            {
+                ModelPathProbes = probes;
+                return candidate;
+            }
+        }
+
+        ModelPathProbes = probes;
+        return inBin; // canonical-install path for the "not found" diagnostic
+    }
 
     // Phase 2.4: per-user personalization adjustment log (JSON Lines, survives restarts).
     public static string AdjustmentLogPath { get; } = Path.Combine(
@@ -34,6 +90,12 @@ public static class AppConfig
     public static string HabituationStatePath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "habituation.json");
+
+    // Phase 4: chat transcript (JSON Lines, best-effort). Survives restarts so the
+    // returning user sees prior conversation context.
+    public static string ChatHistoryPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "chat_history.jsonl");
 
     // Phase 4 — Ambient Light Comfort. Hardware-mutating; defaults OFF (explicit opt-in).
     public static bool AmbientLightComfortEnabled { get; set; } = false;

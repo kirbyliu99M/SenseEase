@@ -229,6 +229,123 @@ internal static class FeedbackLexicon
         return ContainsAny(t, ContextTriggers);
     }
 
+    // ── Followup question builder ────────────────────────────────────────────────────
+    // Markers used to detect *which* symptom bucket the user already named (so we
+    // don't ask the obvious). Kept narrower than DiscomfortKeywords because false
+    // positives here suppress the followup; better to err on the side of asking.
+    // Use the 4-char "dizz" stem so it matches "dizzy", "dizziness", "dizzied",
+    // and "dizzying". The full word "dizzy" doesn't contain "dizziness" and vice
+    // versa (5th char differs: 'y' vs 'i'), so neither full form alone is sufficient.
+    private static readonly string[] DizzyMarkers   = { "暈", "晕", "dizz", "spin", "vertigo", "lightheaded", "woozy" };
+    private static readonly string[] NauseaMarkers  = { "噁心", "恶心", "想吐", "puke", "vomit", "nausea", "queasy" };
+    private static readonly string[] HeadacheMarkers = { "頭痛", "头痛", "headache", "migraine", "head pain", "head hurts" };
+    private static readonly string[] EyeMarkers     = { "眼", "eye", "vision", "blur", "視覺", "视觉" };
+
+    // Vague-discomfort hints that on their own are too ambiguous to drive an
+    // adjustment but DO warrant a follow-up question. "feel off", "怪怪的", etc.
+    private static readonly string[] VagueDiscomfortHints =
+    {
+        "feel", "off", "weird", "strange", "uncomfortable", "not great", "something",
+        "怪", "怪怪的", "不舒服", "不適", "不对劲", "不對勁", "不适", "感覺", "感觉",
+    };
+
+    /// <summary>
+    /// Decide whether the bot should ask a clarifying follow-up question instead of
+    /// (or in addition to) committing to an overlay adjustment. Returns a 2–4-option
+    /// picker when the user's intent is detectable as discomfort-adjacent but the
+    /// specific symptom is unclear; returns (null, null) otherwise — the caller
+    /// should treat that as "no follow-up needed, act on the parsed intent."
+    ///
+    /// Used by both the lexicon fallback path AND as a belt-and-suspenders override
+    /// over the LLM path (so a model that forgets to ask still gets a sensible
+    /// clarification offered when the user input is unambiguously vague).
+    /// </summary>
+    public static (string? question, string[]? options) TryBuildFollowup(
+        string? text, string intent, int severity)
+    {
+        string t = Normalize(text);
+        if (string.IsNullOrEmpty(t)) return (null, null);
+
+        bool isZh = LooksChinese(text);
+        bool mentionsDizzy    = ContainsAny(t, DizzyMarkers);
+        bool mentionsNausea   = ContainsAny(t, NauseaMarkers);
+        bool mentionsHeadache = ContainsAny(t, HeadacheMarkers);
+        bool mentionsEye      = ContainsAny(t, EyeMarkers);
+        bool anySpecific      = mentionsDizzy || mentionsNausea || mentionsHeadache || mentionsEye;
+        bool hasVagueHint     = ContainsAny(t, VagueDiscomfortHints);
+
+        // Standard 4-bucket symptom picker; same options for both branches so the UI
+        // only has one card layout to render.
+        string[] symptomOptions = new[]
+        {
+            isZh ? "暈眩 / Dizziness" : "Dizziness",
+            isZh ? "噁心 / Nausea"    : "Nausea",
+            isZh ? "頭痛 / Headache"  : "Headache",
+            isZh ? "眼睛疲勞 / Eye strain" : "Eye strain",
+        };
+
+        // Followup policy (broadened per user feedback): be proactive. Ask unless
+        // the user has given us enough to act confidently. "Enough" means EITHER
+        // a specific symptom was named, OR the intent is unambiguously non-symptom
+        // (ReportComfort / ResetRequest / AnalyzeRequest).
+        //
+        // Case 1: intent unknown — we have no idea what they want. Ask what's up.
+        if (intent == "Unknown" && t.Length < 200)
+        {
+            // Vague-discomfort phrasing → empathetic "what are you feeling" wording;
+            // otherwise the message is genuinely off-topic, ask the open question with
+            // symptom options anyway (user can free-type if none fit).
+            string question = hasVagueHint
+                ? (isZh ? "可以告訴我您正在感受到哪一種不適嗎？" : "Which sensation matches what you're feeling right now?")
+                : (isZh ? "請問您現在的狀況比較接近哪一種？" : "Which of these is closest to what you're experiencing?");
+            return (question, symptomOptions);
+        }
+
+        // Case 2: discomfort reported but no specific symptom named — at ANY severity.
+        // Even mild "I'm uncomfortable" should be clarified before applying deltas;
+        // the previous severity>=3 gate let mild unspecific discomfort silently apply
+        // a default FOV cut, which is exactly the over-eager behavior the user wanted
+        // tightened up.
+        if (intent == "ReportDiscomfort" && !anySpecific)
+        {
+            return (
+                isZh ? "哪一種感覺最強烈？" : "Which symptom feels strongest right now?",
+                symptomOptions);
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Build the canonical follow-up payload used when a VIMS-pressure spike
+    /// auto-opens the chatbot. Severity reflects how big the spike was on a 0–1
+    /// normalized scale (caller passes 0..1 from the detector).
+    /// </summary>
+    public static (string question, string[] options) BuildSpikeFollowup(bool isChineseUiHint, double spikeNormalized)
+    {
+        // Spike intensity wording: small / medium / large. Drives empathy in the
+        // question text without committing to a specific severity bucket.
+        string intensity = spikeNormalized switch
+        {
+            >= 0.6 => isChineseUiHint ? "急遽" : "sharp",
+            >= 0.3 => isChineseUiHint ? "明顯" : "noticeable",
+            _      => isChineseUiHint ? "輕微" : "small",
+        };
+
+        string question = isChineseUiHint
+            ? $"系統偵測到 VIMS 壓力{intensity}上升。請問您現在感受到什麼？"
+            : $"I noticed a {intensity} rise in VIMS pressure. What are you experiencing right now?";
+
+        string[] options =
+        {
+            isChineseUiHint ? "暈眩 / Dizziness"        : "Dizziness",
+            isChineseUiHint ? "噁心 / Nausea"           : "Nausea",
+            isChineseUiHint ? "頭痛 / Headache"         : "Headache",
+            isChineseUiHint ? "畫面太刺激 / Visual overload" : "Visual overload",
+        };
+        return (question, options);
+    }
+
     public static string BuildFallbackResponse(string? text, string intent)
     {
         bool zh = LooksChinese(text);

@@ -10,6 +10,7 @@ using SenseEase.App.Configuration;
 using SenseEase.App.Comfort;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
+using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Real;
@@ -49,6 +50,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private DateTime _lastRealSampleAt   = DateTime.UtcNow;
     private DateTime _lastMetricsTickUtc = DateTime.UtcNow;
     private bool _prevMaskActiveForIntercept;
+    private readonly PressureSpikeDetector _spikeDetector = new();
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
 
     private bool _lastMaskActive;
@@ -392,6 +394,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { if (Set(ref _overlayVisible, value)) OverlayVisibilityChanged?.Invoke(this, value); }
     }
 
+    // ── Always-on Overlay (issue #4) ─────────────────────────────────────────────
+    // When enabled, the overlay window is forced visible and the VIMS tier is
+    // floored to PersistentOverlayBaselineTier. Natural pressure-driven tier still
+    // wins when it's higher — so a calm screen shows the baseline dim, and a
+    // motion-driven spike still darkens the periphery further.
+    private bool _persistentOverlayEnabled;
+    public bool PersistentOverlayEnabled
+    {
+        get => _persistentOverlayEnabled;
+        set
+        {
+            if (!Set(ref _persistentOverlayEnabled, value)) return;
+            // Toggling on auto-opens the overlay so the feature is immediately visible.
+            // Toggling off doesn't auto-hide — user keeps whatever overlay state they had.
+            if (value && !OverlayVisible) OverlayVisible = true;
+        }
+    }
+
+    private int _persistentOverlayBaselineTier = 4;
+    /// <summary>Baseline VIMS tier (1–10) when PersistentOverlayEnabled is true. 4 is
+    /// "subtle but noticeable" (~43% peak alpha at L4). Natural higher tiers override.</summary>
+    public int PersistentOverlayBaselineTier
+    {
+        get => _persistentOverlayBaselineTier;
+        set => Set(ref _persistentOverlayBaselineTier, Math.Clamp(value, 1, 10));
+    }
+
+    /// <summary>Apply the always-on tier floor to a freshly-emitted SenseState. Returns
+    /// the (possibly elevated) effective tier. Pure function; safe to call from any
+    /// thread.</summary>
+    public int ResolveDisplayedTier(int naturalTier) =>
+        PersistentOverlayEnabled
+            ? Math.Max(naturalTier, PersistentOverlayBaselineTier)
+            : naturalTier;
+
     private string _feedbackText = string.Empty;
     public string FeedbackText
     {
@@ -491,6 +528,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public event EventHandler<bool>? OverlayVisibilityChanged;
     public event EventHandler<SenseState>? StateChanged;
 
+    /// <summary>
+    /// Raised when VIMS pressure shows a sharp relative rise (≥30% within 3s).
+    /// Carries the spike magnitude 0..1. UI listens to open the chatbot popup.
+    /// </summary>
+    public event EventHandler<double>? PressureSpikeDetected;
+
     public ICommand StartDemoCommand { get; }
     public ICommand StopDemoCommand { get; }
     public ICommand ResetStateCommand { get; }
@@ -523,6 +566,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsRunning) StopDemo();
         OpticalFlowIndex = 0;
         _engine.ResetPersonalization();
+        _spikeDetector.Reset();
         UpdateFromState(_engine.Current);
         _adjustmentLog.Append(new AdjustmentRecord { Parameter = "Reset", Source = "reset" });
         NluResponse = string.Empty;
@@ -593,6 +637,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PressureHistory.Append(state.Pressure);
 
         StateChanged?.Invoke(this, state);
+
+        if (_spikeDetector.Push(state.Pressure, DateTime.UtcNow))
+        {
+            PressureSpikeDetected?.Invoke(this, _spikeDetector.LastNormalizedSpike);
+        }
     }
 
     // ?? Feedback ???????????????????????????????????????????????????????????

@@ -12,6 +12,7 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
     private OverlayWindow? _overlay;
+    private SpikePopupWindow? _spikePopup;
 
     public MainWindow()
     {
@@ -30,6 +31,42 @@ public partial class MainWindow : Window
             {
                 if (ChatScroll.IsVisible)
                     Dispatcher.BeginInvoke(new Action(() => ChatScroll.ScrollToEnd()));
+            };
+
+            // VIMS pressure spike → proactively open the AI Assistant tab AND show a
+            // floating popup window with the same question. The popup is the primary
+            // attention-grabber (user feedback: tab-switch alone wasn't visible
+            // enough — issue #3); the tab switch + chat bubble give the user a
+            // persistent record so the popup can be dismissed without losing the
+            // question. The detector enforces a 30-second cooldown so this can't
+            // fire more than once every 30 s.
+            vm.PressureSpikeDetected += (_, magnitude) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    bool zhHint = System.Globalization.CultureInfo.CurrentUICulture
+                                    .TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
+                    var (q, opts) = SenseEase.Infrastructure.Nlp.FeedbackLexicon
+                                        .BuildSpikeFollowup(zhHint, magnitude);
+
+                    // 1. Tab switch + chat bubble (persistent record).
+                    if (MainTabs is not null && MainTabs.Items.Count > 2)
+                        MainTabs.SelectedIndex = 2;
+                    vm.ChatbotVm.RaiseFollowup(q, opts);
+
+                    // 2. Floating popup window (immediate visibility — works even if
+                    //    the SenseEase main window is minimized or behind other apps).
+                    if (_spikePopup is not null && _spikePopup.IsLoaded)
+                    {
+                        // Re-arm in place rather than stacking multiple popups.
+                        try { _spikePopup.Close(); } catch { }
+                    }
+                    var popup = new SpikePopupWindow(q, opts);
+                    popup.OptionSelected += answer => vm.ChatbotVm.SubmitFollowupAnswer(answer);
+                    popup.Closed += (_, _) => { if (ReferenceEquals(_spikePopup, popup)) _spikePopup = null; };
+                    _spikePopup = popup;
+                    popup.Show();
+                }));
             };
         }
 
@@ -70,6 +107,7 @@ public partial class MainWindow : Window
             }
         };
         Closed += (_, _) => _overlay?.Close();
+        Closed += (_, _) => _spikePopup?.Close();
         // Stop the 15 Hz chart timer so the DispatcherTimer + VM ref don't pin the
         // window after Close (kept the Tick closure alive otherwise).
         Closed += (_, _) => _chartTimer?.Stop();
@@ -105,7 +143,18 @@ public partial class MainWindow : Window
     private void OnStateChanged(object? sender, SenseState state)
     {
         if (_overlay is { IsVisible: true })
+        {
+            // Issue #4 — Always-on overlay: floor the displayed tier to the user's
+            // configured baseline. Natural higher tiers (real pressure) still win.
+            // Mutate the engine-shared SenseState in place — the engine never reads
+            // VimsTier as input, so this is a forward-only display override.
+            int original = state.VimsTier;
+            state.VimsTier = _viewModel.ResolveDisplayedTier(original);
             _overlay.ApplyState(state);
+            // Restore so any other subscriber (or the engine's next-tick logging)
+            // sees the un-elevated value.
+            state.VimsTier = original;
+        }
     }
 
     // ── Eye-Protection live chart rendering ───────────────────────────────────

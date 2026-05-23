@@ -73,21 +73,24 @@ public static class SenseDefaults
     // Asymmetric attack/release mirrors audio compressor design — fast tighten, slow release.
     public const double VimsTierDeadband     = 0.15;   // half-band width in level units
     public const int    VimsTierUpDebounceMs   = 200;  // confirm rise (~3 frames @ 15 Hz)
-    public const int    VimsTierDownDebounceMs = 1200; // confirm fall — slow at the dangerous top
+    public const int    VimsTierDownDebounceMs = 500;  // confirm fall — halved from 1200 ms
+                                                       // after user feedback that overlay fade-out
+                                                       // felt sluggish on rapid OFI drops.
     // Fast-release knob for lower tiers (≤ VimsLowTierReleaseCutoff). At low tiers we are
-    // mostly relaxed already, so the mask should clear briskly. Without this, full release
-    // (tier 10 → 1) takes 9×1200ms = 10.8 s, far longer than the natural pressure decay
-    // (τ≈2.81s, so 250→<85 in ≈3 s). The user perceives "stuck darkness."
-    public const int    VimsTierDownDebounceLowMs = 600;  // tiers ≤ cutoff release at this rate
+    // mostly relaxed already, so the mask should clear briskly.
+    public const int    VimsTierDownDebounceLowMs = 250;  // tiers ≤ cutoff release at this rate
     public const int    VimsLowTierReleaseCutoff  = 7;    // tier transition target ≤ this uses low-ms
 
     // Fast-onset bypass: when levelF outruns the current tier by this many levels in a single
-    // tick, snap straight to the new tier (no debounce). Justification: with WGC at ~15 Hz and
-    // a strict +1-per-call limit, sudden onsets (scrolling video starts) take 9×200ms = 1.8 s
-    // to climb 1→10 — by which time the pressure surge is over and the protection arrived late.
-    // 1.5 levels of gap is well above per-tick noise (deadband 0.15) yet below the natural step
-    // size for genuine onsets.
+    // tick, snap straight to the new tier (no debounce).
     public const double VimsTierFastOnsetGap = 1.5;
+
+    // Fast-RELEASE bypass: mirror of fast-onset for sudden pressure drops (e.g. user
+    // alt-tabs and OFI is suppressed). Without this, tier release walks down by 1 per
+    // VimsTierDownDebounceMs even when levelF has already collapsed. With it, a 1.5-level
+    // gap drop snaps tier straight down in one tick, killing the residual "stuck darkness"
+    // when motion ends abruptly.
+    public const double VimsTierFastReleaseGap = 1.5;
 
     // ── Phase 4 — Ambient Light Comfort (lux → display VCP) ───────────────────
     public const int    LuxPollIntervalMs   = 1000;  // ALS poll cadence
