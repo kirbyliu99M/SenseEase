@@ -126,7 +126,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
             }
 
             // Habituation: gradually relax FOV after sustained calm (ticks under _gate).
-            _habituation.Step(pressure, Current.MaskActive, dt);
+            // Pass the previous tick's _vimsTier — close enough for the spike-pause
+            // tier selector (tier hysteresis debounces are 200 ms+, one Update tick
+            // is typically 100 ms, so the staleness is at most one tier off). Doing
+            // UpdateVimsTier first would be slightly more accurate but reorders
+            // Pressure → Tier → Habituation in ways the existing tests may pin.
+            _habituation.Step(pressure, Current.MaskActive, _vimsTier, dt);
 
             // Pressure-driven clear-zone radius + chatbot feedback offset + habituation relaxation.
             Current.FovRadiusPercent  = ComposeFovRadius(pressure);
@@ -153,7 +158,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // A negative (tightening) chatbot feedback is a discomfort recurrence:
             // back off habituation — severe reports zero it, mild reports nudge it down.
             if (fovDelta < 0)
-                _habituation.NotifyDiscomfort(Math.Abs(fovDelta) >= SenseDefaults.HabituationSevereFovThreshold);
+                _habituation.NotifyDiscomfort(
+                    Math.Abs(fovDelta) >= SenseDefaults.HabituationSevereFovThreshold,
+                    _vimsTier);
             // Refresh immediately so the dashboard/overlay reflect the change even
             // when the sensing loop is stopped (no Update() tick will arrive).
             Current.FovRadiusPercent  = ComposeFovRadius(Current.Pressure);
@@ -195,6 +202,49 @@ public sealed class MockInferenceEngine : IInferenceEngine
         lock (_gate)
         {
             _habituation.SetPaused(paused);
+            Current.HabituationPaused = _habituation.IsPaused;
+        }
+    }
+
+    // ── Habituation profile pass-throughs (Phase 3) ──────────────────────────
+    // Mirror the existing SetPaused / SetHabituationPaused naming convention so
+    // calling-site code and tests can talk to either layer. THIN pass-throughs
+    // only — no extra logic in the wrapper, per the "wrapper not a divergence
+    // point" rule. Future engine behaviour changes propagate without needing
+    // mirror updates here.
+
+    /// <summary>Current habituation profile (RESILIENT / TYPICAL / SENSITIVE).</summary>
+    public HabituationProfile HabituationProfile
+    {
+        get { lock (_gate) { return _habituation.CurrentProfile; } }
+    }
+
+    /// <summary>Origin of the current profile setting (default /
+    /// calibration_demo / chatbot_override).</summary>
+    public string HabituationProfileSource
+    {
+        get { lock (_gate) { return _habituation.ProfileSource; } }
+    }
+
+    /// <summary>Swap the habituation profile. See
+    /// <see cref="HabituationEngine.SetProfile"/> for full semantics —
+    /// resets strikes, preserves <c>_offset</c>, preserves any active pause.</summary>
+    public void SetHabituationProfile(HabituationProfile profile, string source = "default")
+    {
+        lock (_gate)
+        {
+            _habituation.SetProfile(profile, source);
+            Current.HabituationPaused = _habituation.IsPaused;
+        }
+    }
+
+    /// <summary>Resume from <see cref="EngineState.PausedAwaitingUserConfirm"/>.
+    /// Routed via the chatbot when the user confirms they're ready to continue.</summary>
+    public void AcknowledgeAndResumeHabituation()
+    {
+        lock (_gate)
+        {
+            _habituation.AcknowledgeAndResume();
             Current.HabituationPaused = _habituation.IsPaused;
         }
     }

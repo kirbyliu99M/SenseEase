@@ -184,8 +184,14 @@ public class HabituationTests
     }
 
     [Fact]
-    public void NotifyDiscomfort_Severe_ZeroesOffset()
+    public void NotifyDiscomfort_SingleSevere_HalvesOffsetUnderStrikeWeight()
     {
+        // Phase 3 re-pin: the old test asserted severe → zero in one call.
+        // Under the strike-counter logic chatbot-derived severe events are
+        // weighted 0.5 (per Q4); RESILIENT.SevereStrikeLimit = 2, so a single
+        // chatbot severe halves the offset (count 0 → 0.5, below limit).
+        // The "accumulates to zero on the 4th call" assertion lives in
+        // HabituationStrikeAndStateTests.cs.
         var engine = new HabituationEngine();
 
         Calm(engine, 420);
@@ -193,8 +199,9 @@ public class HabituationTests
 
         engine.NotifyDiscomfort(severe: true);
 
-        Assert.Equal(0, engine.HabituationOffset);
+        Assert.Equal(10, engine.HabituationOffset); // 20 × 0.5 = 10 (halved, not zeroed)
         Assert.True(engine.IsPaused);
+        Assert.Equal(0.5, engine.SevereStrikeCount);
     }
 
     [Fact]

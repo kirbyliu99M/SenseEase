@@ -4,30 +4,70 @@ using SenseEase.Core.Models;
 
 namespace SenseEase.Core.Inference;
 
+/// <summary>Engine-state projection consumed by the persistence layer and the
+/// chatbot prompt. Computed (not stored) from internal flags — see
+/// <see cref="HabituationEngine.CurrentEngineState"/>. Parallel to (does not
+/// replace) <see cref="HabituationPhase"/>, which UI keeps reading; the two
+/// enums are two views of the same underlying state.</summary>
+public enum EngineState
+{
+    /// <summary>Engine is observing or relaxing — no spike-pause active.</summary>
+    Running,
+
+    /// <summary>Engine is in the auto-recovery cooldown after a low/mid-tier
+    /// spike. Will resume automatically when <c>_pauseCooldown</c> elapses.</summary>
+    Cooldown,
+
+    /// <summary>Engine is paused after a tier ≥ 8 spike. Will NOT auto-resume;
+    /// the user (typically routed via the chatbot) must call
+    /// <see cref="HabituationEngine.AcknowledgeAndResume"/> to continue.</summary>
+    PausedAwaitingUserConfirm,
+}
+
 /// <summary>
 /// Therapeutic graduated-desensitisation engine. After the user stays calm for a
 /// sustained, contiguous window, it slowly widens the FOV (a positive offset) so the
 /// user re-habituates to normal visual stimulus instead of depending on the overlay.
 /// A discomfort recurrence immediately backs it off and pauses it.
 /// Pure, deterministic logic — all time enters via the dtSeconds parameter.
-/// NOT thread-safe: the owning inference engine must serialise access. SetProfile
-/// shares that contract — caller must hold the same gate.
+/// NOT thread-safe: the owning inference engine must serialise access. SetProfile,
+/// SetPaused, NotifyDiscomfort, and AcknowledgeAndResume share that contract —
+/// caller holds the same gate.
 ///
-/// Phase 2 rewire: the engine now reads its tuning constants from a
-/// <see cref="HabituationProfileParams"/> instance instead of static
-/// <see cref="SenseDefaults"/> fields. The default profile is RESILIENT, whose
-/// numerics match the legacy SenseDefaults values exactly — so every existing
-/// HabituationTests case passes one-line-unchanged. TYPICAL and SENSITIVE
-/// stratification arrives via SetProfile from the calibration demo (Phase 5)
-/// or chatbot override (Phase 7).
+/// Phase 3 introduces:
+///  - Tier-aware spike handling via the new <see cref="Step"/> signature (4-arg)
+///    and <see cref="HabituationProfileParams.GetPostSpikePauseMs"/>.
+///  - Severe-strike counter with halve-up-to-limit-then-zero logic. Chatbot-
+///    derived severe events are weighted 0.5 (per Q4); sensor-derived spikes
+///    are weighted 1.0.
+///  - <see cref="EngineState.PausedAwaitingUserConfirm"/> for tier ≥ 8 — engine
+///    parks indefinitely until <see cref="AcknowledgeAndResume"/>.
+///  - <see cref="EngineState"/> computed projection for chatbot + persistence.
 /// </summary>
 public sealed class HabituationEngine
 {
+    // Floating-point epsilon for strike-limit comparison. Chatbot weight is
+    // 0.5 (per Q4); 4 × 0.5 == 2.0 holds bitwise on IEEE 754 today. The 1e-9
+    // tolerance protects against future weight adjustments (e.g. 0.33, 0.66)
+    // where exact equality would fail. Do NOT remove without re-validating
+    // all weight × limit combinations — this is defensive-by-design, not
+    // an accidental tolerance.
+    private const double StrikeLimitEpsilon = 1e-9;
+
     private double _stableElapsed;    // contiguous calm time credited toward the window
     private double _stepAccumulator;  // time banked toward the next relaxation step
     private double _offset;           // current FOV relaxation, [0, _params.HabOffsetCapPp]
-    private double _pauseCooldown;    // remaining forced-pause seconds after a recurrence
+    private double _pauseCooldown;    // remaining forced-pause seconds; PositiveInfinity when awaiting user confirm
     private bool   _externallyPaused; // user-set pause from the dashboard
+    private bool   _awaitingUserConfirm; // tier ≥ 8 spike — engine refuses to auto-resume
+    private double _severeStrikeCount;   // weighted; sensor=1.0, chatbot=0.5 (Q4)
+    // _lastSeenTier defaults to 1 (most conservative). This is INTENTIONAL,
+    // not a placeholder. Callers using the no-tier NotifyDiscomfort(bool)
+    // overload effectively get tier-1 behaviour — appropriate for legacy
+    // paths and tests that don't simulate the upstream pressure-tier
+    // pipeline. Production paths must use the explicit
+    // NotifyDiscomfort(bool, int) overload (MockInferenceEngine does).
+    private int    _lastSeenTier = 1;    // updated each Step call; consumed by NotifyDiscomfort default path
     private HabituationPhase _phase = HabituationPhase.Observing;
 
     // Active profile. Default is RESILIENT (matches legacy SenseDefaults
@@ -37,10 +77,9 @@ public sealed class HabituationEngine
     private string                   _profileSource  = "default";
 
     // Personalisation: linear interpolation by `caution` in [0,1] between the
-    // profile's nominal window and the cautious-user upper bound (2× per
-    // Q1 rule, see docs/HABITUATION-PROFILE.md §1.1). StepInterval ceiling
-    // remains the legacy SenseDefaults value — it's profile-independent in
-    // Phase 2 and can be promoted into the profile later if needed.
+    // profile's nominal window and the cautious-user upper bound (2× per Q1).
+    // StepInterval ceiling remains the legacy SenseDefaults value — profile-
+    // independent in Phase 2, may be promoted into the profile later.
     private double _effectiveWindow;
     private double _effectiveStepInterval;
 
@@ -60,10 +99,21 @@ public sealed class HabituationEngine
     public int HabituationLevel =>
         (int)Math.Round(100.0 * _offset / _params.HabOffsetCapPp);
 
-    /// <summary>True when habituation is paused (forced cooldown or manual pause).</summary>
-    public bool IsPaused => _externallyPaused || _pauseCooldown > 0.0;
+    /// <summary>True when habituation is paused (forced cooldown OR awaiting user confirm OR manual pause).</summary>
+    public bool IsPaused => _externallyPaused || _pauseCooldown > 0.0 || _awaitingUserConfirm;
 
-    /// <summary>Current lifecycle phase.</summary>
+    /// <summary>True iff the engine is in <see cref="EngineState.PausedAwaitingUserConfirm"/>.</summary>
+    public bool IsAwaitingUserConfirm => _awaitingUserConfirm;
+
+    /// <summary>Current weighted strike count. Sensor spikes contribute 1.0;
+    /// chatbot severe reports contribute 0.5. Zeros when the limit is reached
+    /// (offset zeros at the same time) OR when a full stable-window passes
+    /// OR when the profile changes (Q6).</summary>
+    public double SevereStrikeCount => _severeStrikeCount;
+
+    /// <summary>Current lifecycle phase. UI projection — kept stable for the
+    /// dashboard's habituation widget. See <see cref="CurrentEngineState"/>
+    /// for the chatbot / persistence projection.</summary>
     public HabituationPhase Phase => _phase;
 
     /// <summary>Active reactivity profile. Default RESILIENT; switched by
@@ -75,6 +125,27 @@ public sealed class HabituationEngine
     /// Surfaced in the Phase 4 JSON snapshot.</summary>
     public string ProfileSource => _profileSource;
 
+    /// <summary>Computed projection of internal state — does NOT replace
+    /// <see cref="Phase"/>. The two enums are different views of the same
+    /// underlying flags; storing both separately would invite drift.</summary>
+    public EngineState CurrentEngineState
+    {
+        get
+        {
+            // Per Q8 (modified): externally_paused does NOT mask Cooldown —
+            // it's surfaced as a parallel boolean elsewhere (Phase 4 JSON).
+            // The chatbot needs to see the underlying engine state even when
+            // the user has manually paused.
+            if (_awaitingUserConfirm) return EngineState.PausedAwaitingUserConfirm;
+            if (_pauseCooldown > 0.0)  return EngineState.Cooldown;
+            return EngineState.Running;
+        }
+    }
+
+    /// <summary>Mirror of <c>_externallyPaused</c> for the Phase 4 JSON
+    /// snapshot's parallel <c>externally_paused</c> field (Q8 modified).</summary>
+    public bool IsExternallyPaused => _externallyPaused;
+
     /// <summary>Raised whenever <see cref="SetProfile"/> changes the active
     /// profile. Phase 4's FileHabituationProfileStore consumer subscribes
     /// here to persist the new snapshot atomically.</summary>
@@ -83,11 +154,20 @@ public sealed class HabituationEngine
     /// <summary>Swap the active profile. Caller (typically the owning
     /// <see cref="SenseEase.Infrastructure.Mock.MockInferenceEngine"/>) must
     /// serialise this against <see cref="Step"/> via the same gate.
-    /// <para>Profile change resets <c>_effectiveWindow</c> /
-    /// <c>_effectiveStepInterval</c> to the new baseline; the next
-    /// <see cref="SetPersonalization"/> tick re-applies caution on top.
-    /// The accumulated <c>_offset</c> is preserved (long-term progress
-    /// survives a profile shift per Q6).</para></summary>
+    /// <para>Behaviour per Q6 + Phase 3 supplement #2:</para>
+    /// <list type="bullet">
+    ///   <item><c>_severeStrikeCount</c> is RESET (strikes are profile-scoped).</item>
+    ///   <item><c>_offset</c> is PRESERVED (long-term habituation progress
+    ///         survives a profile shift), but re-clamped if the new cap is lower.</item>
+    ///   <item><c>_awaitingUserConfirm</c> is NOT cleared. Pause is a CURRENT
+    ///         safety requirement orthogonal to strike history. A user who
+    ///         needs to confirm before resuming still needs to confirm; the
+    ///         profile of WHAT they'll resume INTO is what changed.</item>
+    ///   <item><c>_pauseCooldown</c> is NOT cleared either — same reason.</item>
+    ///   <item><c>_effectiveWindow</c> / <c>_effectiveStepInterval</c> rebase to
+    ///         the new profile floor; SetPersonalization re-applies caution
+    ///         on the next adjustment-log tick.</item>
+    /// </list></summary>
     public void SetProfile(HabituationProfile profile, string source = "default")
     {
         if (profile == _currentProfile && source == _profileSource) return;
@@ -96,45 +176,62 @@ public sealed class HabituationEngine
         _currentProfile = profile;
         _profileSource  = source;
 
-        // Re-baseline caution-derived state. Don't touch _offset —
-        // earned habituation progress persists across profile changes.
+        // Strikes reset — profile-scoped per Q6.
+        _severeStrikeCount = 0.0;
+
+        // Re-baseline caution-derived state. Don't touch _offset (Q6) and DO
+        // NOT touch _awaitingUserConfirm / _pauseCooldown (supplement #2).
         _effectiveWindow       = _params.StableWindowSeconds;
         _effectiveStepInterval = _params.StepIntervalSeconds;
 
-        // Re-clamp _offset in case the new cap is lower than the old one
-        // (e.g. RESILIENT → SENSITIVE drops cap from 30 to 15).
         if (_offset > _params.HabOffsetCapPp)
             _offset = _params.HabOffsetCapPp;
 
         ProfileChanged?.Invoke(profile, source);
     }
 
+    /// <summary>Resume from <see cref="EngineState.PausedAwaitingUserConfirm"/>.
+    /// No-op if the engine is not in that state. Clears the await flag and
+    /// the (infinite) cooldown; phase returns to Observing. The user / chatbot
+    /// path is responsible for confirming the user is genuinely ready —
+    /// the engine has no way to verify.</summary>
+    public void AcknowledgeAndResume()
+    {
+        if (!_awaitingUserConfirm) return;
+        _awaitingUserConfirm = false;
+        _pauseCooldown = 0.0;
+        _stableElapsed = 0.0;
+        _stepAccumulator = 0.0;
+        _phase = HabituationPhase.Observing;
+    }
+
     /// <summary>
     /// Advance one tick. <paramref name="dtSeconds"/> is the owning engine's real
     /// elapsed dt; <paramref name="pressure"/> and <paramref name="maskActive"/> are
-    /// the current inference state.
+    /// the current inference state; <paramref name="vimsTier"/> is the upstream
+    /// inference-engine's current VIMS tier (1–10), used to scale post-spike
+    /// pause length and gate the tier ≥ 8 user-confirm path.
     /// </summary>
-    public void Step(double pressure, bool maskActive, double dtSeconds)
+    public void Step(double pressure, bool maskActive, int vimsTier, double dtSeconds)
     {
         if (dtSeconds <= 0.0) return;
+        _lastSeenTier = vimsTier;
         double dt = dtSeconds * TimeScale;
 
-        if (_pauseCooldown > 0.0)
+        // Infinite cooldown (awaiting user confirm) never ticks down here.
+        if (_pauseCooldown > 0.0 && !_awaitingUserConfirm)
             _pauseCooldown = Math.Max(0.0, _pauseCooldown - dt);
 
         double trigger = SenseDefaults.TriggerPressure;
 
-        // Pressure-spike recurrence: back off and pause immediately.
-        // Phase 3 will replace this branch with the strike-counter logic
-        // (halve up to SevereStrikeLimit, then zero + reset).
+        // Pressure-spike recurrence: sensor-derived severe event (weight 1.0).
         if (pressure >= trigger * SenseDefaults.HabituationRecurrencePressureFraction)
         {
-            _offset = Math.Max(0.0, _offset * SenseDefaults.HabituationSpikeBackoffMultiplier);
-            EnterPause();
+            RegisterSevereStrike(weight: 1.0, vimsTier);
             return;
         }
 
-        if (_externallyPaused || _pauseCooldown > 0.0)
+        if (_externallyPaused || _pauseCooldown > 0.0 || _awaitingUserConfirm)
         {
             _phase = HabituationPhase.Paused;
             return;
@@ -154,6 +251,11 @@ public sealed class HabituationEngine
         if (_stableElapsed >= _effectiveWindow)
         {
             _phase = HabituationPhase.Relaxing;
+            // A full stable window pass means the user has demonstrated calm
+            // for the entire profile-defined cool-off. Strikes reset — the
+            // user has earned a clean slate for the next severe-event count.
+            _severeStrikeCount = 0.0;
+
             _stepAccumulator += dt;
             while (_stepAccumulator >= _effectiveStepInterval
                    && _offset < _params.HabOffsetCapPp)
@@ -171,27 +273,66 @@ public sealed class HabituationEngine
         }
     }
 
+    /// <summary>Phase 2-era overload retained for HabituationTests.cs and any
+    /// out-of-tree caller. Forwards to the primary <see cref="Step"/> with
+    /// <paramref name="dtSeconds"/> mapping to tier 1 (lowest tier — most
+    /// conservative pause length, semantically closest to "no tier
+    /// context"). Production code must use the 4-arg signature.</summary>
+    [Obsolete("Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.")]
+    public void Step(double pressure, bool maskActive, double dtSeconds)
+        => Step(pressure, maskActive, vimsTier: 1, dtSeconds);
+
     /// <summary>
-    /// Report a chatbot-detected discomfort. A severe report zeroes the offset; a mild
-    /// report applies a small back-off. Both pause habituation and restart the window.
-    /// Phase 3 will fold severe reports into the strike counter (weighted 0.5 per Q4).
+    /// Report a chatbot-detected discomfort. Severe is weighted 0.5 in the
+    /// strike counter (per Q4: LLM signals are softer ground truth than
+    /// sensor-derived spikes). Mild applies a small back-off and pauses but
+    /// does not count as a strike. Uses the last-seen VIMS tier from Step
+    /// (default 1 if Step has never been called).
     /// </summary>
-    public void NotifyDiscomfort(bool severe)
+    public void NotifyDiscomfort(bool severe) => NotifyDiscomfort(severe, _lastSeenTier);
+
+    /// <summary>Same as <see cref="NotifyDiscomfort(bool)"/> but with an
+    /// explicit tier. Production callers (MockInferenceEngine) pass the
+    /// current <c>Current.VimsTier</c>; tests use the no-tier overload.</summary>
+    public void NotifyDiscomfort(bool severe, int vimsTier)
     {
-        _offset = severe
-            ? 0.0
-            : Math.Max(0.0, _offset - SenseDefaults.HabituationMildBackoffPercent);
-        EnterPause();
+        if (severe)
+        {
+            RegisterSevereStrike(weight: 0.5, vimsTier);
+            return;
+        }
+        _offset = Math.Max(0.0, _offset - SenseDefaults.HabituationMildBackoffPercent);
+        EnterPause(vimsTier);
+    }
+
+    /// <summary>Core severe-event handler. Halves <c>_offset</c> + increments
+    /// the weighted strike counter. When the counter reaches the profile's
+    /// <see cref="HabituationProfileParams.SevereStrikeLimit"/> (with epsilon
+    /// per supplement #1), zeroes <c>_offset</c> instead AND resets the
+    /// counter. Always calls <see cref="EnterPause"/> for the appropriate
+    /// tier-scaled cooldown.</summary>
+    private void RegisterSevereStrike(double weight, int vimsTier)
+    {
+        _severeStrikeCount += weight;
+        // Epsilon belt — see StrikeLimitEpsilon field comment for the
+        // "do not remove" rationale. Compares with -1e-9 slack so future
+        // non-binary weights (e.g. 1/3) don't silently miss the limit.
+        if (_severeStrikeCount >= _params.SevereStrikeLimit - StrikeLimitEpsilon)
+        {
+            _offset = 0.0;
+            _severeStrikeCount = 0.0;
+        }
+        else
+        {
+            _offset = Math.Max(0.0, _offset * SenseDefaults.HabituationSpikeBackoffMultiplier);
+        }
+        EnterPause(vimsTier);
     }
 
     /// <summary>
     /// Update per-user personalisation from FOV-adjustment history. A user who
     /// habitually tightens (negative MeanDelta) habituates more gently: a longer
     /// observation window and a slower relaxation cadence.
-    /// <para>Ceiling rules (per Q1): StableWindow caps at 2× the profile floor
-    /// (e.g. RESILIENT 120s → 240s cap; SENSITIVE 360s → 720s cap).
-    /// StepInterval keeps the legacy <see cref="SenseDefaults.HabituationMaxStepIntervalSeconds"/>
-    /// ceiling for Phase 2 — profile-independent, can be promoted later.</para>
     /// </summary>
     public void SetPersonalization(PersonalWeight fovHistory)
     {
@@ -209,10 +350,6 @@ public sealed class HabituationEngine
 
         double stepFloor    = _params.StepIntervalSeconds;
         double stepCeiling  = SenseDefaults.HabituationMaxStepIntervalSeconds;
-        // Clamp the ceiling above the floor in case a profile with a high
-        // StepIntervalSeconds (e.g. SENSITIVE 60s vs legacy ceiling 75s) still
-        // leaves room to scale up. If the ceiling has been overshot by the
-        // floor, no caution-scaling applies.
         if (stepCeiling <= stepFloor) stepCeiling = stepFloor;
         _effectiveStepInterval = stepFloor + (caution * (stepCeiling - stepFloor));
     }
@@ -250,21 +387,32 @@ public sealed class HabituationEngine
         _offset = 0.0;
         _pauseCooldown = 0.0;
         _externallyPaused = false;
+        _awaitingUserConfirm = false;
+        _severeStrikeCount = 0.0;
+        _lastSeenTier = 1;
         _phase = HabituationPhase.Observing;
         _effectiveWindow       = _params.StableWindowSeconds;
         _effectiveStepInterval = _params.StepIntervalSeconds;
     }
 
-    private void EnterPause()
+    /// <summary>Enter the post-spike pause. Tier &le; 5 → PostSpikePauseLow,
+    /// auto-resumes. Tier 6 or 7 → PostSpikePauseMid, auto-resumes. Tier ≥ 8 →
+    /// PausedAwaitingUserConfirm, <see cref="AcknowledgeAndResume"/> required.</summary>
+    private void EnterPause(int vimsTier)
     {
         _stableElapsed = 0.0;
         _stepAccumulator = 0.0;
-        // Tier-aware pause length lands in Phase 3 (Step gets a vimsTier
-        // parameter, GetPostSpikePauseMs picks low/mid/-1 + requireConfirm).
-        // For Phase 2 we use the profile's low-tier pause as the constant
-        // fallback — for RESILIENT this is 90s, identical to the legacy
-        // SenseDefaults.HabituationPauseCooldownSeconds.
-        _pauseCooldown = _params.PostSpikePauseLowSeconds;
+
+        int pauseMs = _params.GetPostSpikePauseMs(vimsTier, out bool requireConfirm);
+        if (requireConfirm)
+        {
+            _awaitingUserConfirm = true;
+            _pauseCooldown = double.PositiveInfinity;
+        }
+        else
+        {
+            _pauseCooldown = pauseMs / 1000.0;
+        }
         _phase = HabituationPhase.Paused;
     }
 }
