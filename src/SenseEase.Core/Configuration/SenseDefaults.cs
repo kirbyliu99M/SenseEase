@@ -45,18 +45,31 @@ public static class SenseDefaults
     // Pressure bands are fractions of TriggerPressure: relax when calm, back off on recurrence.
     public const double HabituationStablePressureFraction     = 0.25; // calm  => pressure < 25% of TriggerPressure
     public const double HabituationRecurrencePressureFraction = 0.60; // spike => pressure >= 60% of TriggerPressure
-    public const double HabituationStableWindowSeconds        = 120.0; // contiguous calm needed before relaxing
-    public const double HabituationMaxWindowSeconds           = 240.0; // cautious-user window upper bound
-    public const double HabituationStepIntervalSeconds        = 30.0;  // one relaxation step per this interval
-    public const double HabituationMaxStepIntervalSeconds     = 75.0;  // cautious-user cadence upper bound
-    public const double HabituationStepPercent                = 2.0;   // FOV widened per step (percent points)
-    public const int    HabituationMaxOffset                  = 30;    // hard cap on total FOV relaxation
+
+    // ── DEPRECATED (Phase 2): superseded by HabituationProfileParams ──────────
+    // The 7 constants below were the engine's only tuning source before the
+    // three-profile system landed. They are retained as the RESILIENT-profile
+    // defaults (verified bit-for-bit identical to HabituationProfileParams.Resilient).
+    // The engine no longer reads them; new code should reference
+    // HabituationProfileParams instead. See docs/HABITUATION-PROFILE.md §1, §2.
+    // Kept (not removed) for backward compat — Phase 3+ may relocate them
+    // entirely once we're confident no out-of-tree consumer depends on them.
+    public const double HabituationStableWindowSeconds        = 120.0; // -> HabituationProfileParams.Resilient.StableWindowSeconds
+    public const double HabituationMaxWindowSeconds           = 240.0; // -> _params.StableWindowSeconds * 2.0 (per Q1 rule)
+    public const double HabituationStepIntervalSeconds        = 30.0;  // -> HabituationProfileParams.Resilient.StepIntervalSeconds
+    public const double HabituationStepPercent                = 2.0;   // -> HabituationProfileParams.Resilient.StepMagnitudePp
+    public const int    HabituationMaxOffset                  = 30;    // -> HabituationProfileParams.Resilient.HabOffsetCapPp
+    public const double HabituationPauseCooldownSeconds       = 90.0;  // -> HabituationProfileParams.Resilient.PostSpikePauseLowSeconds
+    public const int    HabituationPersonalizationMinSamples  = 3;     // -> HabituationProfileParams.Resilient.MinSamplesForFullWeight
+
+    // ── Still actively read (not in HabituationProfileParams) ─────────────────
+    // These remain SenseDefaults-owned because they're either profile-independent
+    // engine behaviour or candidates for Phase 3+ promotion.
+    public const double HabituationMaxStepIntervalSeconds     = 75.0;  // cautious-user cadence upper bound (cap of caution-scaling)
     public const double HabituationMidBandDecayRate            = 0.5;   // non-calm time bleeds calm credit at this rate
-    public const double HabituationPauseCooldownSeconds        = 90.0;  // forced pause after a recurrence
-    public const double HabituationSpikeBackoffMultiplier      = 0.5;   // pressure-spike recurrence halves the offset
+    public const double HabituationSpikeBackoffMultiplier      = 0.5;   // Phase 2 spike-halve mult; Phase 3 replaces with strike counter
     public const double HabituationMildBackoffPercent          = 4.0;   // mild discomfort report reduces offset by this
-    public const int    HabituationSevereFovThreshold          = 18;    // |fovDelta| >= this => severe => zero the offset
-    public const int    HabituationPersonalizationMinSamples   = 3;     // history count for full personalization weight
+    public const int    HabituationSevereFovThreshold          = 18;    // |fovDelta| >= this => severe; Phase 3 wires into strike counter
     public const double HabituationCautionMeanDeltaDivisor     = 15.0;  // mean FOV delta that saturates "caution" to 1.0
     public const double HabituationTimeScale = 1.0;  // demo accelerator for habituation dt; 1.0 = real time
     public const double HabituationPersonalizationRefreshSeconds = 30.0; // re-pull personalization this often
