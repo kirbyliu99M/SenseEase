@@ -218,9 +218,25 @@ expected to be near-zero frequency within the v1 lifecycle.
 ### 5.5 — Atomic write requirement
 
 `File.Move` is not guaranteed atomic across all Windows versions. Phase 4 uses
-`File.Replace` (or equivalent transactional rename), and Phase 4 acceptance
-includes a `Process.Kill`-during-write test to verify no half-written state can
-land on disk.
+`File.Replace` (atomic on NTFS, transactional rename) via
+`Infrastructure/Storage/AtomicJsonWriter.cs`. First-write case falls back to
+`File.Move` (no destination yet), also atomic on the same volume. `.tmp`
+residue from a prior-crash run is overwritten cleanly on the next `Save`.
+
+**Automated coverage** (CI):
+- `HabituationProfileStoreTests.Save_RepeatedWrites_LeaveNoTmpResidue` — `.tmp` cleanup
+- `HabituationProfileStoreTests.Save_AfterPriorCrashTmpResidue_OverwritesAndClearsTmp` — recovery from prior crash both branches (no destination + with destination)
+- Schema-version mismatch → null fall-back per Q2
+
+**Manual smoke** (one-time during Phase 4 acceptance, not CI):
+1. Launch the app, run a calibration demo, confirm `habituation_profile.json` exists.
+2. With the app running, inject sustained calibration-state changes (e.g. cycle profile via chatbot override several times in quick succession).
+3. Mid-stream, `Stop-Process -Force` on `SenseEase.App`.
+4. Re-launch. Verify:
+   - No `habituation_profile.json.tmp` residue in `%LocalAppData%\SenseEase\`
+   - `habituation_profile.json` parses cleanly as valid v1 JSON
+   - File contents are either pre-kill OR post-kill values — never a partial / corrupt mix
+   - App starts cleanly and chatbot's `[habituation_state]` block reflects the persisted state
 
 ---
 

@@ -61,6 +61,7 @@ public sealed class HabituationEngine
     private bool   _externallyPaused; // user-set pause from the dashboard
     private bool   _awaitingUserConfirm; // tier ≥ 8 spike — engine refuses to auto-resume
     private double _severeStrikeCount;   // weighted; sensor=1.0, chatbot=0.5 (Q4)
+    private DateTime? _lastSpikeAtUtc;   // populated by RegisterSevereStrike; surfaced in persistence snapshot
     // _lastSeenTier defaults to 1 (most conservative). This is INTENTIONAL,
     // not a placeholder. Callers using the no-tier NotifyDiscomfort(bool)
     // overload effectively get tier-1 behaviour — appropriate for legacy
@@ -145,6 +146,16 @@ public sealed class HabituationEngine
     /// <summary>Mirror of <c>_externallyPaused</c> for the Phase 4 JSON
     /// snapshot's parallel <c>externally_paused</c> field (Q8 modified).</summary>
     public bool IsExternallyPaused => _externallyPaused;
+
+    /// <summary>UTC of the most recent severe-strike event (sensor or chatbot).
+    /// Null when no spike has ever fired. Surfaced in the Phase 4 JSON
+    /// snapshot's <c>last_spike_at_iso</c> field.</summary>
+    public DateTime? LastSpikeAtUtc => _lastSpikeAtUtc;
+
+    /// <summary>Active profile's parameter set. Exposed for the persistence
+    /// snapshot's <c>params_snapshot</c> sub-record and any chatbot prompt
+    /// path that needs cadence numbers without re-resolving the enum.</summary>
+    public HabituationProfileParams CurrentParams => _params;
 
     /// <summary>Raised whenever <see cref="SetProfile"/> changes the active
     /// profile. Phase 4's FileHabituationProfileStore consumer subscribes
@@ -313,6 +324,7 @@ public sealed class HabituationEngine
     /// tier-scaled cooldown.</summary>
     private void RegisterSevereStrike(double weight, int vimsTier)
     {
+        _lastSpikeAtUtc = DateTime.UtcNow;
         _severeStrikeCount += weight;
         // Epsilon belt — see StrikeLimitEpsilon field comment for the
         // "do not remove" rationale. Compares with -1e-9 slack so future

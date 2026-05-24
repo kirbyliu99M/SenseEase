@@ -35,6 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly WgcSensingProvider _wgcSensing = new();
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
+    private readonly IHabituationProfileStore _habituationProfileStore = new FileHabituationProfileStore(AppConfig.HabituationProfilePath);
     // Auto Driver/Passenger mode detector — polls Win32 GetLastInputInfo at 1 Hz and
     // raises ModeChanged when OS-level input idleness crosses the hysteresis band.
     private readonly UserActivityModeDetector _activityDetector = new();
@@ -68,7 +69,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public MainViewModel()
     {
-        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore);
+        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore);
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);

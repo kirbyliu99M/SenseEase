@@ -128,6 +128,14 @@ public static class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "adjustments.jsonl");
 
+    // Habituation profile snapshot (Phase 4). Independent of habituation.json
+    // (which continues to store offset only). See docs/HABITUATION-PROFILE.md
+    // §5 for the schema + write-trigger semantics. Writes via tmp + File.Replace
+    // (atomic across Process.Kill mid-write).
+    public static string HabituationProfilePath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "habituation_profile.json");
+
     // First-run flag. Touched once after the user completes (or skips) the
     // setup-demo calibration. Used to drive the welcome banner on the dashboard:
     // banner is shown only when the flag file does NOT exist. Flag file is empty

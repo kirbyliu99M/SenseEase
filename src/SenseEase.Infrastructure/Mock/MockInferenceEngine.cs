@@ -21,11 +21,27 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private readonly HabituationEngine _habituation = new();
     private readonly IAdjustmentLog? _adjustmentLog;
     private readonly IHabituationStore? _habituationStore;
+    private readonly IHabituationProfileStore? _profileStore;
     private double _personalizationAccumulator;
     private int _lastSavedOffset;
     private int      _vimsTier = 1;
     private int      _pendingTierCandidate = 1;
     private DateTime _pendingTierSinceUtc  = DateTime.MinValue;
+
+    // ── Habituation-profile snapshot bookkeeping (Phase 4) ───────────────────
+    // Tracks the engine state we persisted on the most recent successful
+    // FileHabituationProfileStore.Save call. MaybePersistProfileSnapshot
+    // compares current state to these markers and writes when any of the
+    // user-spec'd triggers fire (profile change / level Δ > 5 / spike /
+    // enter-or-exit awaiting / strike-count change). See
+    // docs/HABITUATION-PROFILE.md §5.2.
+    private double                _lastSavedLevel;
+    private double                _lastSavedStrikeCount;
+    private EngineState           _lastSavedEngineState = EngineState.Running;
+    private HabituationProfile    _lastSavedProfile     = HabituationProfile.Resilient;
+    private string                _lastSavedProfileSource = "default";
+    private bool                  _profileSnapshotDirty;
+    private DateTime?             _lastSavedSpikeAtUtc;
 
     public SenseState Current { get; } = new()
     {
@@ -38,19 +54,54 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
     /// <summary>
     /// <paramref name="adjustmentLog"/> drives habituation personalisation;
-    /// <paramref name="habituationStore"/> persists habituation progress across restarts.
-    /// Both optional so test code can still use the parameterless form.
+    /// <paramref name="habituationStore"/> persists habituation progress (offset only) across restarts;
+    /// <paramref name="profileStore"/> persists the Phase 4 profile snapshot (profile + strikes +
+    /// engine state) — a separate file from <paramref name="habituationStore"/> by design.
+    /// All three are optional so test code can still use the parameterless form.
     /// </summary>
     public MockInferenceEngine(IAdjustmentLog? adjustmentLog = null,
-                               IHabituationStore? habituationStore = null)
+                               IHabituationStore? habituationStore = null,
+                               IHabituationProfileStore? profileStore = null)
     {
         _adjustmentLog = adjustmentLog;
         _habituationStore = habituationStore;
+        _profileStore = profileStore;
         _habituation.TimeScale = SenseDefaults.HabituationTimeScale;
 
-        HabituationState? saved = habituationStore?.Load();
-        if (saved is not null)
-            _habituation.Restore(saved);
+        // ── Restore precedence (per gotcha #1) ──────────────────────────────
+        // 1. habituation.json → _offset (legacy file, untouched semantics)
+        // 2. habituation_profile.json → profile + (eventually) strikes + state
+        //    If habituation.json EXISTS but habituation_profile.json DOES NOT,
+        //    treat as an upgrade scenario: default RESILIENT + source="default"
+        //    and immediately write the new file. Do NOT force the user back
+        //    into the calibration demo — that's a hostile UX for existing users.
+        //    The two files are version-independent; a read failure on one
+        //    does not roll back the other.
+        HabituationState? savedOffset = habituationStore?.Load();
+        if (savedOffset is not null)
+            _habituation.Restore(savedOffset);
+
+        HabituationProfileSnapshot? savedSnapshot = profileStore?.Load();
+        if (savedSnapshot is not null)
+        {
+            if (Enum.TryParse<HabituationProfile>(savedSnapshot.Profile, ignoreCase: true,
+                                                   out var prof))
+            {
+                _habituation.SetProfile(prof, savedSnapshot.ProfileSource);
+            }
+            // Note: we deliberately do NOT restore strike_count from the snapshot.
+            // Strikes are a within-session safety counter — re-loading them on
+            // startup would mean a user who hit the limit yesterday boots into
+            // an immediately-zero state on the next severe event today, which
+            // contradicts the "stable window resets strikes" semantics.
+            // _offset comes from habituation.json (above); the new file's
+            // habituation_offset_pp field is informational, not authoritative.
+        }
+        // else: file absent OR unreadable OR unknown schema (Q2 fallback).
+        // Engine stays on RESILIENT default; if profileStore is non-null we'll
+        // write a fresh snapshot on the next persist tick — see
+        // _profileSnapshotDirty initial state below.
+
         if (adjustmentLog is not null)
         {
             var weight = adjustmentLog.WeightFor("FovRadius");
@@ -69,10 +120,27 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // restored (above) so resuming the engine picks up where the user left off.
         _habituation.SetPaused(true);
 
+        // Subscribe to the engine's ProfileChanged event so the wrapper can
+        // mark the snapshot dirty whenever someone (calibration demo, chatbot
+        // override, ResetState path) flips the profile. The handler is a thin
+        // flag-set — actual persistence happens inside MaybePersistProfileSnapshot.
+        _habituation.ProfileChanged += (_, _) => _profileSnapshotDirty = true;
+
         _lastSavedOffset = _habituation.HabituationOffset;
         Current.HabituationLevel  = _habituation.HabituationLevel;
         Current.HabituationPaused = _habituation.IsPaused;
         Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+
+        // Seed the persistence trackers to "no change since now". If the
+        // snapshot file was absent at startup, MaybePersistProfileSnapshot will
+        // detect that situation (dirty=true from ctor logic below) and write
+        // an initial RESILIENT snapshot on the first Update tick.
+        _lastSavedLevel       = _habituation.HabituationLevel;
+        _lastSavedStrikeCount = _habituation.SevereStrikeCount;
+        _lastSavedEngineState = _habituation.CurrentEngineState;
+        _lastSavedProfile     = _habituation.CurrentProfile;
+        _lastSavedProfileSource = _habituation.ProfileSource;
+        _profileSnapshotDirty = savedSnapshot is null && profileStore is not null;
     }
 
     public SenseState Update(double opticalFlowIndex, string mode, DateTime? sampledAt = null)
@@ -146,6 +214,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
             Current.Shader = _shader;
             Current.LastUpdatedAt = DateTime.Now;
+
+            // Profile-snapshot persistence at the tail end of Update — after
+            // both habituation state mutations AND tier update. Strike-count
+            // / engine-state / level changes from this tick are now reflected
+            // in the engine getters, so MaybePersistProfileSnapshot has the
+            // final state to compare against the last-saved markers.
+            MaybePersistProfileSnapshot();
+
             return Current;
         }
     }
@@ -167,6 +243,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             Current.HabituationLevel  = _habituation.HabituationLevel;
             Current.HabituationPaused = _habituation.IsPaused;
             PersistHabituation();
+            MaybePersistProfileSnapshot();
         }
     }
 
@@ -235,6 +312,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             _habituation.SetProfile(profile, source);
             Current.HabituationPaused = _habituation.IsPaused;
+            MaybePersistProfileSnapshot();
         }
     }
 
@@ -246,8 +324,98 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             _habituation.AcknowledgeAndResume();
             Current.HabituationPaused = _habituation.IsPaused;
+            MaybePersistProfileSnapshot();
         }
     }
+
+    // ── Profile-snapshot persistence (Phase 4) ────────────────────────────────
+    // Compares the engine's current state against the markers from the most
+    // recent successful Save. Writes when any of these conditions hold:
+    //   - profile flipped (engine's ProfileChanged event sets _profileSnapshotDirty)
+    //   - HabituationLevel delta > 5 since last save (per Q7: matches existing
+    //     _lastSavedOffset cadence, "since last persisted level")
+    //   - SevereStrikeCount changed at all (small delta still matters: rising
+    //     toward limit OR resetting to zero are both signals the chatbot wants)
+    //   - EngineState transitioned (Cooldown ↔ Running, into/out of
+    //     PausedAwaitingUserConfirm)
+    //   - LastSpikeAtUtc changed (spike fired since last save)
+    //
+    // Caller must hold _gate. Persistence is best-effort: a Save failure does
+    // not roll back the trackers — the next change will retry. If _profileStore
+    // is null, this is a no-op (test code path).
+    private void MaybePersistProfileSnapshot()
+    {
+        if (_profileStore is null) return;
+
+        double level    = _habituation.HabituationLevel;
+        double strikes  = _habituation.SevereStrikeCount;
+        EngineState es  = _habituation.CurrentEngineState;
+        var profile     = _habituation.CurrentProfile;
+        string source   = _habituation.ProfileSource;
+        DateTime? spike = _habituation.LastSpikeAtUtc;
+
+        bool dirty = _profileSnapshotDirty
+                  || Math.Abs(level - _lastSavedLevel) > 5.0
+                  || strikes != _lastSavedStrikeCount
+                  || es != _lastSavedEngineState
+                  || profile != _lastSavedProfile
+                  || source != _lastSavedProfileSource
+                  || spike != _lastSavedSpikeAtUtc;
+
+        if (!dirty) return;
+
+        var snap = BuildProfileSnapshot();
+        _profileStore.Save(snap);
+
+        _lastSavedLevel         = level;
+        _lastSavedStrikeCount   = strikes;
+        _lastSavedEngineState   = es;
+        _lastSavedProfile       = profile;
+        _lastSavedProfileSource = source;
+        _lastSavedSpikeAtUtc    = spike;
+        _profileSnapshotDirty   = false;
+    }
+
+    private HabituationProfileSnapshot BuildProfileSnapshot()
+    {
+        var p = _habituation.CurrentParams;
+        return new HabituationProfileSnapshot
+        {
+            SchemaVersion           = 1,
+            UpdatedAtIso            = DateTime.UtcNow.ToString("o"),
+            Profile                 = _habituation.CurrentProfile.ToString().ToUpperInvariant(),
+            ProfileSource           = _habituation.ProfileSource,
+            HabituationLevel        = _habituation.HabituationLevel,
+            HabituationOffsetPp     = _habituation.HabituationOffset,
+            HabituationOffsetCapPp  = p.HabOffsetCapPp,
+            CurrentVimsTier         = _vimsTier,
+            SevereStrikeCount       = _habituation.SevereStrikeCount,
+            SevereStrikeLimit       = p.SevereStrikeLimit,
+            EngineState             = EngineStateToString(_habituation.CurrentEngineState),
+            ExternallyPaused        = _habituation.IsExternallyPaused,
+            AwaitingUserConfirm     = _habituation.IsAwaitingUserConfirm,
+            LastSpikeAtIso          = _habituation.LastSpikeAtUtc?.ToString("o"),
+            NextStepEligibleAtIso   = null, // Computed projection — deferred to a future phase
+            ParamsSnapshot          = new HabituationParamsSnapshot
+            {
+                StableWindowMs  = p.StableWindowMs,
+                StepIntervalMs  = p.StepIntervalMs,
+                StepMagnitudePp = p.StepMagnitudePp,
+            },
+        };
+    }
+
+    /// <summary>Maps the <see cref="EngineState"/> enum to the spec's
+    /// UPPER_SNAKE_CASE string form used in the JSON snapshot. Encapsulated
+    /// here (not on the enum) so renaming the enum doesn't silently shift
+    /// the wire contract.</summary>
+    private static string EngineStateToString(EngineState s) => s switch
+    {
+        EngineState.Running                   => "RUNNING",
+        EngineState.Cooldown                  => "COOLDOWN",
+        EngineState.PausedAwaitingUserConfirm => "PAUSED_AWAITING_USER_CONFIRM",
+        _                                     => "RUNNING",
+    };
 
     public int UserFovOffset { get { lock (_gate) { return _userFovOffset; } } }
 
