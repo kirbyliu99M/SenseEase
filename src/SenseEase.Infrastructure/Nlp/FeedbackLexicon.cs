@@ -316,6 +316,21 @@ internal static class FeedbackLexicon
         return (null, null);
     }
 
+    /// <summary>True when <paramref name="text"/> contains an unambiguous symptom
+    /// marker (dizziness / nausea / headache / eye strain in either English or
+    /// Chinese). Used as a veto over the LLM's FollowupRequest: when the user has
+    /// already named the symptom, asking "which symptom?" is the wrong move —
+    /// promote straight to ReportDiscomfort and act on it instead.</summary>
+    public static bool MentionsSpecificSymptom(string? text)
+    {
+        string t = Normalize(text);
+        if (string.IsNullOrEmpty(t)) return false;
+        return ContainsAny(t, DizzyMarkers)
+            || ContainsAny(t, NauseaMarkers)
+            || ContainsAny(t, HeadacheMarkers)
+            || ContainsAny(t, EyeMarkers);
+    }
+
     /// <summary>
     /// Build the canonical follow-up payload used when a VIMS-pressure spike
     /// auto-opens the chatbot. Severity reflects how big the spike was on a 0–1

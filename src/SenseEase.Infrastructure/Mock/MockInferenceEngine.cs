@@ -52,7 +52,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
         if (saved is not null)
             _habituation.Restore(saved);
         if (adjustmentLog is not null)
-            _habituation.SetPersonalization(adjustmentLog.WeightFor("FovRadius"));
+        {
+            var weight = adjustmentLog.WeightFor("FovRadius");
+            _habituation.SetPersonalization(weight);
+            // Re-seed the user-driven FOV offset from the persisted log so the
+            // tightening the user accumulated last session (via chatbot feedback)
+            // survives restarts. Without this, every restart silently reset the
+            // direct user preference to 0 even though every adjustment was
+            // dutifully appended to adjustments.jsonl. Clamp range matches the
+            // accumulator's working range elsewhere in this file (-60..0).
+            _userFovOffset = Math.Clamp((int)weight.NetDelta, -60, 0);
+        }
 
         // Habituation defaults to PAUSED at startup — therapeutic relaxation requires
         // explicit user opt-in via the dashboard toggle. Persisted offset is still

@@ -3,5 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <!-- BoolToVis converter is declared in MainWindow.Resources (not here)
+             so the WPF smoke tests can construct MainWindow without an
+             Application context. Promote to App.Resources only if a window
+             OUTSIDE the test path also needs it. -->
     </Application.Resources>
 </Application>

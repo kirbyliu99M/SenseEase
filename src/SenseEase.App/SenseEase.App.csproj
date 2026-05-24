@@ -8,11 +8,39 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>SenseEase.App</RootNamespace>
     <AssemblyName>SenseEase.App</AssemblyName>
+    <!-- ApplicationIcon embeds the icon into the EXE itself, so Windows
+         Explorer / taskbar / Alt-Tab pick it up even before any window
+         opens. The Resource entry below makes the same file available as
+         a pack URI for runtime Window.Icon binding. -->
+    <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SenseEase.Core\SenseEase.Core.csproj" />
     <ProjectReference Include="..\SenseEase.Infrastructure\SenseEase.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\AppIcon.ico" />
+  </ItemGroup>
+
+  <!-- Side-load b9294 llama.cpp binaries (+ CUDA 13.x runtime) over the
+       LLamaSharp 0.27 NuGet defaults. The NuGet ships pre-b9294 binaries that
+       (a) lack llama-server.exe, the subprocess our chatbot drives, and
+       (b) crash on the gemma4 / mistral3 GDN architecture in Ministral 3B.
+       Without this rule the binaries only land in bin\ when somebody manually
+       restores them from %TEMP%\llama-b9294-cuda — easy to lose on `dotnet
+       clean` or a fresh checkout. Pinned here so every build stages them
+       deterministically. Files live at <repo>\runtimes\ — gitignored
+       because the set totals ~700 MB and is hostile to git. Use the
+       `Always` copy mode so our b9294 binaries reliably override the
+       same-named NuGet files even when timestamps look "older". -->
+  <ItemGroup>
+    <Content Include="..\..\runtimes\win-x64\native\cuda12\*.*">
+      <Link>runtimes\win-x64\native\cuda12\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
   </ItemGroup>
 
 </Project>

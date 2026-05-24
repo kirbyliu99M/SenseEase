@@ -452,7 +452,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             return _isOverlayVisible() ? resetMsg : resetMsg + "（開啟 Overlay 以查看 / open the overlay to see it）";
         }
 
-        var parts = new System.Collections.Generic.List<string>();
+        // Each tuple: (label, formatted-change-string). Only populated for non-zero
+        // deltas so the resulting pseudo-table never contains "no change" rows.
+        var rows = new System.Collections.Generic.List<(string Label, string Change)>();
 
         if (result.FovDelta != 0)
         {
@@ -468,7 +470,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                     OldValue = oldOffset, NewValue = newOffset,
                     Source = "user", Utterance = utterance,
                 });
-                parts.Add($"FOV {appliedFov}%");
+                rows.Add(("FOV", $"{(appliedFov > 0 ? "+" : "")}{appliedFov}%"));
             }
         }
 
@@ -489,20 +491,32 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             double appliedFeatherWidth   = after.FeatherWidth   - before.FeatherWidth;
 
             if (appliedMaskDepth != 0)
-                parts.Add($"遮罩 mask {(appliedMaskDepth > 0 ? "+" : "")}{appliedMaskDepth:0.00}");
+                rows.Add(("Mask depth", $"{(appliedMaskDepth > 0 ? "+" : "")}{appliedMaskDepth:0.00}"));
             if (appliedGridVisibility != 0)
-                parts.Add($"格線 grid {(appliedGridVisibility > 0 ? "+" : "")}{appliedGridVisibility:0.00}");
+                rows.Add(("Grid",       $"{(appliedGridVisibility > 0 ? "+" : "")}{appliedGridVisibility:0.00}"));
             if (appliedFeatherWidth != 0)
-                parts.Add($"邊緣 feather {(appliedFeatherWidth > 0 ? "+" : "")}{appliedFeatherWidth:0.00}");
+                rows.Add(("Feather",    $"{(appliedFeatherWidth > 0 ? "+" : "")}{appliedFeatherWidth:0.00}"));
         }
 
         AdjustmentApplied?.Invoke(this, EventArgs.Empty);
 
-        if (parts.Count == 0) return string.Empty;
+        if (rows.Count == 0) return string.Empty;
 
-        string summary = "⚙ 已調整 / adjusted: " + string.Join("、", parts);
-        if (!_isOverlayVisible()) summary += "（開啟 Overlay 以查看 / open the overlay to see it）";
-        return summary;
+        // MarkdownInlines (Views/MarkdownInlines.cs) only supports bold / italic /
+        // inline-code / bullets / linebreaks — it does NOT render markdown tables.
+        // So we emit a backtick-wrapped monospace pseudo-table: the label column is
+        // padded to a fixed width so values align vertically in the chat bubble.
+        int labelWidth = 0;
+        foreach (var r in rows) if (r.Label.Length > labelWidth) labelWidth = r.Label.Length;
+        labelWidth += 2; // gutter between columns
+
+        var sb = new StringBuilder();
+        sb.Append("**系統調整 / System adjustment**\n");
+        foreach (var (label, change) in rows)
+            sb.Append('`').Append(label.PadRight(labelWidth)).Append(change).Append("`\n");
+        if (!_isOverlayVisible())
+            sb.Append("\n_開啟 Overlay 以查看 / Open the overlay to see it_");
+        return sb.ToString();
     }
 
     private void LogShader(string parameter, double delta, double oldValue, double newValue, string utterance)

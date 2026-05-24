@@ -81,10 +81,73 @@ public static class AppConfig
         return inBin; // canonical-install path for the "not found" diagnostic
     }
 
+    // Demo Mode video file. Demo Mode now runs a real vection clip through the
+    // WGC pixel-diff sensor (instead of the old OFI slider ramp), so we resolve
+    // the same way as ModelPath: try the EXE-bundled samples folder first, then
+    // walk up to find the repo's samples/ during dev. Empty string when nothing
+    // is found — caller falls back to the legacy OFI ramp.
+    // Use the H.264 transcode of the original AV1 file. WPF MediaElement on
+    // stock Windows can't decode AV1 reliably even with the MS Store AV1
+    // extension installed (the source clip's specific profile flags trip the
+    // extension's MF integration); H.264 plays natively on every Windows since
+    // Vista. The AV1 master file is retained in samples/ for reference but
+    // gitignored alongside the H.264 transcode (samples/*.mp4).
+    private const string DemoVideoRelative = "samples/FPV-vid-h264.mp4";
+
+    public static string DemoVideoPath { get; } = ResolveDemoVideoPath();
+
+    public static IReadOnlyList<string> DemoVideoProbes { get; private set; } = Array.Empty<string>();
+
+    private static string ResolveDemoVideoPath()
+    {
+        var probes = new List<string>();
+        string rel = DemoVideoRelative.Replace('/', Path.DirectorySeparatorChar);
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        string inBin = Path.Combine(baseDir, rel);
+        probes.Add(inBin);
+        if (File.Exists(inBin)) { DemoVideoProbes = probes; return inBin; }
+
+        var info = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 8 && info is not null; i++)
+        {
+            info = info.Parent;
+            if (info is null) break;
+            string candidate = Path.Combine(info.FullName, rel);
+            probes.Add(candidate);
+            if (File.Exists(candidate)) { DemoVideoProbes = probes; return candidate; }
+        }
+
+        DemoVideoProbes = probes;
+        return string.Empty;
+    }
+
     // Phase 2.4: per-user personalization adjustment log (JSON Lines, survives restarts).
     public static string AdjustmentLogPath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "adjustments.jsonl");
+
+    // First-run flag. Touched once after the user completes (or skips) the
+    // setup-demo calibration. Used to drive the welcome banner on the dashboard:
+    // banner is shown only when the flag file does NOT exist. Flag file is empty
+    // — its presence is the entire signal. Stored alongside adjustments.jsonl
+    // so a user clearing %LocalAppData%\SenseEase\ also resets first-run state.
+    public static string FirstRunFlagPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "first-run-complete.flag");
+
+    public static bool IsFirstRun => !File.Exists(FirstRunFlagPath);
+
+    public static void MarkFirstRunComplete()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FirstRunFlagPath)!);
+            File.WriteAllText(FirstRunFlagPath, DateTime.UtcNow.ToString("o"));
+        }
+        catch { /* best-effort — worst case the banner shows again next launch */ }
+    }
 
     // Phase 3: habituation progress — persisted so re-habituation survives restarts.
     public static string HabituationStatePath { get; } = Path.Combine(

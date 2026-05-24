@@ -134,6 +134,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _metricsTimer.Start();
 
         StartDemoCommand  = new RelayCommand(_ => StartDemo(),  _ => !IsRunning);
+        StartSetupDemoCommand = new RelayCommand(_ => StartSetupDemo(), _ => !IsRunning);
+        SkipSetupCommand  = new RelayCommand(_ =>
+        {
+            AppConfig.MarkFirstRunComplete();
+            ShowFirstRunBanner = false;
+            AppendLog("Setup", "使用者略過首次校正 / User dismissed first-run setup.", CurrentState);
+        });
         StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
         ResetStateCommand = new RelayCommand(_ => ResetState());
         ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
@@ -194,6 +201,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ToggleDemoMode()
     {
+        // Cycle is now Cursor <-> WGC only. SensingMode.Demo is no longer
+        // user-cycleable: the dedicated Calibration & Demo button owns it and
+        // is the only legitimate way to enter that mode at runtime. The enum
+        // value stays (tests + StartSyntheticOfiRamp still reference it).
+        var next = AppConfig.Mode == SensingMode.Wgc
+            ? SensingMode.Cursor
+            : SensingMode.Wgc;
+        SetSensingMode(next, "感測模式切換");
+    }
+
+    /// <summary>Switch to the given sensing provider, unsubscribing the previous
+    /// one and subscribing the new one. Idempotent: setting the current mode is
+    /// a no-op. On failure, the previous provider is restored. Centralised here
+    /// so both <see cref="ToggleDemoMode"/> (user-driven cycle) and the Demo
+    /// video flow (which needs to force WGC and restore on exit) share the same
+    /// sub/unsub logic.</summary>
+    private void SetSensingMode(SensingMode target, string logPrefix)
+    {
+        if (AppConfig.Mode == target) return;
+
         ISensingProvider previous = _sensing;
         SensingMode previousMode = AppConfig.Mode;
 
@@ -202,19 +229,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _sensing.Stop();
             _sensing.OpticalFlowSampled -= OnOpticalFlowSampled;
 
-            AppConfig.Mode = AppConfig.Mode switch
-            {
-                SensingMode.Demo   => SensingMode.Cursor,
-                SensingMode.Cursor => SensingMode.Wgc,
-                _                  => SensingMode.Demo,
-            };
-            _sensing = ProviderFor(AppConfig.Mode);
+            AppConfig.Mode = target;
+            _sensing = ProviderFor(target);
 
             _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
             _sensing.Start();
 
-            SensingModeLabel = ModeLabel(AppConfig.Mode);
-            AppendLog("System", $"感測模式切換: {SensingModeLabel}", CurrentState);
+            SensingModeLabel = ModeLabel(target);
+            AppendLog("System", $"{logPrefix}: {SensingModeLabel}", CurrentState);
         }
         catch (Exception ex)
         {
@@ -542,23 +564,290 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ToggleDemoModeCommand { get; }
     public ICommand AnalyzeFeedbackCommand { get; }
     public ICommand ToggleHabituationCommand { get; }
+    public ICommand StartSetupDemoCommand { get; }
+    public ICommand SkipSetupCommand { get; }
+
+    // Welcome banner state. Initialised from AppConfig.IsFirstRun so a brand-new
+    // install shows the calibration prompt automatically; toggled false the
+    // moment the user either completes or dismisses the setup wizard.
+    private bool _showFirstRunBanner = AppConfig.IsFirstRun;
+    public bool ShowFirstRunBanner
+    {
+        get => _showFirstRunBanner;
+        set => Set(ref _showFirstRunBanner, value);
+    }
+
+    private void StartSetupDemo()
+    {
+        _isSetupRun = true;
+        StartDemo();
+        // If StartDemo bailed (no video, etc.) it didn't actually enter the
+        // calibration flow — drop the flag so the next plain Start Demo press
+        // doesn't accidentally trigger calibration handling.
+        if (_demoVideoWindow is null) _isSetupRun = false;
+    }
 
     // ?? Demo loop ??????????????????????????????????????????????????????????
 
+    // Demo now plays a real first-person-view vection clip in its own window;
+    // the existing WgcSensingProvider captures the primary monitor, so the
+    // video's optical flow flows naturally through inference -> mask -> chatbot
+    // -- i.e. the demo exercises the full real pipeline, not a synthetic OFI
+    // ramp. If the video file is missing OR WGC fails to start, we fall back
+    // to the legacy OFI auto-increment so a demo of *something* still runs.
+
+    private Views.DemoVideoWindow? _demoVideoWindow;
+    private SensingMode? _modeBeforeDemo;
+    private bool?    _overlayBeforeDemo;
+    private DateTime _demoStartedAt;
+    private int      _demoMaskActivations;
+    private double   _demoPeakPressure;
+
+    // When true the next OnDemoVideoFinished pops the calibration-variant
+    // summary (preset rows + Save/Skip) instead of the plain summary, and
+    // a Save click writes the suggested preset to the engine + adjustment log
+    // with Source="setup-demo". Set by StartSetupDemoCommand; cleared at the
+    // end of OnDemoVideoFinished so a second plain "Start Demo" click after
+    // calibration doesn't accidentally re-enter the calibration variant.
+    private bool _isSetupRun;
+
     private void StartDemo()
+    {
+        if (IsRunning) return;
+
+        string videoPath = AppConfig.DemoVideoPath;
+        if (string.IsNullOrEmpty(videoPath))
+        {
+            AppendLog("Demo", "Demo video not found, running synthetic OFI ramp instead.", CurrentState);
+            StartSyntheticOfiRamp();
+            return;
+        }
+
+        // Reset run-scoped stats. We snapshot peak pressure / mask count over
+        // the demo window so the summary log line reflects only this run.
+        _demoStartedAt        = DateTime.Now;
+        _demoMaskActivations  = 0;
+        _demoPeakPressure     = 0;
+
+        // Force WGC so the video's pixel motion actually drives the pipeline.
+        // In Demo mode the sensor is MockSensingProvider (slider-fed) and
+        // would ignore the on-screen video entirely.
+        _modeBeforeDemo = AppConfig.Mode;
+        SetSensingMode(SensingMode.Wgc, "Demo 啟動，切換感測");
+
+        // Auto-enable the overlay so the mask is visible the moment pressure
+        // crosses threshold — the whole point of the demo is to SHOW the
+        // intervention happening on screen. Restore the prior state on close
+        // (a user who had the overlay off pre-demo gets it off again after).
+        _overlayBeforeDemo = OverlayVisible;
+        if (!OverlayVisible) OverlayVisible = true;
+
+        try
+        {
+            _demoVideoWindow = new Views.DemoVideoWindow(videoPath);
+            _demoVideoWindow.DemoFinished += OnDemoVideoFinished;
+            _demoVideoWindow.Owner = Application.Current?.MainWindow;
+            _demoVideoWindow.Show();
+
+            IsRunning = true;
+            AppendLog("Demo", $"Demo started — playing {Path.GetFileName(videoPath)} via WGC sensing.", CurrentState);
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Error", $"Demo 影片啟動失敗: {ex.GetType().Name}: {ex.Message}", CurrentState);
+            if (_modeBeforeDemo is { } prior)
+            {
+                SetSensingMode(prior, "Demo 還原感測");
+                _modeBeforeDemo = null;
+            }
+            StartSyntheticOfiRamp();
+        }
+    }
+
+    private void StartSyntheticOfiRamp()
     {
         _demoOfi = 0;
         OpticalFlowIndex = 0;
         IsRunning = true;
         _demoTimer.Start();
-        AppendLog("Demo", "Demo started, OFI auto-increment running.", CurrentState);
+        AppendLog("Demo", "OFI auto-increment running (synthetic fallback).", CurrentState);
     }
 
     private void StopDemo()
     {
-        _demoTimer.Stop();
+        // Synthetic-ramp branch -- original behaviour preserved.
+        if (_demoTimer.IsEnabled)
+        {
+            _demoTimer.Stop();
+            IsRunning = false;
+            AppendLog("Demo", $"Demo stopped, final OFI = {OpticalFlowIndex:F1}", CurrentState);
+            return;
+        }
+
+        // Video branch -- closing the window triggers OnDemoVideoFinished,
+        // which is where the real teardown / summary lives.
+        if (_demoVideoWindow is { } w)
+        {
+            try { w.Close(); } catch { /* already closing */ }
+        }
+        else
+        {
+            IsRunning = false;
+        }
+    }
+
+    private void OnDemoVideoFinished(object? sender, EventArgs e)
+    {
+        if (_demoVideoWindow is { } w)
+        {
+            w.DemoFinished -= OnDemoVideoFinished;
+            _demoVideoWindow = null;
+        }
+
+        if (_modeBeforeDemo is { } prior)
+        {
+            SetSensingMode(prior, "Demo 結束，還原感測");
+            _modeBeforeDemo = null;
+        }
+
+        // Restore overlay visibility to whatever the user had before Demo.
+        if (_overlayBeforeDemo is { } priorOverlay)
+        {
+            if (OverlayVisible != priorOverlay) OverlayVisible = priorOverlay;
+            _overlayBeforeDemo = null;
+        }
+
+        // Clear any spike state that accumulated while detection was suppressed.
+        // Without this the first post-demo sample sees a fresh baseline and the
+        // detector could fire a stale "spike" from the demo's peak pressure
+        // decaying back to idle.
+        _spikeDetector.Reset();
+
+        TimeSpan dur = DateTime.Now - _demoStartedAt;
+        AppendLog("Demo",
+            $"Demo 結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
+            CurrentState);
+
+        // GTA-V-style summary modal. Opened AFTER the log line so the event-log
+        // tab already reflects the demo run when the user dismisses the summary.
+        // Guarded so a window-construction failure can't take down demo teardown.
+        // Setup-run branch shows the calibration variant (preset rows + Save/Skip);
+        // every other invocation shows the plain stats-only summary + Close.
+        try
+        {
+            Views.DemoSummaryWindow summary;
+            if (_isSetupRun)
+            {
+                var preset = DerivePreset(_demoPeakPressure, _demoMaskActivations);
+                summary = new Views.DemoSummaryWindow(dur, _demoMaskActivations, _demoPeakPressure, preset)
+                {
+                    Owner = Application.Current?.MainWindow,
+                };
+                summary.ShowDialog(); // modal so we can read SavedPreset synchronously
+                if (summary.SavedPreset)
+                {
+                    ApplySetupDemoPreset(preset);
+                    AppendLog("Setup",
+                        $"已套用建議預設值（{preset.Tier}）: FOV {preset.FovDelta:+0;-0;0}%、mask {preset.MaskDepthDelta:+0.00;-0.00;0.00}、grid {preset.GridVisibilityDelta:+0.00;-0.00;0.00}、feather {preset.FeatherWidthDelta:+0.00;-0.00;0.00}.",
+                        CurrentState);
+                }
+                else
+                {
+                    AppendLog("Setup", "使用者跳過了建議預設值 / User skipped suggested preset.", CurrentState);
+                }
+                // Either way the user has now seen and decided on the setup
+                // wizard; don't show the banner again. (Skip still counts as
+                // completing first-run so the welcome prompt doesn't pester.)
+                AppConfig.MarkFirstRunComplete();
+                ShowFirstRunBanner = false;
+            }
+            else
+            {
+                summary = new Views.DemoSummaryWindow(dur, _demoMaskActivations, _demoPeakPressure)
+                {
+                    Owner = Application.Current?.MainWindow,
+                };
+                summary.Show();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Error", $"Demo summary window failed: {ex.GetType().Name}: {ex.Message}", CurrentState);
+        }
+
+        _isSetupRun = false;
         IsRunning = false;
-        AppendLog("Demo", $"Demo stopped, final OFI = {OpticalFlowIndex:F1}", CurrentState);
+    }
+
+    /// <summary>Maps observed demo reactivity (peak pressure + mask activations)
+    /// to a tiered preset. Tiers: RESILIENT (low reaction), TYPICAL, SENSITIVE
+    /// (high reaction). Peak pressure is primary; mask-activation count is the
+    /// escalator — even with modest peak, repeated mask triggers indicate the
+    /// user's threshold is being crossed often, which warrants tighter defaults.
+    /// Per the user's "add on top of existing" instruction, these deltas are
+    /// applied additively to the current personalization, NOT a wipe.</summary>
+    private static Views.CalibrationPreset DerivePreset(double peakPressure, int maskActivations)
+    {
+        if (peakPressure > 85 || maskActivations >= 3)
+            return new Views.CalibrationPreset("SENSITIVE", -15, 0.14, 0.07, 0.00);
+        if (peakPressure > 50 || maskActivations >= 1)
+            return new Views.CalibrationPreset("TYPICAL",   -8,  0.08, 0.04, 0.00);
+        return new Views.CalibrationPreset("RESILIENT",     -3,  0.04, 0.02, 0.00);
+    }
+
+    /// <summary>Apply the setup-demo preset to the engine + adjustment log,
+    /// using the same paths the chatbot uses for its own personalized deltas.
+    /// Source="setup-demo" so the log makes the origin clear, and so future
+    /// "reset everything" flows can target setup-demo entries specifically if
+    /// we want to add that later.</summary>
+    private void ApplySetupDemoPreset(Views.CalibrationPreset preset)
+    {
+        if (preset.FovDelta != 0)
+        {
+            int oldOffset = _engine.UserFovOffset;
+            _engine.ApplyUserFeedback(preset.FovDelta);
+            int newOffset = _engine.UserFovOffset;
+            int applied   = newOffset - oldOffset;
+            if (applied != 0)
+            {
+                _adjustmentLog.Append(new AdjustmentRecord
+                {
+                    Parameter = "FovRadius", Delta = applied,
+                    OldValue  = oldOffset, NewValue = newOffset,
+                    Source    = "setup-demo",
+                    Utterance = $"calibration tier={preset.Tier}",
+                });
+            }
+        }
+
+        bool anyShader = preset.MaskDepthDelta != 0
+                      || preset.GridVisibilityDelta != 0
+                      || preset.FeatherWidthDelta != 0;
+        if (anyShader)
+        {
+            var before = _engine.Current.Shader.Clone();
+            _engine.ApplyShaderAdjustment(preset.MaskDepthDelta, preset.GridVisibilityDelta, preset.FeatherWidthDelta);
+            var after  = _engine.Current.Shader.Clone();
+            LogShaderDelta("MaskDepth",      preset.MaskDepthDelta,      before.MaskDepth,      after.MaskDepth,      preset.Tier);
+            LogShaderDelta("GridVisibility", preset.GridVisibilityDelta, before.GridVisibility, after.GridVisibility, preset.Tier);
+            LogShaderDelta("FeatherWidth",   preset.FeatherWidthDelta,   before.FeatherWidth,   after.FeatherWidth,   preset.Tier);
+        }
+
+        // Push the new state into the bindable surface so the dashboard
+        // reflects the applied preset without waiting for the next WGC sample.
+        UpdateFromState(_engine.Current);
+    }
+
+    private void LogShaderDelta(string parameter, double delta, double oldValue, double newValue, string tier)
+    {
+        if (delta == 0) return;
+        _adjustmentLog.Append(new AdjustmentRecord
+        {
+            Parameter = parameter, Delta = delta,
+            OldValue  = oldValue, NewValue = newValue,
+            Source    = "setup-demo",
+            Utterance = $"calibration tier={tier}",
+        });
     }
 
     private void ResetState()
@@ -624,6 +913,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (state.OpticalFlowIndex > SessionPeakOfi) SessionPeakOfi = state.OpticalFlowIndex;
         if (state.Pressure > SessionPeakPressure) SessionPeakPressure = state.Pressure;
 
+        // ── Demo-run stats (only meaningful while a video demo is active) ──
+        // The fields are also accumulated when the synthetic ramp is running,
+        // which is harmless: OnDemoVideoFinished is the only consumer, and the
+        // ramp branch routes through StopDemo() instead.
+        if (_demoVideoWindow is not null)
+        {
+            if (state.Pressure > _demoPeakPressure) _demoPeakPressure = state.Pressure;
+            if (state.MaskActive && !_prevMaskActiveForIntercept) _demoMaskActivations++;
+        }
+
         // FOV intercept: count the rising edge of MaskActive.
         if (state.MaskActive && !_prevMaskActiveForIntercept)
             SessionFovIntercepts++;
@@ -638,7 +937,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         StateChanged?.Invoke(this, state);
 
-        if (_spikeDetector.Push(state.Pressure, DateTime.UtcNow))
+        // Suppress spike detection (and therefore the popup AND the chatbot
+        // follow-up bubble) during a demo run. The demo is intentionally a
+        // vection stress test — the whole point is for the user to *experience*
+        // the discomfort end-to-end before the calibration summary uses that
+        // reaction to seed a preset. Interrupting them mid-clip with "Did you
+        // feel a spike?" defeats the experiment AND clutters the chat thread
+        // with auto-generated questions that aren't part of the user's
+        // organic conversation.
+        if (_demoVideoWindow is null && _spikeDetector.Push(state.Pressure, DateTime.UtcNow))
         {
             PressureSpikeDetected?.Invoke(this, _spikeDetector.LastNormalizedSpike);
         }

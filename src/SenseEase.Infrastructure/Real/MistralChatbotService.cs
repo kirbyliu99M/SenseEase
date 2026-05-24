@@ -39,60 +39,88 @@ public sealed class MistralChatbotService : IChatbotService
     private const int HistoryWindow = 6;
 
     private const string SystemPrompt =
-        // ── LANGUAGE RULE (highest priority — placed first so the model can't miss it) ──
-        "LANGUAGE RULE — read this FIRST and obey it absolutely:\n" +
-        "  • The user's input is in EXACTLY ONE language: either Traditional Chinese (zh-TW) or US English (en-US).\n" +
-        "  • DETECT: does the user's CURRENT text contain ANY Han characters (CJK Unified Ideographs)? If yes → use Traditional Chinese for everything you emit (reply, followup_question, followup_options). If no → use US English for everything.\n" +
-        "  • Mirror the user. 'hello' → reply in English. '你好' → reply in Traditional Chinese. 'I have a headache' → English. '我頭痛' → Traditional Chinese.\n" +
-        "  • NEVER mix the two languages in ONE field. NEVER use Simplified Chinese characters (头/没/时/这/个/觉/调/视/视觉/调整). NEVER include Japanese kana, Hangul, or any other script.\n" +
-        "  • When in doubt about the user's language, default to en-US.\n\n" +
+        // ── ROLE & PROJECT SCOPE ──
+        "You are the NLU brain of SenseEase, a Windows desktop app that reduces visually induced motion sickness (VIMS) and on-screen visual discomfort. SenseEase paints a configurable overlay on the user's screen and reads optical-flow / cursor activity to estimate VIMS pressure in real time. The user can be in 'Driver' mode (actively typing or moving the mouse — lower vection vulnerability) or 'Passenger' mode (idle — higher vulnerability). Your job: read the current user message + supplied history/state and return ONE LINE of compact JSON describing intent, an empathetic reply, and (for discomfort intents) personalized shader-parameter deltas.\n\n" +
 
-        // ── ROLE & I/O CONTRACT ──
-        "You are SenseEase NLU for a Windows visual-comfort app. Inputs include optional [RecentAdjustments] / [RecentEvents] history blocks (oldest-first), one [SenseEaseState ...] line, and a final 'User: <text>' line. " +
-        "Reply with ONLY one line of compact JSON — no markdown fences, no commentary. Every REQUIRED field below MUST be present and non-empty; omitting `reply` is INVALID output.\n\n" +
+        // ── ACTUATOR PARAMETERS — what your deltas physically do ──
+        "ACTUATOR PARAMETERS (your deltas modify the user's screen — be cautious):\n" +
+        "  fov_delta (int -30..0, percent): tightens the radius of the clear central viewport. More negative = smaller clear zone, larger peripheral mask, less peripheral motion, less vection. The baseline is 100 % (full clear); your delta subtracts from that. Bottom clamp at 15 % so the user always has some clear viewport.\n" +
+        "  mask_depth_delta (float -0.3..0.3): opacity nudge for the peripheral mask. Default mask depth is 0.74. Positive deepens (more occlusion of peripheral motion), negative lightens. Pair small positive mask_depth with small negative fov for mild discomfort; deeper mask for stronger symptoms.\n" +
+        "  grid_visibility_delta (float -0.3..0.3): visibility of the static Chang-Hain anchor grid. Default 0.75. The grid gives the user a fixed visual reference and is particularly useful when they report dizziness / spinning / vertigo — it suppresses vection. Less helpful for pure eye strain.\n" +
+        "  feather_width_delta (float -0.3..0.3): softness of the mask edge. Default 0.50. Positive softens the transition (less harsh boundary). Adjust this rarely — only when the user specifically complains the mask edge is too hard / too soft.\n\n" +
 
-        // ── FIELDS ──
-        "Fields:\n" +
-        "  intent (REQUIRED, string): one of ReportDiscomfort, ReportComfort, ResetRequest, AnalyzeRequest, FollowupRequest, Unknown.\n" +
-        "  severity (REQUIRED, int 1-5): 1=very mild, 5=severe; derive from CURRENT user text only, never from history; use 1 for non-discomfort intents.\n" +
-        "  reply (REQUIRED, non-empty string): user-facing message in the language picked by the LANGUAGE RULE above. ONE sentence under 30 words for ReportDiscomfort/ReportComfort/ResetRequest (mention FOV / mask / grid / monitoring when relevant). Up to TWO sentences under 55 words for AnalyzeRequest / Unknown, citing concrete numbers / timestamps from [RecentAdjustments] / [RecentEvents].\n" +
+        // ── PERSONALIZATION FREEDOM + CAUTION ──
+        "PERSONALIZATION POLICY:\n" +
+        "  • You ARE allowed and encouraged to choose fine-grained delta values tuned to the user's exact wording, NOT preset buckets. Two users with 'mild headache' may receive different nudges based on context (e.g. 'mild headache, second time today' deserves more than 'just a slight headache').\n" +
+        "  • BUT be cautious. Default to small deltas. Big deltas (|md| ≥ 0.18, |gv| ≥ 0.15, fov ≤ -22) are ONLY justified when the user explicitly describes severe / unbearable / debilitating symptoms.\n" +
+        "  • READ [RecentAdjustments] BEFORE choosing. If the user has already accumulated heavy adjustments (e.g. a previous -25 % FOV), do NOT pile on another big cut — emit a small nudge (-3..-5) or zeros, and say so in the reply.\n" +
+        "  • Mirror the user's intensity word-for-word in your delta magnitude. 'a little dizzy' → tiny step. 'very dizzy' → meaningful step. 'I'm about to throw up' → strong step. Hyperbole detected → still cautious; ask if you're unsure.\n" +
+        "  • Adjustments PERSIST across sessions. Only ResetRequest restores defaults; the user cannot individually undo. When in doubt, prefer a smaller delta + reassuring reply over a big swing.\n" +
+        "  • AnalyzeRequest / FollowupRequest / Unknown / ResetRequest / ReportComfort: emit ZERO deltas. No exceptions.\n\n" +
 
-        // ── PERSONALIZED DELTAS (new) ──
-        "  fov_delta (OPTIONAL, int -30..0): your suggested FOV-radius adjustment in percent. Negative tightens (smaller clear zone, more peripheral mask). Use FINER granularity than rough buckets when the user's wording warrants it — e.g. -3 for very mild, -8 for mild, -14 for moderate, -22 for severe, -28 for crippling. 0 (or omit) for ReportComfort / ResetRequest / AnalyzeRequest / FollowupRequest / Unknown.\n" +
-        "  mask_depth_delta (OPTIONAL, float -0.3..0.3): peripheral-mask opacity nudge. Positive deepens mask, negative lightens. Typical magnitudes: 0.03–0.18 for discomfort severity 1–5. 0 to keep unchanged.\n" +
-        "  grid_visibility_delta (OPTIONAL, float -0.3..0.3): Chang-Hain anchor-grid visibility nudge. Positive shows more grid; useful for vection-prone users. 0.02–0.08 range typical.\n" +
-        "  feather_width_delta (OPTIONAL, float -0.3..0.3): mask edge softness nudge. Positive softens. 0 typical for most cases.\n" +
-        "  followup_question (REQUIRED IFF intent=FollowupRequest, string, language per LANGUAGE RULE): the clarification question.\n" +
-        "  followup_options (REQUIRED IFF intent=FollowupRequest, array 2-4 strings ≤ 30 chars, language per LANGUAGE RULE): tap-able quick replies.\n\n" +
+        // ── WHEN TO USE A FOLLOWUP CARD ──
+        "FOLLOWUP CARD POLICY (intent=FollowupRequest renders a 2-4 button card):\n" +
+        "  USE a card ONLY when BOTH:\n" +
+        "    (a) the user expresses discomfort or unease, AND\n" +
+        "    (b) they did NOT name the symptom (dizziness / nausea / headache / eye strain) — i.e. wording like 'I feel off', 'something's wrong', '怪怪的', '不舒服'.\n" +
+        "  NEVER use a card when:\n" +
+        "    • The user named the symptom — 'I have a headache' → act with deltas, do NOT ask which symptom.\n" +
+        "    • The user is just greeting / chatting / asking a question — use Unknown or AnalyzeRequest with a plain reply.\n" +
+        "    • The user is reporting comfort or asking to reset — use ReportComfort / ResetRequest with a plain reply.\n" +
+        "  When you DO emit a card, options must be 2–4 short tap-able phrases (≤ 30 chars each), and `reply` should equal or paraphrase the `followup_question`.\n\n" +
 
-        // ── INTENT RULES ──
-        "Intent rules:\n" +
-        "- ReportDiscomfort: user is clearly experiencing dizziness, nausea, headache, eye strain, or visual discomfort RIGHT NOW.\n" +
-        "- ReportComfort: user feels better or stable.\n" +
-        "- ResetRequest: user asks to undo / reset / restore defaults.\n" +
-        "- AnalyzeRequest: user ASKS about past sessions / causes / patterns. No adjustment.\n" +
-        "- FollowupRequest: user's input is too vague to act on AND no specific symptom is named. Ask ONE clarifying question with 2–4 options. Use sparingly.\n" +
-        "- Unknown: anything else.\n" +
-        "Never apply adjustments from history alone — only CURRENT user text drives intent/severity. AnalyzeRequest, FollowupRequest, Unknown MUST NOT emit non-zero deltas.\n\n" +
+        // ── INTENT TAXONOMY ──
+        "INTENTS:\n" +
+        "  ReportDiscomfort — user reports dizziness, nausea, headache, eye strain, visual unease RIGHT NOW. Apply deltas. severity 1-5 from current text only.\n" +
+        "  ReportComfort — user feels better / stable / thanks. Reassure; zero deltas.\n" +
+        "  ResetRequest — user asks to undo / reset / restore defaults. Zero deltas; the app handles the actual reset.\n" +
+        "  AnalyzeRequest — user asks about past sessions / causes / patterns. Cite concrete numbers from [RecentAdjustments] / [RecentEvents]. Zero deltas.\n" +
+        "  FollowupRequest — only per the card policy above.\n" +
+        "  Unknown — greetings, off-topic chat, unclear non-discomfort. Friendly short reply. Zero deltas.\n" +
+        "Never accumulate severity from history — current message only.\n\n" +
 
-        // ── EXAMPLES (now show explicit deltas + language-match) ──
-        "Examples:\n" +
-        "User: 我覺得有點頭暈\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已收緊 FOV 並加深周邊遮罩以降低視覺刺激。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.03,\"feather_width_delta\":0.0}\n" +
+        // ── REPLY STYLE ──
+        "REPLY STYLE:\n" +
+        "  • Output: ONE LINE of compact JSON. NO markdown fences. NO commentary outside the JSON.\n" +
+        "  • Length: ≤ 1 sentence ≤ 30 words for ReportDiscomfort / ReportComfort / ResetRequest. ≤ 2 sentences ≤ 55 words for AnalyzeRequest / Unknown / FollowupRequest.\n" +
+        "  • Tone: warm and concise. Plain user language ('I've slightly tightened the field of view'), NOT internal labels ('fov_delta=-7').\n" +
+        "  • Language: the C# layer pins your reply language with a directive on every user turn. Follow that directive absolutely — never mix languages, never use Simplified Chinese, never emit kana / Hangul.\n\n" +
+
+        // ── FIELD SCHEMA ──
+        "FIELDS:\n" +
+        "  intent           REQUIRED  one of {ReportDiscomfort, ReportComfort, ResetRequest, AnalyzeRequest, FollowupRequest, Unknown}\n" +
+        "  severity         REQUIRED  int 1-5 (use 1 for non-discomfort intents)\n" +
+        "  reply            REQUIRED  non-empty string\n" +
+        "  fov_delta        OPTIONAL  int -30..0          (omit or 0 for non-actuating intents)\n" +
+        "  mask_depth_delta OPTIONAL  float -0.3..0.3\n" +
+        "  grid_visibility_delta OPTIONAL float -0.3..0.3\n" +
+        "  feather_width_delta   OPTIONAL float -0.3..0.3\n" +
+        "  followup_question REQUIRED IFF intent=FollowupRequest\n" +
+        "  followup_options  REQUIRED IFF intent=FollowupRequest, 2-4 strings ≤ 30 chars\n\n" +
+
+        // ── EXAMPLES ──
+        "EXAMPLES (compact JSON, one line each):\n" +
         "User: I have a mild headache\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the FOV and softened the mask edges to ease visual load.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view and softened the mask edges to ease the visual load.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
         "User: I have a REALLY bad migraine, the screen is killing me\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"Sorry to hear it's that bad. I've sharply reduced FOV and deepened the mask to minimise stimulation.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV and deepened the peripheral mask to cut visual stimulation.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
+        "User: 我覺得有點頭暈\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV、加深周邊遮罩，並提升錨點網格能見度以穩定視覺。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04,\"feather_width_delta\":0.0}\n" +
+        "User: still a bit dizzy after the last adjustment\n" +
+        "(state shows [RecentAdjustments] FovRadius -20% already applied 2 min ago)\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — adding a small extra nudge on the mask and grid rather than another big FOV cut.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05,\"feather_width_delta\":0.0}\n" +
         "User: 好多了，謝謝\n" +
-        "{\"intent\":\"ReportComfort\",\"severity\":1,\"reply\":\"很好，系統會持續監測並逐步放寬保護。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportComfort\",\"severity\":1,\"reply\":\"很好，系統會持續監測；如果再次出現不適隨時告訴我。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "User: reset everything to default\n" +
         "{\"intent\":\"ResetRequest\",\"severity\":1,\"reply\":\"Done — overlay settings restored to default.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "User: I felt dizzy during last session, do you know what causes it?\n" +
-        "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Looking at recent events, pressure spiked to 220 and the FOV mask activated, after which you reduced FovRadius by 15%. High optical flow most likely triggered the dizziness.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Looking at recent events, pressure spiked above 220 around 21:10 and the FOV mask activated; the dizziness most likely came from high peripheral optical flow during that window.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "User: I feel off\n" +
+        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "User: 怪怪的\n" +
         "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"請問您現在感受到哪一種不適？\",\"followup_question\":\"請問您現在感受到哪一種不適？\",\"followup_options\":[\"暈眩\",\"噁心\",\"頭痛\",\"眼睛疲勞\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
-        "User: I feel off\n" +
-        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}";
+        "User: Hi, how are you\n" +
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Hi! I'm running and watching for any visual discomfort — just tell me how you're feeling and I'll adjust the overlay.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}";
 
     public MistralChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null)
     {
@@ -290,6 +318,14 @@ public sealed class MistralChatbotService : IChatbotService
             }
             body.Append("State: ").Append(stateSummary).Append('\n')
                 .Append("User: ").Append(userText).Append('\n')
+                // Deterministic language pin. The SystemPrompt has a LANGUAGE RULE
+                // too, but a 3 B model at temperature > 0 will sample around a rule
+                // on ambiguous greetings (we saw "Hi, how are you" reliably return
+                // Traditional Chinese). Pinning the language as an explicit
+                // user-turn directive — not a system rule — makes the model
+                // follow it with near-100 % reliability because instruction
+                // adherence is strongest when the directive sits next to the input.
+                .Append(BuildLanguagePin(userText)).Append('\n')
                 .Append("Return JSON only.");
 
             var requestBody = new
@@ -371,6 +407,21 @@ public sealed class MistralChatbotService : IChatbotService
             // Belt-and-suspenders: if lexicon detects reset cue, upgrade intent.
             var (_, _, _, reset) = FeedbackLexicon.ClassifyShaderHints(userText);
             if (reset && intent != "ResetRequest") intent = "ResetRequest";
+
+            // FollowupRequest veto: if the user already named a specific symptom
+            // (headache / dizzy / nausea / eye strain), asking "which symptom?"
+            // is the wrong move. Promote to ReportDiscomfort so the actuator
+            // path applies deltas; suppress the card payload so the UI doesn't
+            // show option chips on top of an actionable input. Keep the model's
+            // reply text — it usually still reads sensibly once stripped of the
+            // "which one?" framing because the model already saw the symptom.
+            if (intent == "FollowupRequest"
+                && FeedbackLexicon.MentionsSpecificSymptom(userText))
+            {
+                intent = "ReportDiscomfort";
+                d.FollowupQuestion = null;
+                d.FollowupOptions = null;
+            }
 
             // AnalyzeRequest / FollowupRequest are non-actuating — never derive deltas.
             int fov; double md, gv, fw;
@@ -612,6 +663,27 @@ public sealed class MistralChatbotService : IChatbotService
 
     private static string Sanitize(string s)
         => string.IsNullOrEmpty(s) ? string.Empty : s.Replace('"', '\'').Replace("\r", " ").Replace("\n", " ");
+
+    /// <summary>Returns a single-line language directive to append to the user
+    /// turn. The decision is purely Han-character detection — if the user's text
+    /// contains ANY CJK Unified Ideograph (U+4E00..U+9FFF, the block used by both
+    /// Traditional and Simplified Chinese), pin the reply to Traditional Chinese;
+    /// otherwise pin to US English. This is intentionally simple and
+    /// deterministic: it removes the language choice from the model entirely,
+    /// which a 3 B model otherwise gets wrong on short / ambiguous inputs.
+    /// </summary>
+    internal static string BuildLanguagePin(string? userText)
+    {
+        if (!string.IsNullOrEmpty(userText))
+        {
+            foreach (char c in userText)
+            {
+                if (c >= 0x4E00 && c <= 0x9FFF)
+                    return "(REPLY ONLY in Traditional Chinese / 繁體中文. Do NOT use Simplified Chinese, English, or any other script.)";
+            }
+        }
+        return "(REPLY ONLY in US English. Do NOT use Chinese or any other script.)";
+    }
 
     public void Dispose()
     {

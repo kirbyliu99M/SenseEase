@@ -3,12 +3,20 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:SenseEase.App.Views"
         Title="SenseEase — Visual Comfort Dashboard"
+        Icon="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
         Height="820" Width="1160"
         MinHeight="700" MinWidth="980"
         Background="#E2ECFF"
         FontFamily="Segoe UI">
 
     <Window.Resources>
+
+        <!-- Standard bool -> Visibility converter for the first-run welcome
+             banner. Lives in Window.Resources (not App.Resources) so the
+             MainWindowSmokeTests can construct the window without booting the
+             Application object — App.Resources is unset in that path and the
+             StaticResource lookup would fail. -->
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- ── Card ── -->
         <Style x:Key="Card" TargetType="Border">
@@ -161,6 +169,41 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="24,20,24,24">
 
+                <!-- ── First-run welcome banner ──
+                     Shown only on a fresh install (no first-run-complete.flag in
+                     %LocalAppData%\SenseEase\). Either button dismisses it: Run
+                     Setup launches the calibration video demo; Skip just marks
+                     the flag so we don't pester next launch. -->
+                <Border CornerRadius="10" Padding="20,14" Margin="0,0,0,16"
+                        Background="#0E1320" BorderBrush="#3D5AFE" BorderThickness="1"
+                        Visibility="{Binding ShowFirstRunBanner, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="● 歡迎使用 SenseEase / Welcome to SenseEase"
+                                       Foreground="#FF9B6B" FontSize="12" FontWeight="Bold"/>
+                            <TextBlock Text="先跑 60 秒的 setup demo，系統會依您的反應建議個人化預設值 / Run the 60 s setup demo so SenseEase can suggest personalised defaults based on your reaction."
+                                       Foreground="#F0F4FA" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                            <Button Content="Skip"
+                                    Command="{Binding SkipSetupCommand}"
+                                    Background="Transparent" Foreground="#9AB6E0"
+                                    BorderBrush="#2C3A55" BorderThickness="1"
+                                    Padding="14,6" FontSize="12" Cursor="Hand"
+                                    Margin="0,0,8,0"/>
+                            <Button Content="Run Setup Demo"
+                                    Command="{Binding StartSetupDemoCommand}"
+                                    Background="#3D5AFE" Foreground="White"
+                                    BorderThickness="0"
+                                    Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- ── Status Cards ── -->
                 <UniformGrid Rows="1" Columns="4" Margin="0,0,0,16">
 
@@ -240,48 +283,32 @@
 
                 </UniformGrid>
 
-                <!-- ── Controls ── -->
+                <!-- ── Controls ──
+                     The manual OFI slider was removed when Demo mode shifted
+                     from "user moves slider → fake OFI" to "video plays →
+                     real WGC pixel-diff drives OFI". All input now arrives
+                     via the live sensing provider (Cursor / WGC) or the
+                     Setup Demo calibration video. OpticalFlowIndex remains
+                     read-only on the dashboard's stat card above. -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Text="Controls" Style="{StaticResource SectionTitle}"/>
-
-                        <!-- OFI Slider -->
-                        <TextBlock Text="OFI Input — Optical Flow Index (0–150)"
-                                   Style="{StaticResource CardLabel}" Margin="0,0,0,6"/>
-                        <Grid Margin="0,0,0,4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Slider Grid.Column="0" VerticalAlignment="Center"
-                                    Minimum="0" Maximum="150"
-                                    Value="{Binding OpticalFlowIndex, Mode=TwoWay}"
-                                    TickFrequency="10" IsSnapToTickEnabled="False"/>
-                            <Border Grid.Column="1" Background="#EEF3FF" CornerRadius="6"
-                                    Padding="12,4" Margin="12,0,0,0" MinWidth="50">
-                                <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F0}'}"
-                                           Foreground="#024AD8" FontWeight="Bold" FontSize="14"
-                                           TextAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </Grid>
-                        <Grid Margin="0,0,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="0" Style="{StaticResource CardLabel}"/>
-                            <TextBlock Grid.Column="2" Text="150" Style="{StaticResource CardLabel}"/>
-                        </Grid>
-
-                        <Separator Background="#E8EEFF" Margin="0,16"/>
 
                         <!-- Action buttons -->
                         <TextBlock Text="Demo &amp; Overlay"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,10"/>
                         <WrapPanel Orientation="Horizontal">
-                            <Button Content="Start Demo" Style="{StaticResource PrimaryBtn}"
-                                    Command="{Binding StartDemoCommand}"
+                            <!-- Consolidated demo entry point. Always runs the
+                                 calibration variant (video → summary → preset
+                                 suggestion). For repeat runs the user's "add on
+                                 top" preset mode means new deltas accumulate on
+                                 the existing personalization rather than wiping
+                                 it. The legacy plain-demo button (StartDemo
+                                 without calibration) was removed — it had no
+                                 use case once calibration is the default flow. -->
+                            <Button Content="Calibration &amp; Demo" Style="{StaticResource PrimaryBtn}"
+                                    Command="{Binding StartSetupDemoCommand}"
+                                    ToolTip="Plays a 60 s vection clip, then suggests a personalised preset based on your reaction. Re-running adds to existing preferences."
                                     Margin="0,0,8,8"/>
                             <Button Content="Stop Demo" Style="{StaticResource AlertBtn}"
                                     Command="{Binding StopDemoCommand}"
@@ -436,21 +463,12 @@
                             </StackPanel>
                         </Grid>
 
-                        <!-- Optional demo slider (only useful in mock mode) -->
-                        <Grid Margin="0,12,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Demo lx" Style="{StaticResource CardLabel}"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <Slider Grid.Column="1" Minimum="0" Maximum="10000"
-                                    Value="{Binding MockLux, Mode=TwoWay}" TickFrequency="500"/>
-                            <TextBlock Grid.Column="2" Margin="8,0,0,0"
-                                       Text="{Binding MockLux, StringFormat='{}{0:F0}'}"
-                                       Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
-                        </Grid>
+                        <!-- Demo lx slider removed: webcam lux fallback covers
+                             devices without ALS (AppConfig.UseWebcamLuxFallback
+                             defaults true), so the manual override slider is
+                             no longer the only path to populating CurrentLux.
+                             Removed per user direction to declutter the dashboard. -->
+
                     </StackPanel>
                 </Border>
 
