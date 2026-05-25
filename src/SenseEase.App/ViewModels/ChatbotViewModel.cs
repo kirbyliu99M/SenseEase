@@ -45,6 +45,27 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
+    // ── Calibration card (Stage 3d) ─────────────────────────────────────────
+    // The 5-card calibration UI is embedded above the input region in the chat
+    // tab. It is NOT a ChatMessage — Messages stays a pure transcript. The host
+    // (MainViewModel) constructs and assigns ActiveCalibrationCard then flips
+    // IsCalibrationCardActive on; the completion handler clears both and posts
+    // a single transcript-summary ChatMessage with the outcome.
+
+    private bool _isCalibrationCardActive;
+    public bool IsCalibrationCardActive
+    {
+        get => _isCalibrationCardActive;
+        set => Set(ref _isCalibrationCardActive, value);
+    }
+
+    private CalibrationCardViewModel? _activeCalibrationCard;
+    public CalibrationCardViewModel? ActiveCalibrationCard
+    {
+        get => _activeCalibrationCard;
+        set => Set(ref _activeCalibrationCard, value);
+    }
+
     public bool IsGenerating
     {
         get => _isGenerating;
