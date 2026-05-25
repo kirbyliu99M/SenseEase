@@ -328,6 +328,94 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
+    // ── Calibration application (Stage 2 of post-test calibration feature) ──
+    // The CalibrationProcessor (Stage 1) produces a pure CalibrationResult.
+    // This is where that result becomes engine state: effective trigger,
+    // strike-limit override, and profile. The engine itself stays ignorant
+    // of "scale" / "personal_pressure_scale" — those concepts live here in
+    // the wrapper.
+    //
+    // Math priority (per user supplement):
+    //   override exists -> trigger = override  (scale + adjustment IGNORED)
+    //   else            -> trigger = (defaultTrigger / scale) + adjustment
+
+    private CalibrationResult? _lastCalibrationResult;
+
+    /// <summary>The most recent calibration result the wrapper applied via
+    /// <see cref="ApplyCalibrationResult"/>. Null until calibration runs at
+    /// least once. Read by the Stage 6 JSON-snapshot writer to surface the
+    /// scale + overrides + advisory + dominance fields in habituation_profile.json.</summary>
+    public CalibrationResult? LastCalibrationResult
+    {
+        get { lock (_gate) { return _lastCalibrationResult; } }
+    }
+
+    /// <summary>The engine's current effective spike-trigger pressure.
+    /// Equals <see cref="SenseDefaults.TriggerPressure"/> until calibration
+    /// applies an override / scale. Pass-through getter so Stage 6's snapshot
+    /// writer and Stage 6/7's chatbot context block can include this value
+    /// without poking at the engine field directly.</summary>
+    public double HabituationEffectiveTrigger
+    {
+        get { lock (_gate) { return _habituation.EffectiveTrigger; } }
+    }
+
+    /// <summary>Active strike-limit-override, or null when the engine should
+    /// use the profile default. Pass-through getter.</summary>
+    public int? HabituationSevereStrikeLimitOverride
+    {
+        get { lock (_gate) { return _habituation.SevereStrikeLimitOverride; } }
+    }
+
+    /// <summary>Apply a post-test calibration result. Computes the effective
+    /// trigger (override > scale + adjustment) and pushes it to the engine,
+    /// pushes the strike-limit override (vestibular case), and swaps the
+    /// profile if it differs. Fires a profile-snapshot persist on the way
+    /// out so the change lands in habituation_profile.json.</summary>
+    public void ApplyCalibrationResult(CalibrationResult result)
+    {
+        lock (_gate)
+        {
+            _lastCalibrationResult = result;
+
+            // Compute effective trigger. Override wins outright (no further
+            // arithmetic); otherwise scale-then-adjust.
+            double trigger;
+            if (result.TriggerThresholdOverride is int ov)
+            {
+                trigger = ov;
+            }
+            else
+            {
+                // Defensive clamp belt-and-suspenders — processor already clamps,
+                // but we don't trust callers to come exclusively through it.
+                double scale = Math.Clamp(result.PersonalPressureScale,
+                                          CalibrationProcessor.PersonalPressureScaleMin,
+                                          CalibrationProcessor.PersonalPressureScaleMax);
+                trigger = (SenseDefaults.TriggerPressure / scale)
+                        + result.TriggerThresholdAdjustment;
+            }
+
+            _habituation.EffectiveTrigger          = trigger;
+            _habituation.SevereStrikeLimitOverride = result.SevereStrikeLimitOverride;
+
+            // Profile change is idempotent on no-change. Source tagged as
+            // "calibration_demo" so the persistence snapshot reflects the
+            // origin. NOTE: an in-place re-calibration to the SAME profile
+            // does NOT reset strikes — strikes are only profile-scoped per Q6.
+            if (_habituation.CurrentProfile != result.Profile)
+                _habituation.SetProfile(result.Profile, "calibration_demo");
+
+            // Refresh bindable state so the dashboard reflects the change
+            // immediately without waiting for the next Update tick.
+            Current.HabituationLevel  = _habituation.HabituationLevel;
+            Current.HabituationPaused = _habituation.IsPaused;
+            Current.FovRadiusPercent  = ComposeFovRadius(Current.Pressure);
+
+            MaybePersistProfileSnapshot();
+        }
+    }
+
     // ── Profile-snapshot persistence (Phase 4) ────────────────────────────────
     // Compares the engine's current state against the markers from the most
     // recent successful Save. Writes when any of these conditions hold:

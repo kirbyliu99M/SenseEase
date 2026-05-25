@@ -157,6 +157,35 @@ public sealed class HabituationEngine
     /// path that needs cadence numbers without re-resolving the enum.</summary>
     public HabituationProfileParams CurrentParams => _params;
 
+    // ── Personal-calibration trigger overrides (Stage 2 of calibration feature) ──
+    // The engine is INTENTIONALLY ignorant of "personal_pressure_scale" as a
+    // concept. It only sees an effective trigger value — the wrapper computes
+    // it (defaultTrigger / scale, or a direct override) and pushes it here.
+    // Keeps the engine's "three canonical profiles" mental model clean: a
+    // SENSITIVE engine with EffectiveTrigger = 50 is still semantically a
+    // SENSITIVE engine, just with a per-user threshold.
+    //
+    // Math direction is "divide trigger" (not "multiply pressure"). Sensor
+    // readings stay pristine in raw form; only the threshold the user must
+    // cross to trigger a spike moves per user. This matters when raw pressure
+    // gets logged or referenced by the chatbot — multiplied pressure would
+    // mislead every downstream consumer.
+
+    /// <summary>The pressure threshold this engine uses for spike-recurrence
+    /// detection and the calm-pressure fraction comparison. Defaults to
+    /// <see cref="SenseDefaults.TriggerPressure"/>. Calibration overrides this
+    /// via <c>MockInferenceEngine.ApplyCalibrationResult</c>; the wrapper
+    /// computes the value, this property just stores + serves it.</summary>
+    public double EffectiveTrigger { get; set; } = SenseDefaults.TriggerPressure;
+
+    /// <summary>Optional override for <see cref="HabituationProfileParams.SevereStrikeLimit"/>.
+    /// When non-null, <see cref="RegisterSevereStrike"/> compares the strike
+    /// counter against THIS value instead of the profile's default. Set by
+    /// the calibration result for the vestibular-diagnosed branch (= 1).
+    /// Null = use the profile default. Like <see cref="EffectiveTrigger"/>,
+    /// the engine just stores + serves; the wrapper decides when to set it.</summary>
+    public int? SevereStrikeLimitOverride { get; set; }
+
     /// <summary>Raised whenever <see cref="SetProfile"/> changes the active
     /// profile. Phase 4's FileHabituationProfileStore consumer subscribes
     /// here to persist the new snapshot atomically.</summary>
@@ -233,7 +262,12 @@ public sealed class HabituationEngine
         if (_pauseCooldown > 0.0 && !_awaitingUserConfirm)
             _pauseCooldown = Math.Max(0.0, _pauseCooldown - dt);
 
-        double trigger = SenseDefaults.TriggerPressure;
+        // Use the per-user effective trigger (defaults to
+        // SenseDefaults.TriggerPressure when no calibration has applied an
+        // override / scale). Engine doesn't know whether this value is the
+        // OS default or a calibration-derived per-user number — that's the
+        // wrapper's concern.
+        double trigger = EffectiveTrigger;
 
         // Pressure-spike recurrence: sensor-derived severe event (weight 1.0).
         if (pressure >= trigger * SenseDefaults.HabituationRecurrencePressureFraction)
@@ -326,10 +360,14 @@ public sealed class HabituationEngine
     {
         _lastSpikeAtUtc = DateTime.UtcNow;
         _severeStrikeCount += weight;
+        // Per-user override (Stage 2 calibration) trumps the profile default.
+        // Vestibular calibration sets this to 1 to zero the offset on the very
+        // first severe event regardless of profile-default tolerance.
+        double effectiveLimit = SevereStrikeLimitOverride ?? _params.SevereStrikeLimit;
         // Epsilon belt — see StrikeLimitEpsilon field comment for the
         // "do not remove" rationale. Compares with -1e-9 slack so future
         // non-binary weights (e.g. 1/3) don't silently miss the limit.
-        if (_severeStrikeCount >= _params.SevereStrikeLimit - StrikeLimitEpsilon)
+        if (_severeStrikeCount >= effectiveLimit - StrikeLimitEpsilon)
         {
             _offset = 0.0;
             _severeStrikeCount = 0.0;
