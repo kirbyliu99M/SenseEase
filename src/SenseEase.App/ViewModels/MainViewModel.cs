@@ -729,15 +729,150 @@ public sealed class MainViewModel : INotifyPropertyChanged
             $"Demo 結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
             CurrentState);
 
-        // GTA-V-style summary modal. Opened AFTER the log line so the event-log
-        // tab already reflects the demo run when the user dismisses the summary.
-        // Guarded so a window-construction failure can't take down demo teardown.
-        // Setup-run branch shows the calibration variant (preset rows + Save/Skip);
-        // every other invocation shows the plain stats-only summary + Close.
+        // ── Stage 3e: post-demo calibration card trigger ────────────────────
+        // First-time users (AppConfig.IsFirstRun signals "we have never written
+        // the first-run-complete.flag") get the 5-card calibration UI surfaced
+        // in the chatbot tab. Subsequent runs leave a TODO for Stage 5's
+        // re-calibration invitation banner (not implemented in Stage 3).
+        // The legacy DemoSummaryWindow paths below (calibration-variant +
+        // plain summary) are SLATED FOR REMOVAL once Stage 5 ships the
+        // post-calibration summary inside the chat tab; until then the plain
+        // summary still serves users who already finished setup.
+        bool isFirstRunCalibration = AppConfig.IsFirstRun && _isSetupRun;
+        if (isFirstRunCalibration)
+        {
+            TriggerCalibrationCard();
+        }
+        else if (!_isSetupRun)
+        {
+            // TODO(Stage 5): Subsequent-run re-calibration invitation banner —
+            // post a Messages bubble offering "Would you like to recalibrate?"
+            // with Yes/No followup options. Not implemented in Stage 3.
+            // Fall through to plain summary for now.
+            ShowLegacyDemoSummary(dur, calibration: false);
+        }
+        else
+        {
+            // Stage-3-only fallback: setup-run but user already completed
+            // first-run on a previous launch. Show the legacy calibration
+            // variant so they still get a preset suggestion. This branch
+            // will collapse when the recalibration banner ships.
+            ShowLegacyDemoSummary(dur, calibration: true);
+        }
+
+        _isSetupRun = false;
+        IsRunning = false;
+    }
+
+    // ── Stage 3e/3f: calibration card trigger + completion handlers ─────────
+
+    /// <summary>Stash of sensor observations the calibration processor will
+    /// consume on Completed/Cancelled. Captured at demo-end so the processor
+    /// sees the run that prompted the card, not whatever state has accrued
+    /// while the user was answering questions.</summary>
+    private CalibrationSensorData? _pendingCalibrationSensorData;
+
+    private void TriggerCalibrationCard()
+    {
+        // Snapshot sensor stats now so they survive even if pressure drifts
+        // during the user's answer time. PeakPressureAtSec is not tracked
+        // through the demo (the recorder only keeps the max), so we report
+        // 0 — Q1-vs-sensor alignment downgrades to "no claim" without it,
+        // which CalibrationProcessor handles gracefully.
+        _pendingCalibrationSensorData = new CalibrationSensorData(
+            PeakPressure: _demoPeakPressure,
+            MaskActivations: _demoMaskActivations,
+            PeakPressureAtSec: 0);
+
+        var card = new CalibrationCardViewModel();
+        card.Completed += OnCalibrationCompleted;
+        card.Cancelled += OnCalibrationCancelled;
+
+        ChatbotVm.ActiveCalibrationCard = card;
+        ChatbotVm.IsCalibrationCardActive = true;
+
+        AppendLog("Calibration", "校正卡開啟（首次校正）/ Calibration card opened (first run).", CurrentState);
+    }
+
+    private void OnCalibrationCompleted(object? sender, CalibrationResponses responses)
+    {
+        ApplyAndAnnounceCalibration(responses);
+    }
+
+    private void OnCalibrationCancelled(object? sender, CalibrationResponses responses)
+    {
+        // Delegate to the shared applicator so the engine + Messages mutation
+        // rules live in one place (CalibrationApplicator). Abandoned classifies
+        // to a no-op engine result with no messages posted, exactly what we
+        // want for "user closed before Q3".
+        ApplyAndAnnounceCalibration(responses);
+    }
+
+    /// <summary>Shared completion path used by both Complete and Partial flows.
+    /// Hands off to <see cref="CalibrationApplicator.Apply"/> for the engine
+    /// mutation + Messages append, then performs the MainViewModel-side
+    /// follow-ups (dismiss card, mark first-run-complete, log).</summary>
+    private void ApplyAndAnnounceCalibration(CalibrationResponses responses)
+    {
+        var sensor = _pendingCalibrationSensorData
+                     ?? new CalibrationSensorData(_demoPeakPressure, _demoMaskActivations, 0);
+
+        CalibrationResult result;
+        if (_engine is MockInferenceEngine mock)
+        {
+            result = CalibrationApplicator.Apply(responses, sensor, mock, ChatbotVm.Messages);
+        }
+        else
+        {
+            // Defensive: not the production engine flavour. Still classify so
+            // we log the right thing, but skip the engine mutation.
+            result = CalibrationProcessor.Process(responses, sensor);
+        }
+
+        DismissCalibrationCard();
+
+        // Abandoned → silent dismiss, no first-run bookkeeping, no log noise.
+        if (result.Completeness == CalibrationCompleteness.Abandoned)
+        {
+            AppendLog("Calibration",
+                "校正卡已關閉（未完成 Q3，無紀錄）/ Card dismissed before Q3 — no profile change.",
+                CurrentState);
+            return;
+        }
+
+        AppConfig.MarkFirstRunComplete();
+        ShowFirstRunBanner = false;
+
+        bool partial = result.Completeness == CalibrationCompleteness.Partial;
+        AppendLog("Calibration",
+            partial
+                ? $"校正部分完成 / Calibration partial — profile={result.Profile}, scale={result.PersonalPressureScale:F2}."
+                : $"校正完成 / Calibration complete — profile={result.Profile}, scale={result.PersonalPressureScale:F2}.",
+            CurrentState);
+    }
+
+    private void DismissCalibrationCard()
+    {
+        if (ChatbotVm.ActiveCalibrationCard is { } prev)
+        {
+            prev.Completed -= OnCalibrationCompleted;
+            prev.Cancelled -= OnCalibrationCancelled;
+        }
+        ChatbotVm.IsCalibrationCardActive = false;
+        ChatbotVm.ActiveCalibrationCard = null;
+        _pendingCalibrationSensorData = null;
+    }
+
+    /// <summary>Legacy DemoSummaryWindow path. Retained for non-first-run demo
+    /// invocations until Stage 5 unifies summary rendering inside the chat
+    /// tab. <paramref name="calibration"/> picks the calibration variant
+    /// (preset rows + Save/Skip) versus the plain stats-only summary.</summary>
+    private void ShowLegacyDemoSummary(TimeSpan dur, bool calibration)
+    {
         try
         {
             Views.DemoSummaryWindow summary;
-            if (_isSetupRun)
+            if (calibration)
             {
                 var preset = DerivePreset(_demoPeakPressure, _demoMaskActivations);
                 summary = new Views.DemoSummaryWindow(dur, _demoMaskActivations, _demoPeakPressure, preset)
@@ -756,9 +891,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 {
                     AppendLog("Setup", "使用者跳過了建議預設值 / User skipped suggested preset.", CurrentState);
                 }
-                // Either way the user has now seen and decided on the setup
-                // wizard; don't show the banner again. (Skip still counts as
-                // completing first-run so the welcome prompt doesn't pester.)
                 AppConfig.MarkFirstRunComplete();
                 ShowFirstRunBanner = false;
             }
@@ -775,9 +907,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog("Error", $"Demo summary window failed: {ex.GetType().Name}: {ex.Message}", CurrentState);
         }
-
-        _isSetupRun = false;
-        IsRunning = false;
     }
 
     /// <summary>Maps observed demo reactivity (peak pressure + mask activations)
