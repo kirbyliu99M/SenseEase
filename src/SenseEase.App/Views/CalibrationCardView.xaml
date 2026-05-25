@@ -1,0 +1,477 @@
+<UserControl x:Class="SenseEase.App.Views.CalibrationCardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:inf="clr-namespace:SenseEase.Core.Inference;assembly=SenseEase.Core"
+             FontFamily="Segoe UI">
+
+    <!-- ============================================================
+         Calibration card UserControl
+
+         Hosted inside the AI Assistant tab (above the input row) when
+         ChatbotViewModel.IsCalibrationCardActive is true. DataContext is
+         set externally to a CalibrationCardViewModel instance. Only one
+         of the five card panels is visible at a time (driven by the
+         IsCardNVisible flags on the VM).
+
+         Visual style mirrors the chatbot tab: white card with shadow,
+         #0A1F5C text, #024AD8 primary accents, #EEF3FF ghost surface.
+         No new colours are introduced.
+         ============================================================ -->
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- Local copies of the chatbot tab's button styles. We can't reach
+             into MainWindow.xaml from this UserControl, so the styles are
+             redeclared with identical values to keep the look-and-feel
+             consistent. If MainWindow palette changes, update both. -->
+        <ControlTemplate x:Key="CalibRoundBtn" TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Bd" Property="Opacity" Value="0.86"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter TargetName="Bd" Property="Opacity" Value="0.72"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter TargetName="Bd" Property="Opacity" Value="0.38"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <Style x:Key="CalibPrimaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#024AD8"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="18,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template" Value="{StaticResource CalibRoundBtn}"/>
+        </Style>
+
+        <Style x:Key="CalibGhostBtn" TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
+            <Setter Property="Background" Value="#EEF3FF"/>
+            <Setter Property="Foreground" Value="#024AD8"/>
+        </Style>
+
+        <Style x:Key="CalibAlertBtn" TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#7B8DB0"/>
+        </Style>
+
+        <!-- Generic single-select option button. Use Tag for the value carried
+             by the user's choice. The card-specific blocks below set Tag +
+             Command bindings to a code-behind handler that maps to the VM. -->
+        <Style x:Key="OptionRadioBtn" TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="OptionCheckBox" TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="CalibTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+
+        <Style x:Key="CalibSubtitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#7B8DB0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,0,12"/>
+        </Style>
+
+        <Style x:Key="CalibFreetextLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#7B8DB0"/>
+            <Setter Property="Margin" Value="0,10,0,4"/>
+        </Style>
+
+        <Style x:Key="CalibFreetextBox" TargetType="TextBox">
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Background" Value="#F8FAFF"/>
+            <Setter Property="BorderBrush" Value="#E8EEFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="MinHeight" Value="40"/>
+            <Setter Property="AcceptsReturn" Value="True"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="White" CornerRadius="12" Padding="18,14">
+        <Border.Effect>
+            <DropShadowEffect Color="#5B82C6" BlurRadius="14" ShadowDepth="2" Opacity="0.12"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>  <!-- header -->
+                <RowDefinition Height="*"/>     <!-- card body (one of five) -->
+                <RowDefinition Height="Auto"/>  <!-- footer -->
+            </Grid.RowDefinitions>
+
+            <!-- Header: badge + step counter -->
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#EEF3FF" CornerRadius="10" Padding="8,3" Margin="0,0,8,0">
+                        <TextBlock Text="校正 / Calibration"
+                                   FontSize="11" FontWeight="SemiBold" Foreground="#024AD8"/>
+                    </Border>
+                    <TextBlock Text="請依您剛才看完 demo 的感受作答 / Answer based on how the demo felt"
+                               FontSize="11" Foreground="#7B8DB0" VerticalAlignment="Center"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding CardCounterText}"
+                           FontSize="11" FontWeight="SemiBold" Foreground="#024AD8"
+                           VerticalAlignment="Center"/>
+            </Grid>
+
+            <!-- Card body — five mutually exclusive blocks, only one visible at a time -->
+            <Grid Grid.Row="1">
+
+                <!-- ── Card 1: Q1 — uncomfortable segment ──────────────── -->
+                <StackPanel Visibility="{Binding IsCard1Visible, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource CalibTitle}"
+                               Text="Q1: 整段影片裡，哪個時段最不舒服？"/>
+                    <TextBlock Style="{StaticResource CalibSubtitle}"
+                               Text="Which segment felt worst? Pick one — or 'all fine' if nothing bothered you."/>
+
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
+                                 Content="開頭 / Start (first 1/3)"
+                                 Tag="{x:Static inf:UncomfortableSegment.Start}"
+                                 Click="OnQ1OptionClicked"/>
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
+                                 Content="中段 / Middle"
+                                 Tag="{x:Static inf:UncomfortableSegment.Middle}"
+                                 Click="OnQ1OptionClicked"/>
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
+                                 Content="結尾 / End (last 1/3)"
+                                 Tag="{x:Static inf:UncomfortableSegment.End}"
+                                 Click="OnQ1OptionClicked"/>
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
+                                 Content="全程都還好 / All fine throughout"
+                                 Tag="{x:Static inf:UncomfortableSegment.None}"
+                                 Click="OnQ1OptionClicked"/>
+
+                    <TextBlock Style="{StaticResource CalibFreetextLabel}"
+                               Text="補充 (選填) / Notes (optional)"/>
+                    <TextBox Style="{StaticResource CalibFreetextBox}"
+                             Text="{Binding Q1Freetext, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+
+                <!-- ── Card 2: Q2 — symptom dominance (multi) ──────────── -->
+                <StackPanel Visibility="{Binding IsCard2Visible, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource CalibTitle}"
+                               Text="Q2: 您主要感覺到哪些症狀？(可複選)"/>
+                    <TextBlock Style="{StaticResource CalibSubtitle}"
+                               Text="Which symptoms did you notice? Multi-select."/>
+
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="頭暈 / Dizziness" IsChecked="{Binding Q2Dizziness}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="想吐 / Nausea" IsChecked="{Binding Q2Nausea}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="眼睛疲勞 / Eye strain" IsChecked="{Binding Q2EyeStrain}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="頭痛 / Headache" IsChecked="{Binding Q2Headache}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="平衡感差 / Imbalance" IsChecked="{Binding Q2Imbalance}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="方向感混亂 / Disorientation" IsChecked="{Binding Q2Disorientation}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="都沒有 / None of the above" IsChecked="{Binding Q2None}"/>
+
+                    <TextBlock Style="{StaticResource CalibFreetextLabel}"
+                               Text="補充 (選填) / Notes (optional)"/>
+                    <TextBox Style="{StaticResource CalibFreetextBox}"
+                             Text="{Binding Q2Freetext, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+
+                <!-- ── Card 3: Q3 — intensity 1..5 (mandatory) ─────────── -->
+                <StackPanel Visibility="{Binding IsCard3Visible, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource CalibTitle}"
+                               Text="Q3: 您感受的整體強度？(必選)"/>
+                    <TextBlock Style="{StaticResource CalibSubtitle}"
+                               Text="Overall intensity (1 = none / 5 = severe). Required to continue."/>
+
+                    <!-- 5-level horizontal scale. Each option is a RadioButton
+                         styled as a square cell so the scale reads clearly. -->
+                    <UniformGrid Rows="1" Columns="5" Margin="0,4,0,0">
+                        <RadioButton GroupName="Q3" Tag="1" Click="OnQ3OptionClicked"
+                                     Margin="0,0,4,0">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
+                                            BorderThickness="1" CornerRadius="6" Padding="6,10"
+                                            MinHeight="58">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="1" FontSize="18" FontWeight="Bold"
+                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="無 / None" FontSize="10" Foreground="#7B8DB0"
+                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Cell" Property="Background" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                        <RadioButton GroupName="Q3" Tag="2" Click="OnQ3OptionClicked"
+                                     Margin="0,0,4,0">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
+                                            BorderThickness="1" CornerRadius="6" Padding="6,10"
+                                            MinHeight="58">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="2" FontSize="18" FontWeight="Bold"
+                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="輕微 / Mild" FontSize="10" Foreground="#7B8DB0"
+                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Cell" Property="Background" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                        <RadioButton GroupName="Q3" Tag="3" Click="OnQ3OptionClicked"
+                                     Margin="0,0,4,0">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
+                                            BorderThickness="1" CornerRadius="6" Padding="6,10"
+                                            MinHeight="58">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="3" FontSize="18" FontWeight="Bold"
+                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="中等 / Moderate" FontSize="10" Foreground="#7B8DB0"
+                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Cell" Property="Background" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                        <RadioButton GroupName="Q3" Tag="4" Click="OnQ3OptionClicked"
+                                     Margin="0,0,4,0">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
+                                            BorderThickness="1" CornerRadius="6" Padding="6,10"
+                                            MinHeight="58">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="4" FontSize="18" FontWeight="Bold"
+                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="明顯 / Strong" FontSize="10" Foreground="#7B8DB0"
+                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Cell" Property="Background" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                        <RadioButton GroupName="Q3" Tag="5" Click="OnQ3OptionClicked">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
+                                            BorderThickness="1" CornerRadius="6" Padding="6,10"
+                                            MinHeight="58">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="5" FontSize="18" FontWeight="Bold"
+                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="嚴重 / Severe" FontSize="10" Foreground="#7B8DB0"
+                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Cell" Property="Background" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                            <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="#024AD8"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                    </UniformGrid>
+
+                    <TextBlock Style="{StaticResource CalibFreetextLabel}"
+                               Text="補充 (選填) / Notes (optional)"/>
+                    <TextBox Style="{StaticResource CalibFreetextBox}"
+                             Text="{Binding Q3Freetext, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+
+                <!-- ── Card 4: Q4 — baseline comparison ────────────────── -->
+                <StackPanel Visibility="{Binding IsCard4Visible, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource CalibTitle}"
+                               Text="Q4: 跟您平常看的影片相比，這次感受如何？"/>
+                    <TextBlock Style="{StaticResource CalibSubtitle}"
+                               Text="Compared with the video content you usually watch, how did this feel?"/>
+
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q4"
+                                 Content="比平常更不舒服 / Worse than usual"
+                                 Tag="{x:Static inf:BaselineComparison.Worse}"
+                                 Click="OnQ4OptionClicked"/>
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q4"
+                                 Content="跟平常差不多 / Similar to usual"
+                                 Tag="{x:Static inf:BaselineComparison.Similar}"
+                                 Click="OnQ4OptionClicked"/>
+                    <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q4"
+                                 Content="比平常還好 / Better than usual"
+                                 Tag="{x:Static inf:BaselineComparison.Better}"
+                                 Click="OnQ4OptionClicked"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="我平常不看這類動態畫面 / I don't usually watch this kind of content"
+                              IsChecked="{Binding Q4NoBaseline}"/>
+
+                    <TextBlock Style="{StaticResource CalibFreetextLabel}"
+                               Text="補充 (選填) / Notes (optional)"/>
+                    <TextBox Style="{StaticResource CalibFreetextBox}"
+                             Text="{Binding Q4Freetext, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+
+                <!-- ── Card 5: Q5 — risk factors (multi) ───────────────── -->
+                <StackPanel Visibility="{Binding IsCard5Visible, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource CalibTitle}"
+                               Text="Q5: 以下是否有符合您的長期狀況？(可複選)"/>
+                    <TextBlock Style="{StaticResource CalibSubtitle}"
+                               Text="Any of these long-term risk factors? Multi-select."/>
+
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="容易暈車 / 暈船 / Motion sickness"
+                              IsChecked="{Binding Q5MotionSickness}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="偏頭痛 / Migraine"
+                              IsChecked="{Binding Q5Migraine}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="有前庭/內耳相關診斷 / Diagnosed vestibular condition"
+                              IsChecked="{Binding Q5VestibularDiagnosed}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="使用 VR 容易不適 / VR makes me feel sick"
+                              IsChecked="{Binding Q5VrSusceptible}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="不明原因頭暈 / Unexplained dizziness"
+                              IsChecked="{Binding Q5UnexplainedDizziness}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="都沒有 / None of the above"
+                              IsChecked="{Binding Q5None}"/>
+                    <CheckBox Style="{StaticResource OptionCheckBox}"
+                              Content="跳過不答 / Prefer not to share"
+                              IsChecked="{Binding Q5Skipped}"/>
+
+                    <TextBlock Style="{StaticResource CalibFreetextLabel}"
+                               Text="補充 (選填) / Notes (optional)"/>
+                    <TextBox Style="{StaticResource CalibFreetextBox}"
+                             Text="{Binding Q5Freetext, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+
+            </Grid>
+
+            <!-- Footer: Cancel | Back | Next/Complete -->
+            <Grid Grid.Row="2" Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Style="{StaticResource CalibAlertBtn}"
+                        Content="取消 / Cancel"
+                        Command="{Binding CancelCommand}"/>
+                <Button Grid.Column="2" Style="{StaticResource CalibGhostBtn}"
+                        Content="上一題 / Back" Margin="0,0,8,0"
+                        Command="{Binding BackCommand}"/>
+                <!-- Next button — hidden on the last card; visibility flipped by IsLastCard. -->
+                <Button Grid.Column="3"
+                        Content="下一題 / Next"
+                        Command="{Binding NextCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsLastCard}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <!-- Complete button — only on the last card. Stacked at column 3
+                     so it occupies the same slot as Next; only one is visible. -->
+                <Button Grid.Column="3"
+                        Content="完成 / Complete"
+                        Command="{Binding CompleteCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsLastCard}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

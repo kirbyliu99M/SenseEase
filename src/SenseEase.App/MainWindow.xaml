@@ -677,6 +677,7 @@
                 <Grid DataContext="{Binding ChatbotVm}" Background="#E2ECFF">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>  <!-- Calibration card (Stage 3d) -->
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
@@ -804,8 +805,18 @@
                         </ScrollViewer>
                     </Border>
 
-                    <!-- Status bar -->
+                    <!-- Calibration card host (Stage 3d).
+                         Visible only when IsCalibrationCardActive == true.
+                         DataContext flows to the inner ContentPresenter via
+                         ActiveCalibrationCard binding so the card sees its
+                         own CalibrationCardViewModel rather than ChatbotVm. -->
                     <Border Grid.Row="1" Margin="24,0,24,8"
+                            Visibility="{Binding IsCalibrationCardActive, Converter={StaticResource BoolToVis}}">
+                        <views:CalibrationCardView DataContext="{Binding ActiveCalibrationCard}"/>
+                    </Border>
+
+                    <!-- Status bar -->
+                    <Border Grid.Row="2" Margin="24,0,24,8"
                             Background="White" CornerRadius="8" Padding="14,7">
                         <Border.Effect>
                             <DropShadowEffect Color="#5B82C6" BlurRadius="10"
@@ -816,7 +827,7 @@
                     </Border>
 
                     <!-- Input row -->
-                    <Grid Grid.Row="2" Margin="24,0,24,20">
+                    <Grid Grid.Row="3" Margin="24,0,24,20">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
