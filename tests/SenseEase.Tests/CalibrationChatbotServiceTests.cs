@@ -285,6 +285,92 @@ public class CalibrationChatbotServiceTests
         Assert.False(fallbackFired);
     }
 
+    // ── Q3 fallback event-ownership patch (post-review) ───────────────────────
+    // Service exclusively owns Completed; when Q3 is weak the service DEFERS
+    // Completed until the caller routes the answer back via
+    // MergeFallbackAndComplete. Caller never fires Completed directly.
+
+    [Fact]
+    public async Task RequestQ3Fallback_DefersCompleted_UntilMergeFallbackCalled()
+    {
+        var llm = new StubLlm();
+        llm.Replies.Enqueue(DeltaReply(q3Intensity: null, isComplete: true,
+            confidence: new[] { 0.8, 0.8, 0.8, 0.8, 0.8 }));
+        using var svc = new CalibrationChatbotService(llm, TempPath());
+
+        int completedFires = 0;
+        bool fallbackFired = false;
+        svc.Completed         += (_, _) => completedFires++;
+        svc.RequestQ3Fallback += ()      => fallbackFired = true;
+
+        await svc.StartAsync(null, Sensor());
+        await svc.SendUserMessageAsync("dunno");
+
+        // Fallback requested; Completed NOT yet fired.
+        Assert.True(fallbackFired);
+        Assert.Equal(0, completedFires);
+    }
+
+    [Fact]
+    public async Task MergeFallbackAndComplete_FiresCompletedAndSetsQ3SourceToFallback()
+    {
+        var llm = new StubLlm();
+        llm.Replies.Enqueue(DeltaReply(q3Intensity: null, isComplete: true,
+            confidence: new[] { 0.8, 0.8, 0.8, 0.8, 0.8 }));
+        using var svc = new CalibrationChatbotService(llm, TempPath());
+
+        int completedFires = 0;
+        CalibrationResponses? final = null;
+        svc.Completed += (r, _) => { completedFires++; final = r; };
+
+        await svc.StartAsync(null, Sensor());
+        await svc.SendUserMessageAsync("dunno");
+
+        // Caller collects Q3 from fallback card, routes back through service.
+        svc.MergeFallbackAndComplete(4, "actually it was pretty bad");
+
+        Assert.Equal(1, completedFires);
+        Assert.NotNull(final);
+        Assert.Equal(4, final!.Q3Intensity);
+        Assert.Equal("actually it was pretty bad", final.Q3Freetext);
+        Assert.Equal(CalibrationSource.FallbackButtons, final.Q3Source);
+    }
+
+    [Fact]
+    public void MergeFallbackAndComplete_NoOpWhenNotAwaitingFallback()
+    {
+        var llm = new StubLlm();
+        using var svc = new CalibrationChatbotService(llm, TempPath());
+
+        int completedFires = 0;
+        svc.Completed += (_, _) => completedFires++;
+
+        // No fallback in progress (we never started a session). Call must be safe + a no-op.
+        svc.MergeFallbackAndComplete(3);
+
+        Assert.Equal(0, completedFires);
+    }
+
+    [Fact]
+    public async Task MergeFallbackAndComplete_IdempotentOnSecondCall()
+    {
+        var llm = new StubLlm();
+        llm.Replies.Enqueue(DeltaReply(q3Intensity: null, isComplete: true,
+            confidence: new[] { 0.8, 0.8, 0.8, 0.8, 0.8 }));
+        using var svc = new CalibrationChatbotService(llm, TempPath());
+
+        int completedFires = 0;
+        svc.Completed += (_, _) => completedFires++;
+
+        await svc.StartAsync(null, Sensor());
+        await svc.SendUserMessageAsync("dunno");
+
+        svc.MergeFallbackAndComplete(3);
+        svc.MergeFallbackAndComplete(3); // second call must be a no-op
+
+        Assert.Equal(1, completedFires);
+    }
+
     // ── Completed event firing semantics ──────────────────────────────────────
 
     [Fact]

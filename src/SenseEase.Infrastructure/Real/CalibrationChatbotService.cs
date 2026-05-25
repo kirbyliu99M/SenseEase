@@ -55,6 +55,8 @@ public sealed class CalibrationChatbotService : IDisposable
     private string? _systemPrompt;       // chosen at StartAsync based on first user message language
     private bool _isActive;
     private bool _completedFired;
+    private bool _awaitingQ3Fallback;     // set when service deferred Completed pending caller-supplied Q3
+    private bool _pendingIsComplete;      // is_complete value to use when fallback merge eventually fires Completed
     private int _llmCallCount;
     private CalibrationResponses? _mergedSoFar;
     private double[]? _lastConfidence;
@@ -100,6 +102,8 @@ public sealed class CalibrationChatbotService : IDisposable
         _systemPrompt = null;
         _isActive = true;
         _completedFired = false;
+        _awaitingQ3Fallback = false;
+        _pendingIsComplete = false;
         _llmCallCount = 0;
         TurnCount = 0;
         _mergedSoFar = null;
@@ -187,34 +191,82 @@ public sealed class CalibrationChatbotService : IDisposable
             if (parsed.Confidence is not null) _lastConfidence = parsed.Confidence;
 
             bool hardStop = _llmCallCount >= MaxLlmCallsPerSession;
-            if ((parsed.IsComplete || hardStop) && !_completedFired)
+            if ((parsed.IsComplete || hardStop) && !_completedFired && !_awaitingQ3Fallback)
             {
-                _completedFired = true;
                 CalibrationResponses final = _mergedSoFar ?? _emptyResponses;
 
-                // Q3 confidence fallback: if Q3 intensity is missing OR the
-                // model's Q3 confidence is < 0.7, ask the UI to show the
-                // single-card Q3 fallback. The caller (Agent A's UI in Stage 3)
-                // will re-emit Completed after merging Q3 from the card.
-                bool q3Weak = NeedsQ3Fallback(final, _lastConfidence);
-                if (q3Weak) RequestQ3Fallback?.Invoke();
+                // Q3 confidence fallback. Event-ownership invariant: only this
+                // service ever fires Completed. If Q3 is weak we DEFER Completed
+                // until the caller routes the Q3 fallback answer back via
+                // MergeFallbackAndComplete — keeps the event source single.
+                if (NeedsQ3Fallback(final, _lastConfidence))
+                {
+                    _awaitingQ3Fallback = true;
+                    _pendingIsComplete  = parsed.IsComplete;
+                    RequestQ3Fallback?.Invoke();
+                    // NOTE: do NOT EndSession here. Session stays active until
+                    // MergeFallbackAndComplete (which fires Completed) or the
+                    // caller explicitly EndSession()s after a dismissed fallback.
+                    return;
+                }
 
-                // TODO Stage 5 integration: caller merges Q3 from fallback card and re-emits Completed.
+                _completedFired = true;
                 Completed?.Invoke(final, parsed.IsComplete);
                 EndSession();
             }
         }
-        else if (_llmCallCount >= MaxLlmCallsPerSession && !_completedFired)
+        else if (_llmCallCount >= MaxLlmCallsPerSession && !_completedFired && !_awaitingQ3Fallback)
         {
-            // Hard stop with no parseable delta at all — emit Completed with whatever
-            // we've merged (possibly empty) and is_complete=false so the caller can
-            // decide whether to surface the card fallback for everything.
-            _completedFired = true;
+            // Hard stop with no parseable delta. Same event-ownership rule
+            // applies — defer Completed when Q3 is weak.
             CalibrationResponses final = _mergedSoFar ?? _emptyResponses;
-            if (NeedsQ3Fallback(final, _lastConfidence)) RequestQ3Fallback?.Invoke();
+            if (NeedsQ3Fallback(final, _lastConfidence))
+            {
+                _awaitingQ3Fallback = true;
+                _pendingIsComplete  = false;
+                RequestQ3Fallback?.Invoke();
+                return;
+            }
+            _completedFired = true;
             Completed?.Invoke(final, false);
             EndSession();
         }
+    }
+
+    /// <summary>Merge the user's Q3 fallback answer (typically collected via a
+    /// single-card UI shown in response to <see cref="RequestQ3Fallback"/>) into
+    /// the session's accumulated responses, then fire <see cref="Completed"/>.
+    ///
+    /// EVENT OWNERSHIP RULE: <see cref="Completed"/> is exclusively fired by
+    /// this service. The fallback flow used to leave Completed-firing to the
+    /// caller, which violated event-source consistency — this method is the
+    /// fix per the Stage 4 patch review. Caller's responsibility ends at
+    /// "collect Q3 and call this method"; firing the event stays here.
+    ///
+    /// No-op when the service is not in the fallback-awaiting state. Safe to
+    /// call multiple times — second call is a no-op once Completed has fired.</summary>
+    public void MergeFallbackAndComplete(int q3Intensity, string? q3Freetext = null)
+    {
+        if (!_awaitingQ3Fallback || _completedFired) return;
+
+        var prior = _mergedSoFar ?? _emptyResponses;
+        _mergedSoFar = prior with
+        {
+            Q3Intensity = q3Intensity,
+            Q3Freetext  = string.IsNullOrWhiteSpace(q3Freetext) ? prior.Q3Freetext : q3Freetext.Trim(),
+            Q3Source    = CalibrationSource.FallbackButtons,
+        };
+
+        _awaitingQ3Fallback = false;
+        _completedFired     = true;
+
+        // Hand the merged responses back through the service-owned event.
+        // is_complete reflects what the LLM said at the time we entered the
+        // fallback branch (preserved in _pendingIsComplete). If the LLM's
+        // is_complete was true and the user gave us the missing Q3, the
+        // calibration is genuinely complete; if hard-stop fallback, false.
+        Completed?.Invoke(_mergedSoFar, _pendingIsComplete);
+        EndSession();
     }
 
     public void EndSession()
