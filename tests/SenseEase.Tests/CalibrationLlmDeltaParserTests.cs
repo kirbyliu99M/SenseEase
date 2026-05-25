@@ -39,7 +39,7 @@ public class CalibrationLlmDeltaParserTests
     ""q5_risk_factors"": [""MotionSickness""],
     ""q5_freetext"": null
   },
-  ""confidence"": [0.8, 0.9, 0.85, 0.7, 0.6],
+  ""confidence"": { ""q1"": 0.8, ""q2"": 0.9, ""q3"": 0.85, ""q4"": 0.7, ""q5"": 0.6 },
   ""longitudinal_observation"": ""worse than last time"",
   ""is_complete"": true,
   ""needs_followup_on"": []

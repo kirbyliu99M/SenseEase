@@ -29,7 +29,23 @@ public class CalibrationChatbotServiceTests
 
     private static string DeltaReply(int? q3Intensity, bool isComplete, double[]? confidence = null)
     {
-        string conf = confidence is null ? "null" : "[" + string.Join(",", confidence) + "]";
+        // Wire format is the JSON OBJECT shape per Stage 4 prompt review.
+        // Helper still accepts a double[5] (array indexed Q1..Q5) for test
+        // ergonomics and serialises it into the {q1,...,q5} object form.
+        string conf;
+        if (confidence is null)
+        {
+            conf = "null";
+        }
+        else
+        {
+            double q1 = confidence.Length > 0 ? confidence[0] : 0.0;
+            double q2 = confidence.Length > 1 ? confidence[1] : 0.0;
+            double q3c = confidence.Length > 2 ? confidence[2] : 0.0;
+            double q4 = confidence.Length > 3 ? confidence[3] : 0.0;
+            double q5 = confidence.Length > 4 ? confidence[4] : 0.0;
+            conf = $"{{ \"q1\": {q1}, \"q2\": {q2}, \"q3\": {q3c}, \"q4\": {q4}, \"q5\": {q5} }}";
+        }
         string q3 = q3Intensity is null ? "null" : q3Intensity.Value.ToString();
         return @$"Sure, noting that.
 [CALIBRATION_DELTA]

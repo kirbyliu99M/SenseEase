@@ -16,7 +16,7 @@ namespace SenseEase.Core.Inference;
 //   { "delta": { q1_segment, q1_freetext, q2_symptoms, q2_freetext,
 //                q3_intensity, q3_freetext, q4_comparison, q4_no_baseline,
 //                q4_freetext, q5_risk_factors, q5_freetext },
-//     "confidence": [q1, q2, q3, q4, q5],
+//     "confidence": { "q1": 0..1, "q2": 0..1, "q3": 0..1, "q4": 0..1, "q5": 0..1 },
 //     "longitudinal_observation": string | null,
 //     "is_complete": bool,
 //     "needs_followup_on": [string] }
@@ -100,8 +100,14 @@ public static class CalibrationLlmDeltaParser
         [JsonPropertyName("delta")]
         public InnerDeltaDto? Delta { get; set; }
 
+        // Wire format: confidence is a JSON OBJECT with q1..q5 keys (per Stage 4
+        // prompt review — array form was error-prone for the LLM, which would
+        // occasionally emit wrong-length arrays and silently shift Q3's value
+        // into Q2's slot). Internal C# representation stays double[5] indexed
+        // 0..4 (Q1..Q5) so consumers like CalibrationChatbotService.NeedsQ3Fallback
+        // can keep their existing Confidence[2] access pattern.
         [JsonPropertyName("confidence")]
-        public double[]? Confidence { get; set; }
+        public ConfidenceDto? Confidence { get; set; }
 
         [JsonPropertyName("longitudinal_observation")]
         public string? LongitudinalObservation { get; set; }
@@ -111,6 +117,18 @@ public static class CalibrationLlmDeltaParser
 
         [JsonPropertyName("needs_followup_on")]
         public string[]? NeedsFollowupOn { get; set; }
+    }
+
+    /// <summary>JSON sub-record for the confidence object. Missing keys
+    /// default to 0.0 (least confident) per Stage 4 spec — caller's downstream
+    /// rules then treat low confidence as "no data" / "request fallback".</summary>
+    private sealed class ConfidenceDto
+    {
+        [JsonPropertyName("q1")] public double Q1 { get; set; }
+        [JsonPropertyName("q2")] public double Q2 { get; set; }
+        [JsonPropertyName("q3")] public double Q3 { get; set; }
+        [JsonPropertyName("q4")] public double Q4 { get; set; }
+        [JsonPropertyName("q5")] public double Q5 { get; set; }
     }
 
     private sealed class InnerDeltaDto
@@ -190,13 +208,15 @@ public static class CalibrationLlmDeltaParser
     private static string? NullIfBlank(string? s)
         => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-    private static double[]? NormalizeConfidence(double[]? raw)
+    private static double[]? NormalizeConfidence(ConfidenceDto? dto)
     {
-        if (raw is null) return null;
-        // Spec calls for 5 values q1..q5. We tolerate other lengths by
-        // returning the array as-is — callers (CalibrationChatbotService's
-        // Q3-fallback check) defensively bounds-check confidence[2].
-        return raw;
+        // Stage 4 review: wire format is object, internal representation is
+        // a 5-element array indexed Q1=0 .. Q5=4 so existing consumers
+        // (CalibrationChatbotService.NeedsQ3Fallback reads confidence[2])
+        // don't change. Missing JSON keys default to 0.0 per System.Text.Json
+        // value-type default behaviour, which matches the spec ("缺欄位預設為 0.0").
+        if (dto is null) return null;
+        return new[] { dto.Q1, dto.Q2, dto.Q3, dto.Q4, dto.Q5 };
     }
 }
 
