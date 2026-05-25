@@ -114,7 +114,7 @@ public class CalibrationProcessorTests
         Assert.Equal(CalibrationCompleteness.Abandoned, result.Completeness);
         Assert.Equal(HabituationProfile.Resilient, result.Profile);
         Assert.Equal(1.0, result.PersonalPressureScale);
-        Assert.Equal("low", result.CalibrationConfidence);
+        Assert.Equal(CalibrationConfidence.Low, result.CalibrationConfidence);
     }
 
     // ── §9 Case 8: Q3 answered, others partial → Partial + still acts ──────
@@ -132,7 +132,7 @@ public class CalibrationProcessorTests
         Assert.Equal(CalibrationCompleteness.Partial, result.Completeness);
         // Q3=3 alone → TYPICAL per Step 1 ("Q3 ∈ {2,3} → TYPICAL").
         Assert.Equal(HabituationProfile.Typical, result.Profile);
-        Assert.Equal("medium", result.CalibrationConfidence);
+        Assert.Equal(CalibrationConfidence.Medium, result.CalibrationConfidence);
     }
 
     // ── §9 Case 9: scale floor enforcement (Q3=1 + peak 70 → scale=0.7) ────
@@ -262,13 +262,13 @@ public class CalibrationProcessorTests
     // ── SSQ symptom-dominance grouping ──────────────────────────────────────
 
     [Theory]
-    [InlineData(new[] { SymptomType.Nausea }, "nausea")]
-    [InlineData(new[] { SymptomType.EyeStrain }, "oculomotor")]
-    [InlineData(new[] { SymptomType.Disorientation }, "disorientation")]
-    [InlineData(new[] { SymptomType.Nausea, SymptomType.EyeStrain }, "mixed")]
-    [InlineData(new[] { SymptomType.Dizziness }, "nausea")] // dizziness=0.5 on nausea axis, others 0
-    [InlineData(new[] { SymptomType.Headache }, "oculomotor")]
-    public void SymptomDominancePrimary_GroupsBySSQAxes(SymptomType[] symptoms, string expected)
+    [InlineData(new[] { SymptomType.Nausea },                          SymptomDominance.Nausea)]
+    [InlineData(new[] { SymptomType.EyeStrain },                       SymptomDominance.Oculomotor)]
+    [InlineData(new[] { SymptomType.Disorientation },                  SymptomDominance.Disorientation)]
+    [InlineData(new[] { SymptomType.Nausea, SymptomType.EyeStrain },   SymptomDominance.Mixed)]
+    [InlineData(new[] { SymptomType.Dizziness },                       SymptomDominance.Nausea)]   // dizziness=0.5 on nausea axis, others 0
+    [InlineData(new[] { SymptomType.Headache },                        SymptomDominance.Oculomotor)]
+    public void SymptomDominancePrimary_GroupsBySSQAxes(SymptomType[] symptoms, SymptomDominance expected)
     {
         var r = MakeResponses(intensity: 2, q2: symptoms);
         var result = CalibrationProcessor.Process(r, NeutralSensor);
@@ -291,19 +291,60 @@ public class CalibrationProcessorTests
         var r = MakeResponses(intensity: 1,
             q5: new[] { RiskFactor.MotionSickness, RiskFactor.Migraine });
         var result = CalibrationProcessor.Process(r, NeutralSensor);
-        Assert.Equal("low", result.CalibrationConfidence);
+        Assert.Equal(CalibrationConfidence.Low, result.CalibrationConfidence);
     }
 
     [Fact]
-    public void Confidence_Low_WhenQ1SignalConflictSet()
+    public void Confidence_Low_WhenQ1ConflictDetectedFromFreetext()
+    {
+        // User picked "全程都還好" but mentioned 暈 in freetext → conflict.
+        // After the Stage 1 review changes, Q1SignalConflict is derived inside
+        // the processor (via DetectQ1SignalConflict), NOT set on the response.
+        var r = MakeResponses(intensity: 2) with
+        {
+            Q1Segment  = UncomfortableSegment.None,
+            Q1Freetext = "其實還是有點暈，但不嚴重",
+        };
+        var result = CalibrationProcessor.Process(r, NeutralSensor);
+        Assert.Equal(CalibrationConfidence.Low, result.CalibrationConfidence);
+        Assert.True(result.Q1SignalConflict);
+    }
+
+    [Fact]
+    public void DetectQ1SignalConflict_EnglishFreetext()
+    {
+        // English-language detection — "feeling a bit dizzy still" should match
+        // the "dizz" keyword.
+        var r = MakeResponses(intensity: 2) with
+        {
+            Q1Segment  = UncomfortableSegment.None,
+            Q1Freetext = "Feeling a bit dizzy still",
+        };
+        Assert.True(CalibrationProcessor.DetectQ1SignalConflict(r));
+    }
+
+    [Fact]
+    public void DetectQ1SignalConflict_NoConflict_WhenQ1SegmentIsNotNone()
+    {
+        // Q1=Middle + freetext mentions symptom is NOT a conflict — user already
+        // told us there's a worst segment, freetext just elaborates.
+        var r = MakeResponses(intensity: 2) with
+        {
+            Q1Segment  = UncomfortableSegment.Middle,
+            Q1Freetext = "中段最暈",
+        };
+        Assert.False(CalibrationProcessor.DetectQ1SignalConflict(r));
+    }
+
+    [Fact]
+    public void DetectQ1SignalConflict_NoConflict_WhenFreetextEmpty()
     {
         var r = MakeResponses(intensity: 2) with
         {
-            Q1Segment = UncomfortableSegment.None,
-            Q1SignalConflict = true, // user said "全程都還好" but freetext mentioned 暈
+            Q1Segment  = UncomfortableSegment.None,
+            Q1Freetext = null,
         };
-        var result = CalibrationProcessor.Process(r, NeutralSensor);
-        Assert.Equal("low", result.CalibrationConfidence);
+        Assert.False(CalibrationProcessor.DetectQ1SignalConflict(r));
     }
 
     [Fact]
@@ -314,7 +355,7 @@ public class CalibrationProcessorTests
         var sensor = new CalibrationSensorData(75.0, 2, 25.0);
         var result = CalibrationProcessor.Process(r, sensor);
 
-        Assert.Equal("high", result.CalibrationConfidence);
+        Assert.Equal(CalibrationConfidence.High, result.CalibrationConfidence);
     }
 
     [Fact]
@@ -325,7 +366,7 @@ public class CalibrationProcessorTests
         var sensor = new CalibrationSensorData(75.0, 2, 50.0);
         var result = CalibrationProcessor.Process(r, sensor);
 
-        Assert.Equal("medium", result.CalibrationConfidence);
+        Assert.Equal(CalibrationConfidence.Medium, result.CalibrationConfidence);
     }
 
     // ── Repeat-calibration scale blending (spec §7 last bullet) ─────────────

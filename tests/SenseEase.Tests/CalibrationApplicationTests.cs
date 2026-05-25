@@ -140,7 +140,7 @@ public class CalibrationApplicationTests
         SevereStrikeLimitOverride  = strikeLimitOverride,
         MedicalAdvisory            = null,
         SymptomDominancePrimary    = null,
-        CalibrationConfidence      = "high",
+        CalibrationConfidence      = CalibrationConfidence.High,
         Completeness               = CalibrationCompleteness.Complete,
     };
 

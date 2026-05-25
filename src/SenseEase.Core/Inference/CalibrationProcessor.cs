@@ -31,6 +31,8 @@ public static class CalibrationProcessor
         CalibrationSensorData sensor)
     {
         var completeness = ClassifyCompleteness(responses);
+        bool q1Conflict = DetectQ1SignalConflict(responses);
+
         if (completeness == CalibrationCompleteness.Abandoned)
         {
             // Per spec §3: Q3 not answered → revert to RESILIENT default;
@@ -45,7 +47,8 @@ public static class CalibrationProcessor
                 SevereStrikeLimitOverride = null,
                 MedicalAdvisory          = null,
                 SymptomDominancePrimary  = null,
-                CalibrationConfidence    = "low",
+                CalibrationConfidence    = CalibrationConfidence.Low,
+                Q1SignalConflict         = q1Conflict,
                 Completeness             = CalibrationCompleteness.Abandoned,
             };
         }
@@ -96,10 +99,10 @@ public static class CalibrationProcessor
         scale = Math.Clamp(scale, PersonalPressureScaleMin, PersonalPressureScaleMax);
 
         // ── Derived: symptom dominance primary (SSQ-aligned) ──
-        string? dominance = ComputeSymptomDominancePrimary(responses.Q2Symptoms);
+        SymptomDominance? dominance = ComputeSymptomDominancePrimary(responses.Q2Symptoms);
 
         // ── Confidence rating (§8 rules) ──
-        string confidence = ComputeCalibrationConfidence(responses, sensor, completeness);
+        CalibrationConfidence confidence = ComputeCalibrationConfidence(responses, sensor, completeness, q1Conflict);
 
         return new CalibrationResult
         {
@@ -111,8 +114,47 @@ public static class CalibrationProcessor
             MedicalAdvisory           = medicalAdvisory,
             SymptomDominancePrimary   = dominance,
             CalibrationConfidence     = confidence,
+            Q1SignalConflict          = q1Conflict,
             Completeness              = completeness,
         };
+    }
+
+    // ── Q1 signal-conflict detector ───────────────────────────────────────────
+    // Centralised here so both packing paths (card UI + LLM parser) share one
+    // definition. If the keyword vocabulary needs to expand, update this list
+    // only — no risk of card UI / LLM parser drifting apart.
+
+    private static readonly string[] Q1ConflictSymptomKeywords =
+    {
+        // Chinese (covers traditional + simplified variants the user might type)
+        "暈", "晕", "頭暈", "头晕",
+        "想吐", "噁心", "恶心", "嘔",
+        "頭痛", "头痛", "偏頭痛", "偏头痛",
+        "眼睛", "眼花", "視覺", "视觉", "視力", "视力", "酸", "痠", "累",
+        "不舒服", "不適", "不适",
+        // English (lowercased before substring match)
+        "dizz", "spin", "vertigo", "lightheaded", "woozy",
+        "nausea", "vomit", "puke", "queasy", "sick",
+        "headache", "migraine",
+        "eye strain", "eyestrain", "blur",
+    };
+
+    /// <summary>True iff <c>Q1Segment == None</c> AND <c>Q1Freetext</c> contains
+    /// any symptom keyword. Surfaced via <see cref="CalibrationResult.Q1SignalConflict"/>;
+    /// also feeds the confidence rating (a conflict drops confidence to
+    /// <see cref="CalibrationConfidence.Low"/>).</summary>
+    public static bool DetectQ1SignalConflict(CalibrationResponses r)
+    {
+        if (r.Q1Segment != UncomfortableSegment.None) return false;
+        if (string.IsNullOrWhiteSpace(r.Q1Freetext)) return false;
+        // English keywords are stored lowercase; lowercasing the user text
+        // makes the English match case-insensitive. Lowercasing is a no-op
+        // for Han characters in C# culture-invariant context.
+        string text = r.Q1Freetext.ToLowerInvariant();
+        foreach (string kw in Q1ConflictSymptomKeywords)
+            if (text.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -217,8 +259,9 @@ public static class CalibrationProcessor
     ///   nausea_score        = (Nausea ? 1 : 0) + (Dizziness ? 0.5 : 0)
     ///   oculomotor_score    = (EyeStrain ? 1 : 0) + (Headache ? 0.5 : 0)
     ///   disorientation_score = (Disorientation ? 1 : 0) + (Imbalance ? 0.5 : 0)
-    /// Returns argmax if unique, "mixed" if multiple tied at top, null if all zero.</summary>
-    public static string? ComputeSymptomDominancePrimary(IReadOnlyList<SymptomType>? symptoms)
+    /// Returns argmax if unique, <see cref="SymptomDominance.Mixed"/> if multiple
+    /// tied at top, <c>null</c> if all zero (no symptoms reported).</summary>
+    public static SymptomDominance? ComputeSymptomDominancePrimary(IReadOnlyList<SymptomType>? symptoms)
     {
         if (symptoms is null || symptoms.Count == 0) return null;
 
@@ -233,11 +276,11 @@ public static class CalibrationProcessor
 
         double max = Math.Max(nausea, Math.Max(oculo, disori));
         int countAtMax = (nausea == max ? 1 : 0) + (oculo == max ? 1 : 0) + (disori == max ? 1 : 0);
-        if (countAtMax > 1) return "mixed";
+        if (countAtMax > 1) return SymptomDominance.Mixed;
 
-        if (nausea == max) return "nausea";
-        if (oculo  == max) return "oculomotor";
-        return "disorientation";
+        if (nausea == max) return SymptomDominance.Nausea;
+        if (oculo  == max) return SymptomDominance.Oculomotor;
+        return SymptomDominance.Disorientation;
     }
 
     /// <summary>Spec §8 confidence rules:
@@ -251,26 +294,29 @@ public static class CalibrationProcessor
     ///         with ≥2 risk factors).</item>
     /// </list>
     /// </summary>
-    private static string ComputeCalibrationConfidence(
-        CalibrationResponses r, CalibrationSensorData sensor, CalibrationCompleteness completeness)
+    private static CalibrationConfidence ComputeCalibrationConfidence(
+        CalibrationResponses r, CalibrationSensorData sensor,
+        CalibrationCompleteness completeness, bool q1Conflict)
     {
-        if (completeness == CalibrationCompleteness.Abandoned) return "low";
+        if (completeness == CalibrationCompleteness.Abandoned) return CalibrationConfidence.Low;
 
         // Internal-contradiction check: low intensity report combined with
         // multiple risk factors suggests user is either downplaying or hasn't
         // calibrated their self-report scale. Flag as low confidence so the
         // chatbot can probe in subsequent sessions.
         int riskCount = CountActiveRiskFactors(r.Q5RiskFactors);
-        if (r.Q3Intensity == 1 && riskCount >= 2) return "low";
+        if (r.Q3Intensity == 1 && riskCount >= 2) return CalibrationConfidence.Low;
 
-        // Q1 signal conflict (user said "全程都還好" but freetext mentioned a
-        // symptom) is also a low-confidence indicator.
-        if (r.Q1SignalConflict) return "low";
+        // Q1 signal conflict (derived by DetectQ1SignalConflict) is also a
+        // low-confidence indicator.
+        if (q1Conflict) return CalibrationConfidence.Low;
 
-        if (completeness == CalibrationCompleteness.Partial) return "medium";
+        if (completeness == CalibrationCompleteness.Partial) return CalibrationConfidence.Medium;
 
         // Complete + no contradictions → check Q1-vs-sensor alignment.
-        return Q1AlignsWithSensorPeak(r.Q1Segment, sensor) ? "high" : "medium";
+        return Q1AlignsWithSensorPeak(r.Q1Segment, sensor)
+            ? CalibrationConfidence.High
+            : CalibrationConfidence.Medium;
     }
 
     /// <summary>Q1-segment-vs-sensor alignment heuristic for the §8 confidence

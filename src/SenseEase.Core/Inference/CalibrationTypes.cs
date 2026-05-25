@@ -24,6 +24,30 @@ public enum UncomfortableSegment
     None,
 }
 
+/// <summary>SSQ-aligned dominance category for <see cref="CalibrationResult.SymptomDominancePrimary"/>.
+/// <see cref="Mixed"/> = multiple axes tied at the top.
+/// Property type is nullable; <c>null</c> = no symptoms reported (all three
+/// dimension scores zero), distinct from <see cref="Mixed"/>.
+/// Serialized to JSON as snake_case strings by the Stage 6 snapshot DTO.</summary>
+public enum SymptomDominance
+{
+    Nausea,
+    Oculomotor,
+    Disorientation,
+    Mixed,
+}
+
+/// <summary>Overall reliability of a calibration session.
+/// Non-nullable — a calibration that produced a result always has a confidence
+/// level (worst case: <see cref="Low"/> on an Abandoned run).
+/// Serialized to JSON as snake_case strings.</summary>
+public enum CalibrationConfidence
+{
+    High,
+    Medium,
+    Low,
+}
+
 /// <summary>Q2 — symptom dominance vocabulary. Mirrors the SSQ three-dimension
 /// structure (Kennedy et al. 1993) at the user-visible layer:
 /// nausea + oculomotor + disorientation groupings happen in
@@ -103,13 +127,14 @@ public enum CalibrationCompleteness
 /// for "explicitly chose 'none'" (only meaningful for Q2 and Q5).</summary>
 public sealed record CalibrationResponses
 {
-    // Q1 — uncomfortable segment localisation
+    // Q1 — uncomfortable segment localisation.
+    // NOTE: the Q1SignalConflict signal (user picked "全程都還好" but freetext
+    // mentions a symptom) is NOT stored on this record. It's DERIVED by
+    // CalibrationProcessor.DetectQ1SignalConflict so both packing paths
+    // (card UI + LLM parser) share one definition. The boolean lives on
+    // CalibrationResult.Q1SignalConflict instead.
     public UncomfortableSegment? Q1Segment { get; init; }
     public string? Q1Freetext { get; init; }
-    /// <summary>True iff Q1Segment == None AND Q1Freetext mentions any symptom
-    /// keyword. Computed by the UI / parser when packing the responses.
-    /// Surfaced as <c>q1_signal_conflict</c> in the JSON snapshot.</summary>
-    public bool Q1SignalConflict { get; init; }
 
     // Q2 — symptom dominance (multi-select)
     /// <summary>Null = user didn't answer. Empty list = user explicitly chose
@@ -192,13 +217,20 @@ public sealed record CalibrationResult
     /// at most once per advisory kind per user.</summary>
     public string? MedicalAdvisory { get; init; }
 
-    /// <summary>SSQ-style primary dimension: "nausea" / "oculomotor" /
-    /// "disorientation" / "mixed" / null. Computed from Q2.</summary>
-    public string? SymptomDominancePrimary { get; init; }
+    /// <summary>SSQ-style primary dimension. Computed from Q2 via
+    /// <see cref="CalibrationProcessor.ComputeSymptomDominancePrimary"/>.
+    /// <c>null</c> = no symptoms reported / all three dimension scores zero.</summary>
+    public SymptomDominance? SymptomDominancePrimary { get; init; }
 
-    /// <summary>Overall confidence in this calibration. "high" / "medium" /
-    /// "low" per spec §8 rules.</summary>
-    public required string CalibrationConfidence { get; init; }
+    /// <summary>Overall confidence in this calibration per spec §8 rules.</summary>
+    public required CalibrationConfidence CalibrationConfidence { get; init; }
+
+    /// <summary>Conflict between Q1 segment and Q1 freetext (user picked
+    /// "全程都還好" but mentioned a symptom keyword in freetext). Derived by
+    /// <see cref="CalibrationProcessor.DetectQ1SignalConflict"/> at processing
+    /// time so both packing paths (card UI + LLM parser) share one definition.
+    /// Surfaced as <c>q1_signal_conflict</c> in the JSON snapshot.</summary>
+    public bool Q1SignalConflict { get; init; }
 
     /// <summary>"complete" / "partial" / "abandoned" per spec §3.</summary>
     public required CalibrationCompleteness Completeness { get; init; }
