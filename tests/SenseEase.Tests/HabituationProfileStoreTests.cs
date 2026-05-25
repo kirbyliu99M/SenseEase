@@ -9,10 +9,11 @@ using Xunit;
 
 namespace SenseEase.Tests;
 
-/// <summary>Phase 4 contract tests for FileHabituationProfileStore +
-/// AtomicJsonWriter. Covers schema v1 round-trip, snake_case wire format,
-/// schema-version mismatch fall-back (Q2), and atomic-write recovery from a
-/// prior-crash .tmp residue.
+/// <summary>Phase 4 + Stage 6 contract tests for FileHabituationProfileStore +
+/// AtomicJsonWriter. Covers schema v2 round-trip, snake_case wire format,
+/// schema-version mismatch fall-back (Q2), atomic-write recovery from a
+/// prior-crash .tmp residue, v1 → v2 in-memory null-fill, and the Stage 6c
+/// app-data-wipe edge case.
 ///
 /// The Process.Kill mid-write physical smoke test is documented in
 /// docs/HABITUATION-PROFILE.md §5.5 — it requires a separate process harness
@@ -37,7 +38,9 @@ public class HabituationProfileStoreTests : IDisposable
 
     private HabituationProfileSnapshot MakeSnapshot() => new()
     {
-        SchemaVersion           = 1,
+        // SchemaVersion: rely on the property's default initialiser (= 2 after
+        // Stage 6). Tests must not hard-code the version literal; the snapshot
+        // DTO is the single source of truth.
         UpdatedAtIso            = "2026-05-24T12:34:56.0000000Z",
         Profile                 = "SENSITIVE",
         ProfileSource           = "calibration_demo",
@@ -72,7 +75,7 @@ public class HabituationProfileStoreTests : IDisposable
         var loaded = store.Load();
 
         Assert.NotNull(loaded);
-        Assert.Equal(1, loaded!.SchemaVersion);
+        Assert.Equal(2, loaded!.SchemaVersion);
         Assert.Equal("SENSITIVE", loaded.Profile);
         Assert.Equal("calibration_demo", loaded.ProfileSource);
         Assert.Equal(23.5, loaded.HabituationLevel);
@@ -120,6 +123,17 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.Contains("\"stable_window_ms\"", raw);
         Assert.Contains("\"step_interval_ms\"", raw);
         Assert.Contains("\"step_magnitude_pp\"", raw);
+
+        // Stage 6 v2 field names — present on every snapshot write because the
+        // properties are non-nullable value types / property-initialised lists.
+        // Nullable enum/string fields (calibration_completeness, calibration_path,
+        // calibration_responses, last_calibration_at_iso, symptom_dominance_primary,
+        // medical_advisory_shown, calibration_confidence) may be omitted by the
+        // default serializer when null, so we don't assert their presence here.
+        Assert.Contains("\"calibration_count\"", raw);
+        Assert.Contains("\"longitudinal_observations\"", raw);
+        Assert.Contains("\"personal_pressure_scale\"", raw);
+        Assert.Contains("\"was_recovered_from_wipe\"", raw);
     }
 
     // ── Schema-version mismatch → null (Q2 fall-back) ───────────────────────
@@ -253,7 +267,7 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.NotNull(loaded);
         Assert.Equal("RESILIENT", loaded!.Profile);
         Assert.Equal("default", loaded.ProfileSource);
-        Assert.Equal(1, loaded.SchemaVersion);
+        Assert.Equal(2, loaded.SchemaVersion);
     }
 
     [Fact]
@@ -268,5 +282,176 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.NotNull(loaded);
         Assert.Equal("SENSITIVE", loaded!.Profile);
         Assert.Equal("calibration_demo", loaded.ProfileSource);
+    }
+
+    // ── Stage 6: v1 → v2 in-memory null-fill ─────────────────────────────────
+    // A v1 file on disk loads as a v2-shaped in-memory snapshot with the new
+    // fields at their CLR / property-initialiser defaults. The on-disk file
+    // stays v1 until the next Save upgrades it.
+
+    /// <summary>Hand-crafted v1 JSON (just the 17 original v1 fields +
+    /// schema_version: 1). The writer would never emit this shape today
+    /// because the snapshot DTO has v2 fields, but a real v1 file on disk
+    /// from before the upgrade looks exactly like this.</summary>
+    private const string LegacyV1Json = """
+        {
+          "schema_version": 1,
+          "updated_at_iso": "2026-05-24T12:34:56.0000000Z",
+          "profile": "TYPICAL",
+          "profile_source": "default",
+          "habituation_level": 12.5,
+          "habituation_offset_pp": 3.0,
+          "habituation_offset_cap_pp": 12,
+          "current_vims_tier": 2,
+          "severe_strike_count": 0.0,
+          "severe_strike_limit": 2.0,
+          "engine_state": "RUNNING",
+          "externally_paused": false,
+          "awaiting_user_confirm": false,
+          "last_spike_at_iso": null,
+          "next_step_eligible_at_iso": null,
+          "params_snapshot": {
+            "stable_window_ms": 240000,
+            "step_interval_ms": 60000,
+            "step_magnitude_pp": 1.0
+          }
+        }
+        """;
+
+    [Fact]
+    public void LoadLegacyV1AsV2InMemory_PopulatesDefaultsForNewFields()
+    {
+        File.WriteAllText(_path, LegacyV1Json);
+
+        var store = new FileHabituationProfileStore(_path);
+        var loaded = store.Load();
+
+        Assert.NotNull(loaded);
+        // In-memory shape is v2 — loader bumped the version.
+        Assert.Equal(2, loaded!.SchemaVersion);
+
+        // v1 fields survived the round-trip.
+        Assert.Equal("TYPICAL", loaded.Profile);
+        Assert.Equal(12.5, loaded.HabituationLevel);
+        Assert.Equal(60_000, loaded.ParamsSnapshot.StepIntervalMs);
+
+        // v2 fields at their defaults.
+        Assert.Equal(0, loaded.CalibrationCount);
+        Assert.Null(loaded.LastCalibrationAtIso);
+        Assert.Null(loaded.CalibrationCompleteness);
+        Assert.Null(loaded.CalibrationPath);
+        Assert.Null(loaded.CalibrationResponses);
+        Assert.NotNull(loaded.LongitudinalObservations);
+        Assert.Empty(loaded.LongitudinalObservations);
+        Assert.Equal(1.0, loaded.PersonalPressureScale);
+        Assert.Null(loaded.SymptomDominancePrimary);
+        Assert.Null(loaded.MedicalAdvisoryShown);
+        Assert.Null(loaded.CalibrationConfidence);
+        Assert.False(loaded.WasRecoveredFromWipe);
+    }
+
+    [Fact]
+    public void LoadLegacyV1AsV2InMemory_NextWriteUpgradesFileToV2()
+    {
+        File.WriteAllText(_path, LegacyV1Json);
+
+        var store = new FileHabituationProfileStore(_path);
+        var loaded = store.Load();
+        Assert.NotNull(loaded);
+
+        // Round-trip: save it straight back.
+        store.Save(loaded!);
+
+        string raw = File.ReadAllText(_path);
+        // schema_version on disk is now 2 (the snapshot DTO's default + the
+        // loader's in-memory bump are both consistent).
+        Assert.Contains("\"schema_version\": 2", raw);
+        // v2 fields are now persisted (with their defaults).
+        Assert.Contains("\"calibration_count\"", raw);
+        Assert.Contains("\"longitudinal_observations\"", raw);
+        Assert.Contains("\"personal_pressure_scale\"", raw);
+        Assert.Contains("\"was_recovered_from_wipe\"", raw);
+    }
+
+    // ── Stage 6c: app-data-wipe edge case ────────────────────────────────────
+    // When habituation_profile.json is missing but habituation.json (or any
+    // other configured "prior usage" artifact) exists, the loader returns a
+    // synthesized defaults-only snapshot with WasRecoveredFromWipe=true.
+    // Genuine first-runs (no artifacts at all) still return null. A real
+    // profile file shadows the wipe path entirely.
+
+    [Fact]
+    public void WasRecoveredFromWipe_DetectsHabituationJsonWithoutProfileJson()
+    {
+        // Only the legacy offset-only habituation.json exists.
+        string habituationPath = Path.Combine(_tempDir, "habituation.json");
+        File.WriteAllText(habituationPath, "{\"offset\":0.0}");
+        // habituation_profile.json deliberately NOT created.
+
+        var store = new FileHabituationProfileStore(_path, habituationPath);
+        var loaded = store.Load();
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.WasRecoveredFromWipe,
+            "Wipe-recovery flag should be set when probe artifact survives a profile-file wipe.");
+        Assert.Equal(2, loaded.SchemaVersion);
+        // Defaults — no calibration, RESILIENT-equivalent.
+        Assert.Equal(0, loaded.CalibrationCount);
+        Assert.Equal(1.0, loaded.PersonalPressureScale);
+        Assert.Empty(loaded.LongitudinalObservations);
+    }
+
+    [Fact]
+    public void WasRecoveredFromWipe_FalseOnGenuineFirstRun()
+    {
+        // Neither file exists. Probe path passed but its target doesn't exist.
+        string habituationPath = Path.Combine(_tempDir, "habituation.json");
+        Assert.False(File.Exists(habituationPath));
+        Assert.False(File.Exists(_path));
+
+        var store = new FileHabituationProfileStore(_path, habituationPath);
+        var loaded = store.Load();
+
+        // Genuine first-run: caller treats null as "use defaults".
+        Assert.Null(loaded);
+    }
+
+    [Fact]
+    public void WasRecoveredFromWipe_FalseWhenProfileJsonExists()
+    {
+        // Profile file exists AND probe artifact exists. Profile file wins —
+        // there's nothing to recover from.
+        string habituationPath = Path.Combine(_tempDir, "habituation.json");
+        File.WriteAllText(habituationPath, "{\"offset\":0.0}");
+
+        var store = new FileHabituationProfileStore(_path, habituationPath);
+        store.Save(MakeSnapshot());
+
+        var loaded = store.Load();
+        Assert.NotNull(loaded);
+        Assert.False(loaded!.WasRecoveredFromWipe,
+            "Wipe-recovery flag must NOT be set when the profile JSON itself loaded cleanly.");
+        Assert.Equal("SENSITIVE", loaded.Profile);
+    }
+
+    [Fact]
+    public void Save_ClearsWasRecoveredFromWipeFlag()
+    {
+        // The flag is one-shot: set by the loader, cleared by the next Save.
+        // Even if upstream code keeps the synthesized snapshot in hand and
+        // saves it back as-is, the on-disk file does NOT pretend the wipe
+        // recovery state is real.
+        string habituationPath = Path.Combine(_tempDir, "habituation.json");
+        File.WriteAllText(habituationPath, "{\"offset\":0.0}");
+
+        var store = new FileHabituationProfileStore(_path, habituationPath);
+        var loaded = store.Load();
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.WasRecoveredFromWipe);
+
+        store.Save(loaded);
+
+        string raw = File.ReadAllText(_path);
+        Assert.Contains("\"was_recovered_from_wipe\": false", raw);
     }
 }

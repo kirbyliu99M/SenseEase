@@ -48,6 +48,38 @@ public enum CalibrationConfidence
     Low,
 }
 
+/// <summary>Which calibration path produced the most recent persisted result.
+/// Serialized to JSON as snake_case strings (<c>"buttons"</c>, <c>"llm"</c>,
+/// <c>"llm_with_button_fallback"</c>). Persisted on the snapshot DTO in
+/// Stage 6 so future readers can distinguish "the user clicked through cards"
+/// vs "the LLM dialog produced this" without consulting per-field source tags.
+/// <para>Added in Stage 6 (schema v2). Additive change — does not alter any
+/// existing calibration-logic surface; this enum is consumed only by the
+/// snapshot DTO.</para></summary>
+public enum CalibrationPath
+{
+    /// <summary>5-card buttons UI (first calibration).</summary>
+    Buttons,
+    /// <summary>LLM dialog produced all answers (no Q3 fallback).</summary>
+    Llm,
+    /// <summary>LLM dialog produced most answers but fell back to the
+    /// Card-3 button for the mandatory Q3 intensity question.</summary>
+    LlmWithButtonFallback,
+}
+
+/// <summary>Medical advisory surfaced to the user during calibration. Serialized
+/// to JSON as snake_case strings (<c>"vestibular"</c>, <c>"high_risk_combo"</c>).
+/// Mirrors the existing <see cref="CalibrationResult.MedicalAdvisory"/> string
+/// at the persistence layer in strongly-typed form so the snapshot DTO can use
+/// <see cref="System.Text.Json.Serialization.JsonStringEnumConverter"/> instead
+/// of a free-form string. Null on the snapshot = no advisory ever shown.
+/// <para>Added in Stage 6 (schema v2). Additive change.</para></summary>
+public enum MedicalAdvisory
+{
+    Vestibular,
+    HighRiskCombo,
+}
+
 /// <summary>Q2 — symptom dominance vocabulary. Mirrors the SSQ three-dimension
 /// structure (Kennedy et al. 1993) at the user-visible layer:
 /// nausea + oculomotor + disorientation groupings happen in

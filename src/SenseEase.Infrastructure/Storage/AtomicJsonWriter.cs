@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SenseEase.Infrastructure.Storage;
 
@@ -84,6 +85,12 @@ public static class AtomicJsonWriter
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DictionaryKeyPolicy  = JsonNamingPolicy.SnakeCaseLower,
+        // Stage 6 (schema v2): enums on the snapshot DTO serialize as
+        // snake_case strings (e.g. "complete", "buttons", "high_risk_combo"),
+        // matching the property naming policy. Set globally here so every
+        // current and future enum-typed property on a snapshot uses the same
+        // wire shape without per-property [JsonConverter] attributes.
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
     };
 
     /// <summary>Read + deserialize a JSON file written by
