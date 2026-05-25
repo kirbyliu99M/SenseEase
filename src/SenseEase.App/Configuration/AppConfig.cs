@@ -168,6 +168,13 @@ public static class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "chat_history.jsonl");
 
+    // Phase 5b: calibration-mode LLM transcript (JSON Lines, best-effort). Separate
+    // from chat_history.jsonl so VIMS-monitoring context never bleeds into the
+    // calibration dialog's longitudinal-comparison reasoning.
+    public static string CalibrationHistoryPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "calibration_history.jsonl");
+
     // Phase 4 — Ambient Light Comfort. Hardware-mutating; defaults OFF (explicit opt-in).
     public static bool AmbientLightComfortEnabled { get; set; } = false;
     public static LuxSensingMode LuxMode { get; set; } = LuxSensingMode.Real;
