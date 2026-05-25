@@ -710,14 +710,16 @@ CALLER's responsibility via
 Items deferred from the Stage 1-7 sprint, with pointers to where they
 belong:
 
-- **`calibration_count` bump on Complete/Partial.** Currently the
-  applicator writes a profile snapshot that carries the existing
-  `CalibrationCount` value through unchanged. The spec §3 bump should
-  happen in `CalibrationApplicator.Apply` (or in `MockInferenceEngine.
-  ApplyCalibrationResult`) when `result.Completeness != Abandoned`. The
-  Stage 7 sprint focused on making the count READABLE from the
-  persisted snapshot (Stage 7a) so MainViewModel could branch on it;
-  the WRITE-side bump is the next ticket.
+- **~~`calibration_count` bump on Complete/Partial.~~** Closed in
+  Stage 7f. `MockInferenceEngine.ApplyCalibrationResult` now increments
+  `_loadedCalibrationCount` and stamps `_lastCalibrationAtUtc` when
+  `result.Completeness != Abandoned`; `BuildProfileSnapshot` populates
+  the v2 `CalibrationCount` + `LastCalibrationAtIso` fields so the
+  bumped value survives the next snapshot write. Without 7f, Stage 7a's
+  routing change was functionally dead in production (forever-zero
+  count → buttons UI on every demo end). Pinned by
+  `CalibrationEndToEndSmoke.Scenario1` (count 0 → 1) and
+  `Scenario2` (count 1 → 2).
 
 - **`medical_advisory_shown` persistence + "show once" enforcement.**
   The schema field exists but no code currently writes it. Today every

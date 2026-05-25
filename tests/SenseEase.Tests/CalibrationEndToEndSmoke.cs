@@ -104,11 +104,13 @@ public class CalibrationEndToEndSmoke : IDisposable
         Assert.Equal(2, loaded!.SchemaVersion);
         Assert.Equal("TYPICAL", loaded.Profile);
         Assert.Equal("calibration_demo", loaded.ProfileSource);
-        // calibration_count remains the persisted value (the applicator-level
-        // path doesn't bump it directly in this slim seam — the count bump is
-        // future MainViewModel work + Stage 6 spec §3. We assert the v2 field
-        // is at least present and readable, which proves the write path.)
-        Assert.True(loaded.CalibrationCount >= 0);
+        // Stage 7f: a Complete result MUST bump calibration_count from 0 to 1
+        // AND persist last_calibration_at_iso. Without this, Stage 7a's
+        // branch reads forever-zero and the LLM banner is unreachable in
+        // production. The engine surface MUST match the persisted value.
+        Assert.Equal(1, loaded.CalibrationCount);
+        Assert.Equal(1, engine.LoadedCalibrationCount);
+        Assert.False(string.IsNullOrEmpty(loaded.LastCalibrationAtIso));
         // The wipe-recovery flag MUST be false on a real save — it's a one-shot
         // loader-only flag and the writer scrubs it.
         Assert.False(loaded.WasRecoveredFromWipe);
@@ -163,6 +165,9 @@ public class CalibrationEndToEndSmoke : IDisposable
         var loaded = store.Load();
         Assert.NotNull(loaded);
         Assert.Equal(engine.HabituationProfile.ToString().ToUpperInvariant(), loaded!.Profile);
+        // Stage 7f: subsequent calibration bumps from the prior count of 1 to 2.
+        Assert.Equal(2, loaded.CalibrationCount);
+        Assert.Equal(2, engine.LoadedCalibrationCount);
         Assert.Single(messages);
     }
 

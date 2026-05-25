@@ -43,15 +43,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private bool                  _profileSnapshotDirty;
     private DateTime?             _lastSavedSpikeAtUtc;
 
-    // Stage 7a: persisted calibration_count seen at startup. Surfaces the
-    // value from the loaded snapshot so MainViewModel.OnDemoVideoFinished can
-    // route "first-time calibration" vs "subsequent calibration" off the
-    // PERSISTED count instead of the AppConfig.IsFirstRun proxy (which conflated
-    // "user has never used the app" with "user has never completed calibration").
-    // Returns 0 when no snapshot was loaded at startup OR the loaded snapshot
-    // is a wipe-recovery synthetic — both of which mean the engine has no
-    // proof of a prior calibration on this machine.
+    // Stage 7a: calibration_count the engine considers current. Initialised
+    // from the loaded snapshot at construction; Stage 7f bumps it in
+    // ApplyCalibrationResult on every non-Abandoned completion and
+    // BuildProfileSnapshot persists the bumped value. Drives the buttons-vs-
+    // banner branch in MainViewModel.OnDemoVideoFinished (via the
+    // LoadedCalibrationCount property below).
+    // Wipe-recovery synthetics arrive with the loader-emitted default of 0,
+    // which is the desired behaviour: recovered users start fresh.
     private int                   _loadedCalibrationCount;
+
+    // Stage 7f: UTC timestamp of the most recent non-Abandoned calibration,
+    // for the last_calibration_at_iso v2 snapshot field. Null until the
+    // first ApplyCalibrationResult lands a Complete or Partial result.
+    private DateTime?             _lastCalibrationAtUtc;
 
     public SenseState Current { get; } = new()
     {
@@ -106,7 +111,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // a defaults-only snapshot), which is the desired behaviour:
             // recovered users get re-routed through the first-time calibration
             // card, not the LLM banner that assumes a baseline exists.
+            // Stage 7f: ApplyCalibrationResult bumps from this seed value;
+            // BuildProfileSnapshot persists the bumped value back.
             _loadedCalibrationCount = savedSnapshot.CalibrationCount;
+            if (!string.IsNullOrEmpty(savedSnapshot.LastCalibrationAtIso) &&
+                DateTime.TryParse(savedSnapshot.LastCalibrationAtIso,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var lastCalAt))
+            {
+                _lastCalibrationAtUtc = lastCalAt;
+            }
             // Note: we deliberately do NOT restore strike_count from the snapshot.
             // Strikes are a within-session safety counter — re-loading them on
             // startup would mean a user who hit the limit yesterday boots into
@@ -368,17 +383,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
         get { lock (_gate) { return _lastCalibrationResult; } }
     }
 
-    /// <summary>Stage 7a: the <c>calibration_count</c> value the loader read
-    /// from <c>habituation_profile.json</c> at engine construction. Returns
-    /// 0 when no snapshot was loaded (genuine first-run, or wipe-recovery
-    /// synthetic snapshot — both mean the engine has no PERSISTED evidence
-    /// of a prior calibration on this machine). NOT incremented during the
-    /// session; reflects the on-disk value at startup only, per spec.
+    /// <summary>The <c>calibration_count</c> value the engine considers
+    /// current. Initialised from the loaded snapshot at construction
+    /// (Stage 7a), bumped in <see cref="ApplyCalibrationResult"/> for every
+    /// non-Abandoned completion (Stage 7f), and round-tripped through
+    /// <see cref="BuildProfileSnapshot"/> so the bumped value lands in the
+    /// next on-disk write. Returns 0 when no snapshot was loaded (genuine
+    /// first-run) or the loaded snapshot is a wipe-recovery synthetic — both
+    /// mean the engine has no PERSISTED evidence of a prior calibration on
+    /// this machine.
     /// <para>Replaces the prior <c>AppConfig.IsFirstRun</c> proxy in
-    /// MainViewModel.OnDemoVideoFinished. <c>IsFirstRun</c> still exists for
-    /// the welcome banner (machine-level first-run for the whole app), but
-    /// calibration-history branching uses THIS counter — they're different
-    /// concepts and shouldn't share a signal.</para></summary>
+    /// <c>MainViewModel.OnDemoVideoFinished</c>. <c>IsFirstRun</c> still
+    /// exists for the welcome banner (machine-level first-run for the whole
+    /// app), but calibration-history branching uses THIS counter — they're
+    /// different concepts and shouldn't share a signal.</para></summary>
     public int LoadedCalibrationCount
     {
         get { lock (_gate) { return _loadedCalibrationCount; } }
@@ -411,6 +429,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
         lock (_gate)
         {
             _lastCalibrationResult = result;
+
+            // Stage 7f: bump persisted calibration_count for Complete/Partial.
+            // Abandoned runs (no Q3 set, user cancelled the card before card 3)
+            // do NOT increment per spec §3 — they represent a user who
+            // started the form and walked away, not a calibration the system
+            // has any data from. Without this bump, Stage 7a's branch reads
+            // a forever-zero count and routes every demo end to the buttons
+            // UI even after the user has calibrated dozens of times.
+            if (result.Completeness != CalibrationCompleteness.Abandoned)
+            {
+                _loadedCalibrationCount++;
+                _lastCalibrationAtUtc = DateTime.UtcNow;
+                _profileSnapshotDirty = true;
+            }
 
             // Compute effective trigger. Override wins outright (no further
             // arithmetic); otherwise scale-then-adjust.
@@ -521,6 +553,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
             AwaitingUserConfirm     = _habituation.IsAwaitingUserConfirm,
             LastSpikeAtIso          = _habituation.LastSpikeAtUtc?.ToString("o"),
             NextStepEligibleAtIso   = null, // Computed projection — deferred to a future phase
+            // Stage 7f: persist the calibration_count + last_calibration_at_iso
+            // pair so a future engine boot sees the bumped value. The other v2
+            // calibration_* fields (completeness, path, responses, confidence,
+            // advisory) remain at CLR defaults — Appendix B items #2-#4 own
+            // those.
+            CalibrationCount        = _loadedCalibrationCount,
+            LastCalibrationAtIso    = _lastCalibrationAtUtc?.ToString("o"),
             ParamsSnapshot          = new HabituationParamsSnapshot
             {
                 StableWindowMs  = p.StableWindowMs,
