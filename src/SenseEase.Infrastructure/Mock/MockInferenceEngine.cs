@@ -469,7 +469,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
         var p = _habituation.CurrentParams;
         return new HabituationProfileSnapshot
         {
-            SchemaVersion           = 1,
+            // SchemaVersion intentionally omitted — the property's default
+            // initialiser (= 2 after Stage 6) is the single source of truth
+            // for the writer's emitted schema_version. Don't add an explicit
+            // literal here; it would silently desync from the snapshot DTO.
             UpdatedAtIso            = DateTime.UtcNow.ToString("o"),
             Profile                 = _habituation.CurrentProfile.ToString().ToUpperInvariant(),
             ProfileSource           = _habituation.ProfileSource,
