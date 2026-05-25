@@ -11,7 +11,9 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using SenseEase.App.Configuration;
 using SenseEase.Core.Abstractions;
+using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
+using SenseEase.Infrastructure.Real;
 using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.App.ViewModels;
@@ -66,6 +68,85 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         set => Set(ref _activeCalibrationCard, value);
     }
 
+    // ── Calibration invitation banner (Stage 5a) ────────────────────────────
+    // On subsequent demo runs (calibration_count >= 1) the host sets
+    // ShowCalibrationInvitationBanner = true at OnDemoVideoFinished instead of
+    // auto-opening the card. The banner offers two actions: Start (opens an
+    // LLM calibration session via _llmCalibrationFactory) or Skip (just
+    // dismisses). Auto-dismisses after 30 s if the user doesn't act.
+
+    private bool _showCalibrationInvitationBanner;
+    public bool ShowCalibrationInvitationBanner
+    {
+        get => _showCalibrationInvitationBanner;
+        set
+        {
+            if (!Set(ref _showCalibrationInvitationBanner, value)) return;
+            if (value) StartAutoDismissTimer();
+            else       StopAutoDismissTimer();
+        }
+    }
+
+    // Active LLM calibration session. Bound by the chat tab so the host can
+    // surface dialog state (transcript, completion handlers wired up by
+    // MainViewModel). Null when no session is active.
+    private CalibrationChatbotService? _activeLlmCalibration;
+    public CalibrationChatbotService? ActiveLlmCalibration
+    {
+        get => _activeLlmCalibration;
+        set => Set(ref _activeLlmCalibration, value);
+    }
+
+    /// <summary>Set by MainViewModel at wire-up time. Constructs and starts an
+    /// LLM calibration session given the sensor snapshot the command should
+    /// pass to <see cref="CalibrationChatbotService.StartAsync"/>. The factory
+    /// is the only thing in this VM that knows about the production
+    /// infrastructure types (LlamaServerCalibrationClient, transcript path,
+    /// previous-snapshot lookup); separating it lets headless tests inject a
+    /// stub. Returning null = "LLM unavailable, do not show a session"; the
+    /// commands then no-op without surfacing an error.</summary>
+    public Func<CalibrationSensorData, CalibrationChatbotService?>? LlmCalibrationFactory { get; set; }
+
+    /// <summary>Sensor snapshot captured at the most recent demo's end.
+    /// MainViewModel sets this in OnDemoVideoFinished before flipping the
+    /// banner on. Recalibrate (from the chatbot tab, no recent demo) uses a
+    /// zero-valued record instead.</summary>
+    public CalibrationSensorData LastDemoSensorData { get; set; } = new(0.0, 0, 0.0);
+
+    private DispatcherTimer? _bannerDismissTimer;
+    /// <summary>How long the banner stays visible before auto-dismiss.
+    /// Spec §5a: 30 s. Exposed as a public field so headless tests can shrink
+    /// the window for the auto-dismiss test (or skip it).</summary>
+    public TimeSpan BannerAutoDismissAfter { get; set; } = TimeSpan.FromSeconds(30);
+
+    private void StartAutoDismissTimer()
+    {
+        StopAutoDismissTimer();
+        // Best-effort dispatcher timer. In headless tests (no Application.Current)
+        // the timer construction itself works but Tick never fires without a
+        // running dispatcher loop — that's acceptable, the auto-dismiss test is
+        // marked as a manual-acceptance step in that environment.
+        try
+        {
+            _bannerDismissTimer = new DispatcherTimer { Interval = BannerAutoDismissAfter };
+            _bannerDismissTimer.Tick += (_, _) =>
+            {
+                StopAutoDismissTimer();
+                // Only auto-dismiss if still visible — guards against a race
+                // where the user clicked Start/Skip just as the timer fired.
+                if (_showCalibrationInvitationBanner) ShowCalibrationInvitationBanner = false;
+            };
+            _bannerDismissTimer.Start();
+        }
+        catch { /* dispatcher unavailable in this thread — skip */ }
+    }
+
+    private void StopAutoDismissTimer()
+    {
+        try { _bannerDismissTimer?.Stop(); } catch { /* ignore */ }
+        _bannerDismissTimer = null;
+    }
+
     public bool IsGenerating
     {
         get => _isGenerating;
@@ -91,6 +172,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     public ICommand SendCommand { get; }
     public ICommand ClearCommand { get; }
 
+    // Stage 5a/5b commands. Constructed in the ctor below.
+    public ICommand StartInvitedCalibrationCommand { get; private set; } = null!;
+    public ICommand SkipCalibrationInvitationCommand { get; private set; } = null!;
+    public ICommand RecalibrateCommand { get; private set; } = null!;
+
     public ChatbotViewModel(
         IChatbotService chatbot,
         IInferenceEngine engine,
@@ -102,12 +188,23 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         _engine = engine;
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
-        _dispatcher = Application.Current.Dispatcher;
+        // Production: bound to the WPF UI thread's dispatcher.
+        // Headless tests: Application.Current is null, so we fall back to the
+        // CALLING thread's dispatcher (xunit's). Async methods that call
+        // _dispatcher.Invoke still work; the tests that exercise async paths
+        // either don't construct ChatbotViewModel at all (CalibrationApplicator
+        // covers them) or pump the dispatcher on an STA thread.
+        _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _isOverlayVisible = isOverlayVisible;
 
         SendCommand = new RelayCommand(async _ => await SendAsync(),
             _ => !IsGenerating && !string.IsNullOrWhiteSpace(InputText));
         ClearCommand = new RelayCommand(_ => Clear());
+
+        // Stage 5a/5b — banner + recalibrate commands.
+        StartInvitedCalibrationCommand   = new RelayCommand(_ => StartInvitedCalibration());
+        SkipCalibrationInvitationCommand = new RelayCommand(_ => SkipCalibrationInvitation());
+        RecalibrateCommand               = new RelayCommand(_ => Recalibrate());
 
         StatusText = chatbot.IsModelAvailable
             ? "Loading Ministral 3B… (first load ~30s on CPU; chat is disabled meanwhile)"
@@ -361,6 +458,50 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     // Keep the old private name as a thin shim so call sites in the same VM
     // (the option-card constructor) read naturally.
     private void AnswerWithFollowup(string option) => SubmitFollowupAnswer(option);
+
+    // ── Stage 5a/5b — banner + recalibrate command implementations ──────────
+
+    private void StartInvitedCalibration()
+    {
+        ShowCalibrationInvitationBanner = false;
+        StartLlmCalibrationSession(LastDemoSensorData);
+    }
+
+    private void SkipCalibrationInvitation()
+    {
+        ShowCalibrationInvitationBanner = false;
+        // Skip is a pure dismiss — no LLM session, no engine mutation, no log
+        // bubble. The user can re-enter via the chatbot tab's Recalibrate
+        // button if they change their mind.
+    }
+
+    private void Recalibrate()
+    {
+        // Recalibrate entry from the chatbot tab. Constructs a session with
+        // zero-valued sensor data (no recent demo to draw from). The system
+        // prompt handles the "no current sensor" case gracefully — see
+        // CalibrationPrompts.cs {USER_CONTEXT} rendering.
+        ShowCalibrationInvitationBanner = false;
+        StartLlmCalibrationSession(new CalibrationSensorData(0.0, 0, 0.0));
+    }
+
+    /// <summary>Construct (via the host-supplied factory) a new LLM
+    /// calibration session and surface it as <see cref="ActiveLlmCalibration"/>.
+    /// The factory is expected to invoke <see cref="CalibrationChatbotService.StartAsync"/>
+    /// itself — the host owns the previousSnapshot lookup and any event
+    /// wiring. No-op when the factory is null (test environments without
+    /// LLM infrastructure).</summary>
+    private void StartLlmCalibrationSession(CalibrationSensorData sensor)
+    {
+        if (LlmCalibrationFactory is null) return;
+        try
+        {
+            var session = LlmCalibrationFactory(sensor);
+            if (session is null) return;
+            ActiveLlmCalibration = session;
+        }
+        catch { /* factory threw — session not created, nothing to clean up */ }
+    }
 
     /// <summary>
     /// Inject a system-initiated assistant message that opens a followup picker.
