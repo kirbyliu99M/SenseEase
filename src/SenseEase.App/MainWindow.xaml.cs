@@ -13,6 +13,9 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel = new();
     private OverlayWindow? _overlay;
     private SpikePopupWindow? _spikePopup;
+    // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
+    // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.
+    private BarStubWindow? _wgcBarStub;
 
     public MainWindow()
     {
@@ -111,6 +114,55 @@ public partial class MainWindow : Window
         // Stop the 15 Hz chart timer so the DispatcherTimer + VM ref don't pin the
         // window after Close (kept the Tick closure alive otherwise).
         Closed += (_, _) => _chartTimer?.Stop();
+        Closed += (_, _) => _wgcBarStub?.Close();
+
+        // ── Pop-up sprint Task 1: WGC bar-validation harness ────────────────
+        // When SENSEEASE_WGC_BAR_VALIDATION=1, spawn a BarStubWindow at the bar's
+        // intended position (top-centre, 4×80) with a 200 ms red↔cyan adversarial
+        // animation. The WGC trace log writes one OFI sample per tick to
+        // %TEMP%/wgc_ofi_trace.txt (see WgcSensingProvider.OnTick).
+        //
+        // When SENSEEASE_WGC_BAR_MASK=1 is ALSO set, the BarStub's monitor-coords
+        // rectangle is fed to WgcSensingProvider.SetMonitorExcludeRect so the
+        // mask zeroes those cells in the downsampled frame before MAD. This is
+        // the test for Option B (pixel-mask the bar rect in the OFI pipeline);
+        // expected outcome: trace shows OFI flat while the bar animates.
+        //
+        // Both env vars unset = zero behavioural difference vs production.
+        Loaded += (_, _) => MaybeStartWgcValidation();
+    }
+
+    private void MaybeStartWgcValidation()
+    {
+        bool validation = string.Equals(
+            Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
+            "1", StringComparison.Ordinal);
+        if (!validation) return;
+
+        bool maskEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_MASK"),
+            "1", StringComparison.Ordinal);
+
+        _wgcBarStub = new BarStubWindow();
+        _wgcBarStub.Closed += (_, _) =>
+        {
+            _wgcBarStub = null;
+            _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
+        };
+        // Show first so DPI + size are populated; ContentRendered fires after
+        // layout so GetMonitorRectInPhysicalPixels has stable values.
+        _wgcBarStub.ContentRendered += (_, _) =>
+        {
+            if (!maskEnabled || _wgcBarStub is null) return;
+            var (left, top, w, h) = _wgcBarStub.GetMonitorRectInPhysicalPixels();
+            _viewModel.SetWgcMonitorExcludeRect(left, top, w, h);
+            System.Diagnostics.Debug.WriteLine(
+                $"[WGC validation] mask ENABLED at monitor-rect L={left} T={top} W={w} H={h}");
+        };
+        _wgcBarStub.Show();
+        System.Diagnostics.Debug.WriteLine(
+            $"[WGC validation] BarStub shown. mask env var = {(maskEnabled ? "ON" : "OFF")}. " +
+            $"Trace: %TEMP%/wgc_ofi_trace.txt");
     }
 
     // B2/B4: Recreate overlay if null or already unloaded; sync OverlayVisible on external close.

@@ -33,6 +33,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ISensingProvider _sensing;
     private readonly CursorVelocityProvider _cursorSensing = new(AppConfig.RejectCursorDragOfi);
     private readonly WgcSensingProvider _wgcSensing = new();
+    /// <summary>Pop-up sprint Task 1: pass-through for the WGC bar exclude rect.
+    /// MainWindow's validation-mode startup uses this to feed the BarStub's
+    /// monitor-coords rectangle into the OFI pipeline. Null = no mask (default).</summary>
+    public void SetWgcMonitorExcludeRect(int? left, int? top, int? width, int? height)
+        => _wgcSensing.SetMonitorExcludeRect(left, top, width, height);
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
     // Stage 7b: pass HabituationStatePath as the wipe-probe artifact so the

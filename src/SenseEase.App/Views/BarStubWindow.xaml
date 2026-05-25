@@ -1,0 +1,23 @@
+<Window x:Class="SenseEase.App.Views.BarStubWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WGC Bar Stub"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        Width="80" Height="4"
+        WindowStartupLocation="Manual"
+        Focusable="False">
+    <!-- Pop-up sprint Task 1 VALIDATION-ONLY window. Mirrors the chrome the real
+         bar will use (Window + Topmost + AllowsTransparency + ShowInTaskbar=false)
+         so the WGC test reflects what the production bar will see. A solid Border
+         fills the 4x80 area; its Background is toggled by code-behind every 200 ms
+         to drive the adversarial red/cyan stimulus. -->
+    <Border x:Name="StimulusBorder"
+            Background="#FFFF0000"
+            CornerRadius="2"/>
+</Window>

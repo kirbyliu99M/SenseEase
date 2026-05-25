@@ -118,6 +118,40 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private int[]? _srcYIndex;  // dstY -> source row index (in pixels)
     private int _indexedSrcW = -1, _indexedSrcH = -1;
 
+    // ── Pop-up sprint Task 1 (Option B): bar-region pixel mask ─────────────────────────────
+    // Caller sets a monitor-coords rect (physical pixels, origin at top-left of primary
+    // monitor). After the downsample, the corresponding cells in the 160×90 greyscale
+    // buffer are zeroed in BOTH `current` and the previous frame so MAD doesn't see a
+    // ghost edge against the bar pixels. Default null = no masking, identical to pre-
+    // Task-1 behaviour. The reference is volatile so the OnTick thread sees setter
+    // writes from the UI thread without a lock; the holder is immutable so the read
+    // can dereference once and reuse the captured snapshot for the whole tick.
+    private volatile MaskRect? _excludeRect;
+    private sealed record MaskRect(int Left, int Top, int Width, int Height);
+    /// <summary>Set a monitor-coords rectangle (physical pixels) whose downsampled
+    /// cells will be zeroed out before MAD. Used by Pop-up sprint Task 1 to prove
+    /// the bar's pixels can be excluded from the OFI computation. Pass null to
+    /// disable. Thread-safe; OnTick picks up the new value on its next tick.</summary>
+    public void SetMonitorExcludeRect(int? left, int? top, int? width, int? height)
+    {
+        if (left is null || top is null || width is null || height is null
+            || width.Value <= 0 || height.Value <= 0)
+        {
+            _excludeRect = null;
+            return;
+        }
+        _excludeRect = new MaskRect(left.Value, top.Value, width.Value, height.Value);
+    }
+    /// <summary>Current monitor-coords exclude rect (or null if not set). For diagnostics.</summary>
+    public (int Left, int Top, int Width, int Height)? CurrentExcludeRect
+        => _excludeRect is { } r ? (r.Left, r.Top, r.Width, r.Height) : null;
+
+    // ── Pop-up sprint Task 1: optional OFI trace log ───────────────────────────────────────
+    // When env var SENSEEASE_WGC_BAR_VALIDATION=1, append "ms,ofi,maskOn" per tick to
+    // %TEMP%/wgc_ofi_trace.txt. Zero overhead in production (env var read once at Start).
+    private bool   _ofiTraceEnabled;
+    private string _ofiTracePath = string.Empty;
+
     // ── Fix #7: cached SendOrPostCallback to avoid per-tick closure allocation ─────────────
     private OpticalFlowSample _pendingSample;
     private System.Threading.SendOrPostCallback? _raiseSampleCallback;
@@ -154,6 +188,21 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         if (_running) return;
 
         try { File.WriteAllText(DiagFile, $"=== WGC Start {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}"); } catch { }
+
+        // Pop-up sprint Task 1: enable OFI trace log when SENSEEASE_WGC_BAR_VALIDATION=1.
+        // Trace path is %TEMP%/wgc_ofi_trace.txt; header line written here, per-tick
+        // CSV lines written from OnTick. Env var read ONCE here so toggling it
+        // mid-session requires a restart (intentional — avoids per-tick env-var lookups).
+        _ofiTraceEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
+            "1", StringComparison.Ordinal);
+        if (_ofiTraceEnabled)
+        {
+            _ofiTracePath = Path.Combine(Path.GetTempPath(), "wgc_ofi_trace.txt");
+            try { File.WriteAllText(_ofiTracePath,
+                $"# wgc_ofi_trace start {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
+                "epoch_ms,smoothed_ofi,mask_left,mask_top,mask_w,mask_h\n"); } catch { }
+        }
 
         if (!GraphicsCaptureSession.IsSupported())
         {
@@ -345,6 +394,24 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                 SampledAt        = DateTime.UtcNow,
             };
 
+            // Pop-up sprint Task 1: per-tick trace line when validation env var is on.
+            // CSV: epoch_ms,smoothed_ofi,mask_left,mask_top,mask_w,mask_h (last 4 blank
+            // when mask is null). File I/O is fire-and-forget; a transient error
+            // (file locked, etc.) drops one sample, never crashes the engine.
+            if (_ofiTraceEnabled)
+            {
+                try
+                {
+                    long ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    var er = _excludeRect;
+                    string line = er is null
+                        ? $"{ms},{_smoothedOfi:F4},,,,\n"
+                        : $"{ms},{_smoothedOfi:F4},{er.Left},{er.Top},{er.Width},{er.Height}\n";
+                    File.AppendAllText(_ofiTracePath, line);
+                }
+                catch { /* trace is best-effort */ }
+            }
+
             // Use cached SendOrPostCallback + _pendingSample field to avoid per-tick
             // closure allocations (~30 obj/sec at 15 Hz). Race trade-off accepted:
             // back-to-back ticks before dispatcher drains → latest sample wins (intermediate
@@ -468,6 +535,38 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                                 byte r = srcRow[offset + 2];
                                 // BT.601 integer greyscale: (0.114B + 0.587G + 0.299R) x 256
                                 result[dstRowOffset + dstX] = (byte)((19 * b + 150 * g + 77 * r) >> 8);
+                            }
+                        }
+
+                        // ── Pop-up sprint Task 1 (Option B): bar-region exclusion ───────
+                        // Map the monitor-coords mask rect to downsample-grid cells and
+                        // zero them in BOTH `result` (this frame) and `_prevFrame`
+                        // (last frame). Zeroing only `result` would still produce
+                        // |0 - prevValue| on the MAD pass — phantom motion. By zeroing
+                        // both, the masked cells contribute 0 to the MAD sum permanently
+                        // once the mask is engaged. One-tick artefact on the first frame
+                        // the mask is set (prevFrame still has bar pixels) is acceptable;
+                        // the spike detector requires sustained motion to fire.
+                        if (_excludeRect is { } mask && _prevFrame is not null
+                            && _prevFrame.Length == result.Length)
+                        {
+                            int dxMin = (int)((long)mask.Left * dstW / srcW);
+                            int dxMax = (int)((long)(mask.Left + mask.Width - 1) * dstW / srcW);
+                            int dyMin = (int)((long)mask.Top * dstH / srcH);
+                            int dyMax = (int)((long)(mask.Top + mask.Height - 1) * dstH / srcH);
+                            // Clamp to grid bounds (e.g. bar partially off-screen).
+                            if (dxMin < 0) dxMin = 0;
+                            if (dyMin < 0) dyMin = 0;
+                            if (dxMax >= dstW) dxMax = dstW - 1;
+                            if (dyMax >= dstH) dyMax = dstH - 1;
+                            for (int dy = dyMin; dy <= dyMax; dy++)
+                            {
+                                int row = dy * dstW;
+                                for (int dx = dxMin; dx <= dxMax; dx++)
+                                {
+                                    result[row + dx]      = 0;
+                                    _prevFrame[row + dx]  = 0;
+                                }
                             }
                         }
                     }
