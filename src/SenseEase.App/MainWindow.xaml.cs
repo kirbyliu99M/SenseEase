@@ -16,6 +16,9 @@ public partial class MainWindow : Window
     // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
     // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.
     private BarStubWindow? _wgcBarStub;
+    // Pop-up sprint Task 2: the persistent ambient bar. Spawned on Loaded
+    // (production path), driven by VimsTier changes via StateChanged.
+    private PersistentBarWindow? _persistentBar;
 
     public MainWindow()
     {
@@ -115,6 +118,7 @@ public partial class MainWindow : Window
         // window after Close (kept the Tick closure alive otherwise).
         Closed += (_, _) => _chartTimer?.Stop();
         Closed += (_, _) => _wgcBarStub?.Close();
+        Closed += (_, _) => _persistentBar?.Close();
 
         // ── Pop-up sprint Task 1: WGC bar-validation harness ────────────────
         // When SENSEEASE_WGC_BAR_VALIDATION=1, spawn a BarStubWindow at the bar's
@@ -130,6 +134,47 @@ public partial class MainWindow : Window
         //
         // Both env vars unset = zero behavioural difference vs production.
         Loaded += (_, _) => MaybeStartWgcValidation();
+        // Pop-up sprint Task 2: spawn the persistent ambient bar AFTER the WGC
+        // validation block so a validation run isn't accidentally fighting the
+        // production bar over the same monitor rect. In a validation run
+        // (SENSEEASE_WGC_BAR_VALIDATION=1) the BarStub owns the mask + screen
+        // position; in a production run the BarStub never spawns and the
+        // persistent bar owns both.
+        Loaded += (_, _) => StartPersistentBar();
+    }
+
+    private void StartPersistentBar()
+    {
+        // Skip if validation harness is active — they'd collide on top-centre.
+        if (string.Equals(Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
+                          "1", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _persistentBar = new PersistentBarWindow();
+        _persistentBar.Closed += (_, _) =>
+        {
+            // Always-on mask (Option II): clear the rect when the bar goes
+            // away so the OFI pipeline stops masking a region no longer
+            // covered by the bar's pixels.
+            _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
+            _persistentBar = null;
+        };
+        _persistentBar.ContentRendered += (_, _) =>
+        {
+            if (_persistentBar is null) return;
+            var (l, t, w, h) = _persistentBar.GetMonitorRectInPhysicalPixels();
+            _viewModel.SetWgcMonitorExcludeRect(l, t, w, h);
+            // Initial colour from current state.
+            _persistentBar.SetTier(_viewModel.VimsTier);
+        };
+        // Bar tracks tier changes via StateChanged (raised after each
+        // UpdateFromState). VimsTier is also a Set-ref bindable property; we
+        // listen via StateChanged so the bar updates on every state push
+        // including ones the engine raises outside the dispatcher timer.
+        _viewModel.StateChanged += (_, st) => _persistentBar?.SetTier(st.VimsTier);
+        _persistentBar.Show();
     }
 
     private void MaybeStartWgcValidation()

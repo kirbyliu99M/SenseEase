@@ -1,0 +1,25 @@
+<Window x:Class="SenseEase.App.Views.PersistentBarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SenseEase"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        Width="80" Height="4"
+        WindowStartupLocation="Manual"
+        Focusable="False"
+        IsHitTestVisible="False">
+    <!-- Pop-up sprint Task 2: persistent ambient bar.
+         4 dip × 80 dip top-centre, rounded corners. NO animation. NO interaction
+         in Task 2 (IsHitTestVisible=false makes it pass-through for clicks; hover
+         + click-to-expand land in Task 4). Background brush is set imperatively
+         from PersistentBarWindow.xaml.cs SetTier so the 3-tier mapping has one
+         source of truth in code, not XAML. -->
+    <Border x:Name="BarFill"
+            Background="#26666666"
+            CornerRadius="2"/>
+</Window>
