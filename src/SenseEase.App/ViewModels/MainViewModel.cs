@@ -73,6 +73,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
+        // Stage 5a/5b: wire the LLM calibration session factory. The factory
+        // constructs a CalibrationChatbotService and kicks StartAsync — the VM
+        // just surfaces the active session for the chat tab to render.
+        ChatbotVm.LlmCalibrationFactory = BuildLlmCalibrationSession;
         _nlu = new ChatbotNluService(mistral);
 
         _sensing = ProviderFor(AppConfig.Mode);
@@ -578,15 +582,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => Set(ref _showFirstRunBanner, value);
     }
 
-    private void StartSetupDemo()
-    {
-        _isSetupRun = true;
-        StartDemo();
-        // If StartDemo bailed (no video, etc.) it didn't actually enter the
-        // calibration flow — drop the flag so the next plain Start Demo press
-        // doesn't accidentally trigger calibration handling.
-        if (_demoVideoWindow is null) _isSetupRun = false;
-    }
+    // Stage 5d: StartSetupDemo previously toggled an _isSetupRun flag so the
+    // post-demo flow could differentiate calibration vs plain runs. Now that
+    // DemoSummaryWindow is gone and the post-demo branch is purely a function
+    // of AppConfig.IsFirstRun (first run → card, subsequent → banner), the
+    // setup-demo command is a thin alias around StartDemo. The button is kept
+    // (welcome banner + dashboard "Calibration & Demo") so external bindings
+    // continue to work, but the flag-and-fallback logic is gone.
+    private void StartSetupDemo() => StartDemo();
 
     // ?? Demo loop ??????????????????????????????????????????????????????????
 
@@ -603,14 +606,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private DateTime _demoStartedAt;
     private int      _demoMaskActivations;
     private double   _demoPeakPressure;
-
-    // When true the next OnDemoVideoFinished pops the calibration-variant
-    // summary (preset rows + Save/Skip) instead of the plain summary, and
-    // a Save click writes the suggested preset to the engine + adjustment log
-    // with Source="setup-demo". Set by StartSetupDemoCommand; cleared at the
-    // end of OnDemoVideoFinished so a second plain "Start Demo" click after
-    // calibration doesn't accidentally re-enter the calibration variant.
-    private bool _isSetupRun;
+    // Seconds-since-_demoStartedAt at which _demoPeakPressure was last updated.
+    // Stage 5c: closes the Stage 3 Q4 carve-out by feeding Q1-vs-sensor
+    // alignment a real timestamp instead of the hard-coded zero CalibrationProcessor
+    // previously had to treat as "no claim".
+    private double   _demoPeakPressureAtSec;
 
     private void StartDemo()
     {
@@ -626,9 +626,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         // Reset run-scoped stats. We snapshot peak pressure / mask count over
         // the demo window so the summary log line reflects only this run.
-        _demoStartedAt        = DateTime.Now;
-        _demoMaskActivations  = 0;
-        _demoPeakPressure     = 0;
+        _demoStartedAt          = DateTime.Now;
+        _demoMaskActivations    = 0;
+        _demoPeakPressure       = 0;
+        _demoPeakPressureAtSec  = 0;
 
         // Force WGC so the video's pixel motion actually drives the pipeline.
         // In Demo mode the sensor is MockSensingProvider (slider-fed) and
@@ -729,38 +730,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
             $"Demo 結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
             CurrentState);
 
-        // ── Stage 3e: post-demo calibration card trigger ────────────────────
-        // First-time users (AppConfig.IsFirstRun signals "we have never written
-        // the first-run-complete.flag") get the 5-card calibration UI surfaced
-        // in the chatbot tab. Subsequent runs leave a TODO for Stage 5's
-        // re-calibration invitation banner (not implemented in Stage 3).
-        // The legacy DemoSummaryWindow paths below (calibration-variant +
-        // plain summary) are SLATED FOR REMOVAL once Stage 5 ships the
-        // post-calibration summary inside the chat tab; until then the plain
-        // summary still serves users who already finished setup.
-        bool isFirstRunCalibration = AppConfig.IsFirstRun && _isSetupRun;
+        // ── Post-demo branching ─────────────────────────────────────────────
+        // First-time users (AppConfig.IsFirstRun, no first-run-complete.flag)
+        // get the 5-card calibration UI surfaced in the chat tab.
+        // Subsequent runs (Stage 5a) get an invitation banner offering an
+        // LLM-driven recalibration dialog; the user can Start or Skip.
+        // The proxy for "calibration has run at least once" is the engine's
+        // LastCalibrationResult — once Schema v2 lands an explicit count this
+        // can switch to that, but for now LastCalibrationResult != null is
+        // equivalent for any user who completed (or partially completed) a
+        // first-run calibration.
+        bool isFirstRunCalibration = AppConfig.IsFirstRun;
         if (isFirstRunCalibration)
         {
             TriggerCalibrationCard();
         }
-        else if (!_isSetupRun)
-        {
-            // TODO(Stage 5): Subsequent-run re-calibration invitation banner —
-            // post a Messages bubble offering "Would you like to recalibrate?"
-            // with Yes/No followup options. Not implemented in Stage 3.
-            // Fall through to plain summary for now.
-            ShowLegacyDemoSummary(dur, calibration: false);
-        }
         else
         {
-            // Stage-3-only fallback: setup-run but user already completed
-            // first-run on a previous launch. Show the legacy calibration
-            // variant so they still get a preset suggestion. This branch
-            // will collapse when the recalibration banner ships.
-            ShowLegacyDemoSummary(dur, calibration: true);
+            // Stage 5a: invitation banner — DO NOT auto-trigger the card.
+            // Snapshot the demo sensor data so the LLM session has accurate
+            // current-run context if the user accepts the invitation.
+            ChatbotVm.LastDemoSensorData = new CalibrationSensorData(
+                PeakPressure: _demoPeakPressure,
+                MaskActivations: _demoMaskActivations,
+                PeakPressureAtSec: _demoPeakPressureAtSec);
+            ChatbotVm.ShowCalibrationInvitationBanner = true;
+            AppendLog("Calibration",
+                "後續校準邀請橫幅已顯示 / Subsequent-calibration invitation banner shown.",
+                CurrentState);
         }
 
-        _isSetupRun = false;
         IsRunning = false;
     }
 
@@ -775,14 +774,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void TriggerCalibrationCard()
     {
         // Snapshot sensor stats now so they survive even if pressure drifts
-        // during the user's answer time. PeakPressureAtSec is not tracked
-        // through the demo (the recorder only keeps the max), so we report
-        // 0 — Q1-vs-sensor alignment downgrades to "no claim" without it,
-        // which CalibrationProcessor handles gracefully.
+        // during the user's answer time. Stage 5c: PeakPressureAtSec is now
+        // tracked inline in UpdateFromState (stamped each time _demoPeakPressure
+        // rises), so Q1-vs-sensor alignment can make a real start/middle/end
+        // claim instead of the prior "no claim" carve-out.
         _pendingCalibrationSensorData = new CalibrationSensorData(
             PeakPressure: _demoPeakPressure,
             MaskActivations: _demoMaskActivations,
-            PeakPressureAtSec: 0);
+            PeakPressureAtSec: _demoPeakPressureAtSec);
 
         var card = new CalibrationCardViewModel();
         card.Completed += OnCalibrationCompleted;
@@ -815,7 +814,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ApplyAndAnnounceCalibration(CalibrationResponses responses)
     {
         var sensor = _pendingCalibrationSensorData
-                     ?? new CalibrationSensorData(_demoPeakPressure, _demoMaskActivations, 0);
+                     ?? new CalibrationSensorData(_demoPeakPressure, _demoMaskActivations, _demoPeakPressureAtSec);
 
         CalibrationResult result;
         if (_engine is MockInferenceEngine mock)
@@ -863,122 +862,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _pendingCalibrationSensorData = null;
     }
 
-    /// <summary>Legacy DemoSummaryWindow path. Retained for non-first-run demo
-    /// invocations until Stage 5 unifies summary rendering inside the chat
-    /// tab. <paramref name="calibration"/> picks the calibration variant
-    /// (preset rows + Save/Skip) versus the plain stats-only summary.</summary>
-    private void ShowLegacyDemoSummary(TimeSpan dur, bool calibration)
+    // ── Stage 5a/5b — LLM calibration session factory ───────────────────────
+
+    /// <summary>Construct and start a CalibrationChatbotService session.
+    /// Invoked via the ChatbotViewModel's LlmCalibrationFactory delegate so
+    /// the VM stays infrastructure-free. Reads the previous-snapshot from
+    /// the profile store so the system prompt's [USER_CONTEXT] block can
+    /// reference longitudinal facts.</summary>
+    private CalibrationChatbotService? BuildLlmCalibrationSession(CalibrationSensorData sensor)
     {
         try
         {
-            Views.DemoSummaryWindow summary;
-            if (calibration)
-            {
-                var preset = DerivePreset(_demoPeakPressure, _demoMaskActivations);
-                summary = new Views.DemoSummaryWindow(dur, _demoMaskActivations, _demoPeakPressure, preset)
-                {
-                    Owner = Application.Current?.MainWindow,
-                };
-                summary.ShowDialog(); // modal so we can read SavedPreset synchronously
-                if (summary.SavedPreset)
-                {
-                    ApplySetupDemoPreset(preset);
-                    AppendLog("Setup",
-                        $"已套用建議預設值（{preset.Tier}）: FOV {preset.FovDelta:+0;-0;0}%、mask {preset.MaskDepthDelta:+0.00;-0.00;0.00}、grid {preset.GridVisibilityDelta:+0.00;-0.00;0.00}、feather {preset.FeatherWidthDelta:+0.00;-0.00;0.00}.",
-                        CurrentState);
-                }
-                else
-                {
-                    AppendLog("Setup", "使用者跳過了建議預設值 / User skipped suggested preset.", CurrentState);
-                }
-                AppConfig.MarkFirstRunComplete();
-                ShowFirstRunBanner = false;
-            }
-            else
-            {
-                summary = new Views.DemoSummaryWindow(dur, _demoMaskActivations, _demoPeakPressure)
-                {
-                    Owner = Application.Current?.MainWindow,
-                };
-                summary.Show();
-            }
+            var client = new LlamaServerCalibrationClient();
+            var session = new CalibrationChatbotService(client, AppConfig.CalibrationHistoryPath);
+            HabituationProfileSnapshot? prev = null;
+            try { prev = _habituationProfileStore.Load(); } catch { /* corrupt or absent */ }
+            // Fire-and-forget StartAsync — the service exposes IsActive/Completed
+            // events the chat tab subscribes to. Errors surface via those.
+            _ = session.StartAsync(prev, sensor);
+            return session;
         }
-        catch (Exception ex)
+        catch
         {
-            AppendLog("Error", $"Demo summary window failed: {ex.GetType().Name}: {ex.Message}", CurrentState);
+            // Construction failed (likely LlamaServerCalibrationClient threw on
+            // an unrelated init issue). Return null so the VM treats it as
+            // "LLM unavailable" and doesn't surface a half-constructed session.
+            return null;
         }
     }
 
-    /// <summary>Maps observed demo reactivity (peak pressure + mask activations)
-    /// to a tiered preset. Tiers: RESILIENT (low reaction), TYPICAL, SENSITIVE
-    /// (high reaction). Peak pressure is primary; mask-activation count is the
-    /// escalator — even with modest peak, repeated mask triggers indicate the
-    /// user's threshold is being crossed often, which warrants tighter defaults.
-    /// Per the user's "add on top of existing" instruction, these deltas are
-    /// applied additively to the current personalization, NOT a wipe.</summary>
-    private static Views.CalibrationPreset DerivePreset(double peakPressure, int maskActivations)
-    {
-        if (peakPressure > 85 || maskActivations >= 3)
-            return new Views.CalibrationPreset("SENSITIVE", -15, 0.14, 0.07, 0.00);
-        if (peakPressure > 50 || maskActivations >= 1)
-            return new Views.CalibrationPreset("TYPICAL",   -8,  0.08, 0.04, 0.00);
-        return new Views.CalibrationPreset("RESILIENT",     -3,  0.04, 0.02, 0.00);
-    }
-
-    /// <summary>Apply the setup-demo preset to the engine + adjustment log,
-    /// using the same paths the chatbot uses for its own personalized deltas.
-    /// Source="setup-demo" so the log makes the origin clear, and so future
-    /// "reset everything" flows can target setup-demo entries specifically if
-    /// we want to add that later.</summary>
-    private void ApplySetupDemoPreset(Views.CalibrationPreset preset)
-    {
-        if (preset.FovDelta != 0)
-        {
-            int oldOffset = _engine.UserFovOffset;
-            _engine.ApplyUserFeedback(preset.FovDelta);
-            int newOffset = _engine.UserFovOffset;
-            int applied   = newOffset - oldOffset;
-            if (applied != 0)
-            {
-                _adjustmentLog.Append(new AdjustmentRecord
-                {
-                    Parameter = "FovRadius", Delta = applied,
-                    OldValue  = oldOffset, NewValue = newOffset,
-                    Source    = "setup-demo",
-                    Utterance = $"calibration tier={preset.Tier}",
-                });
-            }
-        }
-
-        bool anyShader = preset.MaskDepthDelta != 0
-                      || preset.GridVisibilityDelta != 0
-                      || preset.FeatherWidthDelta != 0;
-        if (anyShader)
-        {
-            var before = _engine.Current.Shader.Clone();
-            _engine.ApplyShaderAdjustment(preset.MaskDepthDelta, preset.GridVisibilityDelta, preset.FeatherWidthDelta);
-            var after  = _engine.Current.Shader.Clone();
-            LogShaderDelta("MaskDepth",      preset.MaskDepthDelta,      before.MaskDepth,      after.MaskDepth,      preset.Tier);
-            LogShaderDelta("GridVisibility", preset.GridVisibilityDelta, before.GridVisibility, after.GridVisibility, preset.Tier);
-            LogShaderDelta("FeatherWidth",   preset.FeatherWidthDelta,   before.FeatherWidth,   after.FeatherWidth,   preset.Tier);
-        }
-
-        // Push the new state into the bindable surface so the dashboard
-        // reflects the applied preset without waiting for the next WGC sample.
-        UpdateFromState(_engine.Current);
-    }
-
-    private void LogShaderDelta(string parameter, double delta, double oldValue, double newValue, string tier)
-    {
-        if (delta == 0) return;
-        _adjustmentLog.Append(new AdjustmentRecord
-        {
-            Parameter = parameter, Delta = delta,
-            OldValue  = oldValue, NewValue = newValue,
-            Source    = "setup-demo",
-            Utterance = $"calibration tier={tier}",
-        });
-    }
+    // Stage 5d: removed ShowLegacyDemoSummary / DerivePreset /
+    // ApplySetupDemoPreset / LogShaderDelta. Post-demo flow now branches into
+    // either the first-time calibration card or the Stage 5a invitation
+    // banner — the modal DemoSummaryWindow is gone, and with it the
+    // setup-demo preset wired through Views.CalibrationPreset (also deleted).
+    // Personalisation now flows exclusively through CalibrationProcessor /
+    // CalibrationApplicator, so we don't need the alternate "tier preset"
+    // path the legacy window used to apply.
 
     private void ResetState()
     {
@@ -1049,7 +969,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // ramp branch routes through StopDemo() instead.
         if (_demoVideoWindow is not null)
         {
-            if (state.Pressure > _demoPeakPressure) _demoPeakPressure = state.Pressure;
+            if (state.Pressure > _demoPeakPressure)
+            {
+                _demoPeakPressure      = state.Pressure;
+                // Stage 5c: stamp the seconds-since-demo-start at which this
+                // new peak occurred. CalibrationProcessor uses this for Q1-vs-
+                // sensor alignment (start/middle/end window claim).
+                _demoPeakPressureAtSec = (DateTime.Now - _demoStartedAt).TotalSeconds;
+            }
             if (state.MaskActive && !_prevMaskActiveForIntercept) _demoMaskActivations++;
         }
 

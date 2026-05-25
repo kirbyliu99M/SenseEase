@@ -676,14 +676,32 @@
             <TabItem Header="AI Assistant">
                 <Grid DataContext="{Binding ChatbotVm}" Background="#E2ECFF">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>  <!-- Recalibrate header (Stage 5b) -->
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>  <!-- Invitation banner (Stage 5a) -->
                         <RowDefinition Height="Auto"/>  <!-- Calibration card (Stage 3d) -->
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
+                    <!-- Stage 5b: small Recalibrate entry. Right-aligned above the
+                         chat history so users can re-enter calibration any time
+                         without needing a fresh demo run. -->
+                    <Grid Grid.Row="0" Margin="24,16,24,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="1"
+                                Content="重新校準 / Recalibrate"
+                                Command="{Binding RecalibrateCommand}"
+                                Style="{StaticResource GhostBtn}"
+                                Padding="14,6" FontSize="12"
+                                ToolTip="Open the LLM calibration dialog without requiring a fresh demo."/>
+                    </Grid>
+
                     <!-- Chat history -->
-                    <Border Grid.Row="0" Margin="24,20,24,8"
+                    <Border Grid.Row="1" Margin="24,8,24,8"
                             Background="White" CornerRadius="14" Padding="0">
                         <Border.Effect>
                             <DropShadowEffect Color="#5B82C6" BlurRadius="20"
@@ -805,18 +823,57 @@
                         </ScrollViewer>
                     </Border>
 
+                    <!-- Stage 5a: subsequent-calibration invitation banner.
+                         Shown after a demo finishes when the user already has
+                         at least one prior calibration. Auto-dismisses after
+                         30 s or on either button click. Two actions: Start
+                         (opens the LLM dialog) or Skip (silent dismiss). -->
+                    <Border Grid.Row="2" Margin="24,0,24,8"
+                            CornerRadius="10" Padding="20,14"
+                            Background="#0E1320" BorderBrush="#3D5AFE" BorderThickness="1"
+                            Visibility="{Binding ShowCalibrationInvitationBanner, Converter={StaticResource BoolToVis}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="想更新你的設定嗎？跟系統聊聊剛才的感覺。"
+                                           Foreground="#F0F4FA" FontSize="13" FontWeight="SemiBold"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="Want to refresh your settings? Chat about what you just felt."
+                                           Foreground="#9AB6E0" FontSize="11"
+                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                        VerticalAlignment="Center" Margin="16,0,0,0">
+                                <Button Content="跳過 / Skip"
+                                        Command="{Binding SkipCalibrationInvitationCommand}"
+                                        Background="Transparent" Foreground="#9AB6E0"
+                                        BorderBrush="#2C3A55" BorderThickness="1"
+                                        Padding="14,6" FontSize="12" Cursor="Hand"
+                                        Margin="0,0,8,0"/>
+                                <Button Content="開始 calibration / Start calibration"
+                                        Command="{Binding StartInvitedCalibrationCommand}"
+                                        Background="#3D5AFE" Foreground="White"
+                                        BorderThickness="0"
+                                        Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
                     <!-- Calibration card host (Stage 3d).
                          Visible only when IsCalibrationCardActive == true.
                          DataContext flows to the inner ContentPresenter via
                          ActiveCalibrationCard binding so the card sees its
                          own CalibrationCardViewModel rather than ChatbotVm. -->
-                    <Border Grid.Row="1" Margin="24,0,24,8"
+                    <Border Grid.Row="3" Margin="24,0,24,8"
                             Visibility="{Binding IsCalibrationCardActive, Converter={StaticResource BoolToVis}}">
                         <views:CalibrationCardView DataContext="{Binding ActiveCalibrationCard}"/>
                     </Border>
 
                     <!-- Status bar -->
-                    <Border Grid.Row="2" Margin="24,0,24,8"
+                    <Border Grid.Row="4" Margin="24,0,24,8"
                             Background="White" CornerRadius="8" Padding="14,7">
                         <Border.Effect>
                             <DropShadowEffect Color="#5B82C6" BlurRadius="10"
@@ -827,7 +884,7 @@
                     </Border>
 
                     <!-- Input row -->
-                    <Grid Grid.Row="3" Margin="24,0,24,20">
+                    <Grid Grid.Row="5" Margin="24,0,24,20">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
