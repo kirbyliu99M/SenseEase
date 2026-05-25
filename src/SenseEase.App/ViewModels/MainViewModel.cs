@@ -35,7 +35,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly WgcSensingProvider _wgcSensing = new();
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
-    private readonly IHabituationProfileStore _habituationProfileStore = new FileHabituationProfileStore(AppConfig.HabituationProfilePath);
+    // Stage 7b: pass HabituationStatePath as the wipe-probe artifact so the
+    // app-data-wipe detection path (Stage 6c) is actually live in production.
+    // Without the second arg, the loader's wipe synthesis never fires —
+    // unit tests pass against the seam but real users with a wiped profile
+    // file silently get null'd back to RESILIENT defaults instead of being
+    // re-routed through the first-time calibration card. The probe file is
+    // the existing habituation.json (the offset-only legacy file from
+    // Phase 3); its presence-without-profile-file is the wipe signature.
+    private readonly IHabituationProfileStore _habituationProfileStore =
+        new FileHabituationProfileStore(
+            AppConfig.HabituationProfilePath,
+            AppConfig.HabituationStatePath);
     // Auto Driver/Passenger mode detector — polls Win32 GetLastInputInfo at 1 Hz and
     // raises ModeChanged when OS-level input idleness crosses the hysteresis band.
     private readonly UserActivityModeDetector _activityDetector = new();
@@ -731,16 +742,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
             CurrentState);
 
         // ── Post-demo branching ─────────────────────────────────────────────
-        // First-time users (AppConfig.IsFirstRun, no first-run-complete.flag)
-        // get the 5-card calibration UI surfaced in the chat tab.
-        // Subsequent runs (Stage 5a) get an invitation banner offering an
-        // LLM-driven recalibration dialog; the user can Start or Skip.
-        // The proxy for "calibration has run at least once" is the engine's
-        // LastCalibrationResult — once Schema v2 lands an explicit count this
-        // can switch to that, but for now LastCalibrationResult != null is
-        // equivalent for any user who completed (or partially completed) a
-        // first-run calibration.
-        bool isFirstRunCalibration = AppConfig.IsFirstRun;
+        // First-time CALIBRATION users get the 5-card buttons UI in the chat
+        // tab; subsequent runs get a banner offering an LLM dialog.
+        //
+        // Stage 7a: the "first-time" signal is the PERSISTED
+        // habituation_profile.json's calibration_count field (surfaced via
+        // MockInferenceEngine.LoadedCalibrationCount at startup), NOT
+        // AppConfig.IsFirstRun. The two concepts diverged once Schema v2
+        // landed:
+        //   • AppConfig.IsFirstRun = "user has never used SenseEase on this
+        //     machine" (drives the dashboard welcome banner).
+        //   • LoadedCalibrationCount = "user has never completed calibration
+        //     on this machine" (drives this branch).
+        // They share most of their truth table on first install, but a user
+        // who launched SenseEase once, skipped the welcome banner, then ran
+        // a demo months later is "not first-run for the app" yet "first-run
+        // for calibration" — and SHOULD see the button card, not the LLM
+        // banner.
+        //
+        // Wipe-recovery synthetics arrive with CalibrationCount=0 (the
+        // FileHabituationProfileStore wipe path returns defaults-only), which
+        // is the intended behaviour: a recovered user is effectively starting
+        // calibration over and gets the buttons UI again.
+        int calibrationCount = (_engine is MockInferenceEngine mockForCount)
+            ? mockForCount.LoadedCalibrationCount
+            : 0;
+        bool isFirstRunCalibration = calibrationCount == 0;
         if (isFirstRunCalibration)
         {
             TriggerCalibrationCard();

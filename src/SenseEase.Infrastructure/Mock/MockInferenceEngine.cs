@@ -43,6 +43,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private bool                  _profileSnapshotDirty;
     private DateTime?             _lastSavedSpikeAtUtc;
 
+    // Stage 7a: persisted calibration_count seen at startup. Surfaces the
+    // value from the loaded snapshot so MainViewModel.OnDemoVideoFinished can
+    // route "first-time calibration" vs "subsequent calibration" off the
+    // PERSISTED count instead of the AppConfig.IsFirstRun proxy (which conflated
+    // "user has never used the app" with "user has never completed calibration").
+    // Returns 0 when no snapshot was loaded at startup OR the loaded snapshot
+    // is a wipe-recovery synthetic — both of which mean the engine has no
+    // proof of a prior calibration on this machine.
+    private int                   _loadedCalibrationCount;
+
     public SenseState Current { get; } = new()
     {
         FovRadiusPercent = 100,
@@ -89,6 +99,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
             {
                 _habituation.SetProfile(prof, savedSnapshot.ProfileSource);
             }
+            // Stage 7a: surface the persisted calibration_count so upstream
+            // code can branch on "has the user EVER completed calibration on
+            // this machine" without re-reading the JSON. Wipe-recovery
+            // snapshots arrive with CalibrationCount=0 (the loader synthesizes
+            // a defaults-only snapshot), which is the desired behaviour:
+            // recovered users get re-routed through the first-time calibration
+            // card, not the LLM banner that assumes a baseline exists.
+            _loadedCalibrationCount = savedSnapshot.CalibrationCount;
             // Note: we deliberately do NOT restore strike_count from the snapshot.
             // Strikes are a within-session safety counter — re-loading them on
             // startup would mean a user who hit the limit yesterday boots into
@@ -348,6 +366,22 @@ public sealed class MockInferenceEngine : IInferenceEngine
     public CalibrationResult? LastCalibrationResult
     {
         get { lock (_gate) { return _lastCalibrationResult; } }
+    }
+
+    /// <summary>Stage 7a: the <c>calibration_count</c> value the loader read
+    /// from <c>habituation_profile.json</c> at engine construction. Returns
+    /// 0 when no snapshot was loaded (genuine first-run, or wipe-recovery
+    /// synthetic snapshot — both mean the engine has no PERSISTED evidence
+    /// of a prior calibration on this machine). NOT incremented during the
+    /// session; reflects the on-disk value at startup only, per spec.
+    /// <para>Replaces the prior <c>AppConfig.IsFirstRun</c> proxy in
+    /// MainViewModel.OnDemoVideoFinished. <c>IsFirstRun</c> still exists for
+    /// the welcome banner (machine-level first-run for the whole app), but
+    /// calibration-history branching uses THIS counter — they're different
+    /// concepts and shouldn't share a signal.</para></summary>
+    public int LoadedCalibrationCount
+    {
+        get { lock (_gate) { return _loadedCalibrationCount; } }
     }
 
     /// <summary>The engine's current effective spike-trigger pressure.

@@ -1,5 +1,8 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Reflection;
+using System.Threading;
+using System.Windows.Threading;
 using SenseEase.App.ViewModels;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
@@ -428,15 +431,94 @@ public class CalibrationIntegrationTests
         Assert.Null(vm.ActiveLlmCalibration);
     }
 
-    [Fact(Skip = "Manual acceptance — DispatcherTimer auto-dismiss requires a running dispatcher loop; covered by manual smoke run")]
+    [Fact]
     public void Banner_AutoDismissesAfter30Seconds()
     {
-        // The 30 s auto-dismiss path lives behind a DispatcherTimer that only
-        // fires when a WPF dispatcher loop is pumping. In headless xunit there
-        // is no loop, so the timer never ticks. This test is marked as a
-        // manual acceptance step; the timer wiring itself is exercised by
-        // toggling ShowCalibrationInvitationBanner on/off (the timer
-        // start/stop is best-effort and silent on failure).
+        // Stage 7c: un-skipped. The 30-second DispatcherTimer needs a running
+        // WPF dispatcher loop to tick, which xunit's worker thread does not
+        // provide by default. We spin up an STA thread with Dispatcher.Run,
+        // construct the VM on that thread (so its CurrentDispatcher capture
+        // binds to the STA loop), shrink BannerAutoDismissAfter to a short
+        // window so the test wall-clock stays sub-second, then assert the
+        // banner flipped back to false. The 30-second production interval is
+        // tested indirectly: this confirms the timer FIRES, BannerAutoDismissAfter
+        // is the knob that controls the delay, and the dismiss callback both
+        // stops the timer and resets the banner flag.
+        Exception? captured = null;
+        bool? finalBannerState = null;
+        bool tickObserved = false;
+        var done = new ManualResetEventSlim();
+
+        var staThread = new Thread(() =>
+        {
+            try
+            {
+                var dispatcher = Dispatcher.CurrentDispatcher;
+                var vm = BuildChatbotVm(out _, out _);
+
+                // Shrink the auto-dismiss interval so the test completes in
+                // ~250 ms instead of 30 s. The production constant is the
+                // public field default (30 s) — by setting it here we prove
+                // the field is the actual knob the timer reads.
+                vm.BannerAutoDismissAfter = TimeSpan.FromMilliseconds(150);
+
+                vm.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(vm.ShowCalibrationInvitationBanner)
+                        && !vm.ShowCalibrationInvitationBanner
+                        && tickObserved == false)
+                    {
+                        // The first transition-to-false after we set it true
+                        // is the dismiss tick we want to observe.
+                        tickObserved = true;
+                        finalBannerState = vm.ShowCalibrationInvitationBanner;
+                        // Shut down the dispatcher loop so this STA thread can exit.
+                        dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+                    }
+                };
+
+                vm.ShowCalibrationInvitationBanner = true;
+
+                // Safety net: if the timer never ticks (regression — the timer
+                // was never wired up to the banner setter), shut down after
+                // 5 s so the test fails fast instead of hanging.
+                var safetyTimer = new DispatcherTimer(DispatcherPriority.Background)
+                {
+                    Interval = TimeSpan.FromSeconds(5),
+                };
+                safetyTimer.Tick += (_, _) =>
+                {
+                    safetyTimer.Stop();
+                    finalBannerState ??= vm.ShowCalibrationInvitationBanner;
+                    dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+                };
+                safetyTimer.Start();
+
+                Dispatcher.Run();
+            }
+            catch (Exception ex)
+            {
+                captured ??= ex;
+            }
+            finally
+            {
+                done.Set();
+            }
+        });
+        staThread.SetApartmentState(ApartmentState.STA);
+        staThread.IsBackground = true;
+        staThread.Start();
+
+        Assert.True(done.Wait(TimeSpan.FromSeconds(10)),
+            "Banner_AutoDismissesAfter30Seconds timed out waiting for STA dispatcher shutdown.");
+        if (captured != null)
+            throw new Xunit.Sdk.XunitException(
+                "STA thread threw during banner auto-dismiss test: " + captured);
+
+        Assert.True(tickObserved,
+            "Banner auto-dismiss timer never ticked within the safety window — wiring regressed.");
+        Assert.False(finalBannerState ?? true,
+            "Banner remained visible after the auto-dismiss timer fired.");
     }
 
     // ── Stage 5b — Recalibrate from chatbot tab ─────────────────────────────
