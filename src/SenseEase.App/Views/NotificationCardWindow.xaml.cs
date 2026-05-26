@@ -162,6 +162,45 @@ public partial class NotificationCardWindow : Window
         Hide();
     }
 
+    /// <summary>Patch 9: primary action — surface the dashboard window. User
+    /// flagged this as the most-important sub-feature of the bar/card
+    /// optimization sprint: a card-launched route back to the main app
+    /// without hunting in the taskbar.
+    /// <para>Implementation notes:</para>
+    /// <list type="bullet">
+    ///   <item>Restore from Minimized state if needed (TaskbarIcon click +
+    ///         Show alone wouldn't un-minimize).</item>
+    ///   <item>Topmost true→false dance bumps the dashboard above
+    ///         PersistentBarWindow (which is also Topmost) without permanently
+    ///         pinning it there. Standard WPF pattern for "raise above
+    ///         siblings without becoming sticky."</item>
+    ///   <item>Card closes after activation so the user gets a single-action
+    ///         flow — one click, dashboard up, card gone.</item>
+    ///   <item>Null guard: if Application.Current.MainWindow is null (e.g.
+    ///         the dashboard was already closed and the app is running tray-
+    ///         only), the button silently no-ops rather than crashing. A
+    ///         future polish could re-instantiate MainWindow in that case;
+    ///         out of scope for Patch 9.</item>
+    /// </list></summary>
+    private void OnOpenDashboardClicked(object sender, RoutedEventArgs e)
+    {
+        var mainWindow = System.Windows.Application.Current?.MainWindow;
+        if (mainWindow is null) { Close(); return; }
+
+        if (mainWindow.WindowState == WindowState.Minimized)
+            mainWindow.WindowState = WindowState.Normal;
+
+        mainWindow.Show();
+        mainWindow.Activate();
+        // Topmost dance: bump above other Topmost siblings (PersistentBarWindow,
+        // NotificationCardWindow itself) without permanently pinning the
+        // dashboard. WPF resolves this synchronously on the dispatcher.
+        mainWindow.Topmost = true;
+        mainWindow.Topmost = false;
+
+        Close();
+    }
+
     /// <summary>Monitor-coords physical-pixel rect for the WGC exclude mask
     /// (Option II: always-on mask for any visible UI). Same DPI maths as
     /// PersistentBarWindow.</summary>

@@ -12,6 +12,35 @@
         Width="360" Height="200"
         WindowStartupLocation="Manual"
         Focusable="False">
+    <Window.Resources>
+        <!-- Patch 9 (HP brand): shared primary-action button style.
+             Used by the OpenDashboardBtn in this commit; Patch 13 will
+             retrofit EngageBtn to use the same style so the two primary
+             buttons match. Scope intentionally kept at Window level (not
+             App-wide) per the App.xaml comment about test-compatibility —
+             tests construct windows without App context. Promote to App
+             resources only when a non-card surface also needs it. -->
+        <Style x:Key="PrimaryHpBlueButtonStyle" TargetType="Button">
+            <Setter Property="Background"      Value="#0096D6"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Padding"         Value="14,6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#007AB0"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#005A8C"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.5"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <!-- Pop-up sprint Task 4: expanded notification card.
          Sits just below the persistent bar; same Topmost + AllowsTransparency
          chrome as bar/SpikePopup so the WGC mask seam works for it too
@@ -65,20 +94,18 @@
                        VerticalAlignment="Top"
                        Margin="0,0,0,12"/>
 
-            <!-- Two buttons -->
+            <!-- Button row. Order per Patch 9 spec table:
+                   4. Open Dashboard (HP blue primary, NEW)
+                   5. Engage (existing — Patch 13 will swap to HP blue)
+                   6. Mute (existing — stays subtle / secondary) -->
             <StackPanel Grid.Row="2"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right">
-                <Button x:Name="MuteBtn"
-                        Content="6 小時內不再提示"
-                        Click="OnMuteClicked"
-                        Background="#22FFFFFF"
-                        Foreground="#F0F4FA"
-                        BorderThickness="0"
-                        Padding="12,6"
-                        Margin="0,0,8,0"
-                        FontSize="12"
-                        Cursor="Hand"/>
+                <Button x:Name="OpenDashboardBtn"
+                        Content="開啟主視窗 / Open Dashboard"
+                        Style="{StaticResource PrimaryHpBlueButtonStyle}"
+                        Click="OnOpenDashboardClicked"
+                        Margin="0,0,8,0"/>
                 <Button x:Name="EngageBtn"
                         Content="啟動保護"
                         Click="OnEngageClicked"
@@ -86,8 +113,18 @@
                         Foreground="#101418"
                         BorderThickness="0"
                         Padding="12,6"
+                        Margin="0,0,8,0"
                         FontSize="12"
                         FontWeight="Bold"
+                        Cursor="Hand"/>
+                <Button x:Name="MuteBtn"
+                        Content="6 小時內不再提示"
+                        Click="OnMuteClicked"
+                        Background="#22FFFFFF"
+                        Foreground="#F0F4FA"
+                        BorderThickness="0"
+                        Padding="12,6"
+                        FontSize="12"
                         Cursor="Hand"/>
             </StackPanel>
         </Grid>
