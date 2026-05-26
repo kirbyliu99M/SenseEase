@@ -54,50 +54,50 @@ public partial class MainWindow : Window
                     Dispatcher.BeginInvoke(new Action(() => ChatScroll.ScrollToEnd()));
             };
 
-            // VIMS pressure spike → proactively open the AI Assistant tab AND show a
-            // floating popup window with the same question. The popup is the primary
-            // attention-grabber (user feedback: tab-switch alone wasn't visible
-            // enough — issue #3); the tab switch + chat bubble give the user a
-            // persistent record so the popup can be dismissed without losing the
-            // question. The detector enforces a 30-second cooldown so this can't
-            // fire more than once every 30 s.
+            // Pop-up sprint Task 6: dispatcher between new (bar/tray/card)
+            // and legacy (tab-switch + chat bubble + SpikePopupWindow)
+            // notification paths. Default UseNewBarOverlay=true → new path.
+            // The flag isn't exposed in the settings UI (emergency-rollback
+            // only); edit user-preferences.json directly to roll back.
             vm.PressureSpikeDetected += (_, magnitude) =>
             {
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    bool zhHint = System.Globalization.CultureInfo.CurrentUICulture
-                                    .TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
-                    var (q, opts) = SenseEase.Infrastructure.Nlp.FeedbackLexicon
-                                        .BuildSpikeFollowup(zhHint, magnitude);
-
-                    // 1. Tab switch + chat bubble (persistent record).
-                    if (MainTabs is not null && MainTabs.Items.Count > 2)
-                        MainTabs.SelectedIndex = 2;
-                    vm.ChatbotVm.RaiseFollowup(q, opts);
-
-                    // 2. Floating popup window (immediate visibility — works even if
-                    //    the SenseEase main window is minimized or behind other apps).
-                    if (_spikePopup is not null && _spikePopup.IsLoaded)
+                    if (UserPreferences.Current.UseNewBarOverlay)
                     {
-                        // Re-arm in place rather than stacking multiple popups.
-                        try { _spikePopup.Close(); } catch { }
+                        // ── New path ─────────────────────────────────────
+                        // Bar colour already updated by StateChanged. Card
+                        // auto-expand only if Toggle A is ON (default OFF —
+                        // passive signal first). 6-hour mute honoured via
+                        // ShowNotificationCardForCurrentTier(userInitiated:false).
+                        if (UserPreferences.Current.AutoExpandNotifications)
+                        {
+                            ShowNotificationCardForCurrentTier(userInitiated: false);
+                        }
                     }
-                    var popup = new SpikePopupWindow(q, opts);
-                    popup.OptionSelected += answer => vm.ChatbotVm.SubmitFollowupAnswer(answer);
-                    popup.Closed += (_, _) => { if (ReferenceEquals(_spikePopup, popup)) _spikePopup = null; };
-                    _spikePopup = popup;
-                    popup.Show();
-
-                    // Pop-up sprint Task 5: spike auto-expand for the new
-                    // notification card. Gated on Toggle A (default OFF) and
-                    // 6-hour mute. When Toggle A is OFF the user only sees
-                    // the bar/tray colour change for spikes (passive signal).
-                    // When ON, the card auto-expands ALONGSIDE the legacy
-                    // SpikePopupWindow above — Task 6 will gate the legacy
-                    // path behind use_new_bar_overlay so only one path fires.
-                    if (UserPreferences.Current.AutoExpandNotifications)
+                    else
                     {
-                        ShowNotificationCardForCurrentTier(userInitiated: false);
+                        // ── Legacy path ──────────────────────────────────
+                        // Tab switch + chat bubble + floating SpikePopupWindow.
+                        // Cooldown is enforced upstream by PressureSpikeDetector.
+                        bool zhHint = System.Globalization.CultureInfo.CurrentUICulture
+                                        .TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
+                        var (q, opts) = SenseEase.Infrastructure.Nlp.FeedbackLexicon
+                                            .BuildSpikeFollowup(zhHint, magnitude);
+
+                        if (MainTabs is not null && MainTabs.Items.Count > 2)
+                            MainTabs.SelectedIndex = 2;
+                        vm.ChatbotVm.RaiseFollowup(q, opts);
+
+                        if (_spikePopup is not null && _spikePopup.IsLoaded)
+                        {
+                            try { _spikePopup.Close(); } catch { }
+                        }
+                        var popup = new SpikePopupWindow(q, opts);
+                        popup.OptionSelected += answer => vm.ChatbotVm.SubmitFollowupAnswer(answer);
+                        popup.Closed += (_, _) => { if (ReferenceEquals(_spikePopup, popup)) _spikePopup = null; };
+                        _spikePopup = popup;
+                        popup.Show();
                     }
                 }));
             };
@@ -187,6 +187,12 @@ public partial class MainWindow : Window
         {
             return;
         }
+        // Task 6: emergency-rollback feature flag. When the user has set
+        // use_new_bar_overlay=false in the prefs file, the legacy
+        // SpikePopupWindow path is the only notification surface and we
+        // skip the tray entirely (parity with the bar). Same skip pattern
+        // in StartPersistentBar.
+        if (!UserPreferences.Current.UseNewBarOverlay) return;
 
         _trayIcon = new TrayIconService(
             _viewModel,
@@ -244,6 +250,9 @@ public partial class MainWindow : Window
         {
             return;
         }
+        // Task 6: same emergency-rollback gate as StartTrayIcon. Legacy mode
+        // = no bar, no tray, just SpikePopupWindow on spikes.
+        if (!UserPreferences.Current.UseNewBarOverlay) return;
 
         _persistentBar = new PersistentBarWindow();
         _persistentBar.Closed += (_, _) =>
@@ -278,6 +287,7 @@ public partial class MainWindow : Window
             var newBand = TierColorPalette.BandForTier(st.VimsTier);
             if (_lastBand == TierColorPalette.TierBand.Grey
                 && newBand != TierColorPalette.TierBand.Grey
+                && UserPreferences.Current.UseNewBarOverlay
                 && UserPreferences.Current.AutoExpandNotifications)
             {
                 ShowNotificationCardForCurrentTier(userInitiated: false);

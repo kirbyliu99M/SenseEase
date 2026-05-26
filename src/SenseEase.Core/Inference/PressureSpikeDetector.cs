@@ -21,7 +21,7 @@ public sealed class PressureSpikeDetector
 
     public PressureSpikeDetector(
         double windowSeconds = 3.0,
-        double relativeThreshold = 0.30,
+        double relativeThreshold = 0.50,
         double cooldownSeconds = 30.0,
         double minBaseline = 5.0)
     {
