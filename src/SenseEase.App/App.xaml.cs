@@ -23,6 +23,21 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // overlay-bar-redesign diag-3: earliest-possible log line. Runs
+        // BEFORE base.OnStartup(e), BEFORE any MainWindow construction.
+        // If a user-pasted wgc_diag.txt does NOT contain [App.OnStartup]
+        // for a given app run, the user is running a stale binary that
+        // pre-dates this commit — not a behavioural bug. The assembly
+        // Location string surfaces WHICH binary is loaded so build path
+        // mismatches (publish/debug confusion) are visible.
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                $"[{DateTime.UtcNow:O}] [App.OnStartup] entry, build={typeof(App).Assembly.Location}\n");
+        }
+        catch { /* fire-and-forget */ }
+
         base.OnStartup(e);
         DispatcherUnhandledException += (_, args) =>
         {
