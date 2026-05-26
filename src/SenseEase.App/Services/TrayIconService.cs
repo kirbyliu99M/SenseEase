@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using H.NotifyIcon;
+using SenseEase.App.Configuration;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
 using SenseEase.Core.Models;
@@ -122,7 +123,10 @@ public sealed class TrayIconService : IDisposable
 
     private void ApplyState(SenseState state)
     {
-        _tray.IconSource = TierColorPalette.IconForTier(state.VimsTier);
+        // Toggle B (user pref): when colour-on is OFF, force the grey band
+        // regardless of tier (per spec §1 — bar/tray "永遠維持灰色透明").
+        int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? state.VimsTier : 1;
+        _tray.IconSource = TierColorPalette.IconForTier(effectiveTier);
         RefreshLabels(state);
     }
 
@@ -153,6 +157,15 @@ public sealed class TrayIconService : IDisposable
     private void RefreshToggleBarLabel()
     {
         _toggleBarItem.Header = _isBarVisible() ? "隱藏 bar" : "顯示 bar";
+    }
+
+    /// <summary>Task 5: re-applies icon + labels for the given state.
+    /// Called by the host after a Toggle B flip so the tray icon repaints
+    /// immediately instead of waiting for the next StateChanged tick.</summary>
+    public void RefreshAppearance(SenseState state)
+    {
+        if (_tray.Dispatcher.CheckAccess()) ApplyState(state);
+        else _tray.Dispatcher.BeginInvoke(new Action(() => ApplyState(state)));
     }
 
     public void Dispose()

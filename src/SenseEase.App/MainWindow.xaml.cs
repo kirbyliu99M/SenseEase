@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Interop;
+using SenseEase.App.Configuration;
 using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
@@ -29,6 +30,10 @@ public partial class MainWindow : Window
     // controller is in-memory mute state (persistence lands in Task 5).
     private NotificationCardWindow? _cardWindow;
     private readonly NotificationCardController _cardController = new();
+    // Tracks the previous tier band so tier-up auto-expand only fires on
+    // the band-crossing edge, not on every state push within the same band.
+    // Initialised to Grey (the default startup state).
+    private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.Grey;
 
     public MainWindow()
     {
@@ -82,6 +87,18 @@ public partial class MainWindow : Window
                     popup.Closed += (_, _) => { if (ReferenceEquals(_spikePopup, popup)) _spikePopup = null; };
                     _spikePopup = popup;
                     popup.Show();
+
+                    // Pop-up sprint Task 5: spike auto-expand for the new
+                    // notification card. Gated on Toggle A (default OFF) and
+                    // 6-hour mute. When Toggle A is OFF the user only sees
+                    // the bar/tray colour change for spikes (passive signal).
+                    // When ON, the card auto-expands ALONGSIDE the legacy
+                    // SpikePopupWindow above — Task 6 will gate the legacy
+                    // path behind use_new_bar_overlay so only one path fires.
+                    if (UserPreferences.Current.AutoExpandNotifications)
+                    {
+                        ShowNotificationCardForCurrentTier(userInitiated: false);
+                    }
                 }));
             };
         }
@@ -185,16 +202,38 @@ public partial class MainWindow : Window
         // current tier (user-initiated → bypasses mute per spec).
         _trayIcon.LeftClicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
 
-        // Settings menu item — open the dashboard at the settings/chat area.
-        // Task 5's settings panel will be the proper target once it lands.
-        _trayIcon.SettingsRequested += (_, _) =>
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-        };
+        // Task 5: Settings menu opens the dedicated SettingsWindow.
+        _trayIcon.SettingsRequested += (_, _) => ShowSettingsWindow();
 
         _trayIcon.QuitRequested += (_, _) => Application.Current.Shutdown();
+    }
+
+    private SettingsWindow? _settingsWindow;
+
+    private void ShowSettingsWindow()
+    {
+        if (_settingsWindow is not null && _settingsWindow.IsLoaded)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+        _settingsWindow = new SettingsWindow(_viewModel.HasVestibularDiagnosis);
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.PreferencesChanged += (_, _) =>
+        {
+            // Toggle B may have flipped — repaint bar/tray immediately
+            // rather than wait for the next StateChanged push. Tray's
+            // ApplyState reads UserPreferences.Current on every state
+            // event, so triggering a state event is the simplest path:
+            // SetTier on the bar and call OnStateChanged-equivalent on
+            // the tray via a synthetic re-push.
+            _persistentBar?.SetTier(_viewModel.VimsTier);
+            // For the tray, we route a fake state by re-raising
+            // StateChanged from the VM — but that affects other listeners
+            // too. Cleaner: expose a Refresh method on the tray.
+            _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
+        };
+        _settingsWindow.Show();
     }
 
     private void StartPersistentBar()
@@ -227,7 +266,24 @@ public partial class MainWindow : Window
         // UpdateFromState). VimsTier is also a Set-ref bindable property; we
         // listen via StateChanged so the bar updates on every state push
         // including ones the engine raises outside the dispatcher timer.
-        _viewModel.StateChanged += (_, st) => _persistentBar?.SetTier(st.VimsTier);
+        _viewModel.StateChanged += (_, st) =>
+        {
+            _persistentBar?.SetTier(st.VimsTier);
+
+            // Task 5: tier-up auto-expand. When the band crosses
+            // grey → amber (≤5 → ≥6) we treat that as a meaningful
+            // state escalation worth the card if Toggle A is ON. Track
+            // the previous band so we only fire on the CROSSING edge,
+            // not every sample within the new band.
+            var newBand = TierColorPalette.BandForTier(st.VimsTier);
+            if (_lastBand == TierColorPalette.TierBand.Grey
+                && newBand != TierColorPalette.TierBand.Grey
+                && UserPreferences.Current.AutoExpandNotifications)
+            {
+                ShowNotificationCardForCurrentTier(userInitiated: false);
+            }
+            _lastBand = newBand;
+        };
         // Pop-up sprint Task 4: bar click opens the notification card. The
         // click event only fires when the bar is "hovered" (cursor within
         // 200 dip per spec) — click-through behaviour while far away keeps

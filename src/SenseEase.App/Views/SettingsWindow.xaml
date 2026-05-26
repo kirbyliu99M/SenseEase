@@ -1,0 +1,75 @@
+<Window x:Class="SenseEase.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SenseEase 設定"
+        Width="440" Height="320"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Background="#101418">
+    <!-- Pop-up sprint Task 5: settings panel hosting the two independent
+         toggles (Toggle A: auto-expand notifications; Toggle B: bar/tray
+         colour reflects tier). Vestibular safety warning fires from the
+         Toggle B handler when the user attempts to turn colour off AND
+         their calibration profile carries a vestibular diagnosis. -->
+    <Border Padding="24" CornerRadius="6" Margin="6" Background="#101418"
+            BorderBrush="#2A3140" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- title -->
+                <RowDefinition Height="Auto"/> <!-- toggle A row -->
+                <RowDefinition Height="Auto"/> <!-- toggle B row -->
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/> <!-- close button -->
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="通知與顯示"
+                       FontSize="16" FontWeight="Bold"
+                       Foreground="#F0F4FA"
+                       Margin="0,0,0,16"/>
+
+            <!-- Toggle A: auto-expand notifications -->
+            <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,16">
+                <CheckBox x:Name="ToggleAuto"
+                          Content="讓 SenseEase 主動展開通知卡"
+                          Foreground="#F0F4FA"
+                          FontSize="13"
+                          Checked="OnToggleAutoChanged"
+                          Unchecked="OnToggleAutoChanged"/>
+                <TextBlock Text="開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。"
+                           FontSize="11"
+                           Foreground="#9AB6E0"
+                           TextWrapping="Wrap"
+                           Margin="22,4,0,0"/>
+            </StackPanel>
+
+            <!-- Toggle B: bar/tray colour -->
+            <StackPanel Grid.Row="2" Orientation="Vertical">
+                <CheckBox x:Name="ToggleColor"
+                          Content="Bar 與 Tray 顏色隨 tier 變化"
+                          Foreground="#F0F4FA"
+                          FontSize="13"
+                          Checked="OnToggleColorChanged"
+                          Unchecked="OnToggleColorChanged"/>
+                <TextBlock Text="開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。"
+                           FontSize="11"
+                           Foreground="#9AB6E0"
+                           TextWrapping="Wrap"
+                           Margin="22,4,0,0"/>
+            </StackPanel>
+
+            <Button Grid.Row="4"
+                    Content="關閉"
+                    HorizontalAlignment="Right"
+                    Padding="16,6"
+                    Background="#22FFFFFF"
+                    Foreground="#F0F4FA"
+                    BorderThickness="0"
+                    FontSize="12"
+                    Cursor="Hand"
+                    Click="OnCloseClicked"/>
+        </Grid>
+    </Border>
+</Window>

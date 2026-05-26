@@ -30,6 +30,12 @@
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />
   </ItemGroup>
 
+  <!-- Pop-up sprint Task 5: expose `internal` test hooks (currently
+       UserPreferences.ResetCacheForTesting) to the test project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SenseEase.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Resources\AppIcon.ico" />
   </ItemGroup>

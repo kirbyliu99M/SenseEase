@@ -38,6 +38,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// monitor-coords rectangle into the OFI pipeline. Null = no mask (default).</summary>
     public void SetWgcMonitorExcludeRect(int? left, int? top, int? width, int? height)
         => _wgcSensing.SetMonitorExcludeRect(left, top, width, height);
+
+    /// <summary>Pop-up sprint Task 5: true iff the user's most recent
+    /// calibration recorded a vestibular diagnosis (Q5 risk factor).
+    /// Drives the SettingsWindow safety warning when the user tries to
+    /// silence the bar/tray colour signal. Reads from the persisted
+    /// habituation profile snapshot — null-safe across all the "no
+    /// calibration has run" cases.</summary>
+    public bool HasVestibularDiagnosis()
+    {
+        var snap = _habituationProfileStore.Load();
+        if (snap?.CalibrationResponses?.Q5RiskFactors is null) return false;
+        foreach (var rf in snap.CalibrationResponses.Q5RiskFactors)
+        {
+            if (rf == SenseEase.Core.Inference.RiskFactor.VestibularDiagnosed) return true;
+        }
+        return false;
+    }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
     // Stage 7b: pass HabituationStatePath as the wipe-probe artifact so the

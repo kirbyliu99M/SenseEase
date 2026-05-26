@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using SenseEase.App.Configuration;
 
 namespace SenseEase.App.Views;
 
@@ -98,8 +99,14 @@ public partial class PersistentBarWindow : Window
     }
 
     /// <summary>Sets the bar's fill brush for the given VIMS tier. Idempotent —
-    /// same tier → same frozen brush assignment.</summary>
-    public void SetTier(int tier) => BarFill.Background = BrushForTier(tier);
+    /// same tier → same frozen brush assignment.
+    /// <para>Task 5: Toggle B = OFF forces the grey band regardless of tier
+    /// (per spec §1 "Bar 顏色變化" toggle off → "永遠維持灰色透明").</para></summary>
+    public void SetTier(int tier)
+    {
+        int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? tier : 1;
+        BarFill.Background = BrushForTier(effectiveTier);
+    }
 
     /// <summary>Monitor-coords physical-pixel rect for the WGC exclude mask.
     /// DPI-aware via VisualTreeHelper.GetDpi. Returns the CURRENT footprint
