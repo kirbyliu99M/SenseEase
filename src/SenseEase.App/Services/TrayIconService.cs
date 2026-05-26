@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using H.NotifyIcon;
 using SenseEase.App.Configuration;
 using SenseEase.App.ViewModels;
@@ -44,6 +45,10 @@ public sealed class TrayIconService : IDisposable
     private readonly MenuItem _statusItem;
     private readonly MenuItem _toggleBarItem;
     private bool _disposed;
+    // overlay-bar-redesign diag-4: visibility watchdog. Logs Visibility +
+    // IconHandle every 5s so a post-ctor flip to Hidden or a handle change
+    // is captured in wgc_diag.txt without needing to re-instrument.
+    private DispatcherTimer? _visibilityWatchdog;
 
     /// <summary>Raised when the user single-left-clicks the tray icon.
     /// Task 3 has no card to expand, so this event has no subscribers in
@@ -141,6 +146,29 @@ public sealed class TrayIconService : IDisposable
                 $"Visible={_tray.Visibility}\n");
         }
         catch { /* diag log is fire-and-forget */ }
+
+        // overlay-bar-redesign diag-4: visibility watchdog. Diag-3 confirmed
+        // the ctor reaches its end with Visibility=Visible AND a valid
+        // Icon.Handle, yet the user reports the icon is missing from all
+        // three OS-level locations (main tray, overflow flyout, Settings →
+        // other system tray icons). This timer polls Visibility + IconHandle
+        // every 5s so a post-ctor flip — caused by a dispatcher event, a
+        // library Visibility/Shell_NotifyIcon desync, or some other race —
+        // shows up in wgc_diag.txt as a value change. The user is asked to
+        // leave the app running for ~2 minutes to capture ~24 ticks.
+        _visibilityWatchdog = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _visibilityWatchdog.Tick += (_, _) =>
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                    $"[{DateTime.UtcNow:O}] [TrayWatchdog] Visibility={_tray.Visibility}, " +
+                    $"IconHandle=0x{_tray.Icon?.Handle.ToInt64():X}\n");
+            }
+            catch { /* fire-and-forget */ }
+        };
+        _visibilityWatchdog.Start();
     }
 
     private void OnStateChanged(object? sender, SenseState state)
@@ -212,6 +240,9 @@ public sealed class TrayIconService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        // diag-4: stop the visibility watchdog so its DispatcherTimer +
+        // closure don't pin the tray service after disposal.
+        try { _visibilityWatchdog?.Stop(); } catch { }
         _vm.StateChanged -= OnStateChanged;
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
         // Fix 3: release the cached HICONs. Bitmap.GetHicon() returned them
