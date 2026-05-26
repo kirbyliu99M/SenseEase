@@ -185,6 +185,91 @@ public class TierColorPaletteTests
         Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(10));
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(6)]
+    [InlineData(9)]
+    public void IconForTier_Win_ProducesProperIcoFormat(int tier)
+    {
+        // Patch 7 regression guard #1: ICO magic-number check via Icon.Save.
+        // Verifies the icon's Win32-serialised form starts with the ICO
+        // header bytes (00 00 01 00). Catches a regression where someone
+        // reverts IconForTier_Win to Bitmap.GetHicon() (raw HICON, not
+        // ICO-formatted). The stronger byte-by-byte structure test below
+        // (RenderIconWin_HasValidIconDirectoryHeader) reads the EXACT bytes
+        // we wrote — this test reads what Win32's serialiser writes back.
+        var icon = TierColorPalette.IconForTier_Win(tier);
+        using var ms = new System.IO.MemoryStream();
+        icon.Save(ms);
+        ms.Position = 0;
+        var header = new byte[4];
+        int read = ms.Read(header, 0, 4);
+        Assert.Equal(4, read);
+        Assert.Equal(0x00, header[0]);  // Reserved low
+        Assert.Equal(0x00, header[1]);  // Reserved high
+        Assert.Equal(0x01, header[2]);  // Type = 1 (ICO)
+        Assert.Equal(0x00, header[3]);  // Type high
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(6)]
+    [InlineData(9)]
+    public void RenderIconWin_HasValidIconDirectoryHeader(int tier)
+    {
+        // Patch 7 regression guard #2: pin the FULL ICO directory layout so
+        // a future refactor can't quietly break the byte-vs-int landmines:
+        //   - Width / Height are SINGLE BYTES (not int). Writing as int
+        //     would push subsequent fields out of alignment by 6 bytes,
+        //     breaking ImageSize / ImageOffset reads.
+        //   - BitCount is 32 (RGBA) NOT 0 — safer for Win11 shell renderer.
+        //   - ImageOffset must point to byte 22 (= 6 ICONDIR + 16 ICONDIRENTRY).
+        //   - Bytes at ImageOffset must be PNG magic (89 50 4E 47), proving
+        //     we wrote the PNG-in-ICO payload (not raw BMP, not junk).
+        //
+        // Uses internal accessor GetIcoBytesForTesting so the test reads the
+        // EXACT bytes IconForTier_Win wrote — not Icon.Save() output which
+        // could be re-encoded by Win32. Strongest structural assertion we
+        // can express without a real STA shell harness.
+        byte[] icoBytes = TierColorPalette.GetIcoBytesForTesting(tier);
+
+        // ICO must be at least header (22 bytes) + a reasonable PNG payload.
+        // A 32×32 PNG with single-color content is at least ~80 bytes.
+        Assert.True(icoBytes.Length >= 22 + 80,
+            $"ICO too short: got {icoBytes.Length} bytes, expected header+payload");
+
+        // ── ICONDIR (6 bytes) ──
+        Assert.Equal(0, icoBytes[0]);   // Reserved low
+        Assert.Equal(0, icoBytes[1]);   // Reserved high
+        Assert.Equal(1, icoBytes[2]);   // Type = 1 (ICO)
+        Assert.Equal(0, icoBytes[3]);   // Type high
+        Assert.Equal(1, icoBytes[4]);   // Count = 1
+        Assert.Equal(0, icoBytes[5]);   // Count high
+
+        // ── ICONDIRENTRY (16 bytes, starting at offset 6) ──
+        Assert.Equal(32, icoBytes[6]);  // Width  (BYTE — landmine #1)
+        Assert.Equal(32, icoBytes[7]);  // Height (BYTE — landmine #1)
+        Assert.Equal(0,  icoBytes[8]);  // ColorCount = 0 (PNG / ≥256 colors)
+        Assert.Equal(0,  icoBytes[9]);  // Reserved
+        Assert.Equal(1,  icoBytes[10]); // Planes low
+        Assert.Equal(0,  icoBytes[11]); // Planes high
+        Assert.Equal(32, icoBytes[12]); // BitCount low (32 — landmine #2: NOT 0)
+        Assert.Equal(0,  icoBytes[13]); // BitCount high
+
+        // ImageOffset (bytes 18-21) must point to 22 (= 6 + 16).
+        int imageOffset = System.BitConverter.ToInt32(icoBytes, 18);
+        Assert.Equal(22, imageOffset);
+
+        // Bytes at ImageOffset must be PNG magic (89 50 4E 47 = "\x89PNG").
+        // Proves the ICO wraps a PNG payload — not raw HICON bytes, not
+        // garbage. If someone reverts to Bitmap.GetHicon() the bytes at
+        // offset 22 would NOT match PNG magic and this test fires.
+        Assert.Equal(0x89, icoBytes[22]);
+        Assert.Equal(0x50, icoBytes[23]);  // 'P'
+        Assert.Equal(0x4E, icoBytes[24]);  // 'N'
+        Assert.Equal(0x47, icoBytes[25]);  // 'G'
+    }
+
     [Fact(Skip = "Manual STA smoke — instantiates real Hardcodet TaskbarIcon " +
                   "and exercises IconForTier_Win across all 3 bands + Dispose. " +
                   "Runs on net8.0-windows but xUnit's default scheduler isn't STA. " +
