@@ -8,6 +8,15 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>SenseEase.App</RootNamespace>
     <AssemblyName>SenseEase.App</AssemblyName>
+    <!-- Patch 8 (sub-bug #2): explicit assembly metadata. Windows shell uses
+         AssemblyTitle / Product as a secondary fallback for tray icon
+         display name when AUMID resolution is ambiguous. Without these,
+         the Settings → Other system tray icons list was showing "testhost"
+         (the dev-launcher process name) even after AUMID was set, because
+         the assembly itself had no display name set. Paired with the
+         SetCurrentProcessExplicitAppUserModelID call in App.OnStartup. -->
+    <AssemblyTitle>SenseEase</AssemblyTitle>
+    <Product>SenseEase</Product>
     <!-- ApplicationIcon embeds the icon into the EXE itself, so Windows
          Explorer / taskbar / Alt-Tab pick it up even before any window
          opens. The Resource entry below makes the same file available as
