@@ -178,21 +178,14 @@ public partial class MainWindow : Window
 
     private void StartTrayIcon()
     {
-        // Validation harness suppresses production UI to avoid colliding with
-        // the BarStub on screen position / mask rect. The tray is technically
-        // independent of bar position, but keeping the mutex rule uniform
-        // ("validation env vars suppress ALL production UI") avoids surprises.
-        if (string.Equals(Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
-                          "1", StringComparison.Ordinal))
+        // Validation harness mutex + emergency-rollback flag, centralised in
+        // PopupSurfaceGate. See its docstring for the full truth table.
+        string? envVar = Environment.GetEnvironmentVariable(PopupSurfaceGate.ValidationEnvVar);
+        if (!PopupSurfaceGate.ShouldSpawnProductionBarAndTray(
+                envVar, UserPreferences.Current.UseNewBarOverlay))
         {
             return;
         }
-        // Task 6: emergency-rollback feature flag. When the user has set
-        // use_new_bar_overlay=false in the prefs file, the legacy
-        // SpikePopupWindow path is the only notification surface and we
-        // skip the tray entirely (parity with the bar). Same skip pattern
-        // in StartPersistentBar.
-        if (!UserPreferences.Current.UseNewBarOverlay) return;
 
         _trayIcon = new TrayIconService(
             _viewModel,
@@ -244,15 +237,14 @@ public partial class MainWindow : Window
 
     private void StartPersistentBar()
     {
-        // Skip if validation harness is active — they'd collide on top-centre.
-        if (string.Equals(Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
-                          "1", StringComparison.Ordinal))
+        // Same gate as StartTrayIcon (centralised in PopupSurfaceGate).
+        // Bar + tray spawn together or not at all.
+        string? envVar = Environment.GetEnvironmentVariable(PopupSurfaceGate.ValidationEnvVar);
+        if (!PopupSurfaceGate.ShouldSpawnProductionBarAndTray(
+                envVar, UserPreferences.Current.UseNewBarOverlay))
         {
             return;
         }
-        // Task 6: same emergency-rollback gate as StartTrayIcon. Legacy mode
-        // = no bar, no tray, just SpikePopupWindow on spikes.
-        if (!UserPreferences.Current.UseNewBarOverlay) return;
 
         _persistentBar = new PersistentBarWindow();
         _persistentBar.Closed += (_, _) =>
@@ -357,10 +349,8 @@ public partial class MainWindow : Window
 
     private void MaybeStartWgcValidation()
     {
-        bool validation = string.Equals(
-            Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
-            "1", StringComparison.Ordinal);
-        if (!validation) return;
+        string? envVar = Environment.GetEnvironmentVariable(PopupSurfaceGate.ValidationEnvVar);
+        if (!PopupSurfaceGate.ShouldSpawnValidationStub(envVar)) return;
 
         bool maskEnabled = string.Equals(
             Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_MASK"),
