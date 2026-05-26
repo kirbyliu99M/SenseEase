@@ -20,14 +20,26 @@
     <ProjectReference Include="..\SenseEase.Infrastructure\SenseEase.Infrastructure.csproj" />
   </ItemGroup>
 
-  <!-- Pop-up sprint Task 3: H.NotifyIcon.Wpf provides the WPF-native tray icon
-       primitive (TaskbarIcon). Picked over Hardcodet.NotifyIcon.Wpf because
-       H is an active fork with .NET 8 targets out of the box, MVVM-friendly
-       Icon/ContextMenu bindings, and a smaller transitive surface. WinForms
-       NotifyIcon was rejected to avoid dragging the WinForms runtime into a
-       pure-WPF app (~2 MB overhead + style friction on context menus). -->
+  <!-- Pop-up sprint tray library (current, Patch 5 2026-05-26):
+       Hardcodet.NotifyIcon.Wpf 2.0.1. The de facto standard for WPF tray
+       icons (used by Microsoft tooling, Files, parts of PowerToys, etc.),
+       widely validated for Win11 shell integration.
+
+       Previously H.NotifyIcon.Wpf 2.3.0 was used (originally picked for
+       its active-fork status and .NET 8 targets) — swapped after diag-4
+       caught a silent Shell_NotifyIcon registration failure: library
+       reported success internally (Visibility=Visible + valid HICON for
+       100+ seconds) but the OS shell never received registration. The
+       failure reproduced under both `dotnet run` and direct .exe
+       execution (Amendment 3 verification), eliminating dev-build /
+       manifest hypotheses. See docs/POPUP-OVERLAY.md §11 + the
+       overlay-bar-redesign branch's Patch 5 commit for the full
+       diagnostic trail.
+
+       WinForms NotifyIcon was rejected (still) to avoid dragging the
+       WinForms runtime into a pure-WPF app. -->
   <ItemGroup>
-    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
   </ItemGroup>
 
   <!-- Pop-up sprint Task 5: expose `internal` test hooks (currently

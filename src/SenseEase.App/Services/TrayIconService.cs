@@ -3,7 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using H.NotifyIcon;
+using Hardcodet.Wpf.TaskbarNotification;
 using SenseEase.App.Configuration;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
@@ -20,10 +20,23 @@ namespace SenseEase.App.Services;
 /// "fully silent UI" mode that still leaves the engine running.
 ///
 /// <para>Per spec §1, the tray icon is always present, always tier-coloured,
-/// and never animates. Left-click opens the notification card (wired in
-/// Task 4 — Task 3 fires the <see cref="LeftClicked"/> event but the host
-/// has no card to expand yet). Right-click shows a 4-item context menu:
-/// current status / toggle bar visibility / settings / quit.</para>
+/// and never animates. Left-click opens the notification card. Right-click
+/// shows a 4-item context menu: current status / toggle bar visibility /
+/// settings / quit.</para>
+///
+/// <para>Library: <c>Hardcodet.Wpf.TaskbarNotification.TaskbarIcon</c> (Patch 5
+/// 2026-05-26). The original H.NotifyIcon.Wpf 2.3.0 exhibited a silent
+/// Shell_NotifyIcon registration failure — library internal state reported
+/// success (Visibility=Visible + valid HICON for 100+ seconds) but the
+/// Win32 shell never received registration (confirmed absent from
+/// Settings → Other system tray icons). Both <c>dotnet run</c> and direct
+/// <c>.exe</c> execution showed the same failure (Amendment 3 result),
+/// eliminating dev-build/manifest hypotheses. Hardcodet.NotifyIcon.Wpf is
+/// the de facto WPF tray library used by Microsoft tooling and major OSS
+/// projects (Files, parts of PowerToys). API surface used here (Icon,
+/// ContextMenu, ToolTipText, Visibility, TrayLeftMouseUp event) is the
+/// same shape both libraries expose; the swap is a mechanical
+/// namespace-qualifier change.</para>
 ///
 /// <para>Localization: the tray menu is currently zh-only. The app has no
 /// localization service; spinning one up just for the tray is scope creep

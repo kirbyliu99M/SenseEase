@@ -76,20 +76,26 @@ public class TierColorPaletteTests
     [InlineData(7)]
     [InlineData(8)]
     [InlineData(10)]
-    public void IconForTier_ReturnsTypeAcceptableToHNotifyIcon(int tier)
+    public void IconForTier_ReturnsTypeAcceptableToTrayLibrary(int tier)
     {
         // Bugfix on Task 3 (overlay-bar-redesign): the original assertion was
         // IsType<RenderTargetBitmap>, which pinned the IMPLEMENTATION
-        // (concrete return type) instead of the CONTRACT (the consumer must
-        // be able to render it). H.NotifyIcon.Wpf 2.3.0's IconSource
-        // converter explicitly throws on RenderTargetBitmap — so the original
+        // (concrete return type) instead of the CONTRACT (consumer must be
+        // able to render it). H.NotifyIcon.Wpf 2.3.0 (which preceded the
+        // Patch-5 swap to Hardcodet.NotifyIcon.Wpf) explicitly threw on
+        // RenderTargetBitmap from its IconSource converter — so the original
         // test "passed" by asserting exactly the type that crashed in prod.
         //
-        // New assertions: must be a BitmapSource subclass (the widest type
-        // H.NotifyIcon's converter handles) AND must NOT be a RenderTargetBitmap
-        // (the one BitmapSource subclass that crashes). For the canonical
-        // contract verification — "can H.NotifyIcon actually consume this?" —
-        // see IconForTier_CanBeConvertedByHNotifyIcon below.
+        // Method renamed (Patch 5): the original name pinned a specific
+        // library. The contract being asserted is library-agnostic: any
+        // BitmapSource consumer that can't handle RenderTargetBitmap (we
+        // know at least one such case) would have rejected the value, so
+        // the test still catches the same regression regardless of which
+        // tray library production currently uses.
+        //
+        // New assertions: must be a BitmapSource subclass (widest type any
+        // ImageSource consumer typically handles) AND must NOT be a
+        // RenderTargetBitmap (the one known-bad subclass).
         var icon = TierColorPalette.IconForTier(tier);
         var bmp = Assert.IsAssignableFrom<BitmapSource>(icon);
         Assert.IsNotType<RenderTargetBitmap>(icon);
@@ -100,39 +106,43 @@ public class TierColorPaletteTests
 
     // ── Contract test attempted, parked ──────────────────────────────────────
     //
-    // The "strongest test" per sprint guidance would directly invoke
-    // H.NotifyIcon's ToStreamAsync converter — proving "the production library
-    // ACTUALLY accepts this icon". I attempted this via two paths and both
-    // hit barriers:
+    // The "strongest test" per sprint guidance would directly invoke the
+    // tray library's icon-converter — proving "the production library
+    // ACTUALLY accepts this icon". I attempted this via two paths during
+    // H.NotifyIcon era (pre Patch-5 library swap) and both hit barriers:
     //
     //   1. Reflection into H.NotifyIcon.ImageExtensions: the static method
-    //      lookup returned non-null (Assert.NotNull passed) but Invoke produced
-    //      a null Task. The library's partial-class layout
-    //      (ImageExtensions.Wpf.cs + ImageExtensions.cs) and likely InternalsVisibleTo
-    //      pattern make the call site fragile. A working invocation would
-    //      require matching the partial-class method dispatch exactly.
+    //      lookup returned non-null but Invoke produced a null Task.
+    //      Library's partial-class layout + InternalsVisibleTo pattern
+    //      made dispatch fragile.
     //
-    //   2. Instantiating TaskbarIcon directly and assigning IconSource: this
+    //   2. Instantiating TaskbarIcon directly and assigning IconSource:
     //      WORKS as a regression guard but requires an STA thread + WPF
     //      dispatcher, which xUnit doesn't provide by default.
     //
-    // The honest fallback is the two assertions in
-    // `IconForTier_ReturnsTypeAcceptableToHNotifyIcon` above:
-    //   • IsAssignableFrom<BitmapSource> — establishes the contract floor
-    //   • IsNotType<RenderTargetBitmap>  — pins the specific known-bad type
+    // Patch 5 swapped to Hardcodet.NotifyIcon.Wpf. The same two barriers
+    // apply to Hardcodet's converter (internal types, STA requirement).
+    // A throwaway STA probe at the time of the swap (see Path B docs)
+    // validated Hardcodet accepts System.Drawing.Icon without throwing,
+    // but that probe is gone — not a permanent test.
     //
-    // Together they catch the exact regression that crashed Task 3 ship. A
-    // proper contract test (real TaskbarIcon on a real STA dispatcher, or
-    // a reflection harness that works) is one of the deliverables of the
-    // E2E WPF test infrastructure scoped before Habituation Phase 6/7/8.
-    // See PR description "Lessons Learned" section.
+    // Permanent contract test remains a queued deliverable of the E2E
+    // WPF test infrastructure (FlaUI / WpfApplicationFactory / screenshot
+    // diffing) scoped before Habituation Phase 6/7/8. See PR description
+    // "Lessons Learned".
+    //
+    // Until E2E lands, the load-bearing safety floor is the two
+    // assertions in `IconForTier_ReturnsTypeAcceptableToTrayLibrary` above:
+    //   • IsAssignableFrom<BitmapSource> — contract floor
+    //   • IsNotType<RenderTargetBitmap>  — pins known-bad type
 
     // ── Fix 3 contract tests (System.Drawing.Icon path) ─────────────────────
     //
-    // These cover the path the tray ACTUALLY uses in production. The
-    // ImageSource path (IconForTier above) is back-compat only — the tray
-    // doesn't set IconSource anymore. If a future sprint deletes the
-    // ImageSource path entirely, delete IconForTier_ReturnsTypeAcceptableToHNotifyIcon
+    // These cover the path the tray ACTUALLY uses in production
+    // (Hardcodet.Wpf.TaskbarNotification.TaskbarIcon.Icon after Patch 5).
+    // The ImageSource path (IconForTier above) is back-compat only — the
+    // tray doesn't set IconSource anymore. If a future sprint deletes the
+    // ImageSource path entirely, delete IconForTier_ReturnsTypeAcceptableToTrayLibrary
     // with it; the assertions below are the load-bearing ones.
 
     [Theory]
@@ -175,7 +185,7 @@ public class TierColorPaletteTests
         Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(10));
     }
 
-    [Fact(Skip = "Manual STA smoke — instantiates real H.NotifyIcon.TaskbarIcon " +
+    [Fact(Skip = "Manual STA smoke — instantiates real Hardcodet TaskbarIcon " +
                   "and exercises IconForTier_Win across all 3 bands + Dispose. " +
                   "Runs on net8.0-windows but xUnit's default scheduler isn't STA. " +
                   "Will be promoted to [Fact] once the E2E WPF test infrastructure " +
@@ -183,23 +193,31 @@ public class TierColorPaletteTests
                   "before Habituation Phase 6/7/8 sprint opens. Until then, the " +
                   "IconForTier_Win_ReturnsIconWithValidHandle theory above covers " +
                   "the Win32 HICON contract; the unit-test gap is in the " +
-                  "H.NotifyIcon→shell handshake which only fires at app launch.")]
+                  "library→Shell_NotifyIcon registration handshake which only " +
+                  "fires at app launch (the gap that hid Patch 5's silent reg failure).")]
     public void TrayIconService_FullLifecycle_NoCrash_E2EPlaceholder()
     {
         // Future test outline (when STA-capable infra lands):
-        //   1. Construct H.NotifyIcon.TaskbarIcon on an STA thread
+        //   1. Construct Hardcodet.Wpf.TaskbarNotification.TaskbarIcon on
+        //      an STA thread
         //   2. Assign Icon = TierColorPalette.IconForTier_Win(1) — must not throw
         //   3. Assign Icon = TierColorPalette.IconForTier_Win(6) — must not throw
         //   4. Assign Icon = TierColorPalette.IconForTier_Win(9) — must not throw
         //   5. Dispose TaskbarIcon — must not throw
         //   6. Call TierColorPalette.DisposeWinIconCache() — must not throw
         //   7. Assert no DispatcherUnhandledException fired in any step
+        //   8. Verify the icon was actually registered with the OS shell —
+        //      this is the step that would have caught Patch 5's
+        //      H.NotifyIcon silent registration failure (library reported
+        //      success but Shell_NotifyIcon never received the call).
+        //      Mechanism TBD by E2E infra (FlaUI can query shell state;
+        //      reflection approach hit dead ends; Win32 P/Invoke into the
+        //      shell tray rect lookup is the heaviest option).
         //
         // This is the test that would have caught the original two crashes
         // (RenderTargetBitmap NotImplementedException, BitmapImage URL NRE)
-        // before they reached production. It cannot run today because xUnit
-        // doesn't default to STA and H.NotifyIcon.TaskbarIcon requires WPF
-        // dispatcher initialisation. The PR description carries the
+        // AND the silent registration failure that motivated Patch 5,
+        // before they reached production. The PR description carries the
         // commitment to fix this infrastructure gap before next sprint.
     }
 

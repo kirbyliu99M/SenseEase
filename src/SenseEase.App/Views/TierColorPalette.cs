@@ -55,12 +55,20 @@ public static class TierColorPalette
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
 
     // Fix 3 (Pop-up sprint Task 7 patch 3): native System.Drawing.Icon cache
-    // for the tray. The original ImageSource path crashed twice (first as
-    // NotImplementedException on RenderTargetBitmap, then as
-    // NullReferenceException because BitmapImage-with-StreamSource has no
-    // UriSource for H.NotifyIcon's URI-based loader). Setting the tray's
-    // System.Drawing.Icon property bypasses the entire WPF-ImageSource
-    // converter and goes through the Win32 HICON path the shell needs anyway.
+    // for the tray. The original ImageSource path crashed twice during the
+    // H.NotifyIcon.Wpf era (first as NotImplementedException on
+    // RenderTargetBitmap, then as NullReferenceException because
+    // BitmapImage-with-StreamSource has no UriSource for the library's
+    // URI-based loader). Setting the tray's System.Drawing.Icon property
+    // bypassed the entire WPF-ImageSource converter and went through the
+    // Win32 HICON path the shell needs anyway.
+    //
+    // Note (Patch 5): H.NotifyIcon was subsequently swapped to
+    // Hardcodet.Wpf.TaskbarNotification.TaskbarIcon after diag-4 caught
+    // a silent Shell_NotifyIcon registration failure under H.NotifyIcon
+    // (library reported success but icon never reached the OS tray).
+    // Hardcodet uses the same Icon property; this cache + its API are
+    // unaffected by the library swap.
     private static readonly Dictionary<int, System.Drawing.Icon> _winIconCache = new();
     private static readonly Dictionary<int, IntPtr>             _winIconHandles = new();
 
@@ -197,20 +205,18 @@ public static class TierColorPalette
         var rtb = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
 
-        // H.NotifyIcon.Wpf 2.3.0 explicitly throws NotImplementedException when
-        // a RenderTargetBitmap is assigned to TaskbarIcon.IconSource (its
-        // ImageExtensions.ToStreamAsync only handles a fixed set of types).
-        // Round-trip through PNG so the result is a BitmapImage — the canonical
-        // type H.NotifyIcon's converter accepts. Tiny allocation cost on first
-        // call per band (~50 bytes of PNG); cached afterwards.
-        //
-        // This bug shipped through Task 3's unit tests because the test
-        // asserted IsType<RenderTargetBitmap> — pinning the implementation
-        // (return type) instead of the contract (must be convertible by the
-        // production consumer). Replacement tests in TierColorPaletteTests
-        // now assert via IsAssignableFrom<BitmapSource> + IsNotType<RTB> AND
-        // call H.NotifyIcon.ImageExtensions.ToStreamAsync directly to verify
-        // the production library can actually consume the icon.
+        // Historical context — H.NotifyIcon.Wpf 2.3.0 (the tray library used
+        // before Patch 5's swap to Hardcodet) explicitly threw
+        // NotImplementedException when a RenderTargetBitmap was assigned to
+        // TaskbarIcon.IconSource (its ImageExtensions.ToStreamAsync only
+        // handled a fixed set of types). The fix below — round-trip through
+        // PNG so the result is a BitmapImage — became unused once production
+        // switched to the System.Drawing.Icon path (IconForTier_Win above),
+        // but the method is kept as back-compat for any future caller that
+        // still wants an ImageSource. The "must be assignable to BitmapSource
+        // AND must NOT be RenderTargetBitmap" contract still holds for any
+        // ImageSource consumer; the test
+        // IconForTier_ReturnsTypeAcceptableToTrayLibrary pins it.
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(rtb));
         using var ms = new MemoryStream();

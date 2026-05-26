@@ -272,7 +272,91 @@ env-var-gated `MaybeStartWgcValidation`) is removable.
 | 4 | NotificationCard + hover + click + mute + fade | `870643c` |
 | 5 | UserPreferences + SettingsWindow + Toggle A/B + safety warning + auto-show | `3cf46e2` |
 | 6 | Sensitivity 30→50 + legacy popup feature-flag dispatcher | `4936abb` |
-| 7 | docs + PopupSurfaceGate extraction + mutex tests (this commit) | this commit |
+| 7 | docs + PopupSurfaceGate extraction + mutex tests | `3ada594` |
+| 7 patch 1 | Tray crash fix: RenderTargetBitmap → BitmapImage | `664180b` |
+| 7 patch 2 | Validation-mode banner + three-scope env detection | `b57e28a` |
+| 7 patch 3 | Tray crash fix: BitmapImage → System.Drawing.Icon (HICON) | `a47fb95` |
+| 7 patch 4 (diag) | Tray init + Loaded chain + App.OnStartup + watchdog logs | `99ec13d`, `0a8f6dc`, `7b9b657`, `32d9d5e` |
+| 7 patch 5 | Tray library swap: H.NotifyIcon.Wpf → Hardcodet.NotifyIcon.Wpf | this commit |
 
 Branch: `overlay-bar-redesign`. Sprint sealed by tag (TBD after user
 visual review).
+
+---
+
+## 11 · Tray library swap (Patch 5, 2026-05-26)
+
+The original tray library, **H.NotifyIcon.Wpf 2.3.0**, was replaced with
+**Hardcodet.NotifyIcon.Wpf 2.0.1** during the visual-review fix-forward
+loop. The history is worth reading because the swap was not a casual
+preference change — it was driven by a load-bearing failure mode that
+unit tests structurally couldn't catch.
+
+### 11.1 Symptom
+
+After Patch 3 (System.Drawing.Icon path), the app no longer crashed at
+startup. But the user reported the tray icon was "completely absent"
+from:
+- The visible tray area (right of clock)
+- The Win11 overflow flyout (`^` chevron)
+- Settings → Personalisation → Taskbar → Other system tray icons (the
+  master list of every app that has *ever* registered a tray icon)
+
+### 11.2 Diagnostic (the four log layers added between Patch 3 and 5)
+
+| Layer | Commit | What it logged | What we learned |
+|---|---|---|---|
+| diag-1 | `99ec13d` | One line at end of TrayIconService ctor: `[Tray] TaskbarIcon initialized, Icon.Handle=…, Visible=…` | User pasted output showing the line was NEVER written, suggesting ctor never reached the end |
+| diag-2 | `0a8f6dc` | Entry/exit/exception around every Loaded handler + every branch of StartTrayIcon | If diag-1 didn't fire, narrow which Loaded handler / branch failed |
+| diag-3 | `7b9b657` | Earliest-possible log in `App.OnStartup`, including `typeof(App).Assembly.Location` | Eliminates "user is running stale binary" hypothesis |
+| diag-4 | `32d9d5e` | DispatcherTimer in TrayIconService writing `Visibility + Icon.Handle` every 5 s for the app's lifetime | If ctor succeeds but icon vanishes later, this catches the moment |
+
+### 11.3 Verdict (after diag-4 + Amendment 3)
+
+The user's diag-4 paste showed `Visibility=Visible` + valid `Icon.Handle`
+for 100+ consecutive seconds (~21 ticks). The library's internal state
+reported success. But the OS shell had no record of registration.
+
+**Amendment 3** (user runs `bin\Debug\…\SenseEase.App.exe` directly,
+bypassing `dotnet run`) returned the same negative result — no icon at
+any of the 3 OS locations. This eliminated the alternative hypothesis
+that `dotnet run`'s SDK launcher was responsible for the registration
+failure (manifest / AUMID / app-identity issues).
+
+**Conclusion**: H.NotifyIcon.Wpf 2.3.0 had a silent
+`Shell_NotifyIcon` registration failure under our usage pattern
+(System.Drawing.Icon assigned via the `Icon` property in a `dotnet`-
+built net8.0-windows10.0.19041.0 app). The library reported success and
+internal state was consistent, but the actual Win32 API call to the
+shell either never happened or returned failure that the library
+swallowed without surfacing.
+
+### 11.4 Resolution
+
+**Hardcodet.NotifyIcon.Wpf 2.0.1** was chosen because:
+- De facto WPF tray library (used by Microsoft tooling, Files, parts of
+  PowerToys, many other major OSS WPF projects)
+- 12+ years of Win11 shell compatibility validation across versions
+- API surface for our use case (Icon property, ContextMenu, ToolTipText,
+  TrayLeftMouseUp event, Visibility, Dispose) is identically-named to
+  H.NotifyIcon's — the swap was a mechanical `using` change in
+  TrayIconService.cs plus comment updates
+
+A throwaway STA-thread probe (deleted before commit) verified Hardcodet
+accepts `System.Drawing.Icon` without throwing. The actual shell-
+registration success can only be confirmed by user visual verification —
+that gate is the load-bearing test for this patch.
+
+### 11.5 Lessons (for the PR description Lessons Learned section)
+
+- A library's *internal* "Visibility=Visible" is not evidence of OS
+  shell registration. They are two state machines that should agree but
+  don't necessarily.
+- Watchdog timers logging library state at intervals were the only way
+  to catch this — unit tests can't observe OS shell state.
+- When choosing a tray library, "active fork with modern targets" is a
+  weaker signal than "decade of broad production deployment."
+- The `dotnet run` vs published `.exe` parity check (Amendment 3) is a
+  bigger-than-it-looks 3-minute test that ruled out an entire class of
+  alternative root cause and prevented a potential 45-min wasted
+  library swap.
