@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -106,8 +107,34 @@ public static class TierColorPalette
             fill.Freeze();
             ctx.DrawRoundedRectangle(fill, null, new Rect(2, 2, 28, 28), 6, 6);
         }
-        var bmp = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
-        bmp.Render(visual);
+        var rtb = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+
+        // H.NotifyIcon.Wpf 2.3.0 explicitly throws NotImplementedException when
+        // a RenderTargetBitmap is assigned to TaskbarIcon.IconSource (its
+        // ImageExtensions.ToStreamAsync only handles a fixed set of types).
+        // Round-trip through PNG so the result is a BitmapImage — the canonical
+        // type H.NotifyIcon's converter accepts. Tiny allocation cost on first
+        // call per band (~50 bytes of PNG); cached afterwards.
+        //
+        // This bug shipped through Task 3's unit tests because the test
+        // asserted IsType<RenderTargetBitmap> — pinning the implementation
+        // (return type) instead of the contract (must be convertible by the
+        // production consumer). Replacement tests in TierColorPaletteTests
+        // now assert via IsAssignableFrom<BitmapSource> + IsNotType<RTB> AND
+        // call H.NotifyIcon.ImageExtensions.ToStreamAsync directly to verify
+        // the production library can actually consume the icon.
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(rtb));
+        using var ms = new MemoryStream();
+        encoder.Save(ms);
+        ms.Position = 0;
+
+        var bmp = new BitmapImage();
+        bmp.BeginInit();
+        bmp.CacheOption  = BitmapCacheOption.OnLoad; // detach from stream so we can dispose ms
+        bmp.StreamSource = ms;
+        bmp.EndInit();
         bmp.Freeze();
         return bmp;
     }
