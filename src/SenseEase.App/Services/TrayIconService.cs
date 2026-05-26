@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using H.NotifyIcon;
@@ -111,6 +112,23 @@ public sealed class TrayIconService : IDisposable
         // Subscribe AFTER the tray is fully constructed so an early-tick
         // StateChanged doesn't try to touch _statusItem before it's wired.
         _vm.StateChanged += OnStateChanged;
+
+        // overlay-bar-redesign diag: single-line marker confirming TaskbarIcon
+        // construction reached completion AND surfacing key state (Icon.Handle,
+        // Visibility) so a user-reported "tray completely missing" can be
+        // distinguished between (a) Win11 overflow hiding the icon,
+        // (b) H.NotifyIcon silent registration failure, (c) TrayIconService
+        // never constructed at all — without re-running the app. Best-effort
+        // IO; a write failure here must NOT break tray init.
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                $"[{DateTime.UtcNow:O}] [Tray] TaskbarIcon initialized, " +
+                $"Icon.Handle=0x{_tray.Icon?.Handle:X}, " +
+                $"Visible={_tray.Visibility}\n");
+        }
+        catch { /* diag log is fire-and-forget */ }
     }
 
     private void OnStateChanged(object? sender, SenseState state)
