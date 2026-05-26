@@ -1,66 +1,111 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 
 namespace SenseEase.App.Views;
 
 /// <summary>
-/// Pop-up sprint Task 2: the persistent ambient bar. 4 dip × 80 dip, top-centre
-/// of the primary monitor's work area, always Topmost + AllowsTransparency, never
-/// shown in taskbar. NO flashing/pulsing/animation per spec §1 — visual motion
-/// would violate the "do not disturb" principle.
-/// <para>Three-tier colour mapping (per user decision recorded 2026-05-26):</para>
+/// Pop-up sprint Task 2 (render) + Task 4 (hover + click). 4 dip × 80 dip
+/// top-centre Window, Topmost + AllowsTransparency + ShowInTaskbar=false.
+/// NO flashing/pulsing/animation per spec §1.
+/// <para>Three-tier colour mapping lives in <see cref="TierColorPalette"/>;
+/// <see cref="BrushForTier"/> here forwards for back-compat.</para>
+///
+/// <para>Task 4 additions:</para>
 /// <list type="bullet">
-///   <item>Tier 1–5 → grey rgba(102,102,102,0.15)</item>
-///   <item>Tier 6–7 → amber rgba(230,140,40,0.30)</item>
-///   <item>Tier 8–10 → red   rgba(220, 50,40,0.45)</item>
+///   <item><b>Hover proximity:</b> A 30 Hz cursor poller (Win32
+///         <c>GetCursorPos</c>) checks rect-distance from the cursor to the
+///         bar. Within 200 dip → bar grows to 6 dip tall + +0.15 opacity
+///         (smoothly animated). Polling not WPF MouseMove because the bar
+///         is only 4 dip tall — MouseMove wouldn't fire until cursor is
+///         on the bar itself.</item>
+///   <item><b>Click:</b> When "near" (per the proximity poller) the bar
+///         becomes hit-test-visible and a LeftMouseUp fires
+///         <see cref="Clicked"/>. When "far" it's click-through so users
+///         don't accidentally swallow clicks meant for the screen behind.</item>
 /// </list>
-/// <para>Task 2 ships render-only: hover (cursor-proximity grow), click-to-
-/// expand, and Toggle B (colour-on/off) all land in Tasks 4–5. The bar is also
-/// always click-through in Task 2 (IsHitTestVisible=False in XAML) — flipping
-/// that back to true is Task 4's job.</para>
-/// <para>Always-on mask (Option II, user decision 2026-05-26): on ContentRendered
-/// the caller is expected to read GetMonitorRectInPhysicalPixels() and engage
-/// WgcSensingProvider's exclude rect; on Closed the caller clears it. See
-/// MainWindow.MaybeStartPersistentBar for the wiring.</para>
+///
+/// <para>Always-on mask (Option II): caller engages on ContentRendered,
+/// clears on Closed. See MainWindow.StartPersistentBar.</para>
 /// </summary>
 public partial class PersistentBarWindow : Window
 {
-    /// <summary>Resolves a 1–10 tier integer to the bar's ambient-overlay brush.
-    /// Task 3 refactor: the actual mapping lives in
-    /// <see cref="TierColorPalette.BrushForTier"/>; this forwards so existing
-    /// callers (Task 2 tests, MainWindow.StartPersistentBar) don't need to
-    /// change. New surfaces should consume <see cref="TierColorPalette"/>
-    /// directly.</summary>
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
+
+    // Tunables — public so tests/future settings can override without forking.
+    /// <summary>Distance from the bar's rect (in dip) inside which the bar
+    /// is "hovered" — grown + brightened + clickable. Spec: 200 dip.</summary>
+    public double HoverProximityDip { get; set; } = 200.0;
+    /// <summary>Grown bar height when hovering. Spec: 6 dip (vs base 4 dip).</summary>
+    public double HoveredHeightDip { get; set; } = 6.0;
+    /// <summary>Base height. Spec: 4 dip.</summary>
+    public double BaseHeightDip { get; set; } = 4.0;
+    /// <summary>Hover opacity delta added to base. Spec: +0.15.</summary>
+    public double HoverOpacityBoost { get; set; } = 0.15;
+
+    private readonly DispatcherTimer _proximityTimer;
+    private bool _isHovered;
+    private double _baseOpacity = 1.0;
+
+    /// <summary>Raised on left-click while hovered. Host opens the
+    /// notification card in response. Not fired when the bar is "far" —
+    /// in that state the bar is click-through and the click reaches the
+    /// window behind it.</summary>
+    public event EventHandler? Clicked;
+
+    /// <summary>Tier → bar brush. Proxy to <see cref="TierColorPalette"/>.</summary>
     public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
 
     public PersistentBarWindow()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        Closed += (_, _) => _proximityTimer?.Stop();
+
+        // 30 Hz proximity poll. Cheap (Win32 GetCursorPos + a couple of
+        // float comparisons + an Animation.Begin only on transition); does
+        // not pin the dispatcher.
+        _proximityTimer = new DispatcherTimer(DispatcherPriority.Input)
+        {
+            Interval = TimeSpan.FromMilliseconds(33),
+        };
+        _proximityTimer.Tick += OnProximityTick;
+
+        // Hit-test starts off (click-through) per Task 2 behaviour; the
+        // proximity timer flips it true when hovered.
+        IsHitTestVisible = false;
+
+        MouseLeftButtonUp += OnLeftClick;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Top-centre on the primary monitor's work area, flush with the top edge.
         var work = SystemParameters.WorkArea;
         Left = work.Left + (work.Width - Width) / 2.0;
         Top  = work.Top;
+        Height = BaseHeightDip;
+        _proximityTimer.Start();
     }
 
-    /// <summary>Updates the bar's fill brush for the given VIMS tier. Called
-    /// from MainWindow's StateChanged subscriber. Idempotent — same tier =
-    /// no-op assignment of the same frozen brush, no extra layout work.</summary>
-    public void SetTier(int tier)
+    private void OnLeftClick(object sender, MouseButtonEventArgs e)
     {
-        BarFill.Background = BrushForTier(tier);
+        if (_isHovered) Clicked?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>Monitor-coords physical-pixel rectangle for the WGC exclude
-    /// mask. DPI-aware via VisualTreeHelper.GetDpi. Call after ContentRendered
-    /// so ActualWidth/ActualHeight are populated. Same shape as
-    /// BarStubWindow.GetMonitorRectInPhysicalPixels — symmetric API so the
-    /// MainWindow harness uses identical code for both stub and production bar.</summary>
+    /// <summary>Sets the bar's fill brush for the given VIMS tier. Idempotent —
+    /// same tier → same frozen brush assignment.</summary>
+    public void SetTier(int tier) => BarFill.Background = BrushForTier(tier);
+
+    /// <summary>Monitor-coords physical-pixel rect for the WGC exclude mask.
+    /// DPI-aware via VisualTreeHelper.GetDpi. Returns the CURRENT footprint
+    /// (so when hovered the rect reflects the grown size). The MainWindow
+    /// wiring snapshots this on ContentRendered — for hover-time mask
+    /// resizing see Task 7 polish.</summary>
     public (int Left, int Top, int Width, int Height) GetMonitorRectInPhysicalPixels()
     {
         var dpi = VisualTreeHelper.GetDpi(this);
@@ -71,5 +116,39 @@ public partial class PersistentBarWindow : Window
         int width  = (int)Math.Ceiling(ActualWidth  * sx);
         int height = (int)Math.Ceiling(ActualHeight * sy);
         return (left, top, width, height);
+    }
+
+    private void OnProximityTick(object? sender, EventArgs e)
+    {
+        if (!GetCursorPos(out POINT physical)) return;
+
+        // Translate physical cursor coords → DIP via this window's DPI.
+        // Same window assumption simplifies multi-monitor edge cases for now
+        // (bar is always on primary; cursor on a secondary won't be near).
+        var dpi = VisualTreeHelper.GetDpi(this);
+        double cx = physical.X / dpi.DpiScaleX;
+        double cy = physical.Y / dpi.DpiScaleY;
+
+        // Rectangle distance: clamp cursor to bar rect, then Euclidean to
+        // (cx, cy). 0 means cursor is inside; otherwise the minimum gap.
+        double dx = Math.Max(0, Math.Max(Left - cx, cx - (Left + ActualWidth)));
+        double dy = Math.Max(0, Math.Max(Top  - cy, cy - (Top  + ActualHeight)));
+        double dist = Math.Sqrt((dx * dx) + (dy * dy));
+
+        bool nowHovered = dist <= HoverProximityDip;
+        if (nowHovered == _isHovered) return;
+
+        _isHovered = nowHovered;
+        IsHitTestVisible = nowHovered;
+        AnimateHoverTransition(nowHovered);
+    }
+
+    private void AnimateHoverTransition(bool toHovered)
+    {
+        double targetHeight = toHovered ? HoveredHeightDip : BaseHeightDip;
+        double targetOpacity = toHovered ? Math.Min(1.0, _baseOpacity + HoverOpacityBoost) : _baseOpacity;
+        var dur = new Duration(TimeSpan.FromMilliseconds(100));
+        BeginAnimation(HeightProperty,  new DoubleAnimation(targetHeight,  dur));
+        BeginAnimation(OpacityProperty, new DoubleAnimation(targetOpacity, dur));
     }
 }

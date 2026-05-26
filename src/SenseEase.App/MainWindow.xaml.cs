@@ -24,6 +24,11 @@ public partial class MainWindow : Window
     // disposed on Closed so the shell unregisters cleanly. Lives in parallel
     // with the bar — colour-synced via the shared TierColorPalette.
     private TrayIconService? _trayIcon;
+    // Pop-up sprint Task 4: expanded notification card + mute controller.
+    // Card window is hidden by default and Show()-ed on bar/tray click. The
+    // controller is in-memory mute state (persistence lands in Task 5).
+    private NotificationCardWindow? _cardWindow;
+    private readonly NotificationCardController _cardController = new();
 
     public MainWindow()
     {
@@ -125,6 +130,7 @@ public partial class MainWindow : Window
         Closed += (_, _) => _wgcBarStub?.Close();
         Closed += (_, _) => _persistentBar?.Close();
         Closed += (_, _) => _trayIcon?.Dispose();
+        Closed += (_, _) => _cardWindow?.Close();
 
         // ── Pop-up sprint Task 1: WGC bar-validation harness ────────────────
         // When SENSEEASE_WGC_BAR_VALIDATION=1, spawn a BarStubWindow at the bar's
@@ -175,16 +181,9 @@ public partial class MainWindow : Window
                 else         _persistentBar.Hide();
             });
 
-        // Task 4 will hook LeftClicked to open the notification card. For
-        // Task 3 we fall back to surfacing the dashboard so the click does
-        // SOMETHING the user can observe — leaving it as a no-op would look
-        // like a broken feature in manual testing.
-        _trayIcon.LeftClicked += (_, _) =>
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-        };
+        // Task 4: tray left-click opens the notification card for the
+        // current tier (user-initiated → bypasses mute per spec).
+        _trayIcon.LeftClicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
 
         // Settings menu item — open the dashboard at the settings/chat area.
         // Task 5's settings panel will be the proper target once it lands.
@@ -229,7 +228,65 @@ public partial class MainWindow : Window
         // listen via StateChanged so the bar updates on every state push
         // including ones the engine raises outside the dispatcher timer.
         _viewModel.StateChanged += (_, st) => _persistentBar?.SetTier(st.VimsTier);
+        // Pop-up sprint Task 4: bar click opens the notification card. The
+        // click event only fires when the bar is "hovered" (cursor within
+        // 200 dip per spec) — click-through behaviour while far away keeps
+        // accidental swallowing minimal.
+        _persistentBar.Clicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
         _persistentBar.Show();
+    }
+
+    /// <summary>Pop-up sprint Task 4: shows the notification card for the
+    /// current tier. <paramref name="userInitiated"/> = true bypasses the
+    /// 6-hour mute (user clicks always win per spec). false honours mute and
+    /// returns silently if the band is currently muted.</summary>
+    private void ShowNotificationCardForCurrentTier(bool userInitiated)
+    {
+        var band = TierColorPalette.BandForTier(_viewModel.VimsTier);
+        if (!userInitiated && !_cardController.ShouldAutoShow(band)) return;
+
+        if (_cardWindow is null)
+        {
+            _cardWindow = new NotificationCardWindow();
+            _cardWindow.Closed += (_, _) =>
+            {
+                _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
+                _cardWindow = null;
+                // Re-engage the bar's mask since closing the card cleared it.
+                // Bar may have been hidden by user via tray menu — only
+                // re-engage if it's actually visible.
+                if (_persistentBar is { IsVisible: true })
+                {
+                    var (bl, bt, bw, bh) = _persistentBar.GetMonitorRectInPhysicalPixels();
+                    _viewModel.SetWgcMonitorExcludeRect(bl, bt, bw, bh);
+                }
+            };
+            _cardWindow.ContentRendered += (_, _) =>
+            {
+                if (_cardWindow is null) return;
+                var (l, t, w, h) = _cardWindow.GetMonitorRectInPhysicalPixels();
+                _viewModel.SetWgcMonitorExcludeRect(l, t, w, h);
+            };
+            _cardWindow.EngageClicked += (_, _) =>
+            {
+                // Task 4 has no concrete "engage" action wired — spec is
+                // ambiguous on what "啟動保護" means per tier. Future work
+                // (Task 5 toggles or a later sprint) decides this. For now
+                // the click just closes the card; user gets visual feedback
+                // that the button DID something via the immediate hide.
+                System.Diagnostics.Debug.WriteLine("[notification-card] Engage clicked (placeholder, no action wired yet).");
+            };
+            _cardWindow.MuteClicked += (_, _) =>
+            {
+                var currentBand = TierColorPalette.BandForTier(_viewModel.VimsTier);
+                _cardController.Mute(currentBand);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[notification-card] muted band={currentBand} until {_cardController.MutedUntilUtc(currentBand):o}");
+            };
+        }
+        _cardWindow.SetContent(band);
+        _cardWindow.Show();
+        _cardWindow.Activate();
     }
 
     private void MaybeStartWgcValidation()
