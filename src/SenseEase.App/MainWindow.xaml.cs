@@ -18,6 +18,10 @@ public partial class MainWindow : Window
     // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
     // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.
     private BarStubWindow? _wgcBarStub;
+    // Pop-up sprint Task 7 patch: in-app banner that surfaces validation-mode
+    // diagnostic text so a user whose env var leaked across PowerShell
+    // sessions sees the warning instead of filing a phantom bug.
+    private ValidationModeBanner? _validationBanner;
     // Pop-up sprint Task 2: the persistent ambient bar. Spawned on Loaded
     // (production path), driven by VimsTier changes via StateChanged.
     private PersistentBarWindow? _persistentBar;
@@ -145,6 +149,7 @@ public partial class MainWindow : Window
         // window after Close (kept the Tick closure alive otherwise).
         Closed += (_, _) => _chartTimer?.Stop();
         Closed += (_, _) => _wgcBarStub?.Close();
+        Closed += (_, _) => _validationBanner?.Close();
         Closed += (_, _) => _persistentBar?.Close();
         Closed += (_, _) => _trayIcon?.Dispose();
         Closed += (_, _) => _cardWindow?.Close();
@@ -376,6 +381,29 @@ public partial class MainWindow : Window
         System.Diagnostics.Debug.WriteLine(
             $"[WGC validation] BarStub shown. mask env var = {(maskEnabled ? "ON" : "OFF")}. " +
             $"Trace: %TEMP%/wgc_ofi_trace.txt");
+
+        // Pop-up sprint Task 7 patch: surface a validation-mode warning
+        // banner. Three-level env-var scope detection so the cleanup
+        // command shown matches where the var is actually set (Process /
+        // User / Machine). Banner is bottom-right, 4s hold + 600ms fade,
+        // click-through. Also writes the same diagnostic text to
+        // wgc_diag.txt and Debug.WriteLine for permanent records.
+        var snap = ValidationModeDiagnostics.ReadCurrent(PopupSurfaceGate.ValidationEnvVar);
+        string diagText = ValidationModeDiagnostics.BuildDiagnosticText(
+            PopupSurfaceGate.ValidationEnvVar, snap);
+        System.Diagnostics.Debug.WriteLine("[VALIDATION MODE]\n" + diagText);
+        try
+        {
+            string diagFile = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "wgc_diag.txt");
+            System.IO.File.AppendAllText(diagFile,
+                "\n--- VALIDATION MODE WARNING ---\n" + diagText + "---\n");
+        }
+        catch { /* best-effort */ }
+
+        _validationBanner = new ValidationModeBanner(diagText);
+        _validationBanner.Closed += (_, _) => _validationBanner = null;
+        _validationBanner.Show();
     }
 
     // B2/B4: Recreate overlay if null or already unloaded; sync OverlayVisible on external close.
