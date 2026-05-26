@@ -64,6 +64,18 @@ public sealed class TrayIconService : IDisposable
         Func<bool> isBarVisible,
         Action<bool> setBarVisible)
     {
+        // overlay-bar-redesign diag-2: first line in ctor so any exception
+        // throws BEFORE this log line means construction never reached this
+        // file. Pairs with the end-of-ctor log from 99ec13d — the gap
+        // between entry and exit logs localises where ctor breaks.
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                $"[{DateTime.UtcNow:O}] [TrayCtor] entry\n");
+        }
+        catch { /* fire-and-forget */ }
+
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _isBarVisible  = isBarVisible  ?? throw new ArgumentNullException(nameof(isBarVisible));
         _setBarVisible = setBarVisible ?? throw new ArgumentNullException(nameof(setBarVisible));

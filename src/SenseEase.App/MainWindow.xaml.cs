@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using SenseEase.App.Configuration;
@@ -167,30 +168,101 @@ public partial class MainWindow : Window
         // expected outcome: trace shows OFI flat while the bar animates.
         //
         // Both env vars unset = zero behavioural difference vs production.
-        Loaded += (_, _) => MaybeStartWgcValidation();
+        //
+        // overlay-bar-redesign diag-2: each Loaded handler wrapped in
+        // entry/exit/exception logs so a silent break in the chain is
+        // visible in wgc_diag.txt without re-instrumenting. The throw
+        // after the catch preserves the original WPF DispatcherUnhandledException
+        // semantics — production crash behaviour is unchanged.
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#1] WGC validation entry");
+            try
+            {
+                MaybeStartWgcValidation();
+                SafeLog("[Loaded#1] WGC validation exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#1] WGC validation EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                throw;
+            }
+        };
         // Pop-up sprint Task 2: spawn the persistent ambient bar AFTER the WGC
         // validation block so a validation run isn't accidentally fighting the
         // production bar over the same monitor rect. In a validation run
         // (SENSEEASE_WGC_BAR_VALIDATION=1) the BarStub owns the mask + screen
         // position; in a production run the BarStub never spawns and the
         // persistent bar owns both.
-        Loaded += (_, _) => StartPersistentBar();
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#2] StartPersistentBar entry");
+            try
+            {
+                StartPersistentBar();
+                SafeLog("[Loaded#2] StartPersistentBar exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#2] StartPersistentBar EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                throw;
+            }
+        };
         // Pop-up sprint Task 3: spawn tray icon AFTER the bar so the tray's
         // initial "toggle bar visibility" label correctly reflects the bar's
         // initial visible state. Same validation-env-var mutex as the bar.
-        Loaded += (_, _) => StartTrayIcon();
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#3] StartTrayIcon entry");
+            try
+            {
+                StartTrayIcon();
+                SafeLog("[Loaded#3] StartTrayIcon exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#3] StartTrayIcon EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                throw;
+            }
+        };
+    }
+
+    /// <summary>overlay-bar-redesign diag-2: best-effort append to
+    /// %TEMP%/wgc_diag.txt. Used to instrument the Loaded handler chain
+    /// + the tray-spawn path so a silent break is visible without
+    /// re-instrumenting. File IO is fire-and-forget; a log failure must
+    /// never break the spawn chain it's logging.</summary>
+    private static void SafeLog(string msg)
+    {
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                $"[{DateTime.UtcNow:O}] {msg}\n");
+        }
+        catch { /* fire-and-forget */ }
     }
 
     private void StartTrayIcon()
     {
+        // overlay-bar-redesign diag-2: log every branch of this method so
+        // a user-reported "tray completely missing" can be triangulated
+        // without code surgery. No production behavior change — all log
+        // writes are wrapped in SafeLog's try/catch.
+        SafeLog("[StartTrayIcon] entry");
+
         // Validation harness mutex + emergency-rollback flag, centralised in
         // PopupSurfaceGate. See its docstring for the full truth table.
         string? envVar = Environment.GetEnvironmentVariable(PopupSurfaceGate.ValidationEnvVar);
-        if (!PopupSurfaceGate.ShouldSpawnProductionBarAndTray(
-                envVar, UserPreferences.Current.UseNewBarOverlay))
+        bool useNew = UserPreferences.Current.UseNewBarOverlay;
+        SafeLog($"[StartTrayIcon] envVar='{envVar ?? "<null>"}' useNewBarOverlay={useNew}");
+
+        if (!PopupSurfaceGate.ShouldSpawnProductionBarAndTray(envVar, useNew))
         {
+            SafeLog("[StartTrayIcon] gate REJECTED, returning");
             return;
         }
+        SafeLog("[StartTrayIcon] gate passed, constructing TrayIconService");
 
         _trayIcon = new TrayIconService(
             _viewModel,
@@ -201,6 +273,7 @@ public partial class MainWindow : Window
                 if (visible) _persistentBar.Show();
                 else         _persistentBar.Hide();
             });
+        SafeLog("[StartTrayIcon] TrayIconService constructed OK");
 
         // Task 4: tray left-click opens the notification card for the
         // current tier (user-initiated → bypasses mute per spec).
@@ -210,6 +283,8 @@ public partial class MainWindow : Window
         _trayIcon.SettingsRequested += (_, _) => ShowSettingsWindow();
 
         _trayIcon.QuitRequested += (_, _) => Application.Current.Shutdown();
+
+        SafeLog("[StartTrayIcon] exit OK");
     }
 
     private SettingsWindow? _settingsWindow;
