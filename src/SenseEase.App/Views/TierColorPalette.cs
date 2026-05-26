@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -53,6 +54,19 @@ public static class TierColorPalette
     // Tray icons — full-alpha 32×32 rendered once, frozen, cached by tier band.
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
 
+    // Fix 3 (Pop-up sprint Task 7 patch 3): native System.Drawing.Icon cache
+    // for the tray. The original ImageSource path crashed twice (first as
+    // NotImplementedException on RenderTargetBitmap, then as
+    // NullReferenceException because BitmapImage-with-StreamSource has no
+    // UriSource for H.NotifyIcon's URI-based loader). Setting the tray's
+    // System.Drawing.Icon property bypasses the entire WPF-ImageSource
+    // converter and goes through the Win32 HICON path the shell needs anyway.
+    private static readonly Dictionary<int, System.Drawing.Icon> _winIconCache = new();
+    private static readonly Dictionary<int, IntPtr>             _winIconHandles = new();
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private static SolidColorBrush MakeFrozen(Color rgb, byte alpha)
     {
         var b = new SolidColorBrush(Color.FromArgb(alpha, rgb.R, rgb.G, rgb.B));
@@ -92,6 +106,79 @@ public static class TierColorPalette
         var bmp = RenderIconBitmap(hue);
         _iconCache[bandKey] = bmp;
         return bmp;
+    }
+
+    /// <summary>Fix 3: returns a <see cref="System.Drawing.Icon"/> for the tier
+    /// band. This is the path the tray ACTUALLY uses in production (via
+    /// <c>TaskbarIcon.Icon</c>, not <c>TaskbarIcon.IconSource</c>). Cached per
+    /// band; the cached Icon + its HICON handle are released by
+    /// <see cref="DisposeWinIconCache"/> at app shutdown.
+    /// <para><b>HICON lifecycle</b> (recorded here so future readers don't
+    /// reintroduce the leak): <c>System.Drawing.Bitmap.GetHicon()</c> returns
+    /// an unmanaged HICON. <c>Icon.FromHandle()</c> wraps that handle but
+    /// does NOT take ownership — <c>Icon.Dispose()</c> alone will leak the
+    /// handle. We track the HICON in <c>_winIconHandles</c> and call
+    /// <c>DestroyIcon</c> explicitly. The alternative (saving the Bitmap as
+    /// ICO to a stream + constructing the Icon from the stream — which
+    /// DOES take ownership) was rejected because GDI+'s ICO encoder has
+    /// platform-version quirks; the manual P/Invoke is more predictable.</para></summary>
+    public static System.Drawing.Icon IconForTier_Win(int tier)
+    {
+        int bandKey = (int)BandForTier(tier);
+        if (_winIconCache.TryGetValue(bandKey, out var cached)) return cached;
+
+        Color hue = BandForTier(tier) switch
+        {
+            TierBand.Grey  => GreyHue,
+            TierBand.Amber => AmberHue,
+            TierBand.Red   => RedHue,
+            _              => GreyHue,
+        };
+
+        // 32×32 GDI+ Bitmap. We do NOT round the corners — at 32 px the
+        // 2-px radius the WPF version uses is barely visible after the
+        // shell scales the icon down to 16×16, and FillRoundedRectangle
+        // isn't built into GDI+ (would require manual GraphicsPath arcs).
+        // The tier signal is the colour, not the corner radius.
+        var bmp = new System.Drawing.Bitmap(32, 32);
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(System.Drawing.Color.Transparent);
+            using var brush = new System.Drawing.SolidBrush(
+                System.Drawing.Color.FromArgb(255, hue.R, hue.G, hue.B));
+            // 2 px transparent margin so the shape doesn't touch the shell's
+            // icon bounding box edges.
+            g.FillRectangle(brush, 2, 2, 28, 28);
+        }
+
+        IntPtr hicon = bmp.GetHicon();
+        bmp.Dispose();
+        var icon = System.Drawing.Icon.FromHandle(hicon);
+        _winIconCache[bandKey]   = icon;
+        _winIconHandles[bandKey] = hicon;
+        return icon;
+    }
+
+    /// <summary>App-shutdown cleanup. Disposes every cached Icon and frees
+    /// its HICON via <c>DestroyIcon</c>. Safe to call multiple times; subsequent
+    /// calls are no-ops (cache cleared after first). Called from
+    /// <c>TrayIconService.Dispose()</c>.</summary>
+    public static void DisposeWinIconCache()
+    {
+        foreach (var icon in _winIconCache.Values)
+        {
+            try { icon.Dispose(); } catch { /* best-effort */ }
+        }
+        foreach (var hicon in _winIconHandles.Values)
+        {
+            if (hicon != IntPtr.Zero)
+            {
+                try { DestroyIcon(hicon); } catch { /* best-effort */ }
+            }
+        }
+        _winIconCache.Clear();
+        _winIconHandles.Clear();
     }
 
     private static ImageSource RenderIconBitmap(Color hue)

@@ -127,26 +127,80 @@ public class TierColorPaletteTests
     // E2E WPF test infrastructure scoped before Habituation Phase 6/7/8.
     // See PR description "Lessons Learned" section.
 
-    [Fact(Skip = "Manual smoke only — requires STA thread + WPF dispatcher to " +
-                  "instantiate TaskbarIcon. Seed for end-to-end WPF integration " +
-                  "test infrastructure (FlaUI or WpfApplicationFactory pattern) " +
-                  "to be scoped before Habituation Phase 6/7/8 sprint opens. " +
-                  "Until then, the IconForTier_CanBeConvertedByHNotifyIcon " +
-                  "contract test above covers the specific tray-crash regression " +
-                  "at the unit-test level.")]
-    public void TrayIconService_InitWithoutThrowing_E2EPlaceholder()
+    // ── Fix 3 contract tests (System.Drawing.Icon path) ─────────────────────
+    //
+    // These cover the path the tray ACTUALLY uses in production. The
+    // ImageSource path (IconForTier above) is back-compat only — the tray
+    // doesn't set IconSource anymore. If a future sprint deletes the
+    // ImageSource path entirely, delete IconForTier_ReturnsTypeAcceptableToHNotifyIcon
+    // with it; the assertions below are the load-bearing ones.
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(6)]
+    [InlineData(9)]
+    public void IconForTier_Win_ReturnsIconWithValidHandle(int tier)
     {
-        // Future E2E test outline (when test infra lands):
-        //   1. Boot the app's MainWindow on a fresh STA thread
-        //   2. Wait for Loaded → StartTrayIcon → TaskbarIcon constructor
-        //   3. Force a tier change via _viewModel.UpdateFromState
-        //   4. Force a Toggle B flip via UserPreferences.Current
-        //   5. Assert no DispatcherUnhandledException fired within 5s
+        // Pop-up sprint Fix 3 (Task 7 patch 3): contract test for the
+        // System.Drawing.Icon path. Non-zero Handle is the minimum the
+        // Win32 Shell_NotifyIcon contract requires — if GetHicon() ever
+        // regresses to returning IntPtr.Zero (unlikely but possible across
+        // GDI+ updates), this fires before reaching production.
         //
-        // This seed is intentionally left as a [Fact(Skip=...)] so the
-        // bug surface stays visible in test runner output — a reviewer
-        // notices "1 skipped" and can grep this file to find the queued
-        // E2E commitment.
+        // We do NOT dispose the icon — TierColorPalette caches it and owns
+        // the lifecycle. Disposing here would invalidate the cached handle
+        // for the production tray.
+        var icon = TierColorPalette.IconForTier_Win(tier);
+        Assert.NotNull(icon);
+        Assert.NotEqual(IntPtr.Zero, icon.Handle);
+    }
+
+    [Fact]
+    public void IconForTier_Win_ReturnsSameInstancePerBand()
+    {
+        // Two tiers in the same band must return the cached icon. Re-creating
+        // the icon (and HICON) per state-change tick would leak handles
+        // because the cache index, not GC, is what eventually calls
+        // DestroyIcon. Same-band re-fetch MUST hit the cache.
+        Assert.Same(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(5));
+        Assert.Same(TierColorPalette.IconForTier_Win(6),  TierColorPalette.IconForTier_Win(7));
+        Assert.Same(TierColorPalette.IconForTier_Win(8),  TierColorPalette.IconForTier_Win(10));
+    }
+
+    [Fact]
+    public void IconForTier_Win_DifferentBandsReturnDifferentInstances()
+    {
+        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(6));
+        Assert.NotSame(TierColorPalette.IconForTier_Win(6),  TierColorPalette.IconForTier_Win(10));
+        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(10));
+    }
+
+    [Fact(Skip = "Manual STA smoke — instantiates real H.NotifyIcon.TaskbarIcon " +
+                  "and exercises IconForTier_Win across all 3 bands + Dispose. " +
+                  "Runs on net8.0-windows but xUnit's default scheduler isn't STA. " +
+                  "Will be promoted to [Fact] once the E2E WPF test infrastructure " +
+                  "(FlaUI / StaFact / WpfApplicationFactory pattern) is scoped " +
+                  "before Habituation Phase 6/7/8 sprint opens. Until then, the " +
+                  "IconForTier_Win_ReturnsIconWithValidHandle theory above covers " +
+                  "the Win32 HICON contract; the unit-test gap is in the " +
+                  "H.NotifyIcon→shell handshake which only fires at app launch.")]
+    public void TrayIconService_FullLifecycle_NoCrash_E2EPlaceholder()
+    {
+        // Future test outline (when STA-capable infra lands):
+        //   1. Construct H.NotifyIcon.TaskbarIcon on an STA thread
+        //   2. Assign Icon = TierColorPalette.IconForTier_Win(1) — must not throw
+        //   3. Assign Icon = TierColorPalette.IconForTier_Win(6) — must not throw
+        //   4. Assign Icon = TierColorPalette.IconForTier_Win(9) — must not throw
+        //   5. Dispose TaskbarIcon — must not throw
+        //   6. Call TierColorPalette.DisposeWinIconCache() — must not throw
+        //   7. Assert no DispatcherUnhandledException fired in any step
+        //
+        // This is the test that would have caught the original two crashes
+        // (RenderTargetBitmap NotImplementedException, BitmapImage URL NRE)
+        // before they reached production. It cannot run today because xUnit
+        // doesn't default to STA and H.NotifyIcon.TaskbarIcon requires WPF
+        // dispatcher initialisation. The PR description carries the
+        // commitment to fix this infrastructure gap before next sprint.
     }
 
     [Fact]

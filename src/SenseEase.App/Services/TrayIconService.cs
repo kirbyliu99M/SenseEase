@@ -94,7 +94,14 @@ public sealed class TrayIconService : IDisposable
         {
             ToolTipText = "SenseEase",
             ContextMenu = menu,
-            IconSource  = TierColorPalette.IconForTier(_vm.VimsTier),
+            // Fix 3: System.Drawing.Icon path via TaskbarIcon.Icon — bypasses
+            // the WPF-ImageSource converter that crashed twice (Crash 1:
+            // NotImplementedException on RenderTargetBitmap; Crash 2:
+            // NullReferenceException because in-memory BitmapImage has no
+            // UriSource for the library's URI-based pixel loader). The Icon
+            // property routes straight to Win32 Shell_NotifyIcon's HICON
+            // requirement — what the system shell actually needs.
+            Icon        = TierColorPalette.IconForTier_Win(_vm.VimsTier),
         };
         _tray.TrayLeftMouseUp += (_, _) => LeftClicked?.Invoke(this, EventArgs.Empty);
 
@@ -125,8 +132,11 @@ public sealed class TrayIconService : IDisposable
     {
         // Toggle B (user pref): when colour-on is OFF, force the grey band
         // regardless of tier (per spec §1 — bar/tray "永遠維持灰色透明").
+        // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT
+        // the broken ImageSource path (TaskbarIcon.IconSource). See
+        // TierColorPalette.IconForTier_Win for HICON lifecycle details.
         int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? state.VimsTier : 1;
-        _tray.IconSource = TierColorPalette.IconForTier(effectiveTier);
+        _tray.Icon = TierColorPalette.IconForTier_Win(effectiveTier);
         RefreshLabels(state);
     }
 
@@ -174,5 +184,11 @@ public sealed class TrayIconService : IDisposable
         _disposed = true;
         _vm.StateChanged -= OnStateChanged;
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
+        // Fix 3: release the cached HICONs. Bitmap.GetHicon() returned them
+        // unmanaged; Icon.FromHandle() doesn't take ownership; without
+        // explicit DestroyIcon they leak until process exit. Safe even if
+        // _tray.Dispose() already released the shell-side reference (the
+        // OS reference-counts HICONs).
+        TierColorPalette.DisposeWinIconCache();
     }
 }
