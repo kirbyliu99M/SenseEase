@@ -26,29 +26,13 @@ namespace SenseEase.App.Views;
 /// </summary>
 public partial class PersistentBarWindow : Window
 {
-    // Three-tier colour table. Defined here (not in XAML) so the mapping is
-    // testable + has a single source of truth that downstream readers can grep.
-    // Tier <=5 → grey; 6-7 → amber; 8-10 → red. Out-of-range clamps to nearest.
-    private static readonly SolidColorBrush GreyBrush  = MakeFrozen(Color.FromArgb(0x26, 0x66, 0x66, 0x66));
-    private static readonly SolidColorBrush AmberBrush = MakeFrozen(Color.FromArgb(0x4D, 0xE6, 0x8C, 0x28));
-    private static readonly SolidColorBrush RedBrush   = MakeFrozen(Color.FromArgb(0x73, 0xDC, 0x32, 0x28));
-
-    private static SolidColorBrush MakeFrozen(Color c)
-    {
-        var b = new SolidColorBrush(c);
-        b.Freeze();
-        return b;
-    }
-
-    /// <summary>Resolves a 1–10 tier integer to the right brush. Clamps
-    /// outside-range values to the nearest band (defensive — engine should
-    /// only emit 1..10, but a future contract change shouldn't crash the bar).</summary>
-    public static SolidColorBrush BrushForTier(int tier) => tier switch
-    {
-        <= 5 => GreyBrush,
-        6 or 7 => AmberBrush,
-        _ => RedBrush,    // 8..10 (and any >10 defensively)
-    };
+    /// <summary>Resolves a 1–10 tier integer to the bar's ambient-overlay brush.
+    /// Task 3 refactor: the actual mapping lives in
+    /// <see cref="TierColorPalette.BrushForTier"/>; this forwards so existing
+    /// callers (Task 2 tests, MainWindow.StartPersistentBar) don't need to
+    /// change. New surfaces should consume <see cref="TierColorPalette"/>
+    /// directly.</summary>
+    public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
 
     public PersistentBarWindow()
     {

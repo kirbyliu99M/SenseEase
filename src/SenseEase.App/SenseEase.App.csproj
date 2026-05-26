@@ -20,6 +20,16 @@
     <ProjectReference Include="..\SenseEase.Infrastructure\SenseEase.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!-- Pop-up sprint Task 3: H.NotifyIcon.Wpf provides the WPF-native tray icon
+       primitive (TaskbarIcon). Picked over Hardcodet.NotifyIcon.Wpf because
+       H is an active fork with .NET 8 targets out of the box, MVVM-friendly
+       Icon/ContextMenu bindings, and a smaller transitive surface. WinForms
+       NotifyIcon was rejected to avoid dragging the WinForms runtime into a
+       pure-WPF app (~2 MB overhead + style friction on context menus). -->
+  <ItemGroup>
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Resources\AppIcon.ico" />
   </ItemGroup>

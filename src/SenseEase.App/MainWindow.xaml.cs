@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Interop;
+using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
 using SenseEase.Core.Models;
@@ -19,6 +20,10 @@ public partial class MainWindow : Window
     // Pop-up sprint Task 2: the persistent ambient bar. Spawned on Loaded
     // (production path), driven by VimsTier changes via StateChanged.
     private PersistentBarWindow? _persistentBar;
+    // Pop-up sprint Task 3: system tray icon. Lifetime tied to MainWindow;
+    // disposed on Closed so the shell unregisters cleanly. Lives in parallel
+    // with the bar — colour-synced via the shared TierColorPalette.
+    private TrayIconService? _trayIcon;
 
     public MainWindow()
     {
@@ -119,6 +124,7 @@ public partial class MainWindow : Window
         Closed += (_, _) => _chartTimer?.Stop();
         Closed += (_, _) => _wgcBarStub?.Close();
         Closed += (_, _) => _persistentBar?.Close();
+        Closed += (_, _) => _trayIcon?.Dispose();
 
         // ── Pop-up sprint Task 1: WGC bar-validation harness ────────────────
         // When SENSEEASE_WGC_BAR_VALIDATION=1, spawn a BarStubWindow at the bar's
@@ -141,6 +147,55 @@ public partial class MainWindow : Window
         // position; in a production run the BarStub never spawns and the
         // persistent bar owns both.
         Loaded += (_, _) => StartPersistentBar();
+        // Pop-up sprint Task 3: spawn tray icon AFTER the bar so the tray's
+        // initial "toggle bar visibility" label correctly reflects the bar's
+        // initial visible state. Same validation-env-var mutex as the bar.
+        Loaded += (_, _) => StartTrayIcon();
+    }
+
+    private void StartTrayIcon()
+    {
+        // Validation harness suppresses production UI to avoid colliding with
+        // the BarStub on screen position / mask rect. The tray is technically
+        // independent of bar position, but keeping the mutex rule uniform
+        // ("validation env vars suppress ALL production UI") avoids surprises.
+        if (string.Equals(Environment.GetEnvironmentVariable("SENSEEASE_WGC_BAR_VALIDATION"),
+                          "1", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _trayIcon = new TrayIconService(
+            _viewModel,
+            isBarVisible:  () => _persistentBar?.IsVisible ?? false,
+            setBarVisible: visible =>
+            {
+                if (_persistentBar is null) return;
+                if (visible) _persistentBar.Show();
+                else         _persistentBar.Hide();
+            });
+
+        // Task 4 will hook LeftClicked to open the notification card. For
+        // Task 3 we fall back to surfacing the dashboard so the click does
+        // SOMETHING the user can observe — leaving it as a no-op would look
+        // like a broken feature in manual testing.
+        _trayIcon.LeftClicked += (_, _) =>
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        };
+
+        // Settings menu item — open the dashboard at the settings/chat area.
+        // Task 5's settings panel will be the proper target once it lands.
+        _trayIcon.SettingsRequested += (_, _) =>
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        };
+
+        _trayIcon.QuitRequested += (_, _) => Application.Current.Shutdown();
     }
 
     private void StartPersistentBar()
