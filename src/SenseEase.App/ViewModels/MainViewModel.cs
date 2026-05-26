@@ -39,6 +39,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void SetWgcMonitorExcludeRect(int? left, int? top, int? width, int? height)
         => _wgcSensing.SetMonitorExcludeRect(left, top, width, height);
 
+    /// <summary>overlay-bar-redesign D3: pause-or-resume the WGC capture
+    /// pipeline. Called by MainWindow when the Power Save toggle flips so
+    /// the OFI pipeline goes quiet (frame callbacks short-circuit while
+    /// paused) without tearing down the GraphicsCaptureSession.</summary>
+    public void SetWgcPaused(bool paused)
+    {
+        if (paused) _wgcSensing.Pause();
+        else        _wgcSensing.Resume();
+    }
+
     /// <summary>Pop-up sprint Task 5: true iff the user's most recent
     /// calibration recorded a vestibular diagnosis (Q5 risk factor).
     /// Drives the SettingsWindow safety warning when the user tries to

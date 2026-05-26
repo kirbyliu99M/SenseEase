@@ -108,6 +108,36 @@ public partial class PersistentBarWindow : Window
         BarFill.Background = BrushForTier(effectiveTier);
     }
 
+    // overlay-bar-redesign D3: snapshot of the bar's pre-sleep visual state.
+    // Non-null while EnterSleepMode is active; both calls are idempotent so
+    // back-to-back Enter or Exit is a no-op.
+    private Brush? _preSleepBackground;
+
+    /// <summary>overlay-bar-redesign D3: drop the bar into a visually
+    /// distinct "sensing paused" state — faint near-transparent fill plus a
+    /// dashed grey outline via the <c>SleepOverlay</c> rectangle. Idempotent.
+    /// Restored by <see cref="ExitSleepMode"/>.</summary>
+    public void EnterSleepMode()
+    {
+        if (_preSleepBackground is not null) return; // already in sleep mode
+        _preSleepBackground = BarFill.Background;
+        // Faint near-transparent grey fill so the bar is barely visible —
+        // the dashed outline carries the "paused" affordance.
+        BarFill.Background = new SolidColorBrush(Color.FromArgb(20, 0xDD, 0xDD, 0xDD));
+        SleepOverlay.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>overlay-bar-redesign D3: restore the bar's pre-sleep fill
+    /// and hide the dashed overlay. Idempotent — calling without a prior
+    /// <see cref="EnterSleepMode"/> is a no-op.</summary>
+    public void ExitSleepMode()
+    {
+        if (_preSleepBackground is null) return; // not in sleep mode
+        BarFill.Background = _preSleepBackground;
+        _preSleepBackground = null;
+        SleepOverlay.Visibility = Visibility.Collapsed;
+    }
+
     /// <summary>Monitor-coords physical-pixel rect for the WGC exclude mask.
     /// DPI-aware via VisualTreeHelper.GetDpi. Returns the CURRENT footprint
     /// (so when hovered the rect reflects the grown size). The MainWindow

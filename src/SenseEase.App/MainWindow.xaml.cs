@@ -386,6 +386,14 @@ public partial class MainWindow : Window
         if (_cardWindow is null)
         {
             _cardWindow = new NotificationCardWindow();
+            // overlay-bar-redesign D3: wire the host-side vestibular lookup
+            // so the gear icon can open SettingsWindow with the same
+            // diagnosis function used by the tray's settings path.
+            _cardWindow.HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis;
+            // overlay-bar-redesign D3: reflect existing power-save state into
+            // the freshly-built card so users opening the card while power
+            // save is engaged see the override message immediately.
+            _cardWindow.IsPowerSaveActive = _powerSaveActive;
             _cardWindow.Closed += (_, _) =>
             {
                 _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
@@ -421,10 +429,47 @@ public partial class MainWindow : Window
                 System.Diagnostics.Debug.WriteLine(
                     $"[notification-card] muted band={currentBand} until {_cardController.MutedUntilUtc(currentBand):o}");
             };
+            _cardWindow.PowerSaveToggled += (_, on) => ApplyPowerSave(on);
         }
-        _cardWindow.SetContent(band);
+        _cardWindow.SetContent(band, _viewModel.VimsTier, _viewModel.CurrentState.Pressure);
         _cardWindow.Show();
         _cardWindow.Activate();
+    }
+
+    // overlay-bar-redesign D3: process-wide power-save state. The card,
+    // bar, tray, and WGC provider all observe this flag so flipping the
+    // toggle in the card propagates to every surface.
+    private bool _powerSaveActive;
+
+    /// <summary>overlay-bar-redesign D3: applies the Power Save flag across
+    /// every dependent surface. Idempotent — a no-op if the state matches
+    /// the current value. Pauses/Resumes the WGC capture, drops the bar
+    /// into sleep-mode visuals, and flips the tray's status label.</summary>
+    private void ApplyPowerSave(bool enabled)
+    {
+        if (_powerSaveActive == enabled) return;
+        _powerSaveActive = enabled;
+
+        // Drive WGC provider via the VM pass-through. When the VM isn't
+        // currently routed to WGC the pass-through is a no-op for ticks,
+        // but the paused flag is still updated for the next swap.
+        _viewModel.SetWgcPaused(enabled);
+
+        if (_persistentBar is not null)
+        {
+            if (enabled) _persistentBar.EnterSleepMode();
+            else          _persistentBar.ExitSleepMode();
+        }
+
+        _trayIcon?.SetPowerSaveIndicator(enabled);
+
+        // Card may be open and was the source of the toggle — re-render
+        // its title/body to reflect the new state. Setting IsPowerSaveActive
+        // is no-op when the CheckBox already matches.
+        if (_cardWindow is not null)
+        {
+            _cardWindow.IsPowerSaveActive = enabled;
+        }
     }
 
     private void MaybeStartWgcValidation()

@@ -1,3 +1,5 @@
+using System;
+using System.Threading;
 using System.Windows.Media;
 using SenseEase.App.Views;
 using Xunit;
@@ -80,5 +82,43 @@ public class PersistentBarWindowTests
         Assert.Equal(r, brush.Color.R);
         Assert.Equal(g, brush.Color.G);
         Assert.Equal(b, brush.Color.B);
+    }
+
+    /// <summary>Test 6 (overlay-bar-redesign D3): EnterSleepMode swaps the
+    /// bar's background brush; ExitSleepMode restores the exact pre-sleep
+    /// instance. Verifies the snapshot-and-restore behaviour the host
+    /// relies on when the user toggles Power Save off.</summary>
+    [Fact]
+    public void PersistentBarWindow_EnterExitSleepMode_RestoresBrush()
+    {
+        Exception? captured = null;
+        var done = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var w = new PersistentBarWindow();
+                w.ApplyTemplate();
+                // Force a known tier so the snapshot brush is deterministic.
+                w.SetTier(1);
+                Brush original = w.BarFill.Background;
+
+                w.EnterSleepMode();
+                Assert.NotSame(original, w.BarFill.Background);
+                Assert.Equal(System.Windows.Visibility.Visible, w.SleepOverlay.Visibility);
+
+                w.ExitSleepMode();
+                Assert.Same(original, w.BarFill.Background);
+                Assert.Equal(System.Windows.Visibility.Collapsed, w.SleepOverlay.Visibility);
+            }
+            catch (Exception ex) { captured = ex; }
+            finally { done.Set(); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+        Assert.True(done.Wait(TimeSpan.FromSeconds(15)), "STA test timed out");
+        if (captured != null)
+            throw new Xunit.Sdk.XunitException("STA test threw: " + captured);
     }
 }

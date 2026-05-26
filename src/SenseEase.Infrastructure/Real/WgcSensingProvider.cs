@@ -174,6 +174,22 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
 
     public event EventHandler<OpticalFlowSample>? OpticalFlowSampled;
 
+    // overlay-bar-redesign D3: Pause/Resume support. _paused is volatile so
+    // the OnTick thread observes UI-thread writes without a lock. _resumedAt
+    // and _watchdogScheduled drive a one-shot watchdog that re-inits the
+    // capture session if the framepool doesn't recover after Resume — guards
+    // against the (rare) case where pausing then resuming leaves WGC in a
+    // state where TryGetNextFrame keeps returning null.
+    private volatile bool _paused;
+    private DateTime _resumedAt;
+    private bool _watchdogScheduled;
+    private DateTime _lastFrameProcessedAt; // updated each successful OnTick
+
+    /// <summary>overlay-bar-redesign D3: true while sensing is paused via
+    /// <see cref="Pause"/>. Exposed for tests; production reads it via the
+    /// internal frame-callback short-circuit.</summary>
+    public bool IsPaused => _paused;
+
     public WgcSensingProvider()
     {
         _ctx          = SynchronizationContext.Current;
@@ -181,6 +197,67 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         _pendingSample = new OpticalFlowSample();
         // Fix #7: cache the callback once so OnTick never allocates a closure.
         _raiseSampleCallback = _ => OpticalFlowSampled?.Invoke(this, _pendingSample);
+    }
+
+    /// <summary>overlay-bar-redesign D3: short-circuit the frame callback
+    /// without tearing down the GraphicsCaptureSession. Idempotent —
+    /// Pause/Pause is a no-op.</summary>
+    public void Pause()
+    {
+        _paused = true;
+    }
+
+    /// <summary>overlay-bar-redesign D3: re-enable the frame callback. Also
+    /// schedules a one-shot watchdog 2 s out — if no frame has been processed
+    /// in that window, the capture session is bounced via Stop()+Start() as a
+    /// best-effort recovery. Idempotent — Resume/Resume schedules at most
+    /// one watchdog.
+    /// <para>Spike-detector reset is NOT performed here: the SpikeDetector
+    /// lives in the consumer (MainViewModel) rather than the provider, so
+    /// the provider has no handle on it. Coordinator: wire a Reset() from
+    /// MainViewModel if the post-resume spike-suppression behaviour is
+    /// needed in practice.</para></summary>
+    public void Resume()
+    {
+        _paused = false;
+        _resumedAt = DateTime.UtcNow;
+        ScheduleResumeWatchdog();
+    }
+
+    private void ScheduleResumeWatchdog()
+    {
+        if (_watchdogScheduled) return;
+        _watchdogScheduled = true;
+        // Fire once after 2 s. Using a separate Timer here (not the OnTick
+        // capture timer) keeps the watchdog independent of the capture
+        // cadence and avoids reentering the capture-timer callback path.
+        var watchdog = new Timer(_ =>
+        {
+            try
+            {
+                if (_paused) return; // user paused again before the watchdog fired
+                bool frameSeenSinceResume = _lastFrameProcessedAt >= _resumedAt;
+                if (frameSeenSinceResume) return;
+                if (!_running) return;
+                WgcLog("Resume watchdog: no frame seen 2 s after Resume → Stop/Start re-init.");
+                try
+                {
+                    Stop();
+                    Start();
+                }
+                catch (Exception ex)
+                {
+                    WgcLog($"Resume watchdog re-init failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            finally
+            {
+                _watchdogScheduled = false;
+            }
+        }, null, 2000, Timeout.Infinite);
+        // The closure pins `watchdog` for the lifetime of the callback so
+        // it doesn't get GC'd before firing.
+        _ = watchdog;
     }
 
     public void Start()
@@ -363,11 +440,18 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private void OnTick(object? state)
     {
         if (!_running) return;
+        // overlay-bar-redesign D3: Power Save short-circuit. Skip frame
+        // capture entirely while paused so the WGC pipeline goes quiet
+        // without disposing the capture session (cheap to resume).
+        if (_paused) return;
         if (_contentWidth == 0 || _contentHeight == 0) return;
 
         try
         {
             byte[] current = CaptureAndDownsample();
+            // Record that a frame actually made it through this tick so
+            // the post-Resume watchdog can decide whether to re-init.
+            _lastFrameProcessedAt = DateTime.UtcNow;
 
             double rawOfi = 0;
             if (_prevFrame != null && current.Length == _prevFrame.Length)

@@ -9,31 +9,29 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         SizeToContent="Manual"
-        Width="360" Height="200"
+        Width="480" Height="220"
         WindowStartupLocation="Manual"
         Focusable="False">
     <Window.Resources>
-        <!-- Patch 9 (HP brand): shared primary-action button style.
-             Used by the OpenDashboardBtn in this commit; Patch 13 will
-             retrofit EngageBtn to use the same style so the two primary
-             buttons match. Scope intentionally kept at Window level (not
-             App-wide) per the App.xaml comment about test-compatibility —
-             tests construct windows without App context. Promote to App
-             resources only when a non-card surface also needs it. -->
-        <Style x:Key="PrimaryHpBlueButtonStyle" TargetType="Button">
-            <Setter Property="Background"      Value="#0096D6"/>
+        <!-- overlay-bar-redesign D4: light-theme primary action button.
+             Replaces the dark-theme PrimaryHpBlueButtonStyle. Deep blue fill
+             with a darker hover/pressed state matches the new white card
+             surface. Vertical stacked label (zh + en) lives inside the
+             button content, not the style — see OpenDashboardBtn below. -->
+        <Style x:Key="PrimaryDeepBlueButtonStyle" TargetType="Button">
+            <Setter Property="Background"      Value="#1E5BB0"/>
             <Setter Property="Foreground"      Value="White"/>
             <Setter Property="FontSize"        Value="12"/>
             <Setter Property="FontWeight"      Value="SemiBold"/>
-            <Setter Property="Padding"         Value="14,6"/>
+            <Setter Property="Padding"         Value="14,8"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor"          Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#007AB0"/>
+                    <Setter Property="Background" Value="#174A92"/>
                 </Trigger>
                 <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#005A8C"/>
+                    <Setter Property="Background" Value="#103770"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Opacity" Value="0.5"/>
@@ -41,21 +39,22 @@
             </Style.Triggers>
         </Style>
     </Window.Resources>
-    <!-- Pop-up sprint Task 4: expanded notification card.
-         Sits just below the persistent bar; same Topmost + AllowsTransparency
-         chrome as bar/SpikePopup so the WGC mask seam works for it too
-         (Option II: always-on mask for any visible UI). MouseMove anywhere in
+    <!-- overlay-bar-redesign D1: light card theme.
+         White surface, light grey border, soft drop shadow. The previous
+         dark-on-dark scheme blended into the bar — switching to a near-pure
+         white card with the same WGC mask seam (Topmost + AllowsTransparency)
+         gives strong contrast against any background. MouseMove anywhere in
          the Border resets the 60 s idle-collapse timer. -->
     <Border x:Name="CardBorder"
-            Background="#E6101418"
+            Background="#FFFFFF"
             CornerRadius="10"
             Padding="16"
-            BorderBrush="#33FFFFFF"
+            BorderBrush="#E0E4EA"
             BorderThickness="1"
             MouseMove="OnCardMouseMove">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="14"
-                              ShadowDepth="3" Opacity="0.45"/>
+                              ShadowDepth="3" Opacity="0.18"/>
         </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>
@@ -64,7 +63,8 @@
                 <RowDefinition Height="Auto"/> <!-- buttons -->
             </Grid.RowDefinitions>
 
-            <!-- Title + close (X) -->
+            <!-- Title + settings (gear) + close (X). DockPanel docks right-side
+                 buttons first so the title TextBlock takes the remaining space. -->
             <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,10">
                 <Button DockPanel.Dock="Right"
                         x:Name="CloseBtn"
@@ -72,14 +72,26 @@
                         Width="22" Height="22"
                         Padding="0" BorderThickness="0"
                         Background="Transparent"
-                        Foreground="#9AB6E0"
+                        Foreground="#7A8499"
                         FontSize="16" FontWeight="Bold"
                         Cursor="Hand"
                         Click="OnCloseClicked"/>
+                <Button DockPanel.Dock="Right"
+                        x:Name="SettingsBtn"
+                        Content="&#x2699;"
+                        Width="22" Height="22"
+                        Padding="0" BorderThickness="0"
+                        Background="Transparent"
+                        Foreground="#7A8499"
+                        FontSize="18"
+                        Cursor="Hand"
+                        Margin="0,0,4,0"
+                        Click="OnSettingsClicked"
+                        ToolTip="設定 / Settings"/>
                 <TextBlock x:Name="TitleText"
                            Text=""
                            FontSize="14" FontWeight="Bold"
-                           Foreground="#F0F4FA"
+                           Foreground="#1A1F2E"
                            VerticalAlignment="Center"
                            TextWrapping="Wrap"/>
             </DockPanel>
@@ -89,44 +101,66 @@
                        x:Name="BodyText"
                        Text=""
                        FontSize="13"
-                       Foreground="#D0D8E4"
+                       Foreground="#3A4252"
                        TextWrapping="Wrap"
                        VerticalAlignment="Top"
                        Margin="0,0,0,12"/>
 
-            <!-- Button row. Order per Patch 9 spec table:
-                   4. Open Dashboard (HP blue primary, NEW)
-                   5. Engage (existing — Patch 13 will swap to HP blue)
-                   6. Mute (existing — stays subtle / secondary) -->
-            <StackPanel Grid.Row="2"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Right">
-                <Button x:Name="OpenDashboardBtn"
-                        Content="開啟主視窗 / Open Dashboard"
-                        Style="{StaticResource PrimaryHpBlueButtonStyle}"
-                        Click="OnOpenDashboardClicked"
-                        Margin="0,0,8,0"/>
-                <Button x:Name="EngageBtn"
-                        Content="啟動保護"
-                        Click="OnEngageClicked"
-                        Background="#FF9B6B"
-                        Foreground="#101418"
-                        BorderThickness="0"
-                        Padding="12,6"
-                        Margin="0,0,8,0"
-                        FontSize="12"
-                        FontWeight="Bold"
-                        Cursor="Hand"/>
-                <Button x:Name="MuteBtn"
-                        Content="6 小時內不再提示"
-                        Click="OnMuteClicked"
-                        Background="#22FFFFFF"
-                        Foreground="#F0F4FA"
-                        BorderThickness="0"
-                        Padding="12,6"
-                        FontSize="12"
-                        Cursor="Hand"/>
-            </StackPanel>
+            <!-- Button row: Grid with two columns so PowerSaveToggle sits
+                 hard-left and the action buttons sit hard-right at 480 dip.
+                 Layout: [PowerSaveToggle] | [Dashboard][Engage][Mute] -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>  <!-- left: toggle -->
+                    <ColumnDefinition Width="*"/>     <!-- stretch -->
+                    <ColumnDefinition Width="Auto"/>  <!-- right: actions -->
+                </Grid.ColumnDefinitions>
+
+                <CheckBox x:Name="PowerSaveToggle"
+                          Grid.Column="0"
+                          VerticalAlignment="Center"
+                          FontSize="11"
+                          Foreground="#3A4252"
+                          Cursor="Hand"
+                          Checked="OnPowerSaveToggled"
+                          Unchecked="OnPowerSaveToggled">
+                    <TextBlock Text="省電模式 / Power Save"/>
+                </CheckBox>
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="OpenDashboardBtn"
+                            Style="{StaticResource PrimaryDeepBlueButtonStyle}"
+                            Click="OnOpenDashboardClicked"
+                            Margin="0,0,8,0">
+                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                            <TextBlock Text="開啟主視窗" FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="Open Dashboard" FontSize="10" Opacity="0.8"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="EngageBtn"
+                            Content="啟動保護"
+                            Click="OnEngageClicked"
+                            Background="#FF9B6B"
+                            Foreground="#101418"
+                            BorderThickness="0"
+                            Padding="12,6"
+                            Margin="0,0,8,0"
+                            FontSize="12"
+                            FontWeight="Bold"
+                            Cursor="Hand"/>
+                    <Button x:Name="MuteBtn"
+                            Content="6 小時內不再提示"
+                            Click="OnMuteClicked"
+                            Background="#EEF1F5"
+                            Foreground="#3A4252"
+                            BorderThickness="0"
+                            Padding="12,6"
+                            FontSize="12"
+                            Cursor="Hand"/>
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </Window>

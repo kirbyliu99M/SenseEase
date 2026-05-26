@@ -7,27 +7,30 @@ using System.Windows.Threading;
 namespace SenseEase.App.Views;
 
 /// <summary>
-/// Pop-up sprint Task 4: the expanded notification card. Shown when the user
-/// clicks the bar or tray icon (Task 4 wiring) or, in a future Task 5 with
-/// Toggle A = ON, auto-expanded on a tier-up or spike event.
+/// Pop-up sprint Task 4 + overlay-bar-redesign D1-D4: the expanded
+/// notification card. Shown when the user clicks the bar or tray icon
+/// (user-initiated) or, with Toggle A = ON, auto-expanded on a tier-up.
 ///
-/// <para>Auto-collapse: after <see cref="IdleTimeout"/> seconds (60 by spec)
-/// with no MouseMove inside the card, opacity fades from 1.0 → 0.0 over
-/// <see cref="FadeDuration"/> seconds (5 by spec), then the window hides. Per
-/// spec §2 the fade gives the user a "last-chance pull-back" — if they move
-/// the mouse onto the card mid-fade, the animation reverses and the idle
-/// timer resets.</para>
-///
-/// <para>Three buttons + close. Each emits a typed event for the host to
-/// handle: <see cref="EngageClicked"/>, <see cref="MuteClicked"/>,
-/// <see cref="Closed"/> (standard Window event). All three close the card
-/// — close + engage instantly via <see cref="Hide"/>, mute also instantly +
-/// the host is expected to record the mute on its
-/// <see cref="MuteClicked"/> handler.</para>
-///
-/// <para>No internal Engage action wiring — that's spec-ambiguous in Task 4
-/// scope ("建議動作" varies by tier). The host owns the action; the card
-/// just collects the click and goes away.</para>
+/// <para>overlay-bar-redesign updates:</para>
+/// <list type="bullet">
+///   <item>D1: light theme (white surface, dark text). All foreground/background
+///         colour decisions now live in the XAML — this file only sets
+///         <c>TitleText.Text</c> and <c>BodyText.Text</c>.</item>
+///   <item>D2: numeric title readout — <c>SetContent</c> now takes
+///         <c>(band, tier, pressure)</c> and formats the title as
+///         <c>"VIMS Tier {tier} · Pressure {p}/100"</c>. The body shows the
+///         tier-band description (the text that USED to be the title-suffix
+///         in the v1 zh-only build).</item>
+///   <item>D3: Power Save toggle + Settings gear. <see cref="IsPowerSaveActive"/>
+///         flips the card into a "sensing paused" message; toggling the
+///         CheckBox raises <see cref="PowerSaveToggled"/> for the host to
+///         pause WGC + mark the tray. The gear button opens
+///         <see cref="SettingsWindow"/> using the host-provided
+///         <see cref="HasVestibularDiagnosis"/> lookup.</item>
+///   <item>D4: deep-blue Open Dashboard button with stacked zh/en label.
+///         Style moved to <c>PrimaryDeepBlueButtonStyle</c> in
+///         Window.Resources.</item>
+/// </list>
 /// </summary>
 public partial class NotificationCardWindow : Window
 {
@@ -51,8 +54,55 @@ public partial class NotificationCardWindow : Window
     /// hides immediately on click.</summary>
     public event EventHandler? MuteClicked;
 
+    /// <summary>overlay-bar-redesign D3: raised when the Power Save toggle
+    /// flips. Host receives <c>true</c> for ON (pause sensing) and
+    /// <c>false</c> for OFF (resume sensing).</summary>
+    public event EventHandler<bool>? PowerSaveToggled;
+
+    /// <summary>overlay-bar-redesign D3: provided by the host so the gear
+    /// button can construct a <see cref="SettingsWindow"/> with the
+    /// same vestibular-diagnosis lookup the host uses elsewhere. Falls
+    /// back to <c>() => false</c> when the host doesn't wire it.</summary>
+    public Func<bool>? HasVestibularDiagnosis { get; set; }
+
     private readonly DispatcherTimer _idleTimer;
     private Storyboard? _activeFadeStoryboard;
+
+    // overlay-bar-redesign D2/D3: cache the last content the card was set to
+    // so an IsPowerSaveActive flip can re-render without callers passing
+    // values again. Default band is Grey for the rare path where the toggle
+    // is set before any SetContent — the card simply shows the power-save
+    // message anyway, so the cached band is irrelevant in that state.
+    private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.Grey;
+    private int _lastTier = 1;
+    private double _lastPressure;
+    private bool _hasContent;
+    private bool _isPowerSaveActive;
+    private bool _suppressToggleEvent; // re-entrancy guard when host sets IsPowerSaveActive
+
+    /// <summary>overlay-bar-redesign D3: when true, the card shows the
+    /// "Power Save active — sensing paused" message instead of the numeric
+    /// tier/pressure readout. Setting this property re-renders the card
+    /// immediately so the surface stays in sync with the host's WGC state.
+    /// The setter also syncs the in-card CheckBox without re-raising the
+    /// <see cref="PowerSaveToggled"/> event (the host is the source of
+    /// truth for this state).</summary>
+    public bool IsPowerSaveActive
+    {
+        get => _isPowerSaveActive;
+        set
+        {
+            if (_isPowerSaveActive == value) return;
+            _isPowerSaveActive = value;
+            // Keep the in-card CheckBox visually in sync without re-raising
+            // PowerSaveToggled (otherwise the host setting this property in
+            // response to its OWN handler would loop).
+            _suppressToggleEvent = true;
+            try { PowerSaveToggle.IsChecked = value; }
+            finally { _suppressToggleEvent = false; }
+            ApplyContentToUi();
+        }
+    }
 
     public NotificationCardWindow()
     {
@@ -80,28 +130,56 @@ public partial class NotificationCardWindow : Window
         RestartIdleTimer();
     }
 
-    /// <summary>Sets card content for a given VIMS tier band. Called by the
-    /// host before <see cref="Show"/>. Title + body are localized zh
-    /// (i18n service will replace literals when one lands — same TODO as
-    /// the tray service).</summary>
-    public void SetContent(TierColorPalette.TierBand band)
+    /// <summary>overlay-bar-redesign D2: sets card content for a VIMS tier
+    /// + pressure readout. The numeric title is rounded to a whole number;
+    /// the body carries the tier-band description (what the v1 title
+    /// suffix communicated).
+    /// <para>When <see cref="IsPowerSaveActive"/> is true, the inputs are
+    /// cached but the rendered title/body is the power-save override
+    /// message — so the card flips correctly on subsequent
+    /// <c>IsPowerSaveActive = false</c> without callers re-passing
+    /// values.</para></summary>
+    public void SetContent(TierColorPalette.TierBand band, int tier, double pressure)
     {
-        switch (band)
-        {
-            case TierColorPalette.TierBand.Grey:
-                TitleText.Text = "VIMS 狀態：舒緩";
-                BodyText.Text  = "目前視覺壓力低。如有疑問請開啟設定面板。";
-                break;
-            case TierColorPalette.TierBand.Amber:
-                TitleText.Text = "VIMS 狀態：中度";
-                BodyText.Text  = "偵測到中度視覺壓力。建議短暫休息或暗化螢幕。";
-                break;
-            case TierColorPalette.TierBand.Red:
-                TitleText.Text = "VIMS 狀態：高壓";
-                BodyText.Text  = "偵測到高度視覺壓力。建議立即啟動保護或暫停當前活動。";
-                break;
-        }
+        _lastBand = band;
+        _lastTier = tier;
+        _lastPressure = pressure;
+        _hasContent = true;
+        ApplyContentToUi();
     }
+
+    private void ApplyContentToUi()
+    {
+        if (_isPowerSaveActive)
+        {
+            TitleText.Text = "VIMS · 省電模式中 / Power Save Active";
+            BodyText.Text  = "感測已暫停。按下「省電模式」可恢復。/ Sensing paused. Toggle Power Save off to resume.";
+            return;
+        }
+
+        // Default normal-state body: derive from the tier band so callers
+        // that haven't called SetContent yet still get a sensible placeholder.
+        string body = DescriptionForBand(_lastBand);
+        if (_hasContent)
+        {
+            TitleText.Text = $"VIMS Tier {_lastTier} · Pressure {Math.Round(_lastPressure)}/100";
+        }
+        else
+        {
+            // No SetContent yet — keep the title empty (matches the v1
+            // "shown but unpopulated" state).
+            TitleText.Text = string.Empty;
+        }
+        BodyText.Text = body;
+    }
+
+    private static string DescriptionForBand(TierColorPalette.TierBand band) => band switch
+    {
+        TierColorPalette.TierBand.Grey  => "目前視覺壓力低。如有疑問請開啟設定面板。",
+        TierColorPalette.TierBand.Amber => "偵測到中度視覺壓力。建議短暫休息或暗化螢幕。",
+        TierColorPalette.TierBand.Red   => "偵測到高度視覺壓力。建議立即啟動保護或暫停當前活動。",
+        _                                => string.Empty,
+    };
 
     private void OnCardMouseMove(object sender, MouseEventArgs e)
     {
@@ -160,6 +238,39 @@ public partial class NotificationCardWindow : Window
     {
         MuteClicked?.Invoke(this, EventArgs.Empty);
         Hide();
+    }
+
+    private void OnPowerSaveToggled(object sender, RoutedEventArgs e)
+    {
+        // Guard against the re-entrant path where the host sets
+        // IsPowerSaveActive — that setter assigns CheckBox.IsChecked which
+        // re-fires this handler. _suppressToggleEvent stays true for the
+        // duration of the property setter so we silently swallow this pass.
+        if (_suppressToggleEvent) return;
+
+        bool nowOn = PowerSaveToggle.IsChecked == true;
+        // Update internal state and re-render so the title/body switch
+        // immediately on user interaction even if the host doesn't echo
+        // the value back through IsPowerSaveActive.
+        if (_isPowerSaveActive != nowOn)
+        {
+            _isPowerSaveActive = nowOn;
+            ApplyContentToUi();
+        }
+        PowerSaveToggled?.Invoke(this, nowOn);
+    }
+
+    /// <summary>overlay-bar-redesign D3: opens the Settings window using the
+    /// host-provided vestibular-diagnosis lookup (or a no-diagnosis fallback
+    /// when the host hasn't wired it). Modal-feeling — uses
+    /// <c>ShowDialog</c> with the card as owner so the settings stay on top
+    /// while open.</summary>
+    private void OnSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        var diagFn = HasVestibularDiagnosis ?? (() => false);
+        var win = new SettingsWindow(diagFn);
+        win.Owner = this;
+        win.ShowDialog();
     }
 
     /// <summary>Patch 9: primary action — surface the dashboard window. User

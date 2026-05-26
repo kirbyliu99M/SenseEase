@@ -249,6 +249,33 @@ public sealed class TrayIconService : IDisposable
         else _tray.Dispatcher.BeginInvoke(new Action(() => ApplyState(state)));
     }
 
+    // overlay-bar-redesign D3: snapshot of the pre-power-save status label
+    // so a Power-Save OFF restores the exact tier-band string the menu was
+    // showing. Non-null only while power save is ON.
+    private string? _preSavedStatusText;
+
+    /// <summary>overlay-bar-redesign D3: tray-side Power Save indicator.
+    /// When enabled, replaces the status menu item's header with
+    /// "Power Save ON" and stashes the prior label; when disabled, restores
+    /// the prior label so the next <see cref="ApplyState"/> can repaint it
+    /// from the live state. Idempotent across repeated true / repeated
+    /// false calls. Tray invariant: this is the ONLY new public method on
+    /// the service for D3.</summary>
+    public void SetPowerSaveIndicator(bool enabled)
+    {
+        if (_statusItem is null) return;
+        if (enabled)
+        {
+            _preSavedStatusText ??= _statusItem.Header as string;
+            _statusItem.Header = "Power Save ON";
+        }
+        else if (_preSavedStatusText != null)
+        {
+            _statusItem.Header = _preSavedStatusText;
+            _preSavedStatusText = null;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

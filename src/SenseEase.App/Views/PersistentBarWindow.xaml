@@ -17,8 +17,24 @@
          in Task 2 (IsHitTestVisible=false makes it pass-through for clicks; hover
          + click-to-expand land in Task 4). Background brush is set imperatively
          from PersistentBarWindow.xaml.cs SetTier so the 3-tier mapping has one
-         source of truth in code, not XAML. -->
-    <Border x:Name="BarFill"
-            Background="#26666666"
-            CornerRadius="2"/>
+         source of truth in code, not XAML.
+
+         overlay-bar-redesign D3: SleepOverlay sibling Rectangle for the
+         power-save dashed outline. Collapsed by default so the production
+         bar is visually identical to before; EnterSleepMode toggles it
+         Visible and ExitSleepMode collapses it again. WPF Border doesn't
+         support StrokeDashArray natively — using a Rectangle stacked over
+         BarFill is the canonical workaround. -->
+    <Grid>
+        <Border x:Name="BarFill"
+                Background="#26666666"
+                CornerRadius="2"/>
+        <Rectangle x:Name="SleepOverlay"
+                   Visibility="Collapsed"
+                   Stroke="#9AA0A8"
+                   StrokeThickness="1"
+                   StrokeDashArray="4 2"
+                   RadiusX="2" RadiusY="2"
+                   IsHitTestVisible="False"/>
+    </Grid>
 </Window>
