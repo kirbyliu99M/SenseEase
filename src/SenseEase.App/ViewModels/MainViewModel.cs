@@ -130,7 +130,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public MainViewModel()
     {
-        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore);
+        // M1 (Phase 6-pre): pass _log so the engine wrapper emits habituation
+        // lifecycle events (profile change, level transition, spike, engine-
+        // state change) for the chatbot's Phase 6c trajectory builder.
+        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log);
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);

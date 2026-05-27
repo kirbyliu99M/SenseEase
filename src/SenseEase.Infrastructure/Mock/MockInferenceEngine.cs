@@ -43,6 +43,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private bool                  _profileSnapshotDirty;
     private DateTime?             _lastSavedSpikeAtUtc;
 
+    // M1 (Phase 6-pre): event-log writer for habituation lifecycle. Parallel
+    // path to the snapshot persistence (file IO via _profileStore) — this
+    // emits one EventLogEntry per change so the chatbot's Phase 6c trajectory
+    // builder can summarise the user's habituation arc by querying the event
+    // store. Optional dependency — null in unit-test contexts.
+    private readonly IEventLogStore? _eventLog;
+
     // Stage 7a: calibration_count the engine considers current. Initialised
     // from the loaded snapshot at construction; Stage 7f bumps it in
     // ApplyCalibrationResult on every non-Abandoned completion and
@@ -76,11 +83,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// </summary>
     public MockInferenceEngine(IAdjustmentLog? adjustmentLog = null,
                                IHabituationStore? habituationStore = null,
-                               IHabituationProfileStore? profileStore = null)
+                               IHabituationProfileStore? profileStore = null,
+                               IEventLogStore? eventLog = null)
     {
         _adjustmentLog = adjustmentLog;
         _habituationStore = habituationStore;
         _profileStore = profileStore;
+        _eventLog = eventLog;
         _habituation.TimeScale = SenseDefaults.HabituationTimeScale;
 
         // ── Restore precedence (per gotcha #1) ──────────────────────────────
@@ -499,7 +508,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // is null, this is a no-op (test code path).
     private void MaybePersistProfileSnapshot()
     {
-        if (_profileStore is null) return;
+        // M1 (Phase 6-pre): change-detection + event-log emission run
+        // INDEPENDENT of profile-store persistence. The original early
+        // exit on `_profileStore is null` only protected the file-IO
+        // Save() call; it shouldn't gate the event-log writes (which go
+        // to a separate IEventLogStore for the chatbot's trajectory
+        // builder). Trackers (_lastSavedX) are also updated regardless
+        // so the next dirty-check has a fresh baseline.
 
         double level    = _habituation.HabituationLevel;
         double strikes  = _habituation.SevereStrikeCount;
@@ -518,8 +533,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
         if (!dirty) return;
 
-        var snap = BuildProfileSnapshot();
-        _profileStore.Save(snap);
+        // Emit habituation lifecycle events BEFORE updating the trackers
+        // so WriteHabituationLifecycleEvents can compare old vs new.
+        WriteHabituationLifecycleEvents(level, strikes, es, profile, source, spike);
+
+        // Profile-store persistence is a separate, optional concern.
+        if (_profileStore is not null)
+        {
+            var snap = BuildProfileSnapshot();
+            _profileStore.Save(snap);
+        }
 
         _lastSavedLevel         = level;
         _lastSavedStrikeCount   = strikes;
@@ -528,6 +551,78 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _lastSavedProfileSource = source;
         _lastSavedSpikeAtUtc    = spike;
         _profileSnapshotDirty   = false;
+    }
+
+    /// <summary>M1 (Phase 6-pre): emit one EventLogEntry per kind of
+    /// habituation change detected by <see cref="MaybePersistProfileSnapshot"/>.
+    /// Categories use the <c>Habituation.*</c> prefix so the Phase 6c
+    /// trajectory builder can grep:
+    /// <list type="bullet">
+    ///   <item><c>Habituation.Profile</c> — profile / source flip</item>
+    ///   <item><c>Habituation.LevelChanged</c> — level Δ &gt; 5 pp</item>
+    ///   <item><c>Habituation.Spike</c> — strike fired (sensor or chatbot)</item>
+    ///   <item><c>Habituation.StateChange</c> — Running ↔ Cooldown ↔
+    ///         PausedAwaitingUserConfirm</item>
+    /// </list>
+    /// The state-snapshot fields (Ofi, Pressure, FovRadius, MaskSnapshot)
+    /// are filled from <see cref="Current"/> at write-time so the trajectory
+    /// builder sees the sensor context surrounding each event.</summary>
+    private void WriteHabituationLifecycleEvents(
+        double level, double strikes, EngineState es,
+        HabituationProfile profile, string source, DateTime? spike)
+    {
+        if (_eventLog is null) return;
+
+        if (profile != _lastSavedProfile || source != _lastSavedProfileSource)
+        {
+            AppendHabituationEvent("Habituation.Profile",
+                $"{_lastSavedProfile} → {profile} (source: {source})");
+        }
+
+        if (Math.Abs(level - _lastSavedLevel) > 5.0)
+        {
+            string direction = level > _lastSavedLevel ? "rose" : "fell";
+            AppendHabituationEvent("Habituation.LevelChanged",
+                $"level {direction} {_lastSavedLevel:F1} → {level:F1}");
+        }
+
+        if (spike != _lastSavedSpikeAtUtc && spike is not null)
+        {
+            AppendHabituationEvent("Habituation.Spike",
+                $"severe spike registered; strike_count {strikes:F1}");
+        }
+        else if (strikes != _lastSavedStrikeCount)
+        {
+            // Strike count moved without a NEW spike timestamp — this is the
+            // reset path (strikes zeroed by full-stable-window OR by hitting
+            // the limit). Still worth logging as a strike-counter event.
+            AppendHabituationEvent("Habituation.Spike",
+                $"strike_count {_lastSavedStrikeCount:F1} → {strikes:F1}");
+        }
+
+        if (es != _lastSavedEngineState)
+        {
+            AppendHabituationEvent("Habituation.StateChange",
+                $"{_lastSavedEngineState} → {es}");
+        }
+    }
+
+    private void AppendHabituationEvent(string category, string message)
+    {
+        try
+        {
+            _eventLog!.Append(new EventLogEntry
+            {
+                Timestamp    = DateTime.UtcNow,
+                Category     = category,
+                Message      = message,
+                Ofi          = Current.OpticalFlowIndex,
+                Pressure     = Current.Pressure,
+                FovRadius    = Current.FovRadiusPercent,
+                MaskSnapshot = Current.MaskActive ? "ON" : "off",
+            });
+        }
+        catch { /* best-effort; event-log writes must never crash the engine */ }
     }
 
     private HabituationProfileSnapshot BuildProfileSnapshot()
