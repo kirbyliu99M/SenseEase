@@ -1,0 +1,197 @@
+<Window x:Class="SenseEase.App.Views.NotificationCardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SenseEase notification"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        Width="480" Height="220"
+        WindowStartupLocation="Manual"
+        Focusable="False">
+    <Window.Resources>
+        <!-- overlay-bar-redesign D4: light-theme primary action button.
+             Replaces the dark-theme PrimaryHpBlueButtonStyle. Deep blue fill
+             with a darker hover/pressed state matches the new white card
+             surface. Vertical stacked label (zh + en) lives inside the
+             button content, not the style — see OpenDashboardBtn below. -->
+        <!-- Path Z bug-fix 6: explicit ControlTemplate. The default Aero
+             Button template paints its own hover/pressed background via
+             VisualStateManager and ignores outer Style.Triggers on the
+             Background property — meaning the Style triggers we used to
+             have here were silently no-op'd at runtime. The Border-based
+             template below ensures the Trigger Background swaps actually
+             render. CornerRadius=3 matches the card's overall radius
+             vocabulary; the ContentPresenter uses TemplateBinding so the
+             vertical-stacked label inside OpenDashboardBtn keeps centering. -->
+        <Style x:Key="PrimaryDeepBlueButtonStyle" TargetType="Button">
+            <Setter Property="Background"      Value="#1E5BB0"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Padding"         Value="14,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#174A92"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#103770"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <!-- overlay-bar-redesign D1: light card theme.
+         White surface, light grey border, soft drop shadow. The previous
+         dark-on-dark scheme blended into the bar — switching to a near-pure
+         white card with the same WGC mask seam (Topmost + AllowsTransparency)
+         gives strong contrast against any background. MouseMove anywhere in
+         the Border resets the 60 s idle-collapse timer. -->
+    <Border x:Name="CardBorder"
+            Background="#FFFFFF"
+            CornerRadius="10"
+            Padding="16"
+            BorderBrush="#E0E4EA"
+            BorderThickness="1"
+            MouseMove="OnCardMouseMove">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="14"
+                              ShadowDepth="3" Opacity="0.18"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- title row -->
+                <RowDefinition Height="*"/>    <!-- body -->
+                <RowDefinition Height="Auto"/> <!-- buttons -->
+            </Grid.RowDefinitions>
+
+            <!-- Title + settings (gear) + close (X). DockPanel docks right-side
+                 buttons first so the title TextBlock takes the remaining space. -->
+            <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,10">
+                <Button DockPanel.Dock="Right"
+                        x:Name="CloseBtn"
+                        Content="×"
+                        Width="22" Height="22"
+                        Padding="0" BorderThickness="0"
+                        Background="Transparent"
+                        Foreground="#7A8499"
+                        FontSize="16" FontWeight="Bold"
+                        Cursor="Hand"
+                        Click="OnCloseClicked"/>
+                <Button DockPanel.Dock="Right"
+                        x:Name="SettingsBtn"
+                        Content="&#x2699;"
+                        Width="22" Height="22"
+                        Padding="0" BorderThickness="0"
+                        Background="Transparent"
+                        Foreground="#7A8499"
+                        FontSize="18"
+                        Cursor="Hand"
+                        Margin="0,0,4,0"
+                        Click="OnSettingsClicked"
+                        ToolTip="設定 / Settings"/>
+                <TextBlock x:Name="TitleText"
+                           Text=""
+                           FontSize="14" FontWeight="Bold"
+                           Foreground="#1A1F2E"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"/>
+            </DockPanel>
+
+            <!-- Body text -->
+            <TextBlock Grid.Row="1"
+                       x:Name="BodyText"
+                       Text=""
+                       FontSize="13"
+                       Foreground="#3A4252"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Top"
+                       Margin="0,0,0,12"/>
+
+            <!-- Button row: Grid with two columns so PowerSaveToggle sits
+                 hard-left and the action buttons sit hard-right at 480 dip.
+                 Layout: [PowerSaveToggle] | [Dashboard][Engage][Mute] -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>  <!-- left: toggle -->
+                    <ColumnDefinition Width="*"/>     <!-- stretch -->
+                    <ColumnDefinition Width="Auto"/>  <!-- right: actions -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Path Z UX iter 2: replaced text label "省電模式 / Power Save"
+                     with a universal power glyph (U+23FB). Old label was both
+                     getting clipped at 480 dip AND mis-framed the action as
+                     "energy saving" when it's actually a sensing on/off
+                     toggle. ToolTip makes the actual semantic clear. -->
+                <CheckBox x:Name="PowerSaveToggle"
+                          Grid.Column="0"
+                          VerticalAlignment="Center"
+                          Foreground="#3A4252"
+                          Cursor="Hand"
+                          ToolTip="暫停 / 恢復 SenseEase 感測 (不會關閉應用程式)&#x0a;Pause / Resume SenseEase sensing (app keeps running)"
+                          Checked="OnPowerSaveToggled"
+                          Unchecked="OnPowerSaveToggled">
+                    <TextBlock Text="&#x23FB;" FontSize="18" FontWeight="SemiBold"/>
+                </CheckBox>
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="OpenDashboardBtn"
+                            Style="{StaticResource PrimaryDeepBlueButtonStyle}"
+                            Click="OnOpenDashboardClicked"
+                            Margin="0,0,8,0">
+                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                            <TextBlock Text="開啟主視窗" FontSize="12" FontWeight="SemiBold"/>
+                            <TextBlock Text="Open Dashboard" FontSize="10" Opacity="0.8"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="EngageBtn"
+                            Content="啟動保護"
+                            Click="OnEngageClicked"
+                            Background="#FF9B6B"
+                            Foreground="#101418"
+                            BorderThickness="0"
+                            Padding="12,6"
+                            Margin="0,0,8,0"
+                            FontSize="12"
+                            FontWeight="Bold"
+                            Cursor="Hand"/>
+                    <Button x:Name="MuteBtn"
+                            Content="6 小時內不再提示"
+                            Click="OnMuteClicked"
+                            Background="#EEF1F5"
+                            Foreground="#3A4252"
+                            BorderThickness="0"
+                            Padding="12,6"
+                            FontSize="12"
+                            Cursor="Hand"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

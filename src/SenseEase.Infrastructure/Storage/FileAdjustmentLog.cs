@@ -65,9 +65,35 @@ public sealed class FileAdjustmentLog : IAdjustmentLog
     {
         lock (_gate)
         {
-            var matches = _records
-                .Where(r => r.Parameter == parameter && r.Source == "user")
-                .ToList();
+            // Reset records act as a hard tare boundary across restarts. Walk
+            // the log to find the index of the most recent Source=="reset"
+            // entry and only sum user-driven entries that came AFTER it.
+            //
+            // Why this matters: before this guard, "Reset" only cleared the
+            // engine's in-memory _userFovOffset but the log kept growing.
+            // On the next startup MockInferenceEngine re-summed every
+            // historic FovRadius delta (capped at -60) so the user booted
+            // back into a tightened FOV — Reset wasn't durable across
+            // restarts. The "reset" sentinel is parameter-agnostic
+            // (Reset clears every personalisation channel uniformly, per
+            // MockInferenceEngine.ResetPersonalization), so the tare here
+            // ignores parameter and just looks for the most recent reset.
+            int lastResetIndex = -1;
+            for (int i = _records.Count - 1; i >= 0; i--)
+            {
+                if (_records[i].Source == "reset")
+                {
+                    lastResetIndex = i;
+                    break;
+                }
+            }
+
+            var matches = new List<AdjustmentRecord>();
+            for (int i = lastResetIndex + 1; i < _records.Count; i++)
+            {
+                var r = _records[i];
+                if (r.Parameter == parameter && r.Source == "user") matches.Add(r);
+            }
             if (matches.Count == 0) return new PersonalWeight(parameter, 0, 0.0, 0.0);
             double net = matches.Sum(r => r.Delta);
             return new PersonalWeight(parameter, matches.Count, net, net / matches.Count);

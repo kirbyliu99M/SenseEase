@@ -33,6 +33,56 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ISensingProvider _sensing;
     private readonly CursorVelocityProvider _cursorSensing = new(AppConfig.RejectCursorDragOfi);
     private readonly WgcSensingProvider _wgcSensing = new();
+    /// <summary>Pop-up sprint Task 1: pass-through for the WGC bar exclude rect.
+    /// MainWindow's validation-mode startup uses this to feed the BarStub's
+    /// monitor-coords rectangle into the OFI pipeline. Null = no mask (default).</summary>
+    public void SetWgcMonitorExcludeRect(int? left, int? top, int? width, int? height)
+        => _wgcSensing.SetMonitorExcludeRect(left, top, width, height);
+
+    /// <summary>overlay-bar-redesign D3: pause-or-resume the WGC capture
+    /// pipeline. Called by MainWindow when the Power Save toggle flips so
+    /// the OFI pipeline goes quiet (frame callbacks short-circuit while
+    /// paused) without tearing down the GraphicsCaptureSession.</summary>
+    public void SetWgcPaused(bool paused)
+    {
+        if (paused) _wgcSensing.Pause();
+        else        _wgcSensing.Resume();
+    }
+
+    /// <summary>Path Z follow-up (Review Agent C #2 + Agent A judgment call
+    /// #40): clear the spike detector so the first post-Resume frame doesn't
+    /// register as a false spike against the artificial zero baseline that
+    /// accumulated while WGC was paused. Lives on the VM because the
+    /// SpikeDetector is owned here, not on the provider.</summary>
+    public void ResetSpikeDetector() => _spikeDetector.Reset();
+
+    /// <summary>Path Z UX iter 2: ensure WGC is the active provider. Public
+    /// entry point for the card's Engage button — "啟動保護" should always
+    /// switch to the real-measurement provider before showing the comfort
+    /// overlay, so the overlay's tier/pressure read reflects real screen
+    /// motion rather than cursor velocity or mock data.</summary>
+    public void SetSensingModeToWgc()
+    {
+        if (AppConfig.Mode == SensingMode.Wgc) return;
+        SetSensingMode(SensingMode.Wgc, "啟動保護");
+    }
+
+    /// <summary>Pop-up sprint Task 5: true iff the user's most recent
+    /// calibration recorded a vestibular diagnosis (Q5 risk factor).
+    /// Drives the SettingsWindow safety warning when the user tries to
+    /// silence the bar/tray colour signal. Reads from the persisted
+    /// habituation profile snapshot — null-safe across all the "no
+    /// calibration has run" cases.</summary>
+    public bool HasVestibularDiagnosis()
+    {
+        var snap = _habituationProfileStore.Load();
+        if (snap?.CalibrationResponses?.Q5RiskFactors is null) return false;
+        foreach (var rf in snap.CalibrationResponses.Q5RiskFactors)
+        {
+            if (rf == SenseEase.Core.Inference.RiskFactor.VestibularDiagnosed) return true;
+        }
+        return false;
+    }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
     // Stage 7b: pass HabituationStatePath as the wipe-probe artifact so the

@@ -18,7 +18,13 @@ public enum LuxSensingMode { Real, Mock }
 /// </summary>
 public static class AppConfig
 {
-    public static SensingMode Mode { get; set; } = SensingMode.Cursor;
+    // Path Z UX iter 3 (2026-05-27): default flipped from Cursor → Wgc. The
+    // Cycle Sensing Mode button is now hidden (Cursor mode unused, Demo only
+    // entered via Calibration), so the startup provider must be the real-
+    // measurement one. Without this flip, the app would silently boot on
+    // CursorVelocityProvider with no way for the user to switch — a ghost
+    // pipeline running with no UI surface to control it.
+    public static SensingMode Mode { get; set; } = SensingMode.Wgc;
 
     // Backward-compat: true only in Demo mode (used by idleTimer and slider Push guard).
     public static bool UseMockSensing => Mode == SensingMode.Demo;

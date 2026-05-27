@@ -10,14 +10,29 @@ public class PressureSpikeDetectorTests
     private static DateTime T0 => new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public void Push_Returns_True_When_Pressure_Rises_30Pct_Within_Window()
+    public void Push_Returns_True_When_Pressure_Rises_50Pct_Within_Window()
     {
+        // Pop-up sprint Task 6: relativeThreshold default raised 30% → 50%.
+        // 60% rise (50 → 80) clears the new threshold; previous fixture
+        // used 40% (50 → 70) which now sits below.
         var d = new PressureSpikeDetector();
 
         Assert.False(d.Push(50, T0));
         Assert.False(d.Push(55, T0.AddSeconds(1)));
-        // 50 → 70 over 2s is a 40% rise, within the 3s window.
-        Assert.True(d.Push(70, T0.AddSeconds(2)));
+        Assert.True(d.Push(80, T0.AddSeconds(2)));
+    }
+
+    [Fact]
+    public void Push_Returns_False_For_40Pct_Rise_After_Threshold_Bump()
+    {
+        // Pop-up sprint Task 6 pin: 40% rise must NOT fire under the new
+        // 50% default. Regression guard — if someone reverts the default
+        // back to 0.30 this test fails before reaching production.
+        var d = new PressureSpikeDetector();
+
+        Assert.False(d.Push(50, T0));
+        Assert.False(d.Push(55, T0.AddSeconds(1)));
+        Assert.False(d.Push(70, T0.AddSeconds(2))); // 40% rise → below 50% threshold
     }
 
     [Fact]
@@ -109,12 +124,15 @@ public class PressureSpikeDetectorTests
     [Fact]
     public void LastNormalizedSpike_Reflects_Magnitude()
     {
+        // Pop-up sprint Task 6: stimulus updated 50→70 (40% rise, no longer
+        // fires) → 50→80 (60% rise, fires under the new 50% default).
+        // Normalized = (80-50)/50 = 0.60.
         var d = new PressureSpikeDetector();
 
         Assert.False(d.Push(50, T0));
-        Assert.True(d.Push(70, T0.AddSeconds(2))); // (70-50)/50 = 0.40
+        Assert.True(d.Push(80, T0.AddSeconds(2)));
         Assert.InRange(d.LastNormalizedSpike, 0.0, 1.0);
-        Assert.InRange(d.LastNormalizedSpike, 0.35, 0.45);
+        Assert.InRange(d.LastNormalizedSpike, 0.55, 0.65);
 
         // A much bigger jump — clamped at 1.0 because new value ≥ 2× baseline.
         var d2 = new PressureSpikeDetector();
