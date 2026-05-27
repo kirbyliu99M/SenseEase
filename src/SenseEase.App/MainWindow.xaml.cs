@@ -201,6 +201,16 @@ public partial class MainWindow : Window
             if (WindowState == WindowState.Normal || WindowState == WindowState.Maximized)
                 _persistentBar?.ReassertTopmost();
         };
+
+        // v0.8 hotfix: click on MainWindow (the dashboard) also dismisses
+        // the card. The foreground-process check inside NotificationCardWindow
+        // can't catch this because MainWindow shares our process — same PID
+        // means the card considers it "ours" and keeps itself open. Adding
+        // PreviewMouseDown here gives the explicit "click anywhere on the
+        // dashboard closes the card" semantic the user asked for.
+        // PreviewMouseDown bubbles through all child controls so a click on
+        // any element of the dashboard (chart, button, tab, list) triggers.
+        PreviewMouseDown += (_, _) => _cardWindow?.Hide();
         // Stop the 15 Hz chart timer so the DispatcherTimer + VM ref don't pin the
         // window after Close (kept the Tick closure alive otherwise).
         Closed += (_, _) => _chartTimer?.Stop();
