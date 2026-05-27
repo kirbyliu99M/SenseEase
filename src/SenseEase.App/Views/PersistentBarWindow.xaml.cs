@@ -74,19 +74,15 @@ public partial class PersistentBarWindow : Window
     /// window behind it.</summary>
     public event EventHandler? Clicked;
 
-    /// <summary>v0.9.1 hotfix: raised once when the user has been hovering
-    /// the bar continuously for <see cref="HoverSustainedMs"/> milliseconds.
+    /// <summary>v0.9.1 hotfix: raised when the cursor enters bar proximity.
     /// Host treats this as "user wants quick-action access" and opens the
     /// notification card — same card the bar's click event would open, just
-    /// triggered by linger instead of click. Re-armed when the user moves
-    /// the cursor out of proximity and back in.</summary>
+    /// without requiring a click. Re-armed when the user moves the cursor
+    /// out of proximity and back in.
+    /// <para>User-iter: originally 800 ms linger; bumped to instant on hover
+    /// per user request — they want pop-up buttons reachable just by moving
+    /// the cursor near the bar.</para></summary>
     public event EventHandler? HoverSustained;
-
-    /// <summary>Linger duration before <see cref="HoverSustained"/> fires.
-    /// 800 ms ≈ "deliberate hover" — long enough that brush-by cursor
-    /// movement during normal screen use doesn't accidentally auto-open
-    /// the card, short enough that intentional hover feels responsive.</summary>
-    public int HoverSustainedMs { get; set; } = 800;
 
     /// <summary>Tier → bar brush. Proxy to <see cref="TierColorPalette"/>.</summary>
     public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
@@ -110,12 +106,15 @@ public partial class PersistentBarWindow : Window
         Loaded += OnLoaded;
         Closed += OnClosed;
 
-        // 30 Hz proximity poll. Cheap (Win32 GetCursorPos + a couple of
-        // float comparisons + an Animation.Begin only on transition); does
-        // not pin the dispatcher.
+        // 60 Hz proximity poll. v0.9.1 hotfix: bumped from 30 Hz because
+        // dropped-click reports correlated with the 33 ms race window between
+        // "cursor enters proximity" and "next tick flips IsHitTestVisible
+        // true". Halving the window to ~16 ms makes the bar feel reliably
+        // clickable. Cost is still negligible (Win32 GetCursorPos + a few
+        // float compares per tick).
         _proximityTimer = new DispatcherTimer(DispatcherPriority.Input)
         {
-            Interval = TimeSpan.FromMilliseconds(33),
+            Interval = TimeSpan.FromMilliseconds(16),
         };
         _proximityTimer.Tick += OnProximityTick;
 
@@ -190,7 +189,15 @@ public partial class PersistentBarWindow : Window
 
     private void OnLeftClick(object sender, MouseButtonEventArgs e)
     {
-        if (_isHovered) Clicked?.Invoke(this, EventArgs.Empty);
+        // v0.9.1 hotfix: clicks were dropping intermittently. Root cause is a
+        // race between the 30 Hz proximity poller and the click event — if
+        // the cursor entered proximity between two ticks, `_isHovered` was
+        // still false when the click fired and the event was eaten. WPF only
+        // delivers MouseLeftButtonUp to a hit-test-visible window in the
+        // first place, so receiving this event already means the cursor is
+        // on the bar — fire unconditionally rather than re-gating on a
+        // possibly-stale cached flag.
+        Clicked?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Sets the bar's fill brush for the given VIMS tier. Idempotent —
@@ -266,21 +273,14 @@ public partial class PersistentBarWindow : Window
     // working" — the failure window that user reports.
     private int _topmostTickCounter;
 
-    // v0.9.1 hotfix: sustained-hover timing for HoverSustained event.
-    // _hoverEnteredAt = when the cursor most recently entered proximity;
-    // null when not currently hovered. _hoverSustainedFired = true once
-    // the HoverSustained event fires; resets to false on hover exit so
-    // re-entering proximity re-arms the linger trigger.
-    private DateTime? _hoverEnteredAt;
-    private bool _hoverSustainedFired;
-
     private void OnProximityTick(object? sender, EventArgs e)
     {
         // Periodic topmost re-assertion. Even if no focus event fired (rare
         // but possible — DWM Alt-Tab animation, fullscreen window claiming
         // topmost, splash screens), this guarantees the bar comes back to
-        // top within ~200 ms of any disruption.
-        if (++_topmostTickCounter >= 6)
+        // top within ~200 ms of any disruption. Counter recalibrated for
+        // 60 Hz tick: 12 ticks ≈ 200 ms.
+        if (++_topmostTickCounter >= 12)
         {
             _topmostTickCounter = 0;
             ForceTopmostViaWin32();
@@ -303,38 +303,19 @@ public partial class PersistentBarWindow : Window
 
         bool nowHovered = dist <= HoverProximityDip;
 
-        // v0.9.1 hotfix: sustained-hover firing. While the cursor stays in
-        // proximity, check whether the linger threshold has been crossed.
-        // Fires once per hover-session (re-armed on hover-out).
-        if (nowHovered && _isHovered)
-        {
-            if (_hoverEnteredAt is { } enteredAt
-                && !_hoverSustainedFired
-                && (DateTime.UtcNow - enteredAt).TotalMilliseconds >= HoverSustainedMs)
-            {
-                _hoverSustainedFired = true;
-                HoverSustained?.Invoke(this, EventArgs.Empty);
-            }
-        }
-
         if (nowHovered == _isHovered) return;
 
         _isHovered = nowHovered;
         IsHitTestVisible = nowHovered;
         AnimateHoverTransition(nowHovered);
 
-        // v0.9.1 hotfix: arm / disarm the sustained-hover countdown on
-        // hover transitions. Entering proximity starts the clock; leaving
-        // resets so a future re-entry re-arms the trigger.
+        // v0.9.1 hotfix: fire HoverSustained on the hover-in transition so
+        // pop-up buttons are reachable just by moving the cursor near the
+        // bar (user preference — no linger delay). The card has its own
+        // click-outside-auto-close so brushing past doesn't strand it open.
         if (nowHovered)
         {
-            _hoverEnteredAt = DateTime.UtcNow;
-            _hoverSustainedFired = false;
-        }
-        else
-        {
-            _hoverEnteredAt = null;
-            _hoverSustainedFired = false;
+            HoverSustained?.Invoke(this, EventArgs.Empty);
         }
     }
 

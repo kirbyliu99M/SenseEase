@@ -157,6 +157,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // constructs a CalibrationChatbotService and kicks StartAsync — the VM
         // just surfaces the active session for the chat tab to render.
         ChatbotVm.LlmCalibrationFactory = BuildLlmCalibrationSession;
+        // v0.9.1 hotfix: route the banner's Start button (and the Recalibrate
+        // entry) through the working button-card UI rather than the LLM
+        // session that has no UI binding. See ChatbotViewModel.StartInvitedCalibration.
+        ChatbotVm.OpenCalibrationCardCallback = TriggerCalibrationCard;
         _nlu = new ChatbotNluService(mistral);
 
         _sensing = ProviderFor(AppConfig.Mode);

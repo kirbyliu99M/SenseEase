@@ -478,9 +478,28 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     // ── Stage 5a/5b — banner + recalibrate command implementations ──────────
 
+    /// <summary>v0.9.1 hotfix: host-supplied callback that opens the button-
+    /// based calibration card. Set by MainViewModel at wire-up. Null in test
+    /// contexts. When null, falls back to the LLM-session factory path (legacy
+    /// behaviour). When non-null, Start button on the invitation banner opens
+    /// the card UI directly — the LLM-session UI surface was never built, so
+    /// the LLM path silently fails for end users. Stage 5a banner + Stage 3d
+    /// card share the same completion handlers in MainViewModel, so routing
+    /// here gives both first-run and subsequent-run users the same working
+    /// calibration UX.</summary>
+    public Action? OpenCalibrationCardCallback { get; set; }
+
     private void StartInvitedCalibration()
     {
         ShowCalibrationInvitationBanner = false;
+        // v0.9.1 hotfix: prefer the button-card path. The LLM session has no
+        // UI binding — clicking Start used to silently launch an invisible
+        // session.
+        if (OpenCalibrationCardCallback is { } openCard)
+        {
+            openCard();
+            return;
+        }
         StartLlmCalibrationSession(LastDemoSensorData);
     }
 
@@ -494,11 +513,16 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     private void Recalibrate()
     {
-        // Recalibrate entry from the chatbot tab. Constructs a session with
-        // zero-valued sensor data (no recent demo to draw from). The system
-        // prompt handles the "no current sensor" case gracefully — see
-        // CalibrationPrompts.cs {USER_CONTEXT} rendering.
+        // Recalibrate entry from the chatbot tab. v0.9.1: also prefer the
+        // button-card path when host wired the callback — same UX argument
+        // as StartInvitedCalibration. Falls back to LLM session for tests
+        // and for the future LLM-UI rebuild.
         ShowCalibrationInvitationBanner = false;
+        if (OpenCalibrationCardCallback is { } openCard)
+        {
+            openCard();
+            return;
+        }
         StartLlmCalibrationSession(new CalibrationSensorData(0.0, 0, 0.0));
     }
 
