@@ -50,6 +50,15 @@ public static class TierColorPalette
     private static readonly SolidColorBrush AmberBrush = MakeFrozen(AmberHue, 0x4D); // 0.30
     private static readonly SolidColorBrush RedBrush   = MakeFrozen(RedHue,   0x73); // 0.45
 
+    // Path Z UX iter 3 — hover variants. When the cursor approaches the
+    // bar (within HoverProximityDip), the bar swaps to these higher-alpha
+    // brushes so the user gets a clear tier-colour read instead of the
+    // ambient-hint alpha used at rest. Same hue, ~2× alpha; still semi-
+    // transparent so the bar doesn't read as a solid OS chrome element.
+    private static readonly SolidColorBrush GreyHoverBrush  = MakeFrozen(GreyHue,  0x66); // 0.40
+    private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, 0xB3); // 0.70
+    private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   0xE6); // 0.90
+
     // Tray icons — full-alpha 32×32 rendered once, frozen, cached by tier band.
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
 
@@ -98,6 +107,18 @@ public static class TierColorPalette
         TierBand.Amber => AmberBrush,
         TierBand.Red   => RedBrush,
         _              => GreyBrush, // unreachable; satisfies exhaustiveness
+    };
+
+    /// <summary>Path Z UX iter 3: hover-state variant of <see cref="BrushForTier"/>.
+    /// Same hue, ~2× alpha — used by <see cref="PersistentBarWindow"/> when
+    /// the cursor enters the hover-proximity zone so the tier colour reads
+    /// clearly. Frozen + cached, identical lifetime to the base brushes.</summary>
+    public static SolidColorBrush HoverBrushForTier(int tier) => BandForTier(tier) switch
+    {
+        TierBand.Grey  => GreyHoverBrush,
+        TierBand.Amber => AmberHoverBrush,
+        TierBand.Red   => RedHoverBrush,
+        _              => GreyHoverBrush,
     };
 
     /// <summary>Resolves a 1–10 VIMS tier to a 32×32 ImageSource for the system

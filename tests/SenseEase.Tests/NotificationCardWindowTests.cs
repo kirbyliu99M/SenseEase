@@ -18,7 +18,10 @@ namespace SenseEase.Tests;
 public class NotificationCardWindowTests
 {
     /// <summary>Test 1 (D2): SetContent formats the numeric title with
-    /// rounded pressure (27.4 → "27/100").</summary>
+    /// rounded pressure. Updated UX iter 3: tier shows "N/10" (10-band
+    /// VIMS scale is unambiguous now) and pressure shows raw value with
+    /// the mask-trigger reference (no fake "/100" denominator since
+    /// LeakyIntegrator is unbounded).</summary>
     [Fact]
     public void NotificationCardWindow_SetContent_FormatsNumericTitle()
     {
@@ -28,7 +31,7 @@ public class NotificationCardWindowTests
             // Force template instantiation so TitleText is non-null.
             w.ApplyTemplate();
             w.SetContent(TierColorPalette.TierBand.Amber, 3, 27.4);
-            Assert.Equal("VIMS Tier 3 · Pressure 27/100", w.TitleText.Text);
+            Assert.Equal("VIMS Tier 3/10 · Pressure 27 (mask at 85)", w.TitleText.Text);
         });
     }
 

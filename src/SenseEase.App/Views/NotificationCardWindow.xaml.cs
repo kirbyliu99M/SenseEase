@@ -168,7 +168,14 @@ public partial class NotificationCardWindow : Window
         string body = DescriptionForBand(_lastBand);
         if (_hasContent)
         {
-            TitleText.Text = $"VIMS Tier {_lastTier} · Pressure {Math.Round(_lastPressure)}/100";
+            // Path Z UX iter 3: tier shown as N/10 so the scale is unambiguous
+            // (VIMS tier is a 1–10 discrete band per OverlayWindow.VimsLevels).
+            // Pressure has no engine-level upper bound (LeakyIntegrator keeps
+            // accumulating); the dashboard caps its chart at 200 with the
+            // mask trigger at 85, so show those reference points instead of
+            // a fake "/100" denominator. User reported the old "/100" was
+            // misleading because real pressure can exceed 300.
+            TitleText.Text = $"VIMS Tier {_lastTier}/10 · Pressure {Math.Round(_lastPressure)} (mask at 85)";
         }
         else
         {

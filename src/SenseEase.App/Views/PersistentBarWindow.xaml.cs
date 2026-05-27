@@ -62,6 +62,19 @@ public partial class PersistentBarWindow : Window
     /// <summary>Tier → bar brush. Proxy to <see cref="TierColorPalette"/>.</summary>
     public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
 
+    // Path Z UX iter 3: remember the last tier we were asked to render so
+    // the hover-transition handler can re-apply a brush of the right hue
+    // without the host having to call SetTier again.
+    private int _currentTier = 1;
+
+    private SolidColorBrush PickBrushForCurrentState(int tier)
+    {
+        int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? tier : 1;
+        return _isHovered
+            ? TierColorPalette.HoverBrushForTier(effectiveTier)
+            : TierColorPalette.BrushForTier(effectiveTier);
+    }
+
     public PersistentBarWindow()
     {
         InitializeComponent();
@@ -148,8 +161,8 @@ public partial class PersistentBarWindow : Window
     /// (per spec §1 "Bar 顏色變化" toggle off → "永遠維持灰色透明").</para></summary>
     public void SetTier(int tier)
     {
-        int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? tier : 1;
-        var brush = BrushForTier(effectiveTier);
+        _currentTier = tier;
+        var brush = PickBrushForCurrentState(tier);
         // Path Z bug-fix 5: while in sleep mode, update the snapshot for
         // ExitSleepMode to restore — but leave the live faint-grey fill in
         // place. Without this guard the engine's StateChanged stream
@@ -240,5 +253,12 @@ public partial class PersistentBarWindow : Window
         var dur = new Duration(TimeSpan.FromMilliseconds(100));
         BeginAnimation(HeightProperty,  new DoubleAnimation(targetHeight,  dur));
         BeginAnimation(OpacityProperty, new DoubleAnimation(targetOpacity, dur));
+
+        // Path Z UX iter 3: swap to the higher-alpha hover brush so the
+        // tier colour reads clearly on cursor approach. Skip while in
+        // sleep mode — the faint paused fill should stay paused-looking
+        // regardless of cursor position.
+        if (_preSleepBackground is null)
+            BarFill.Background = PickBrushForCurrentState(_currentTier);
     }
 }
