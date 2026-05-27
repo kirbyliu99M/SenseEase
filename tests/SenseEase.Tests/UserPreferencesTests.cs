@@ -47,11 +47,15 @@ public class UserPreferencesTests : IDisposable
     // ── Defaults ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Defaults_WhenNoFileExists_AreToggleA_OFF_ToggleB_ON()
+    public void Defaults_WhenNoFileExists_AreToggleA_OFF_ToggleB_OFF()
     {
+        // v0.8 hotfix: Toggle B default flipped from ON → OFF. User
+        // feedback was that the colour-changing bar reads as disruptive
+        // ambient noise. Default behaviour now is grey/neutral bar; user
+        // opts in via Settings if they want the tier-colour signal.
         var p = UserPreferences.Load();
         Assert.False(p.AutoExpandNotifications);  // Toggle A default OFF (user decision)
-        Assert.True(p.BarTrayColorEnabled);        // Toggle B default ON
+        Assert.False(p.BarTrayColorEnabled);       // Toggle B default OFF (v0.8 hotfix)
         Assert.False(p.VestibularWarningShown);    // never shown yet
         Assert.Equal(1, p.SchemaVersion);
     }
@@ -110,7 +114,7 @@ public class UserPreferencesTests : IDisposable
 
         var reread = UserPreferences.Load();
         Assert.False(reread.AutoExpandNotifications);
-        Assert.True(reread.BarTrayColorEnabled);
+        Assert.False(reread.BarTrayColorEnabled);   // v0.8 hotfix: default OFF
         Assert.False(reread.VestibularWarningShown);
     }
 
@@ -143,7 +147,7 @@ public class UserPreferencesTests : IDisposable
 
         Assert.Equal(1, p.SchemaVersion);
         Assert.False(p.AutoExpandNotifications);  // defaults, NOT the file's true
-        Assert.True(p.BarTrayColorEnabled);        // defaults, NOT the file's false
+        Assert.False(p.BarTrayColorEnabled);       // defaults (v0.8 hotfix: OFF), NOT the file's value
     }
 
     [Fact]
@@ -155,7 +159,7 @@ public class UserPreferencesTests : IDisposable
         var p = UserPreferences.Load();
 
         Assert.False(p.AutoExpandNotifications);
-        Assert.True(p.BarTrayColorEnabled);
+        Assert.False(p.BarTrayColorEnabled);  // v0.8 hotfix: default OFF
     }
 
     [Fact]
@@ -167,7 +171,7 @@ public class UserPreferencesTests : IDisposable
         var p = UserPreferences.Load();
 
         Assert.False(p.AutoExpandNotifications);
-        Assert.True(p.BarTrayColorEnabled);
+        Assert.False(p.BarTrayColorEnabled);  // v0.8 hotfix: default OFF
     }
 
     // ── Current singleton ────────────────────────────────────────────────────

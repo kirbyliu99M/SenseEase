@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using SenseEase.App.Comfort;
@@ -10,6 +12,37 @@ namespace SenseEase.App;
 public partial class App : Application
 {
     private static LuxComfortController? _luxController;
+
+    // v0.8 hotfix: single-instance guard. Pop-up sprint iter 5 introduced
+    // "minimize to tray on close" — but never added a re-launch guard. So
+    // every time the user closed the dashboard (which now keeps the process
+    // alive in the tray) and then clicked the shortcut/exe again, a SECOND
+    // process started and registered its OWN tray icon. The cycle compounds:
+    // close X → relaunch → 2 trays → close X → relaunch → 3 trays …
+    //
+    // Named Mutex is held for the whole process lifetime; on collision we
+    // try to bring the existing instance's main window forward via Win32
+    // FindWindow + ShowWindow + SetForegroundWindow, then exit immediately.
+    //
+    // Mutex name uses the same AUMID as the shell registration so the
+    // "identity" of an instance is unambiguous across diagnostics.
+    private static Mutex? _singleInstanceMutex;
+    private const string SingleInstanceMutexName = "Global\\SenseEase.App.SingleInstance";
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr FindWindow(string? lpClassName, string lpWindowName);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    private const int SW_RESTORE = 9;
+    private const int SW_SHOW    = 5;
 
     /// <summary>Patch 8 (sub-bug #2): Win32 Shell_NotifyIcon associates tray
     /// entries with the process's AppUserModelID (AUMID). Without an explicit
@@ -43,6 +76,37 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // v0.8 hotfix: single-instance check FIRST, before AUMID/tray/diag.
+        // If another SenseEase.App is already running, surface its window
+        // and exit this process immediately — no MainWindow, no tray icon,
+        // no engine. The existing instance keeps owning the tray entry.
+        try
+        {
+            _singleInstanceMutex = new Mutex(initiallyOwned: true,
+                                             name: SingleInstanceMutexName,
+                                             createdNew: out bool isFirstInstance);
+            if (!isFirstInstance)
+            {
+                TrySurfaceExistingInstance();
+                Shutdown(exitCode: 0);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            // If mutex creation fails (e.g. security policy), log + continue.
+            // Worst case: pre-hotfix behaviour (duplicate-tray risk). Better
+            // than refusing to launch at all.
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                    $"[{DateTime.UtcNow:O}] [App.SingleInstance] mutex create failed: " +
+                    $"{ex.GetType().Name}: {ex.Message} — continuing without guard\n");
+            }
+            catch { /* fire-and-forget */ }
+        }
+
         // Path Z UX iter 5: detect autostart-from-Windows-login. The
         // AutoStartRegistry HKCU entry passes --minimized so the app
         // boots straight to the tray instead of flashing the dashboard.
@@ -120,7 +184,29 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         SafeShutdownLux();
+        try { _singleInstanceMutex?.ReleaseMutex(); } catch { }
+        try { _singleInstanceMutex?.Dispose(); } catch { }
+        _singleInstanceMutex = null;
         base.OnExit(e);
+    }
+
+    /// <summary>v0.8 hotfix: find the existing SenseEase MainWindow and
+    /// bring it to foreground. The window title is fixed by XAML
+    /// (<c>"SenseEase — Visual Comfort Dashboard"</c>) so FindWindow by
+    /// title is reliable. If the window is currently hidden (close-to-tray
+    /// state) or minimized, ShowWindow+SetForegroundWindow restores it.
+    /// Best-effort — any failure leaves the existing instance alone.</summary>
+    private static void TrySurfaceExistingInstance()
+    {
+        try
+        {
+            IntPtr hwnd = FindWindow(null, "SenseEase — Visual Comfort Dashboard");
+            if (hwnd == IntPtr.Zero) return;
+            if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+            else                ShowWindow(hwnd, SW_SHOW);
+            SetForegroundWindow(hwnd);
+        }
+        catch { /* best-effort */ }
     }
 
     /// <summary>Idempotent, thread-safe, never throws. The user's hard requirement
