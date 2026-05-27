@@ -66,7 +66,7 @@ public partial class PersistentBarWindow : Window
     {
         InitializeComponent();
         Loaded += OnLoaded;
-        Closed += (_, _) => _proximityTimer?.Stop();
+        Closed += OnClosed;
 
         // 30 Hz proximity poll. Cheap (Win32 GetCursorPos + a couple of
         // float comparisons + an Animation.Begin only on transition); does
@@ -82,15 +82,59 @@ public partial class PersistentBarWindow : Window
         IsHitTestVisible = false;
 
         MouseLeftButtonUp += OnLeftClick;
+
+        // Path Z UX iter 2: re-position the bar when the user's display
+        // configuration changes (multi-monitor connect/disconnect, primary-
+        // monitor swap, taskbar move). Without this, the bar's Left/Top
+        // computed in OnLoaded points at a now-stale work-area and the
+        // proximity poller's cursor-distance maths gives the wrong answer.
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        _proximityTimer?.Stop();
+        // Detach the static-event subscription so the bar can be GC'd.
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        RepositionForWorkArea();
+        _proximityTimer.Start();
+    }
+
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        // Dispatcher.Invoke because SystemEvents fires on a worker thread.
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            RepositionForWorkArea();
+            // Multi-monitor swaps can also bury the bar behind a window that
+            // briefly took focus; re-assert topmost just in case.
+            ReassertTopmost();
+        }));
+    }
+
+    private void RepositionForWorkArea()
     {
         var work = SystemParameters.WorkArea;
         Left = work.Left + (work.Width - Width) / 2.0;
         Top  = work.Top;
         Height = BaseHeightDip;
-        _proximityTimer.Start();
+    }
+
+    /// <summary>Path Z UX iter 2: re-assert the bar's Topmost flag so a
+    /// recently-foreground app (Alt-Tab target, restored MainWindow) can't
+    /// keep the bar buried in z-order. WPF doesn't auto-restore Topmost
+    /// when another Topmost window steals to-front; the false→true dance
+    /// pokes Win32 SetWindowPos which always pushes us back above peers.
+    /// Idempotent — safe to call every focus change.</summary>
+    public void ReassertTopmost()
+    {
+        if (!IsLoaded) return;
+        Topmost = false;
+        Topmost = true;
     }
 
     private void OnLeftClick(object sender, MouseButtonEventArgs e)

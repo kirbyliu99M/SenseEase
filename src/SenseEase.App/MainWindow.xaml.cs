@@ -128,14 +128,23 @@ public partial class MainWindow : Window
             }
         };
 
-        SourceInitialized += (_, _) =>
-        {
-            if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
-            {
-                IntPtr hwnd = new WindowInteropHelper(this).Handle;
-                vm.WireLuxComfort(hwnd);
-            }
-        };
+        // TODO(lux-removal): user decision 2026-05-27 — ambient-light comfort
+        // pipeline disabled because RGB-camera-based lux estimation was proven
+        // unreliable in field testing. Code left in place (WireLuxComfort,
+        // LuxComfortController, WebcamLuxProvider, LightSensorProvider,
+        // MockAmbientLightProvider, LuxComfortMapper, IAmbientLightProvider)
+        // so a future sprint can revive with a real OS ALS provider; the
+        // entry point is gated here so no resources get spent at startup.
+        // To revive: uncomment the WireLuxComfort call below.
+        //
+        // SourceInitialized += (_, _) =>
+        // {
+        //     if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
+        //     {
+        //         IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        //         vm.WireLuxComfort(hwnd);
+        //     }
+        // };
         Closed += (_, _) =>
         {
             if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
@@ -146,6 +155,19 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) => _overlay?.Close();
         Closed += (_, _) => _spikePopup?.Close();
+
+        // Path Z UX iter 2: bar-click bug fix. After Alt-Tab to another
+        // window, multi-monitor drag, or MainWindow minimize/restore, the
+        // bar's z-order can get demoted behind whatever app stole focus
+        // (some apps Topmost themselves, some fullscreen-exclusive). Re-
+        // assert the bar's Topmost on every MainWindow activation +
+        // restore-from-minimized event. Cheap (one SetWindowPos round-trip).
+        Activated += (_, _) => _persistentBar?.ReassertTopmost();
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Normal || WindowState == WindowState.Maximized)
+                _persistentBar?.ReassertTopmost();
+        };
         // Stop the 15 Hz chart timer so the DispatcherTimer + VM ref don't pin the
         // window after Close (kept the Tick closure alive otherwise).
         Closed += (_, _) => _chartTimer?.Stop();
@@ -415,12 +437,13 @@ public partial class MainWindow : Window
             };
             _cardWindow.EngageClicked += (_, _) =>
             {
-                // Task 4 has no concrete "engage" action wired — spec is
-                // ambiguous on what "啟動保護" means per tier. Future work
-                // (Task 5 toggles or a later sprint) decides this. For now
-                // the click just closes the card; user gets visual feedback
-                // that the button DID something via the immediate hide.
-                System.Diagnostics.Debug.WriteLine("[notification-card] Engage clicked (placeholder, no action wired yet).");
+                // Path Z UX iter 2: 啟動保護 = enforce protective intervention.
+                // (1) ensure sensing is on the real-measurement provider (WGC),
+                // (2) surface the comfort overlay so the user gets immediate
+                // visual mitigation. Card already closes itself on click via
+                // its own Hide().
+                _viewModel.SetSensingModeToWgc();
+                _viewModel.OverlayVisible = true;
             };
             _cardWindow.MuteClicked += (_, _) =>
             {

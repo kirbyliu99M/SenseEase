@@ -322,8 +322,13 @@
                             <Button Content="Switch Driver / Passenger" Style="{StaticResource GhostBtn}"
                                     Command="{Binding ToggleModeCommand}"
                                     Margin="0,0,8,8"/>
+                            <!-- Path Z UX iter 2: "Cycle Sensing Mode" button hidden.
+                                 Cursor mode is unused in production; Demo mode is
+                                 only entered via the Calibration flow. Binding kept
+                                 in case the button is revived for a debug build. -->
                             <Button Content="Cycle Sensing Mode" Style="{StaticResource GhostBtn}"
                                     Command="{Binding ToggleDemoModeCommand}"
+                                    Visibility="Collapsed"
                                     Margin="0,0,8,8"/>
                         </WrapPanel>
 

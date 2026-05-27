@@ -56,6 +56,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// SpikeDetector is owned here, not on the provider.</summary>
     public void ResetSpikeDetector() => _spikeDetector.Reset();
 
+    /// <summary>Path Z UX iter 2: ensure WGC is the active provider. Public
+    /// entry point for the card's Engage button — "啟動保護" should always
+    /// switch to the real-measurement provider before showing the comfort
+    /// overlay, so the overlay's tier/pressure read reflects real screen
+    /// motion rather than cursor velocity or mock data.</summary>
+    public void SetSensingModeToWgc()
+    {
+        if (AppConfig.Mode == SensingMode.Wgc) return;
+        SetSensingMode(SensingMode.Wgc, "啟動保護");
+    }
+
     /// <summary>Pop-up sprint Task 5: true iff the user's most recent
     /// calibration recorded a vestibular diagnosis (Q5 risk factor).
     /// Drives the SettingsWindow safety warning when the user tries to

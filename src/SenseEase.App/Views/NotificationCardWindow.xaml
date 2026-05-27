@@ -142,15 +142,20 @@
                     <ColumnDefinition Width="Auto"/>  <!-- right: actions -->
                 </Grid.ColumnDefinitions>
 
+                <!-- Path Z UX iter 2: replaced text label "省電模式 / Power Save"
+                     with a universal power glyph (U+23FB). Old label was both
+                     getting clipped at 480 dip AND mis-framed the action as
+                     "energy saving" when it's actually a sensing on/off
+                     toggle. ToolTip makes the actual semantic clear. -->
                 <CheckBox x:Name="PowerSaveToggle"
                           Grid.Column="0"
                           VerticalAlignment="Center"
-                          FontSize="11"
                           Foreground="#3A4252"
                           Cursor="Hand"
+                          ToolTip="暫停 / 恢復 SenseEase 感測 (不會關閉應用程式)&#x0a;Pause / Resume SenseEase sensing (app keeps running)"
                           Checked="OnPowerSaveToggled"
                           Unchecked="OnPowerSaveToggled">
-                    <TextBlock Text="省電模式 / Power Save"/>
+                    <TextBlock Text="&#x23FB;" FontSize="18" FontWeight="SemiBold"/>
                 </CheckBox>
 
                 <StackPanel Grid.Column="2"
