@@ -60,6 +60,12 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
 
+        // M2 (Phase 6c): wire the Power Save lookup so the chatbot's
+        // [habituation_state] block reflects the current sensing state.
+        // MainWindow owns the source of truth (session-scoped per
+        // Pop-up sprint iter 2); the VM reads through this callback.
+        _viewModel.SetPowerSaveActiveLookup(() => _powerSaveActive);
+
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
         _viewModel.StateChanged             += OnStateChanged;
 
@@ -542,6 +548,13 @@ public partial class MainWindow : Window
     // bar, tray, and WGC provider all observe this flag so flipping the
     // toggle in the card propagates to every surface.
     private bool _powerSaveActive;
+
+    /// <summary>M2 (Phase 6c): exposed read of the private _powerSaveActive
+    /// flag for the VM-side chatbot context builder. Wired into MainViewModel
+    /// via SetPowerSaveActiveLookup so ChatbotViewModel can include
+    /// <c>power_save_active</c> in the <c>[habituation_state]</c> block
+    /// without taking a direct dependency on the View layer.</summary>
+    public bool IsPowerSaveActive => _powerSaveActive;
 
     /// <summary>overlay-bar-redesign D3: applies the Power Save flag across
     /// every dependent surface. Idempotent — a no-op if the state matches

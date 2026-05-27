@@ -177,6 +177,23 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     public ICommand SkipCalibrationInvitationCommand { get; private set; } = null!;
     public ICommand RecalibrateCommand { get; private set; } = null!;
 
+    /// <summary>M2 (Phase 6c): host-provided lookup for "is Power Save
+    /// currently active?". Used by <see cref="BuildContextualInput"/> to
+    /// emit <c>power_save_active: true</c> in the <c>[habituation_state]</c>
+    /// block when the sensing pipeline is paused, so the LLM knows the
+    /// tier/pressure data is stale. Null = treat as inactive (the path
+    /// taken when ChatbotViewModel is constructed outside MainWindow,
+    /// e.g. tests).</summary>
+    public Func<bool>? IsPowerSaveActive { get; set; }
+
+    /// <summary>M2 (Phase 6c): host-provided lookup for the persisted
+    /// habituation profile snapshot. ChatbotViewModel can't take a
+    /// direct dependency on FileHabituationProfileStore without dragging
+    /// Infrastructure into the VM layer, so the host wires this lambda
+    /// at construction time. Null = block omitted entirely (graceful for
+    /// pre-calibration / test contexts).</summary>
+    public Func<HabituationProfileSnapshot?>? LoadHabituationSnapshot { get; set; }
+
     public ChatbotViewModel(
         IChatbotService chatbot,
         IInferenceEngine engine,
@@ -530,10 +547,30 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// "what caused the dizziness in the last session?". Empty sources are gracefully
     /// omitted (new install -> no prefix), keeping the previous behaviour as a baseline.
     /// </summary>
-    private string BuildContextualInput(string text)
+    // M2 (Phase 6e): visibility bumped to internal so SenseEase.Tests can
+    // call BuildContextualInput directly and assert on the embedded
+    // [habituation_state] block content. Production callers all live in
+    // the App project so internal-vs-private is invisible at runtime;
+    // SenseEase.App.csproj already has InternalsVisibleTo SenseEase.Tests.
+    internal string BuildContextualInput(string text)
     {
         var sb = new StringBuilder();
         AppendHistoryPrefix(sb);
+
+        // M2 (Phase 6c): inject [habituation_state] block so the LLM has
+        // user-context to ground its replies — current tier, habituation
+        // level, profile, calibration history, longitudinal observations,
+        // recent trajectory summary, power-save state, medical advisory.
+        // Empty string when no profile snapshot exists (pre-calibration);
+        // omitted entirely in that case to save tokens.
+        var snapshot = LoadHabituationSnapshot?.Invoke();
+        string trajectory = HabituationTrajectoryBuilder.BuildSummary(_eventLog);
+        bool powerSave = IsPowerSaveActive?.Invoke() ?? false;
+        string habBlock = HabituationStateBlockBuilder.BuildBlock(snapshot, trajectory, powerSave);
+        if (!string.IsNullOrEmpty(habBlock))
+        {
+            sb.Append(habBlock).Append('\n');
+        }
 
         var sh = _engine.Current.Shader;
         var bl = _engine.BaselineShader;

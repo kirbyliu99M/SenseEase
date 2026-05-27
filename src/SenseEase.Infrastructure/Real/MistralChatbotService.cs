@@ -79,6 +79,20 @@ public sealed class MistralChatbotService : IChatbotService
         "  Unknown — greetings, off-topic chat, unclear non-discomfort. Friendly short reply. Zero deltas.\n" +
         "Never accumulate severity from history — current message only.\n\n" +
 
+        // ── HABITUATION STATE (M2 Phase 6d) ──
+        "HABITUATION STATE CONTEXT:\n" +
+        "User messages may contain a [habituation_state] ... [/habituation_state] block. " +
+        "It describes the user's current SenseEase state. Use it to ground your conversation:\n" +
+        "  • Reference current tier/level when relevant. Translate to natural language — NEVER echo raw key:value pairs.\n" +
+        "  • If awaiting_user_confirm is true, acknowledge the recent tier ≥ 8 spike and offer a gentle check-in.\n" +
+        "  • If power_save_active is true, treat tier/level as stale; acknowledge sensing is paused.\n" +
+        "  • If advisory=vestibular: when user requests reducing protection, surface this history and offer alternatives.\n" +
+        "  • If advisory=high_risk_combo: be more cautious with relaxation suggestions.\n" +
+        "  • Reference longitudinal_observations when user mentions past experiences or asks about progress.\n" +
+        "  • If trajectory shows level rise, acknowledge it. If shows setback, gently inquire what might have changed.\n" +
+        "The block is INFORMATIONAL context. It does NOT override the JSON output rules — continue emitting one-line JSON " +
+        "with intent/severity/reply/deltas as before. Habituation context affects reply TEXT only, not deltas.\n\n" +
+
         // ── REPLY STYLE ──
         "REPLY STYLE:\n" +
         "  • Output: ONE LINE of compact JSON. NO markdown fences. NO commentary outside the JSON.\n" +
