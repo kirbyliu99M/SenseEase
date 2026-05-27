@@ -185,6 +185,23 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private bool _watchdogScheduled;
     private DateTime _lastFrameProcessedAt; // updated each successful OnTick
 
+    // v0.8 hotfix: warm-up suppression. User reported that at app startup
+    // the VIMS pressure spiked (~60% FOV reduction visible as a dimmed
+    // overlay) for the first second or two. Root cause: WGC's initial
+    // frames are inherently noisy (first frame compares against null
+    // _prevFrame → 0, but the SECOND frame computes a large MAD against
+    // _prevFrame that hasn't seen real motion yet; median filter buffer
+    // isn't full so spurious values pass through directly; EMA smoothing
+    // starts from 0 so even partial samples register strongly). The
+    // LeakyIntegrator accumulates this noise into pressure before the
+    // pipeline stabilises.
+    //
+    // Fix: emit OFI=0 for the first WarmupDurationSec seconds after Start.
+    // _smoothedOfi + _prevFrame are also held at neutral during warmup so
+    // the first POST-warmup frame computes against a clean baseline.
+    private const double WarmupDurationSec = 2.0;
+    private DateTime _warmupUntilUtc;
+
     /// <summary>overlay-bar-redesign D3: true while sensing is paused via
     /// <see cref="Pause"/>. Exposed for tests; production reads it via the
     /// internal frame-callback short-circuit.</summary>
@@ -199,27 +216,41 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         _raiseSampleCallback = _ => OpticalFlowSampled?.Invoke(this, _pendingSample);
     }
 
-    /// <summary>overlay-bar-redesign D3: short-circuit the frame callback
-    /// without tearing down the GraphicsCaptureSession. Idempotent —
-    /// Pause/Pause is a no-op.</summary>
+    /// <summary>v0.8 hotfix follow-up: full tear-down of the WGC capture
+    /// session, not just a flag short-circuit. User feedback was that the
+    /// Windows yellow capture indicator staying visible during "Power Save"
+    /// contradicts the toggle's mental model of "off". Pause now calls
+    /// <see cref="Stop"/> which releases the GraphicsCaptureSession + D3D11
+    /// device + COM pointers — yellow border disappears immediately.
+    /// <para>The <c>_paused</c> flag is kept as a redundant short-circuit
+    /// (set BEFORE Stop) so any in-flight OnTick callback exits early
+    /// before Stop releases the pointers it would otherwise dereference.</para>
+    /// <para>Idempotent — Pause/Pause is a no-op (Stop checks _running).</para></summary>
     public void Pause()
     {
         _paused = true;
+        Stop();
     }
 
-    /// <summary>overlay-bar-redesign D3: re-enable the frame callback. Also
-    /// schedules a one-shot watchdog 2 s out — if no frame has been processed
-    /// in that window, the capture session is bounced via Stop()+Start() as a
-    /// best-effort recovery. Idempotent — Resume/Resume schedules at most
-    /// one watchdog.
+    /// <summary>v0.8 hotfix follow-up: full fresh init on resume. Calls
+    /// <see cref="Start"/> which rebuilds the WGC session, D3D11 device,
+    /// and staging texture from scratch. ~1-2 s cost is acceptable for an
+    /// intentional user action; the yellow capture indicator reappears
+    /// at this point (which is correct — sensing IS resuming).
     /// <para>Spike-detector reset is NOT performed here: the SpikeDetector
-    /// lives in the consumer (MainViewModel) rather than the provider, so
-    /// the provider has no handle on it. Coordinator: wire a Reset() from
-    /// MainViewModel if the post-resume spike-suppression behaviour is
-    /// needed in practice.</para></summary>
+    /// lives in the consumer (MainViewModel) rather than the provider.
+    /// MainWindow.ApplyPowerSave wires <c>_viewModel.ResetSpikeDetector()</c>
+    /// on the disable path.</para>
+    /// <para>The 2 s frame-arrival watchdog is still scheduled even though
+    /// the fresh Start makes the Power-Save resume path itself self-healing.
+    /// The watchdog remains useful for non-Power-Save OS-level invalidation
+    /// scenarios (lock-screen recovery, monitor sleep wake, RDP reconnect)
+    /// where a session that was alive can stop yielding frames silently.</para>
+    /// <para>Idempotent — Resume/Resume is a no-op (Start checks _running).</para></summary>
     public void Resume()
     {
         _paused = false;
+        Start();
         _resumedAt = DateTime.UtcNow;
         ScheduleResumeWatchdog();
     }
@@ -402,7 +433,14 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         Array.Clear(_ofiHistory);
         _ofiHistoryFilled = 0;
         _ofiHistoryHead   = 0;
-        WgcLog("Start complete — timer running.");
+        // v0.8 hotfix: arm the warm-up window. OnTick will suppress OFI
+        // emission (force OFI=0 + reset _prevFrame each tick) until this
+        // deadline passes, giving the pipeline time to stabilise without
+        // accumulating noise into the LeakyIntegrator → no startup
+        // pressure spike → overlay stays at neutral FOV until real
+        // measurements are available.
+        _warmupUntilUtc = DateTime.UtcNow.AddSeconds(WarmupDurationSec);
+        WgcLog($"Start complete — timer running. Warmup until {_warmupUntilUtc:HH:mm:ss.fff}");
         _timer.Change(SenseDefaults.WgcCaptureIntervalMs, SenseDefaults.WgcCaptureIntervalMs);
     }
 
@@ -445,6 +483,29 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         // without disposing the capture session (cheap to resume).
         if (_paused) return;
         if (_contentWidth == 0 || _contentHeight == 0) return;
+
+        // v0.8 hotfix: warm-up suppression. While the pipeline is settling
+        // (first WarmupDurationSec after Start), emit OFI=0 and keep
+        // internal state at zero so the LeakyIntegrator can't accumulate
+        // pressure from the initial noisy frames. Without this, the
+        // FOV-reduction overlay would visibly dim ~60% of the screen at
+        // every app startup until samples stabilised — looks like a bug.
+        if (DateTime.UtcNow < _warmupUntilUtc)
+        {
+            _smoothedOfi = 0;
+            _prevFrame   = null;  // also reset so first post-warmup frame
+                                  // has a clean previous-frame slate
+            _pendingSample = new OpticalFlowSample
+            {
+                OpticalFlowIndex = 0,
+                SampledAt        = DateTime.UtcNow,
+            };
+            if (_ctx != null && _raiseSampleCallback != null)
+                _ctx.Post(_raiseSampleCallback, null);
+            else
+                OpticalFlowSampled?.Invoke(this, _pendingSample);
+            return;
+        }
 
         try
         {

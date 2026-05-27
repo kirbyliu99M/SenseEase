@@ -54,10 +54,14 @@ public sealed class UserPreferences
     public bool AutoExpandNotifications { get; set; } = false;
 
     /// <summary>Toggle B — bar + tray icon reflect tier with 3-band colour.
-    /// Default <c>true</c>. When false, both surfaces stay grey/neutral
-    /// regardless of tier (silent visual mode).</summary>
+    /// Default <c>false</c> as of v0.8 hotfix: user feedback was that the
+    /// colour-changing bar reads as disruptive ambient noise. Stays grey
+    /// out-of-the-box; user can opt in via Settings → Toggle B if they
+    /// want the tier signal. Existing UserPreferences.json files keep
+    /// their stored value (no migration); only first-launch / wiped
+    /// installs see the new default.</summary>
     [JsonPropertyName("bar_tray_color_enabled")]
-    public bool BarTrayColorEnabled { get; set; } = true;
+    public bool BarTrayColorEnabled { get; set; } = false;
 
     /// <summary>Single-warning flag for the vestibular safety dialog. Set
     /// to <c>true</c> after the user has been shown the "you have a

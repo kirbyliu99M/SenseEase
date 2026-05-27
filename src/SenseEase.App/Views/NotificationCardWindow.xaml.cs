@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
@@ -74,6 +76,19 @@ public partial class NotificationCardWindow : Window
     private readonly DispatcherTimer _idleTimer;
     private Storyboard? _activeFadeStoryboard;
 
+    // v0.8 hotfix: click-outside-auto-close. User reported the card was
+    // staying open after they clicked another app — they want it to
+    // dismiss immediately when focus moves to a different process.
+    // 500 ms poll of GetForegroundWindow + process-ID compare. If the
+    // foreground window belongs to ANY other process (not SenseEase),
+    // hide the card. Stops on Hide/Close so we don't poll forever.
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    private DispatcherTimer? _foregroundCheckTimer;
+    private static readonly uint OurProcessId = (uint)Process.GetCurrentProcess().Id;
+
     // overlay-bar-redesign D2/D3: cache the last content the card was set to
     // so an IsPowerSaveActive flip can re-render without callers passing
     // values again. Default band is Grey for the rare path where the toggle
@@ -116,7 +131,13 @@ public partial class NotificationCardWindow : Window
         _idleTimer = new DispatcherTimer { Interval = IdleTimeout };
         _idleTimer.Tick += OnIdleTimerTick;
         Loaded += OnLoaded;
-        Closed += (_, _) => _idleTimer.Stop();
+        IsVisibleChanged += OnIsVisibleChanged;
+        Closed += (_, _) =>
+        {
+            _idleTimer.Stop();
+            _foregroundCheckTimer?.Stop();
+            _foregroundCheckTimer = null;
+        };
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -134,6 +155,50 @@ public partial class NotificationCardWindow : Window
 
         // Start the idle countdown. MouseMove on CardBorder restarts it.
         RestartIdleTimer();
+    }
+
+    // v0.8 hotfix: keep the foreground-check timer aligned with the card's
+    // visibility. Stops the timer when card is hidden (cheap when card isn't
+    // open), restarts when Show()n. IsVisibleChanged fires on both Show and
+    // Hide so this is the right hook (Loaded fires only once per construction).
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible)
+        {
+            if (_foregroundCheckTimer is null)
+            {
+                _foregroundCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                _foregroundCheckTimer.Tick += OnForegroundCheckTick;
+            }
+            _foregroundCheckTimer.Start();
+        }
+        else
+        {
+            _foregroundCheckTimer?.Stop();
+        }
+    }
+
+    /// <summary>v0.8 hotfix: hide the card when any non-SenseEase window
+    /// gains foreground. Implements the click-outside-auto-close UX the
+    /// user explicitly asked for ("I want it to autoclose, not stay
+    /// forever on the screen"). Compares foreground process ID against
+    /// our own — any of OUR windows (MainWindow, PersistentBarWindow,
+    /// NotificationCardWindow itself, SettingsWindow) keep the card alive;
+    /// any external process triggers immediate Hide.</summary>
+    private void OnForegroundCheckTick(object? sender, EventArgs e)
+    {
+        IntPtr fg = GetForegroundWindow();
+        if (fg == IntPtr.Zero) return;
+        GetWindowThreadProcessId(fg, out uint pid);
+        if (pid == 0) return; // GetWindowThreadProcessId failed; don't act
+        if (pid != OurProcessId)
+        {
+            // Foreground belongs to another app → user has switched focus.
+            // Hide the card. Idle timer + fade storyboard already handle
+            // their own teardown via IsVisibleChanged-driven _foregroundCheckTimer
+            // stop above + Closed handlers below.
+            Hide();
+        }
     }
 
     /// <summary>overlay-bar-redesign D2: sets card content for a VIMS tier
