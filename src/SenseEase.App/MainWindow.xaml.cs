@@ -23,6 +23,14 @@ public partial class MainWindow : Window
     // hiding the window. Without this, Quit-from-tray would just minimize
     // MainWindow back to the tray (infinite loop, never quits).
     private bool _quittingFromTray;
+
+    // v0.8 hotfix follow-up: Power Save also dismisses the comfort overlay.
+    // _overlayVisibleBeforePowerSave snapshots the user's overlay state at
+    // the moment Power Save is engaged so it can be restored on disable.
+    // Default true — startup default is "overlay engaged" so the snapshot
+    // before any user interaction is consistent with the on-by-default
+    // mental model.
+    private bool _overlayVisibleBeforePowerSave = true;
     // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
     // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.
     private BarStubWindow? _wgcBarStub;
@@ -271,6 +279,20 @@ public partial class MainWindow : Window
                 SafeLog($"[Loaded#3] StartTrayIcon EXCEPTION: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
+        };
+
+        // v0.8 hotfix follow-up: comfort overlay engaged by default at
+        // startup. User mental model: opening the app = protection on.
+        // The OverlayWindow lives in fully-transparent state at low tiers
+        // (alpha 0 in OverlayWindow's VimsLevels table for tier 1), so
+        // visually nothing changes until pressure rises. User can disable
+        // via the existing ToggleOverlayCommand if they want the screen
+        // unfiltered. Power Save snapshots+restores this flag.
+        // Subscribed via Loaded so OverlayWindow construction happens
+        // AFTER the visual tree is ready.
+        Loaded += (_, _) =>
+        {
+            if (!_viewModel.OverlayVisible) _viewModel.OverlayVisible = true;
         };
     }
 
@@ -529,6 +551,22 @@ public partial class MainWindow : Window
         // first real frame after a long pause doesn't fire a false spike
         // against the artificial zero baseline accumulated while paused.
         if (!enabled) _viewModel.ResetSpikeDetector();
+
+        // v0.8 hotfix follow-up: Power Save also dismisses the comfort
+        // overlay. User mental model: "Power Save = stop all protection".
+        // Snapshot/restore mirrors the WGC Pause/Resume contract so a
+        // user who manually disabled the overlay before toggling Power
+        // Save doesn't see it spontaneously re-enable on Resume.
+        if (enabled)
+        {
+            _overlayVisibleBeforePowerSave = _viewModel.OverlayVisible;
+            if (_viewModel.OverlayVisible) _viewModel.OverlayVisible = false;
+        }
+        else
+        {
+            if (_overlayVisibleBeforePowerSave && !_viewModel.OverlayVisible)
+                _viewModel.OverlayVisible = true;
+        }
 
         if (_persistentBar is not null)
         {
