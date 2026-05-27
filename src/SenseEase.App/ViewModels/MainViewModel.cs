@@ -49,6 +49,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         else        _wgcSensing.Resume();
     }
 
+    /// <summary>M2 (Phase 6c): host-injected lookup for Power Save state.
+    /// MainWindow owns the source of truth (its private _powerSaveActive
+    /// field, session-scoped per Pop-up sprint iter 2). The chatbot's
+    /// [habituation_state] block reads through this callback so the VM
+    /// doesn't take a direct dependency on the View layer.</summary>
+    private Func<bool>? _powerSaveActiveLookup;
+    public void SetPowerSaveActiveLookup(Func<bool> lookup) => _powerSaveActiveLookup = lookup;
+
     /// <summary>Path Z follow-up (Review Agent C #2 + Agent A judgment call
     /// #40): clear the spike detector so the first post-Resume frame doesn't
     /// register as a false spike against the artificial zero baseline that
@@ -136,6 +144,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log);
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
+
+        // M2 (Phase 6c): wire host-side lookups so ChatbotViewModel can build
+        // the [habituation_state] block per turn. Power Save state comes from
+        // MainWindow's session-scoped _powerSaveActive (queried via the VM's
+        // _powerSaveActiveLookup callback set by MainWindow). Snapshot load
+        // routes through the existing _habituationProfileStore.
+        ChatbotVm.LoadHabituationSnapshot = () => _habituationProfileStore.Load();
+        ChatbotVm.IsPowerSaveActive       = () => _powerSaveActiveLookup?.Invoke() ?? false;
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
         // Stage 5a/5b: wire the LLM calibration session factory. The factory
         // constructs a CalibrationChatbotService and kicks StartAsync — the VM
