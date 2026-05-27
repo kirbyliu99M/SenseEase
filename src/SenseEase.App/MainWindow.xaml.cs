@@ -430,6 +430,15 @@ public partial class MainWindow : Window
                     $"[notification-card] muted band={currentBand} until {_cardController.MutedUntilUtc(currentBand):o}");
             };
             _cardWindow.PowerSaveToggled += (_, on) => ApplyPowerSave(on);
+            // Path Z bug-fix 7: when the user opens Settings via the card's
+            // gear icon and changes a preference, repaint the bar/tray
+            // immediately so the colour toggle (and any future quick-toggle)
+            // feels instant — matching ShowSettingsWindow's tray-menu path.
+            _cardWindow.OnPreferencesChanged = () =>
+            {
+                _persistentBar?.SetTier(_viewModel.VimsTier);
+                _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
+            };
         }
         _cardWindow.SetContent(band, _viewModel.VimsTier, _viewModel.CurrentState.Pressure);
         _cardWindow.Show();
@@ -454,6 +463,11 @@ public partial class MainWindow : Window
         // currently routed to WGC the pass-through is a no-op for ticks,
         // but the paused flag is still updated for the next swap.
         _viewModel.SetWgcPaused(enabled);
+
+        // Path Z follow-up: on Resume, clear the spike detector so the
+        // first real frame after a long pause doesn't fire a false spike
+        // against the artificial zero baseline accumulated while paused.
+        if (!enabled) _viewModel.ResetSpikeDetector();
 
         if (_persistentBar is not null)
         {

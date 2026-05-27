@@ -65,6 +65,12 @@ public partial class NotificationCardWindow : Window
     /// back to <c>() => false</c> when the host doesn't wire it.</summary>
     public Func<bool>? HasVestibularDiagnosis { get; set; }
 
+    /// <summary>Path Z bug-fix 7: invoked when the user changes a preference
+    /// in the SettingsWindow opened from the gear icon. Host wires this to
+    /// repaint the bar/tray immediately (matches the tray-menu Settings path
+    /// in <see cref="MainWindow.ShowSettingsWindow"/>). No-op if unwired.</summary>
+    public Action? OnPreferencesChanged { get; set; }
+
     private readonly DispatcherTimer _idleTimer;
     private Storyboard? _activeFadeStoryboard;
 
@@ -267,10 +273,34 @@ public partial class NotificationCardWindow : Window
     /// while open.</summary>
     private void OnSettingsClicked(object sender, RoutedEventArgs e)
     {
-        var diagFn = HasVestibularDiagnosis ?? (() => false);
-        var win = new SettingsWindow(diagFn);
-        win.Owner = this;
-        win.ShowDialog();
+        // Path Z bug-fix 3: stop the card's idle-fade timer and cancel any
+        // in-progress fade so the card doesn't disappear behind the modal
+        // Settings dialog after 60 s of inactivity in Settings.
+        _idleTimer.Stop();
+        if (_activeFadeStoryboard is not null)
+        {
+            _activeFadeStoryboard.Stop(this);
+            _activeFadeStoryboard = null;
+            Opacity = 1.0;
+        }
+
+        try
+        {
+            var diagFn = HasVestibularDiagnosis ?? (() => false);
+            var win = new SettingsWindow(diagFn) { Owner = this };
+            // Path Z bug-fix 7: forward PreferencesChanged to the host so the
+            // bar/tray repaint immediately on Toggle B change — matching the
+            // tray-menu Settings path.
+            if (OnPreferencesChanged is not null)
+                win.PreferencesChanged += (_, _) => OnPreferencesChanged();
+            win.ShowDialog();
+        }
+        finally
+        {
+            // Restart the idle countdown when Settings closes so the card
+            // resumes its normal auto-collapse behaviour.
+            RestartIdleTimer();
+        }
     }
 
     /// <summary>Patch 9: primary action — surface the dashboard window. User

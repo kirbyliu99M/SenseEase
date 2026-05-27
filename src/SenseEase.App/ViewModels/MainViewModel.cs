@@ -49,6 +49,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         else        _wgcSensing.Resume();
     }
 
+    /// <summary>Path Z follow-up (Review Agent C #2 + Agent A judgment call
+    /// #40): clear the spike detector so the first post-Resume frame doesn't
+    /// register as a false spike against the artificial zero baseline that
+    /// accumulated while WGC was paused. Lives on the VM because the
+    /// SpikeDetector is owned here, not on the provider.</summary>
+    public void ResetSpikeDetector() => _spikeDetector.Reset();
+
     /// <summary>Pop-up sprint Task 5: true iff the user's most recent
     /// calibration recorded a vestibular diagnosis (Q5 risk factor).
     /// Drives the SettingsWindow safety warning when the user tries to

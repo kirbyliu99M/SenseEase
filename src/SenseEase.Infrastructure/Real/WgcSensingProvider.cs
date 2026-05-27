@@ -448,10 +448,12 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
 
         try
         {
-            byte[] current = CaptureAndDownsample();
-            // Record that a frame actually made it through this tick so
-            // the post-Resume watchdog can decide whether to re-init.
-            _lastFrameProcessedAt = DateTime.UtcNow;
+            byte[] current = CaptureAndDownsample(out bool realFrame);
+            // Path Z bug-fix 2: only stamp when a real frame was actually
+            // produced. Stamping on every tick (including the null-frame
+            // fallback that returns _prevFrame or EmptyFrameSentinel) means
+            // a stuck capture session never trips the watchdog.
+            if (realFrame) _lastFrameProcessedAt = DateTime.UtcNow;
 
             double rawOfi = 0;
             if (_prevFrame != null && current.Length == _prevFrame.Length)
@@ -513,8 +515,9 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         }
     }
 
-    private byte[] CaptureAndDownsample()
+    private byte[] CaptureAndDownsample(out bool realFrame)
     {
+        realFrame = false;
         int dstW = SenseDefaults.WgcDownsampleWidth;
         int dstH = SenseDefaults.WgcDownsampleHeight;
 
@@ -682,6 +685,11 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             frame.Dispose();
         }
 
+        // Path Z bug-fix 2: only the full-success path reaches here without
+        // hitting one of the early-return guards above. All early returns
+        // leave realFrame=false so the watchdog correctly sees "no real
+        // frame yet" and can re-init if the dry spell lasts past 2 s.
+        realFrame = true;
         return result;
     }
 

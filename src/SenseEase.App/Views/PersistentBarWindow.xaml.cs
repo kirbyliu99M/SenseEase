@@ -105,7 +105,16 @@ public partial class PersistentBarWindow : Window
     public void SetTier(int tier)
     {
         int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? tier : 1;
-        BarFill.Background = BrushForTier(effectiveTier);
+        var brush = BrushForTier(effectiveTier);
+        // Path Z bug-fix 5: while in sleep mode, update the snapshot for
+        // ExitSleepMode to restore — but leave the live faint-grey fill in
+        // place. Without this guard the engine's StateChanged stream
+        // overwrites the paused fill within ~300 ms of EnterSleepMode and
+        // ExitSleepMode then restores the stale pre-sleep brush.
+        if (_preSleepBackground is not null)
+            _preSleepBackground = brush;
+        else
+            BarFill.Background = brush;
     }
 
     // overlay-bar-redesign D3: snapshot of the bar's pre-sleep visual state.

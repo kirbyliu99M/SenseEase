@@ -18,6 +18,15 @@
              with a darker hover/pressed state matches the new white card
              surface. Vertical stacked label (zh + en) lives inside the
              button content, not the style — see OpenDashboardBtn below. -->
+        <!-- Path Z bug-fix 6: explicit ControlTemplate. The default Aero
+             Button template paints its own hover/pressed background via
+             VisualStateManager and ignores outer Style.Triggers on the
+             Background property — meaning the Style triggers we used to
+             have here were silently no-op'd at runtime. The Border-based
+             template below ensures the Trigger Background swaps actually
+             render. CornerRadius=3 matches the card's overall radius
+             vocabulary; the ContentPresenter uses TemplateBinding so the
+             vertical-stacked label inside OpenDashboardBtn keeps centering. -->
         <Style x:Key="PrimaryDeepBlueButtonStyle" TargetType="Button">
             <Setter Property="Background"      Value="#1E5BB0"/>
             <Setter Property="Foreground"      Value="White"/>
@@ -26,17 +35,34 @@
             <Setter Property="Padding"         Value="14,8"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor"          Value="Hand"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#174A92"/>
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#103770"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.5"/>
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#174A92"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#103770"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
     <!-- overlay-bar-redesign D1: light card theme.

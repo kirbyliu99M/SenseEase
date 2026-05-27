@@ -226,10 +226,19 @@ public sealed class TrayIconService : IDisposable
             TierColorPalette.TierBand.Red   => "高壓",
             _                               => "—",
         };
-        _statusItem.Header = $"VIMS Tier {state.VimsTier} · {band}";
+        string header = $"VIMS Tier {state.VimsTier} · {band}";
+        // Path Z bug-fix 1: while in Power Save, refresh the stashed snapshot
+        // instead of the visible "Power Save ON" header. Otherwise a tier
+        // change during a PS window overwrites the visible header AND leaves
+        // _preSavedStatusText pointing at a stale pre-PS string — so the
+        // restore on PS OFF shows the wrong tier band.
+        if (_preSavedStatusText != null)
+            _preSavedStatusText = header;
+        else
+            _statusItem.Header = header;
 
-        // Tooltip mirrors the status item so a hover read works without
-        // opening the menu (matches Win11 tray UX expectations).
+        // Tooltip mirrors the live tier always — the OS tooltip is the
+        // immediate read; the menu label carries the PS state.
         _tray.ToolTipText = $"SenseEase — Tier {state.VimsTier} · {band}";
 
         RefreshToggleBarLabel();
