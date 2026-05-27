@@ -38,6 +38,21 @@ public partial class PersistentBarWindow : Window
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
 
+    // Path Z UX iter 4: WPF's Topmost=true doesn't always survive Alt-Tab
+    // round-trips against other windows that briefly claim topmost (some
+    // overlays, fullscreen modes, splash screens). Win32 SetWindowPos with
+    // HWND_TOPMOST is the authoritative path — it forces the bar to the
+    // top of the topmost band without activating or resizing it.
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_NOSIZE         = 0x0001;
+    private const uint SWP_NOMOVE         = 0x0002;
+    private const uint SWP_NOACTIVATE     = 0x0010;
+    private const uint SWP_NOOWNERZORDER  = 0x0200;
+    private const uint SWP_FORCE_TOPMOST  = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+
     // Tunables — public so tests/future settings can override without forking.
     /// <summary>Distance from the bar's rect (in dip) inside which the bar
     /// is "hovered" — grown + brightened + clickable. Spec: 200 dip.</summary>
@@ -137,17 +152,26 @@ public partial class PersistentBarWindow : Window
         Height = BaseHeightDip;
     }
 
-    /// <summary>Path Z UX iter 2: re-assert the bar's Topmost flag so a
-    /// recently-foreground app (Alt-Tab target, restored MainWindow) can't
-    /// keep the bar buried in z-order. WPF doesn't auto-restore Topmost
-    /// when another Topmost window steals to-front; the false→true dance
-    /// pokes Win32 SetWindowPos which always pushes us back above peers.
-    /// Idempotent — safe to call every focus change.</summary>
+    /// <summary>Path Z UX iter 4: forces the bar to the top of the
+    /// topmost-window band via Win32 SetWindowPos(HWND_TOPMOST). The
+    /// iter-2 WPF Topmost=false→true dance was insufficient — user
+    /// reported the Alt-Tab-then-back-to-MainWindow bug reappearing,
+    /// because some apps (and even the WGC consent prompt + Aero
+    /// snapshot animation) can land above WPF's idea of "topmost"
+    /// without ever notifying the WPF Topmost property. Going through
+    /// SetWindowPos directly is the authoritative path. Idempotent —
+    /// no-op when bar is already at top.</summary>
     public void ReassertTopmost()
     {
         if (!IsLoaded) return;
-        Topmost = false;
-        Topmost = true;
+        ForceTopmostViaWin32();
+    }
+
+    private void ForceTopmostViaWin32()
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_FORCE_TOPMOST);
     }
 
     private void OnLeftClick(object sender, MouseButtonEventArgs e)
@@ -221,8 +245,25 @@ public partial class PersistentBarWindow : Window
         return (left, top, width, height);
     }
 
+    // Path Z UX iter 4: throttle the topmost-enforcement Win32 call to ~5 Hz
+    // (every 6th tick at 30 Hz). Calling SetWindowPos every tick is cheap
+    // (microseconds) but unnecessary; 5 Hz catches z-order theft within
+    // ~200 ms which is well below human perception of "the bar stopped
+    // working" — the failure window that user reports.
+    private int _topmostTickCounter;
+
     private void OnProximityTick(object? sender, EventArgs e)
     {
+        // Periodic topmost re-assertion. Even if no focus event fired (rare
+        // but possible — DWM Alt-Tab animation, fullscreen window claiming
+        // topmost, splash screens), this guarantees the bar comes back to
+        // top within ~200 ms of any disruption.
+        if (++_topmostTickCounter >= 6)
+        {
+            _topmostTickCounter = 0;
+            ForceTopmostViaWin32();
+        }
+
         if (!GetCursorPos(out POINT physical)) return;
 
         // Translate physical cursor coords → DIP via this window's DPI.

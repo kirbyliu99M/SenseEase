@@ -50,14 +50,14 @@ public static class TierColorPalette
     private static readonly SolidColorBrush AmberBrush = MakeFrozen(AmberHue, 0x4D); // 0.30
     private static readonly SolidColorBrush RedBrush   = MakeFrozen(RedHue,   0x73); // 0.45
 
-    // Path Z UX iter 3 — hover variants. When the cursor approaches the
-    // bar (within HoverProximityDip), the bar swaps to these higher-alpha
-    // brushes so the user gets a clear tier-colour read instead of the
-    // ambient-hint alpha used at rest. Same hue, ~2× alpha; still semi-
-    // transparent so the bar doesn't read as a solid OS chrome element.
-    private static readonly SolidColorBrush GreyHoverBrush  = MakeFrozen(GreyHue,  0x66); // 0.40
-    private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, 0xB3); // 0.70
-    private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   0xE6); // 0.90
+    // Path Z UX iter 4 — hover variants bumped further per user feedback
+    // ("still a bit disruptive, raise its opacity"). When the cursor
+    // approaches the bar, swap to these near-opaque variants so the tier
+    // colour reads cleanly without the user having to squint. Red goes
+    // fully opaque since it's the critical-alert tier.
+    private static readonly SolidColorBrush GreyHoverBrush  = MakeFrozen(GreyHue,  0xA6); // 0.65
+    private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, 0xEB); // 0.92
+    private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   0xFF); // 1.00
 
     // Tray icons — full-alpha 32×32 rendered once, frozen, cached by tier band.
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
