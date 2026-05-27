@@ -74,6 +74,20 @@ public partial class PersistentBarWindow : Window
     /// window behind it.</summary>
     public event EventHandler? Clicked;
 
+    /// <summary>v0.9.1 hotfix: raised once when the user has been hovering
+    /// the bar continuously for <see cref="HoverSustainedMs"/> milliseconds.
+    /// Host treats this as "user wants quick-action access" and opens the
+    /// notification card — same card the bar's click event would open, just
+    /// triggered by linger instead of click. Re-armed when the user moves
+    /// the cursor out of proximity and back in.</summary>
+    public event EventHandler? HoverSustained;
+
+    /// <summary>Linger duration before <see cref="HoverSustained"/> fires.
+    /// 800 ms ≈ "deliberate hover" — long enough that brush-by cursor
+    /// movement during normal screen use doesn't accidentally auto-open
+    /// the card, short enough that intentional hover feels responsive.</summary>
+    public int HoverSustainedMs { get; set; } = 800;
+
     /// <summary>Tier → bar brush. Proxy to <see cref="TierColorPalette"/>.</summary>
     public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
 
@@ -252,6 +266,14 @@ public partial class PersistentBarWindow : Window
     // working" — the failure window that user reports.
     private int _topmostTickCounter;
 
+    // v0.9.1 hotfix: sustained-hover timing for HoverSustained event.
+    // _hoverEnteredAt = when the cursor most recently entered proximity;
+    // null when not currently hovered. _hoverSustainedFired = true once
+    // the HoverSustained event fires; resets to false on hover exit so
+    // re-entering proximity re-arms the linger trigger.
+    private DateTime? _hoverEnteredAt;
+    private bool _hoverSustainedFired;
+
     private void OnProximityTick(object? sender, EventArgs e)
     {
         // Periodic topmost re-assertion. Even if no focus event fired (rare
@@ -280,11 +302,40 @@ public partial class PersistentBarWindow : Window
         double dist = Math.Sqrt((dx * dx) + (dy * dy));
 
         bool nowHovered = dist <= HoverProximityDip;
+
+        // v0.9.1 hotfix: sustained-hover firing. While the cursor stays in
+        // proximity, check whether the linger threshold has been crossed.
+        // Fires once per hover-session (re-armed on hover-out).
+        if (nowHovered && _isHovered)
+        {
+            if (_hoverEnteredAt is { } enteredAt
+                && !_hoverSustainedFired
+                && (DateTime.UtcNow - enteredAt).TotalMilliseconds >= HoverSustainedMs)
+            {
+                _hoverSustainedFired = true;
+                HoverSustained?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
         if (nowHovered == _isHovered) return;
 
         _isHovered = nowHovered;
         IsHitTestVisible = nowHovered;
         AnimateHoverTransition(nowHovered);
+
+        // v0.9.1 hotfix: arm / disarm the sustained-hover countdown on
+        // hover transitions. Entering proximity starts the clock; leaving
+        // resets so a future re-entry re-arms the trigger.
+        if (nowHovered)
+        {
+            _hoverEnteredAt = DateTime.UtcNow;
+            _hoverSustainedFired = false;
+        }
+        else
+        {
+            _hoverEnteredAt = null;
+            _hoverSustainedFired = false;
+        }
     }
 
     private void AnimateHoverTransition(bool toHovered)

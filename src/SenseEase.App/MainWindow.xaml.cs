@@ -469,6 +469,16 @@ public partial class MainWindow : Window
         // 200 dip per spec) — click-through behaviour while far away keeps
         // accidental swallowing minimal.
         _persistentBar.Clicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
+
+        // v0.9.1 hotfix: linger-to-open. User pointed out the card buttons
+        // (Open Dashboard / Engage / Power Save / Mute) should be reachable
+        // without clicking the bar first. The bar fires HoverSustained
+        // after 800 ms of continuous proximity, at which point we open the
+        // same card the Clicked handler would. The card's existing click-
+        // outside-auto-close handles dismissal so a brief brush-by → linger
+        // → user moves away path closes cleanly.
+        _persistentBar.HoverSustained += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
+
         _persistentBar.Show();
     }
 
