@@ -252,6 +252,16 @@ public partial class PersistentBarWindow : Window
     // working" — the failure window that user reports.
     private int _topmostTickCounter;
 
+    // v0.8 hotfix follow-up: stickier hover. When cursor leaves the
+    // proximity zone the bar previously snapped back to base height +
+    // ambient alpha in ~100 ms — user feedback was that clicking another
+    // window dismissed the hover-grown state too aggressively. Now we
+    // require the cursor to STAY out of proximity for HoverOffGraceMs
+    // before transitioning OFF. Brief excursions (cursor blip across the
+    // screen, mouse-to-button-and-back) keep the hover state alive.
+    private const int HoverOffGraceMs = 800;
+    private DateTime? _hoverOffPendingSince;
+
     private void OnProximityTick(object? sender, EventArgs e)
     {
         // Periodic topmost re-assertion. Even if no focus event fired (rare
@@ -280,11 +290,38 @@ public partial class PersistentBarWindow : Window
         double dist = Math.Sqrt((dx * dx) + (dy * dy));
 
         bool nowHovered = dist <= HoverProximityDip;
-        if (nowHovered == _isHovered) return;
 
-        _isHovered = nowHovered;
-        IsHitTestVisible = nowHovered;
-        AnimateHoverTransition(nowHovered);
+        if (nowHovered)
+        {
+            // Cursor near. Cancel any pending hover-off countdown.
+            _hoverOffPendingSince = null;
+            if (!_isHovered)
+            {
+                _isHovered = true;
+                IsHitTestVisible = true;
+                AnimateHoverTransition(true);
+            }
+            return;
+        }
+
+        // Cursor not near. If we're currently hovered, start (or check)
+        // the grace-period countdown rather than transitioning immediately.
+        if (_isHovered)
+        {
+            if (_hoverOffPendingSince is null)
+            {
+                _hoverOffPendingSince = DateTime.UtcNow;
+                return;
+            }
+            if ((DateTime.UtcNow - _hoverOffPendingSince.Value).TotalMilliseconds < HoverOffGraceMs)
+                return;
+
+            // Grace expired — actually transition off.
+            _hoverOffPendingSince = null;
+            _isHovered = false;
+            IsHitTestVisible = false;
+            AnimateHoverTransition(false);
+        }
     }
 
     private void AnimateHoverTransition(bool toHovered)

@@ -35,9 +35,15 @@ namespace SenseEase.App.Views;
 public partial class NotificationCardWindow : Window
 {
     /// <summary>How long the card sits idle (no MouseMove over the
-    /// CardBorder) before the fade-collapse begins. 60 s per spec; tests
-    /// shrink this for determinism.</summary>
-    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(60);
+    /// CardBorder) before the fade-collapse begins.
+    /// <para>v0.8 hotfix follow-up: bumped from 60 s to 300 s (5 min).
+    /// User feedback was that the card auto-dismissed too aggressively
+    /// while they were clicking other windows — 60 s wasn't enough to
+    /// glance back at the readout periodically. 5 min lets users keep
+    /// the card visible as an ambient reference while working in other
+    /// apps. Power Save toggle, explicit Close (×), Engage, or Mute still
+    /// dismiss the card instantly. Tests shrink this for determinism.</para></summary>
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(300);
 
     /// <summary>Duration of the opacity 1→0 fade after idle timeout. 5 s
     /// per spec. The fade is reversible — MouseMove during fade snaps
