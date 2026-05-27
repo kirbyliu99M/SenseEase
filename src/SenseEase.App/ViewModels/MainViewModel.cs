@@ -810,6 +810,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             $"Demo 結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
             CurrentState);
 
+        // v0.9.1 diagnostic: Bug 2 reported "no calibration card / banner after demo"
+        // — wrap the branching so we surface the failure point in the event log if
+        // it ever throws silently again. The try/catch is no-cost on the happy path.
+        try
+        {
         // ── Post-demo branching ─────────────────────────────────────────────
         // First-time CALIBRATION users get the 5-card buttons UI in the chat
         // tab; subsequent runs get a banner offering an LLM dialog.
@@ -835,8 +840,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // calibration over and gets the buttons UI again.
         int calibrationCount = (_engine is MockInferenceEngine mockForCount)
             ? mockForCount.LoadedCalibrationCount
-            : 0;
-        bool isFirstRunCalibration = calibrationCount == 0;
+            : -1;
+        AppendLog("Calibration",
+            $"[diag] post-demo branching: loaded_calibration_count={calibrationCount}",
+            CurrentState);
+        bool isFirstRunCalibration = calibrationCount <= 0;
         if (isFirstRunCalibration)
         {
             TriggerCalibrationCard();
@@ -853,6 +861,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ChatbotVm.ShowCalibrationInvitationBanner = true;
             AppendLog("Calibration",
                 "後續校準邀請橫幅已顯示 / Subsequent-calibration invitation banner shown.",
+                CurrentState);
+        }
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Error",
+                $"Post-demo calibration branching failed: {ex.GetType().Name}: {ex.Message}",
                 CurrentState);
         }
 
