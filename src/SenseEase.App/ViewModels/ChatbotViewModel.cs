@@ -547,7 +547,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// "what caused the dizziness in the last session?". Empty sources are gracefully
     /// omitted (new install -> no prefix), keeping the previous behaviour as a baseline.
     /// </summary>
-    private string BuildContextualInput(string text)
+    // M2 (Phase 6e): visibility bumped to internal so SenseEase.Tests can
+    // call BuildContextualInput directly and assert on the embedded
+    // [habituation_state] block content. Production callers all live in
+    // the App project so internal-vs-private is invisible at runtime;
+    // SenseEase.App.csproj already has InternalsVisibleTo SenseEase.Tests.
+    internal string BuildContextualInput(string text)
     {
         var sb = new StringBuilder();
         AppendHistoryPrefix(sb);
