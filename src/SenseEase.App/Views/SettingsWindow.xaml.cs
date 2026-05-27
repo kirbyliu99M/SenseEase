@@ -43,8 +43,14 @@ public partial class SettingsWindow : Window
         // Checked/Unchecked handlers from re-saving during setup (they'd
         // see _wiring=true and bail out).
         _wiring = true;
-        ToggleAuto.IsChecked  = UserPreferences.Current.AutoExpandNotifications;
-        ToggleColor.IsChecked = UserPreferences.Current.BarTrayColorEnabled;
+        ToggleAuto.IsChecked           = UserPreferences.Current.AutoExpandNotifications;
+        ToggleColor.IsChecked          = UserPreferences.Current.BarTrayColorEnabled;
+        ToggleMinimizeToTray.IsChecked = UserPreferences.Current.MinimizeToTrayOnClose;
+        // Path Z UX iter 5: prefer the registry's actual state over the
+        // persisted UserPreferences flag, in case the registry was edited
+        // externally or a prior write failed. The two are reconciled by
+        // OnToggleRunAtStartupChanged on every user interaction.
+        ToggleRunAtStartup.IsChecked   = AutoStartRegistry.IsEnabled();
         _wiring = false;
     }
 
@@ -97,6 +103,39 @@ public partial class SettingsWindow : Window
         UserPreferences.Current.BarTrayColorEnabled = newValue;
         UserPreferences.Current.Save();
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnToggleMinimizeToTrayChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        UserPreferences.Current.MinimizeToTrayOnClose = ToggleMinimizeToTray.IsChecked == true;
+        UserPreferences.Current.Save();
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnToggleRunAtStartupChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        bool desired = ToggleRunAtStartup.IsChecked == true;
+        // Write the registry FIRST. If the OS write fails (permission,
+        // policy, antivirus), surface the failure by reverting the checkbox
+        // visually rather than silently saying "saved" when it wasn't.
+        bool ok = AutoStartRegistry.SetEnabled(desired);
+        if (!ok)
+        {
+            _wiring = true;
+            ToggleRunAtStartup.IsChecked = !desired;
+            _wiring = false;
+            MessageBox.Show(
+                "無法寫入登入啟動設定。可能的原因：\n" +
+                "- 系統管理員或安全性軟體限制了登入啟動項目。\n" +
+                "- 註冊表權限不足。\n\n" +
+                "你可以手動把 SenseEase 加到 Windows「啟動」資料夾作為替代方案。",
+                "SenseEase 設定", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        UserPreferences.Current.RunAtWindowsStartup = desired;
+        UserPreferences.Current.Save();
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();

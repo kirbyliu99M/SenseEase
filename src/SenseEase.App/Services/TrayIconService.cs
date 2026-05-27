@@ -73,6 +73,12 @@ public sealed class TrayIconService : IDisposable
     /// fall back to opening the dashboard.</summary>
     public event EventHandler? SettingsRequested;
 
+    /// <summary>Path Z UX iter 5: raised when the user clicks the "Open
+    /// Dashboard" tray menu item. Host surfaces MainWindow — this is the
+    /// primary way back to the dashboard once the user has hidden it via
+    /// the close button (which now minimizes to tray by default).</summary>
+    public event EventHandler? OpenDashboardRequested;
+
     /// <summary>Raised when the user clicks the Quit menu item. Host is
     /// expected to call <c>Application.Current.Shutdown()</c>.</summary>
     public event EventHandler? QuitRequested;
@@ -107,6 +113,15 @@ public sealed class TrayIconService : IDisposable
             RefreshToggleBarLabel();
         };
 
+        // Path Z UX iter 5: explicit "Open Dashboard" entry. Once the user
+        // closes the MainWindow (which now minimizes to tray by default),
+        // the tray icon is the only path back to the dashboard. The
+        // notification card's Open Dashboard button works too, but a
+        // direct tray-menu route is the canonical pattern users expect
+        // from tray-resident apps.
+        var openDashboardItem = new MenuItem { Header = "顯示主視窗 / Open Dashboard" };
+        openDashboardItem.Click += (_, _) => OpenDashboardRequested?.Invoke(this, EventArgs.Empty);
+
         var settingsItem = new MenuItem { Header = "設定" };
         settingsItem.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
 
@@ -116,6 +131,7 @@ public sealed class TrayIconService : IDisposable
         var menu = new ContextMenu();
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Separator());
+        menu.Items.Add(openDashboardItem);
         menu.Items.Add(_toggleBarItem);
         menu.Items.Add(settingsItem);
         menu.Items.Add(new Separator());

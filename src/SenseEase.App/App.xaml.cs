@@ -34,8 +34,29 @@ public partial class App : Application
     public static void RegisterLuxController(LuxComfortController controller) =>
         _luxController = controller;
 
+    /// <summary>Path Z UX iter 5: true iff the app was launched with the
+    /// <c>--minimized</c> command-line arg (set by the AutoStartRegistry
+    /// entry on Windows login). MainWindow.OnSourceInitialized reads this
+    /// to decide whether to suppress the initial visual show — autostart
+    /// goes straight to tray, manual launch shows the dashboard normally.</summary>
+    public static bool StartMinimizedToTray { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Path Z UX iter 5: detect autostart-from-Windows-login. The
+        // AutoStartRegistry HKCU entry passes --minimized so the app
+        // boots straight to the tray instead of flashing the dashboard.
+        // Parsed early so MainWindow's constructor / OnSourceInitialized
+        // can read the static flag.
+        foreach (var arg in e.Args)
+        {
+            if (string.Equals(arg, Configuration.AutoStartRegistry.MinimizedArg, StringComparison.OrdinalIgnoreCase))
+            {
+                StartMinimizedToTray = true;
+                break;
+            }
+        }
+
         // Patch 8 (sub-bug #2): set AUMID BEFORE anything registers with the
         // shell (tray icons, taskbar grouping, toast notifications). Once a
         // process has registered any shell-integrated UI without an AUMID,

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SenseEase 設定"
-        Width="440" Height="320"
+        Width="480" Height="460"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -20,6 +20,9 @@
                 <RowDefinition Height="Auto"/> <!-- title -->
                 <RowDefinition Height="Auto"/> <!-- toggle A row -->
                 <RowDefinition Height="Auto"/> <!-- toggle B row -->
+                <RowDefinition Height="Auto"/> <!-- background-section header -->
+                <RowDefinition Height="Auto"/> <!-- toggle C: minimize to tray -->
+                <RowDefinition Height="Auto"/> <!-- toggle D: run at startup -->
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/> <!-- close button -->
             </Grid.RowDefinitions>
@@ -60,7 +63,44 @@
                            Margin="22,4,0,0"/>
             </StackPanel>
 
-            <Button Grid.Row="4"
+            <!-- Path Z UX iter 5: background-residency section. The whole bar +
+                 tray + card architecture exists to support tray-resident
+                 operation; these two toggles wire the actual behaviour. -->
+            <TextBlock Grid.Row="3"
+                       Text="背景常駐 / Background"
+                       FontSize="14" FontWeight="Bold"
+                       Foreground="#F0F4FA"
+                       Margin="0,16,0,8"/>
+
+            <StackPanel Grid.Row="4" Orientation="Vertical" Margin="0,0,0,12">
+                <CheckBox x:Name="ToggleMinimizeToTray"
+                          Content="關閉視窗時最小化到工作匣 (不結束程式)"
+                          Foreground="#F0F4FA"
+                          FontSize="13"
+                          Checked="OnToggleMinimizeToTrayChanged"
+                          Unchecked="OnToggleMinimizeToTrayChanged"/>
+                <TextBlock Text="開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。"
+                           FontSize="11"
+                           Foreground="#9AB6E0"
+                           TextWrapping="Wrap"
+                           Margin="22,4,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="5" Orientation="Vertical">
+                <CheckBox x:Name="ToggleRunAtStartup"
+                          Content="登入 Windows 時自動啟動 SenseEase"
+                          Foreground="#F0F4FA"
+                          FontSize="13"
+                          Checked="OnToggleRunAtStartupChanged"
+                          Unchecked="OnToggleRunAtStartupChanged"/>
+                <TextBlock Text="開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。"
+                           FontSize="11"
+                           Foreground="#9AB6E0"
+                           TextWrapping="Wrap"
+                           Margin="22,4,0,0"/>
+            </StackPanel>
+
+            <Button Grid.Row="7"
                     Content="關閉"
                     HorizontalAlignment="Right"
                     Padding="16,6"

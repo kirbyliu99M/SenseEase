@@ -16,6 +16,13 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel = new();
     private OverlayWindow? _overlay;
     private SpikePopupWindow? _spikePopup;
+
+    // Path Z UX iter 5: tray-resident lifecycle. _quittingFromTray flips to
+    // true when the tray's "退出 SenseEase" menu fires Application.Shutdown
+    // so the OnClosing intercept knows to let the close through instead of
+    // hiding the window. Without this, Quit-from-tray would just minimize
+    // MainWindow back to the tray (infinite loop, never quits).
+    private bool _quittingFromTray;
     // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
     // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.
     private BarStubWindow? _wgcBarStub;
@@ -125,6 +132,24 @@ public partial class MainWindow : Window
                     if (_chartDirty) { _chartDirty = false; RedrawChart(); }
                 };
                 _chartTimer.Start();
+            }
+        };
+
+        // Path Z UX iter 5: when launched with --minimized (set by the
+        // AutoStartRegistry entry on Windows login), don't show the
+        // MainWindow at all. The Loaded event still fires (so tray + bar
+        // + sensing all initialise), but the window itself stays hidden.
+        // User surfaces it later via tray "Open Dashboard" or the
+        // notification card. Subscribed BEFORE the show-side wiring so
+        // the Hide() lands before any deferred render passes.
+        SourceInitialized += (_, _) =>
+        {
+            if (App.StartMinimizedToTray)
+            {
+                // ShowInTaskbar stays true so once the user does open the
+                // dashboard, it appears in Alt-Tab normally. Hide() just
+                // suppresses the initial visual; no taskbar flicker either.
+                Hide();
             }
         };
 
@@ -304,7 +329,20 @@ public partial class MainWindow : Window
         // Task 5: Settings menu opens the dedicated SettingsWindow.
         _trayIcon.SettingsRequested += (_, _) => ShowSettingsWindow();
 
-        _trayIcon.QuitRequested += (_, _) => Application.Current.Shutdown();
+        _trayIcon.QuitRequested += (_, _) =>
+        {
+            // Path Z UX iter 5: real-quit path. Set the bypass flag BEFORE
+            // calling Shutdown so MainWindow.OnClosing doesn't intercept
+            // and hide the window. Without this, Quit from the tray menu
+            // would just minimize MainWindow to tray (loop).
+            _quittingFromTray = true;
+            Application.Current.Shutdown();
+        };
+
+        // Path Z UX iter 5: tray menu now also exposes "Open Dashboard" so
+        // users who closed the MainWindow to the tray have an explicit
+        // path back. Wired below via OpenDashboardRequested.
+        _trayIcon.OpenDashboardRequested += (_, _) => SurfaceMainWindowFromTray();
 
         SafeLog("[StartTrayIcon] exit OK");
     }
@@ -561,6 +599,50 @@ public partial class MainWindow : Window
         _validationBanner = new ValidationModeBanner(diagText);
         _validationBanner.Closed += (_, _) => _validationBanner = null;
         _validationBanner.Show();
+    }
+
+    /// <summary>Path Z UX iter 5: intercept window close. When the user has
+    /// the "minimize to tray on close" toggle on (default) and the close is
+    /// NOT coming from the tray's Quit menu, cancel the close and hide the
+    /// window instead. App keeps running with the tray icon as the
+    /// surface-of-record; user re-opens MainWindow via the tray's "Open
+    /// Dashboard" menu or via the notification card's Open Dashboard button.</summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // Real-quit path: tray-menu Quit set _quittingFromTray before
+        // calling Application.Shutdown. Let the close proceed.
+        if (_quittingFromTray)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        // User-preference path: if the user has opted out of tray-resident
+        // operation, behave as a normal app and exit on close.
+        if (!UserPreferences.Current.MinimizeToTrayOnClose)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        // Tray-resident path: hide the window, cancel the close.
+        e.Cancel = true;
+        Hide();
+        base.OnClosing(e);
+    }
+
+    /// <summary>Path Z UX iter 5: surface the MainWindow from a tray-menu
+    /// "Open Dashboard" click. Mirrors the card's OpenDashboard handler so
+    /// both surfaces behave identically.</summary>
+    private void SurfaceMainWindowFromTray()
+    {
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Activate();
+        // Topmost dance — bring above PersistentBarWindow (Topmost=true)
+        // without permanently pinning the dashboard.
+        Topmost = true;
+        Topmost = false;
     }
 
     // B2/B4: Recreate overlay if null or already unloaded; sync OverlayVisible on external close.

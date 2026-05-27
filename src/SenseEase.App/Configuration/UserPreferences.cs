@@ -79,6 +79,23 @@ public sealed class UserPreferences
     [JsonPropertyName("use_new_bar_overlay")]
     public bool UseNewBarOverlay { get; set; } = true;
 
+    /// <summary>Path Z UX iter 5: when true, closing the MainWindow hides
+    /// it to the system tray rather than exiting the process. The real
+    /// quit path is the tray menu's "退出 SenseEase" item. Default true
+    /// because the entire bar + tray + card architecture exists to support
+    /// background tray-resident operation.</summary>
+    [JsonPropertyName("minimize_to_tray_on_close")]
+    public bool MinimizeToTrayOnClose { get; set; } = true;
+
+    /// <summary>Path Z UX iter 5: when true, a HKCU\Software\Microsoft\
+    /// Windows\CurrentVersion\Run registry value is written so SenseEase
+    /// auto-launches at Windows login with the <c>--minimized</c> arg.
+    /// Read on startup to surface the current registry state in the
+    /// Settings UI; <see cref="Save"/> updates the registry value to
+    /// match. Default false — opt-in only.</summary>
+    [JsonPropertyName("run_at_windows_startup")]
+    public bool RunAtWindowsStartup { get; set; } = false;
+
     // ── Static singleton + persistence ──────────────────────────────────────
 
     private static UserPreferences? _current;
