@@ -321,6 +321,26 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             string contextualInput = BuildContextualInput(text);
 
             var result = await _chatbot.SendAsync(contextualInput, CancellationToken.None).ConfigureAwait(false);
+
+            // M3 7e: extract write-side structured tokens BEFORE the reply
+            // reaches the UI. The parser produces zero, one or both of:
+            //   - a ProfileOverrideProposal  → ProposalReceived event for host
+            //   - 0..2 OBSERVATION_ADD lines → LongitudinalObservationCallback
+            // and StripAllOverrideBlocks gives us the visible-only reply
+            // (no [PROFILE_OVERRIDE]/[OBSERVATION_ADD]/[RESUME_ACKNOWLEDGE]
+            // blocks bleeding into the chat bubble). RESUME_ACKNOWLEDGE
+            // routing is deferred — the engine's AcknowledgeAndResume hook
+            // doesn't have a chatbot caller today; that lands when the
+            // chatbot's auto-resume policy is designed.
+            var parsedOverride = HabituationOverrideParser.TryParse(result.Response);
+            string visibleReply = HabituationOverrideParser.StripAllOverrideBlocks(result.Response);
+            // If the strip ate the entire reply, fall back to the raw text
+            // so the user sees SOMETHING in the chat (defensive — a model
+            // that emits ONLY a structured block with no human prose is
+            // misbehaving but shouldn't surface as an empty bubble).
+            if (string.IsNullOrWhiteSpace(visibleReply))
+                visibleReply = result.Response;
+
             ChatMessageViewModel? assistantBubble = null;
             string assistantContentForPersist = string.Empty;
             string deferredSummary = string.Empty;
@@ -335,12 +355,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 // assistant text is the question itself (FollowupQuestion); if the
                 // model only set Response, fall back to that.
                 bool hasFollowup = result.FollowupOptions is { Length: > 0 }
-                                && !string.IsNullOrWhiteSpace(result.FollowupQuestion ?? result.Response);
+                                && !string.IsNullOrWhiteSpace(result.FollowupQuestion ?? visibleReply);
                 if (hasFollowup)
                 {
                     string q = !string.IsNullOrWhiteSpace(result.FollowupQuestion)
                         ? result.FollowupQuestion!
-                        : result.Response;
+                        : visibleReply;
                     // Followup questions are NOT fake-streamed (must show with their option cards).
                     Messages.Add(new ChatMessageViewModel(
                         q,
@@ -353,23 +373,40 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 {
                     // Only fake-stream lexicon-mode replies. When the real model is
                     // generating, Phase 5 will deliver true incremental streaming.
-                    fakeStream = !_chatbot.IsModelLoaded && !string.IsNullOrEmpty(result.Response);
+                    fakeStream = !_chatbot.IsModelLoaded && !string.IsNullOrEmpty(visibleReply);
                     if (fakeStream)
                     {
                         assistantBubble = new ChatMessageViewModel(string.Empty, ChatRole.Assistant);
                         Messages.Add(assistantBubble);
-                        assistantContentForPersist = result.Response;
+                        assistantContentForPersist = visibleReply;
                         // Persist the reply BEFORE the summary so reload order matches
                         // the rendered order. (Also acts as crash safety for the
                         // fake-stream window — file has the full reply even if the
                         // animation aborts.)
-                        PersistMessage(ChatRole.Assistant, result.Response);
+                        PersistMessage(ChatRole.Assistant, visibleReply);
                     }
                     else
                     {
-                        Messages.Add(new ChatMessageViewModel(result.Response, ChatRole.Assistant));
-                        PersistMessage(ChatRole.Assistant, result.Response);
+                        Messages.Add(new ChatMessageViewModel(visibleReply, ChatRole.Assistant));
+                        PersistMessage(ChatRole.Assistant, visibleReply);
                     }
+                }
+
+                // M3 7e: dispatch parser outputs AFTER the visible reply lands
+                // in Messages so the user sees the assistant text first, then
+                // the Card surfaces. Inside the dispatcher.Invoke so handlers
+                // can touch UI directly without re-marshalling.
+                if (parsedOverride.Observations.Count > 0
+                    && LongitudinalObservationCallback is { } obsCb)
+                {
+                    foreach (var obs in parsedOverride.Observations)
+                    {
+                        try { obsCb(obs); } catch { /* per-observation failure swallowed */ }
+                    }
+                }
+                if (parsedOverride.Proposal is { } proposal)
+                {
+                    ProposalReceived?.Invoke(this, proposal);
                 }
 
                 if (summary.Length > 0)
@@ -763,6 +800,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     /// <summary>Raised after an NLU result mutates the shared engine, so the host can refresh rendering.</summary>
     public event EventHandler? AdjustmentApplied;
+
+    /// <summary>M3 7e: raised when the chatbot's reply contains a parseable
+    /// <c>[PROFILE_OVERRIDE]</c> block. The host (MainViewModel) validates
+    /// via <see cref="HabituationOverrideProcessor"/>, surfaces the Card if
+    /// the proposal is accepted, and routes the user's Accept/Decline/Later
+    /// click into <see cref="HabituationOverrideApplicator"/>. Raised on
+    /// the dispatcher thread so the handler can touch UI directly.</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalReceived;
+
+    /// <summary>M3 7e/7g: invoked once per <c>[OBSERVATION_ADD]</c> block the
+    /// parser extracts. Host wires this to <c>LongitudinalObservationWriter.Append</c>
+    /// so chatbot accumulations land in <c>habituation_profile.json</c>.
+    /// Null = no host wiring (test contexts).</summary>
+    public Action<string>? LongitudinalObservationCallback { get; set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

@@ -97,6 +97,43 @@ public sealed class MistralChatbotService : IChatbotService
         "Continue emitting the JSON envelope (intent/severity/reply/fov_delta/mask_depth_delta/grid_visibility_delta/feather_width_delta) " +
         "exactly as documented above. Habituation context does not change ANY field value rule.\n\n" +
 
+        // ── WRITE-SIDE STRUCTURED TOKENS (M3 Phase 7e) ──
+        "OPTIONAL WRITE-SIDE TOKENS (only when the conversation justifies it — most turns emit NONE):\n" +
+        "You MAY append one or more of these blocks AFTER the JSON envelope, on their own lines. They are not displayed " +
+        "to the user (the host strips them before render); they drive engine-state proposals or accumulate longitudinal " +
+        "notes.\n" +
+        "\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"adjust_sensitivity\"|\"switch_profile\"|\"adjust_strike_limit\",\"target_field\":\"<field>\",\"proposed_value\":<v>,\"rationale\":\"<reason>\",\"expires_at_iso\":\"<UTC ISO8601>\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "    Use ONLY when the user explicitly asks for a profile/sensitivity/strike-limit change AND the habituation history " +
+        "    supports the recommendation. At most ONE per reply. expires_at_iso = a real future timestamp within 48h. " +
+        "    Value ranges: adjust_sensitivity ∈ [0.7, 1.5]; switch_profile ∈ {RESILIENT, TYPICAL, SENSITIVE}; adjust_strike_limit ∈ [1, 5]. " +
+        "    DO NOT propose relaxation if the [habituation_state] block shows advisory=vestibular — the host hard-rejects these " +
+        "    and the user sees a safety message instead of your suggestion.\n" +
+        "\n" +
+        "  [OBSERVATION_ADD]\n" +
+        "  <one-line observation about the user, ≤ 200 chars, in the user's language>\n" +
+        "  [/OBSERVATION_ADD]\n" +
+        "\n" +
+        "    Use sparingly — only when the user has shared something MEANINGFUL ACROSS SESSIONS (e.g. \"我在週末症狀更嚴重\", " +
+        "    \"my symptoms always spike after 30 min of scroll\"), not for within-session reactions. Max 2 per reply. The " +
+        "    host caps the persisted list at 50 entries (FIFO) so be selective.\n" +
+        "\n" +
+        "  [RESUME_ACKNOWLEDGE]\n" +
+        "  {\"user_confirmed\":true|false,\"user_quote\":\"<verbatim user text>\"}\n" +
+        "  [/RESUME_ACKNOWLEDGE]\n" +
+        "\n" +
+        "    Use ONLY when [habituation_state] shows awaiting_user_confirm=true AND the user's message clearly indicates " +
+        "    readiness to resume (true) or reluctance (false). user_quote = a short verbatim slice of their message.\n" +
+        "\n" +
+        "ANTI-RULES:\n" +
+        "  • Never emit these blocks unsolicited on a discomfort report — the JSON envelope's deltas are the actuator for " +
+        "    immediate discomfort, not PROFILE_OVERRIDE.\n" +
+        "  • Never emit PROFILE_OVERRIDE during a FollowupRequest turn (collect more info first).\n" +
+        "  • Never reference these blocks in the visible reply text; they are silent machinery.\n\n" +
+
         // ── REPLY STYLE ──
         "REPLY STYLE:\n" +
         "  • Output: ONE LINE of compact JSON. NO markdown fences. NO commentary outside the JSON.\n" +

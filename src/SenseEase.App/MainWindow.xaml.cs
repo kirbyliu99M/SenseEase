@@ -131,18 +131,10 @@ public partial class MainWindow : Window
             };
         }
 
-        // M3 7e visual verification: Ctrl+Shift+P injects a test proposal
-        // into the card so the user can verify the new section's layout
-        // without the full chatbot pipeline being wired. Production wiring
-        // (chatbot reply → parser → processor → card.ActiveProposal) lands
-        // in a follow-up commit after visual sign-off.
-        // Registered as a CLASS handler on Window so the shortcut fires
-        // regardless of which SenseEase window (dashboard / bar / card /
-        // settings) currently has keyboard focus.
-        System.Windows.EventManager.RegisterClassHandler(
-            typeof(Window),
-            KeyDownEvent,
-            new System.Windows.Input.KeyEventHandler(OnAnyWindowTestProposalKey));
+        // M3 7e production wiring: when MainViewModel validates a chatbot
+        // proposal, surface it in the Card. Card events route back through
+        // the VM's Accept/Decline/Defer methods.
+        _viewModel.ProposalSurfaceRequested += OnProposalSurfaceRequested;
 
         // ── Eye-Protection chart bootstrap ─────────────────────────────────────
         Loaded += (_, _) =>
@@ -497,69 +489,43 @@ public partial class MainWindow : Window
     /// current tier. <paramref name="userInitiated"/> = true bypasses the
     /// 6-hour mute (user clicks always win per spec). false honours mute and
     /// returns silently if the band is currently muted.</summary>
-    /// <summary>M3 7e visual verification: class-level handler that fires
-    /// on ANY SenseEase window's KeyDown, so Ctrl+Shift+P works regardless
-    /// of focus (dashboard / bar / card / settings). Bound via
-    /// EventManager.RegisterClassHandler in the constructor.</summary>
-    private void OnAnyWindowTestProposalKey(object sender, System.Windows.Input.KeyEventArgs e)
+    /// <summary>M3 7e: MainViewModel signalled that a chatbot proposal has
+    /// passed validation and should be surfaced. Opens the Card (auto-
+    /// pop per user spec), sets ActiveProposal, and subscribes Accept/
+    /// Decline/Defer once.</summary>
+    private void OnProposalSurfaceRequested(object? sender, ProfileOverrideProposal proposal)
     {
-        if (e.Key == System.Windows.Input.Key.P
-            && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0
-            && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0)
-        {
-            InjectTestProposalForVisualVerification();
-            e.Handled = true;
-        }
-    }
-
-    /// <summary>M3 7e visual verification helper: builds a fake
-    /// AdjustSensitivity proposal and pushes it through the card's
-    /// proposal pipeline so the new section's layout is visible without
-    /// requiring an end-to-end chatbot round-trip. Bound to Ctrl+Shift+P
-    /// in the dashboard. Removed once 7e is fully wired through the
-    /// chatbot pipeline.</summary>
-    private void InjectTestProposalForVisualVerification()
-    {
-        var fakeProposal = new ProfileOverrideProposal(
-            Intent: OverrideIntent.AdjustSensitivity,
-            TargetField: "personal_pressure_scale",
-            ProposedValue: 1.1,
-            Rationale: "(test proposal — Ctrl+Shift+P) 觀察到過去 5 天 tier 維持 6-7，建議稍微調整 sensitivity。",
-            ExpiresAtUtc: DateTime.UtcNow.AddHours(4));
-
-        // Make sure the card window exists.
         ShowNotificationCardForCurrentTier(userInitiated: true);
         if (_cardWindow is null) return;
-
-        _cardWindow.ActiveProposal = fakeProposal;
-        // Visual-only: wire the three events to a no-op stub here. The
-        // production wiring lands in the follow-up commit; this stub just
-        // clears the section so the user can re-trigger Ctrl+Shift+P.
-        _cardWindow.ProposalAccepted -= OnTestProposalAccepted;
-        _cardWindow.ProposalDeclined -= OnTestProposalDeclined;
-        _cardWindow.ProposalDeferred -= OnTestProposalDeferred;
-        _cardWindow.ProposalAccepted += OnTestProposalAccepted;
-        _cardWindow.ProposalDeclined += OnTestProposalDeclined;
-        _cardWindow.ProposalDeferred += OnTestProposalDeferred;
+        WireCardProposalEventsOnce();
+        _cardWindow.ActiveProposal = proposal;
     }
 
-    private void OnTestProposalAccepted(object? sender, ProfileOverrideProposal p)
+    private bool _cardProposalEventsWired;
+    private void WireCardProposalEventsOnce()
+    {
+        if (_cardProposalEventsWired || _cardWindow is null) return;
+        _cardWindow.ProposalAccepted += OnCardProposalAccepted;
+        _cardWindow.ProposalDeclined += OnCardProposalDeclined;
+        _cardWindow.ProposalDeferred += OnCardProposalDeferred;
+        _cardProposalEventsWired = true;
+    }
+
+    private void OnCardProposalAccepted(object? sender, ProfileOverrideProposal p)
     {
         if (_cardWindow is null) return;
-        // Pretend the apply succeeded so the section clears. The real wiring
-        // calls HabituationOverrideApplicator.ApplyAccepted here.
-        _cardWindow.ShowProposalApplyResult(ApplyResult.Success());
+        var result = _viewModel.AcceptActiveProposal();
+        _cardWindow.ShowProposalApplyResult(result);
     }
 
-    private void OnTestProposalDeclined(object? sender, ProfileOverrideProposal p)
+    private void OnCardProposalDeclined(object? sender, ProfileOverrideProposal p)
     {
-        // Real wiring calls applicator.RecordDeclined. Visual-only stub: no-op.
+        _viewModel.DeclineActiveProposal();
     }
 
-    private void OnTestProposalDeferred(object? sender, ProfileOverrideProposal p)
+    private void OnCardProposalDeferred(object? sender, ProfileOverrideProposal p)
     {
-        // Real wiring keeps the proposal pending in memory + hints on the bar.
-        // Visual-only stub: no-op (proposal already cleared by card-side click handler).
+        _viewModel.DeferActiveProposal();
     }
 
     private void ShowNotificationCardForCurrentTier(bool userInitiated)
@@ -582,6 +548,7 @@ public partial class MainWindow : Window
             {
                 _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
                 _cardWindow = null;
+                _cardProposalEventsWired = false;
                 // Re-engage the bar's mask since closing the card cleared it.
                 // Bar may have been hidden by user via tray menu — only
                 // re-engage if it's actually visible.
@@ -655,6 +622,17 @@ public partial class MainWindow : Window
             };
         }
         _cardWindow.SetContent(band, _viewModel.VimsTier, _viewModel.CurrentState.Pressure);
+        // M3 7e: if a chatbot proposal is pending (user clicked Later
+        // earlier, or the proposal is fresh from a chatbot turn), wire +
+        // re-surface it on this Card open. Filter expired proposals
+        // defensively — the VM's expiry watchdog should have cleared them,
+        // but a race between watchdog tick (60s) and bar click is possible.
+        if (_viewModel.ActiveProposal is { } pending
+            && pending.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            WireCardProposalEventsOnce();
+            _cardWindow.ActiveProposal = pending;
+        }
         _cardWindow.Show();
         _cardWindow.Activate();
     }
