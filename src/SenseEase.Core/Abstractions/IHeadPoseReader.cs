@@ -18,11 +18,17 @@ public interface IHeadPoseReader
 }
 
 /// <summary>Per-frame head-pose sample. Privacy invariant: ONLY derived
-/// fields. NEVER carries raw landmarks, frame data, or face image.</summary>
+/// fields. NEVER carries raw landmarks, frame data, or face image.
+///
+/// <para>G1 schema (2026-05-29): mirrors the sidecar's JSON line.
+/// <c>FacePresent</c> is the renamed-from-<c>confidence</c> slot;
+/// binary today (0.0/1.0) because MediaPipe IMAGE-mode doesn't expose
+/// a scalar, but kept as double so a v1.0 model with real scalar
+/// confidence can slot in without breaking consumers.</para></summary>
 public sealed record HeadPoseSample(
     long   TimestampMs,
     double Cx,                  // 0.0-1.0, smoothed + clamped
     double Cy,                  // 0.0-1.0, smoothed + clamped
     double Luma,                // 0.0-1.0, frame mean luma
     bool   FaceDetected,
-    double Confidence);
+    double FacePresent);        // 0.0 or 1.0 today; reserved for scalar in v1.0
