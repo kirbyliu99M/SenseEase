@@ -65,6 +65,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // first ApplyCalibrationResult lands a Complete or Partial result.
     private DateTime?             _lastCalibrationAtUtc;
 
+    // M3 Phase 7d: current personal_pressure_scale value. ApplyCalibrationResult
+    // uses it to compute the effective trigger then discards; M3 keeps it as a
+    // tracked field so BuildProfileSnapshot writes the right value AND
+    // ApplyChatbotOverride(AdjustSensitivity) has somewhere to update.
+    // Default 1.0 = "no personalisation" (matches the snapshot DTO default).
+    private double                _personalPressureScale = 1.0;
+
     public SenseState Current { get; } = new()
     {
         FovRadiusPercent = 100,
@@ -123,6 +130,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // Stage 7f: ApplyCalibrationResult bumps from this seed value;
             // BuildProfileSnapshot persists the bumped value back.
             _loadedCalibrationCount = savedSnapshot.CalibrationCount;
+            // M3 Phase 7d: restore the persisted scale so a chatbot
+            // AdjustSensitivity arriving early in the session has the right
+            // baseline. Clamp defensively in case the on-disk value was
+            // edited outside our range.
+            _personalPressureScale = Math.Clamp(
+                savedSnapshot.PersonalPressureScale,
+                CalibrationProcessor.PersonalPressureScaleMin,
+                CalibrationProcessor.PersonalPressureScaleMax);
             if (!string.IsNullOrEmpty(savedSnapshot.LastCalibrationAtIso) &&
                 DateTime.TryParse(savedSnapshot.LastCalibrationAtIso,
                     System.Globalization.CultureInfo.InvariantCulture,
@@ -473,6 +488,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
             _habituation.EffectiveTrigger          = trigger;
             _habituation.SevereStrikeLimitOverride = result.SevereStrikeLimitOverride;
+            // M3 Phase 7d: track the applied scale so the snapshot reflects it
+            // and a subsequent chatbot AdjustSensitivity has the right baseline
+            // to compare against.
+            _personalPressureScale = result.TriggerThresholdOverride is null
+                ? Math.Clamp(result.PersonalPressureScale,
+                             CalibrationProcessor.PersonalPressureScaleMin,
+                             CalibrationProcessor.PersonalPressureScaleMax)
+                : 1.0;
 
             // Profile change is idempotent on no-change. Source tagged as
             // "calibration_demo" so the persistence snapshot reflects the
@@ -488,6 +511,116 @@ public sealed class MockInferenceEngine : IInferenceEngine
             Current.FovRadiusPercent  = ComposeFovRadius(Current.Pressure);
 
             MaybePersistProfileSnapshot();
+        }
+    }
+
+    /// <summary>M3 Phase 7d: apply a chatbot-proposed engine override that
+    /// has already passed the Processor's validation (7c) and the Applicator's
+    /// defensive intercept (7f). The caller is responsible for those gates;
+    /// this method just performs the write atomically under the engine lock.
+    /// <para>Returns true iff the write actually happened. False for unknown
+    /// intent / unparsable value (defensive; processor should have rejected
+    /// earlier).</para></summary>
+    public bool ApplyChatbotOverride(OverrideIntent intent, object proposedValue)
+    {
+        lock (_gate)
+        {
+            bool applied;
+            switch (intent)
+            {
+                case OverrideIntent.AdjustSensitivity:
+                {
+                    if (!TryUnwrapDouble(proposedValue, out double scale))
+                    {
+                        applied = false;
+                        break;
+                    }
+                    scale = Math.Clamp(scale,
+                                       CalibrationProcessor.PersonalPressureScaleMin,
+                                       CalibrationProcessor.PersonalPressureScaleMax);
+                    _personalPressureScale = scale;
+                    // Same arithmetic as the calibration path:
+                    //   effective_trigger = default_trigger / scale
+                    // so lower scale (less sensitive) raises the trigger.
+                    _habituation.EffectiveTrigger = SenseDefaults.TriggerPressure / scale;
+                    applied = true;
+                    break;
+                }
+
+                case OverrideIntent.SwitchProfile:
+                {
+                    if (proposedValue is not string s
+                        || !Enum.TryParse<HabituationProfile>(s, ignoreCase: true, out var profile))
+                    {
+                        applied = false;
+                        break;
+                    }
+                    if (_habituation.CurrentProfile != profile)
+                        _habituation.SetProfile(profile, "chatbot_override");
+                    applied = true;
+                    break;
+                }
+
+                case OverrideIntent.AdjustStrikeLimit:
+                {
+                    if (!TryUnwrapInt(proposedValue, out int limit))
+                    {
+                        applied = false;
+                        break;
+                    }
+                    _habituation.SevereStrikeLimitOverride = limit;
+                    applied = true;
+                    break;
+                }
+
+                default:
+                    applied = false;
+                    break;
+            }
+
+            if (applied)
+            {
+                _profileSnapshotDirty = true;
+                Current.HabituationLevel = _habituation.HabituationLevel;
+                Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+                MaybePersistProfileSnapshot();
+            }
+            return applied;
+        }
+    }
+
+    private static bool TryUnwrapDouble(object value, out double result)
+    {
+        switch (value)
+        {
+            case double d:  result = d;        return true;
+            case float f:   result = f;        return true;
+            case long l:    result = l;        return true;
+            case int i:     result = i;        return true;
+            case string s when double.TryParse(s,
+                              System.Globalization.NumberStyles.Float,
+                              System.Globalization.CultureInfo.InvariantCulture,
+                              out double parsed):
+                            result = parsed;   return true;
+            default:        result = 0;        return false;
+        }
+    }
+
+    private static bool TryUnwrapInt(object value, out int result)
+    {
+        switch (value)
+        {
+            case int i:    result = i;          return true;
+            case long l when l >= int.MinValue && l <= int.MaxValue:
+                           result = (int)l;     return true;
+            case double d when d == Math.Floor(d) && d >= int.MinValue && d <= int.MaxValue:
+                           result = (int)d;     return true;
+            case string s when int.TryParse(s,
+                              System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture,
+                              out int parsed):
+                           result = parsed;     return true;
+            default:       result = 0;          return false;
         }
     }
 
@@ -655,6 +788,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // those.
             CalibrationCount        = _loadedCalibrationCount,
             LastCalibrationAtIso    = _lastCalibrationAtUtc?.ToString("o"),
+            // M3 Phase 7d: persist the tracked scale so the chatbot's next
+            // context-build sees the current value (previously the DTO
+            // default 1.0 was emitted regardless of the applied scale).
+            PersonalPressureScale   = _personalPressureScale,
             ParamsSnapshot          = new HabituationParamsSnapshot
             {
                 StableWindowMs  = p.StableWindowMs,
