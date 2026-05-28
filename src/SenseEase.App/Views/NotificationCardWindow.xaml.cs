@@ -6,6 +6,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using SenseEase.App.ViewModels;
+using SenseEase.Core.Inference;
 
 namespace SenseEase.App.Views;
 
@@ -73,6 +75,173 @@ public partial class NotificationCardWindow : Window
     /// repaint the bar/tray immediately (matches the tray-menu Settings path
     /// in <see cref="MainWindow.ShowSettingsWindow"/>). No-op if unwired.</summary>
     public Action? OnPreferencesChanged { get; set; }
+
+    // ── M3 Phase 7e: chatbot proposal section (Flow A) ───────────────────────
+
+    /// <summary>Raised when the user clicks "接受" on the chatbot proposal
+    /// section. Host calls <see cref="HabituationOverrideApplicator.ApplyAccepted"/>
+    /// in response; the result is fed back via <see cref="ShowProposalApplyResult"/>
+    /// so the card can render the intercept/safety message if one fired.</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalAccepted;
+
+    /// <summary>Raised when the user clicks "拒絕". Host calls
+    /// <see cref="HabituationOverrideApplicator.RecordDeclined"/>; the card
+    /// clears the section immediately on click.</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalDeclined;
+
+    /// <summary>Raised when the user clicks "稍後". Host keeps the proposal
+    /// pending in memory; the card clears the section but the host can
+    /// re-show it later (e.g. on next bar click) while the proposal hasn't
+    /// expired.</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalDeferred;
+
+    private ProfileOverrideProposal? _activeProposal;
+    private DispatcherTimer? _expiryCountdownTimer;
+
+    /// <summary>The chatbot's currently-surfaced proposal, or null. Setting
+    /// this to a non-null value reveals the proposal section + starts the
+    /// expiry countdown; setting it to null hides the section.</summary>
+    public ProfileOverrideProposal? ActiveProposal
+    {
+        get => _activeProposal;
+        set
+        {
+            _activeProposal = value;
+            if (value is null)
+            {
+                ProposalPanel.Visibility = Visibility.Collapsed;
+                StopExpiryCountdown();
+            }
+            else
+            {
+                ApplyProposalToUi(value);
+                ProposalPanel.Visibility = Visibility.Visible;
+                StartExpiryCountdown();
+            }
+        }
+    }
+
+    /// <summary>Host calls this after <see cref="ProposalAccepted"/> fires so
+    /// the card can surface the apply result (success → clear section;
+    /// blocked-by-safety → keep section visible with the safety note in red).</summary>
+    public void ShowProposalApplyResult(ApplyResult result)
+    {
+        if (result.IsSuccess)
+        {
+            // Apply succeeded — clear the section. Host has already logged.
+            ActiveProposal = null;
+            return;
+        }
+
+        // BlockedBySafety: keep section visible, surface the reason in red.
+        if (result.BlockedBySafety && _activeProposal is not null)
+        {
+            ProposalSafetyNoteText.Text = $"⚠ 系統介入：{result.Reason}";
+            ProposalSafetyNoteText.Visibility = Visibility.Visible;
+            // Disable Accept so the user has to Decline or Later (clicking Accept
+            // again would just re-block).
+            ProposalAcceptBtn.IsEnabled = false;
+        }
+    }
+
+    private void ApplyProposalToUi(ProfileOverrideProposal proposal)
+    {
+        ProposalSummaryText.Text = FormatProposalSummary(proposal);
+        ProposalRationaleText.Text = string.IsNullOrWhiteSpace(proposal.Rationale)
+            ? string.Empty
+            : $"理由：{proposal.Rationale}";
+        ProposalSafetyNoteText.Text = string.Empty;
+        ProposalSafetyNoteText.Visibility = Visibility.Collapsed;
+        ProposalAcceptBtn.IsEnabled = true;
+        UpdateExpiryText(proposal);
+    }
+
+    private static string FormatProposalSummary(ProfileOverrideProposal p)
+    {
+        switch (p.Intent)
+        {
+            case OverrideIntent.AdjustSensitivity:
+                return $"把 sensitivity 調整為 {p.ProposedValue}";
+            case OverrideIntent.SwitchProfile:
+                return $"把 profile 切換為 {p.ProposedValue}";
+            case OverrideIntent.AdjustStrikeLimit:
+                return $"把 severe-strike-limit 調整為 {p.ProposedValue}";
+            default:
+                return $"{p.Intent} = {p.ProposedValue}";
+        }
+    }
+
+    private void StartExpiryCountdown()
+    {
+        StopExpiryCountdown();
+        _expiryCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        _expiryCountdownTimer.Tick += (_, _) =>
+        {
+            if (_activeProposal is null) { StopExpiryCountdown(); return; }
+            UpdateExpiryText(_activeProposal);
+            if (_activeProposal.ExpiresAtUtc <= DateTime.UtcNow)
+            {
+                StopExpiryCountdown();
+                // Host listens for null → expiry via ProposalExpiryText "expired"
+                // state; the cleaner path is for the host to track expiry too,
+                // but the card surfaces it inline so the user sees the state.
+                ProposalAcceptBtn.IsEnabled = false;
+                ProposalLaterBtn.IsEnabled = false;
+                ProposalExpiryText.Text = "已過期";
+            }
+        };
+        _expiryCountdownTimer.Start();
+    }
+
+    private void StopExpiryCountdown()
+    {
+        try { _expiryCountdownTimer?.Stop(); } catch { /* ignore */ }
+        _expiryCountdownTimer = null;
+    }
+
+    private void UpdateExpiryText(ProfileOverrideProposal proposal)
+    {
+        TimeSpan remaining = proposal.ExpiresAtUtc - DateTime.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            ProposalExpiryText.Text = "已過期";
+            return;
+        }
+        // Render at minute granularity above 1h, else minute:second.
+        ProposalExpiryText.Text = remaining.TotalHours >= 1
+            ? $"剩 {(int)remaining.TotalHours} 小時 {remaining.Minutes:00} 分"
+            : $"剩 {remaining.Minutes:00}:{remaining.Seconds:00}";
+    }
+
+    private void OnProposalAcceptClicked(object sender, RoutedEventArgs e)
+    {
+        if (_activeProposal is null) return;
+        var p = _activeProposal;
+        // Disable button immediately to avoid double-click. Host will call
+        // ShowProposalApplyResult next to either clear the section (success)
+        // or surface the intercept message.
+        ProposalAcceptBtn.IsEnabled = false;
+        ProposalAccepted?.Invoke(this, p);
+    }
+
+    private void OnProposalDeclineClicked(object sender, RoutedEventArgs e)
+    {
+        if (_activeProposal is null) return;
+        var p = _activeProposal;
+        ActiveProposal = null;
+        ProposalDeclined?.Invoke(this, p);
+    }
+
+    private void OnProposalLaterClicked(object sender, RoutedEventArgs e)
+    {
+        if (_activeProposal is null) return;
+        var p = _activeProposal;
+        // Per user spec: 'Later' hides the proposal; user manually re-opens
+        // via the bar. Card itself hides — host keeps proposal pending.
+        ActiveProposal = null;
+        ProposalDeferred?.Invoke(this, p);
+        Hide();
+    }
 
     /// <summary>v0.9.1 round-3: invoked when the user types into the in-card
     /// chatbot box and presses Send (or Enter). Host wires this to the

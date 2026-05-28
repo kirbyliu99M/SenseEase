@@ -7,6 +7,7 @@ using SenseEase.App.Configuration;
 using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
+using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 
 namespace SenseEase.App;
@@ -129,6 +130,22 @@ public partial class MainWindow : Window
                 }));
             };
         }
+
+        // M3 7e visual verification: Ctrl+Shift+P injects a test proposal
+        // into the card so the user can verify the new section's layout
+        // without the full chatbot pipeline being wired. Production wiring
+        // (chatbot reply → parser → processor → card.ActiveProposal) lands
+        // in a follow-up commit after visual sign-off.
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.P
+                && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0
+                && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0)
+            {
+                InjectTestProposalForVisualVerification();
+                e.Handled = true;
+            }
+        };
 
         // ── Eye-Protection chart bootstrap ─────────────────────────────────────
         Loaded += (_, _) =>
@@ -483,6 +500,56 @@ public partial class MainWindow : Window
     /// current tier. <paramref name="userInitiated"/> = true bypasses the
     /// 6-hour mute (user clicks always win per spec). false honours mute and
     /// returns silently if the band is currently muted.</summary>
+    /// <summary>M3 7e visual verification helper: builds a fake
+    /// AdjustSensitivity proposal and pushes it through the card's
+    /// proposal pipeline so the new section's layout is visible without
+    /// requiring an end-to-end chatbot round-trip. Bound to Ctrl+Shift+P
+    /// in the dashboard. Removed once 7e is fully wired through the
+    /// chatbot pipeline.</summary>
+    private void InjectTestProposalForVisualVerification()
+    {
+        var fakeProposal = new ProfileOverrideProposal(
+            Intent: OverrideIntent.AdjustSensitivity,
+            TargetField: "personal_pressure_scale",
+            ProposedValue: 1.1,
+            Rationale: "(test proposal — Ctrl+Shift+P) 觀察到過去 5 天 tier 維持 6-7，建議稍微調整 sensitivity。",
+            ExpiresAtUtc: DateTime.UtcNow.AddHours(4));
+
+        // Make sure the card window exists.
+        ShowNotificationCardForCurrentTier(userInitiated: true);
+        if (_cardWindow is null) return;
+
+        _cardWindow.ActiveProposal = fakeProposal;
+        // Visual-only: wire the three events to a no-op stub here. The
+        // production wiring lands in the follow-up commit; this stub just
+        // clears the section so the user can re-trigger Ctrl+Shift+P.
+        _cardWindow.ProposalAccepted -= OnTestProposalAccepted;
+        _cardWindow.ProposalDeclined -= OnTestProposalDeclined;
+        _cardWindow.ProposalDeferred -= OnTestProposalDeferred;
+        _cardWindow.ProposalAccepted += OnTestProposalAccepted;
+        _cardWindow.ProposalDeclined += OnTestProposalDeclined;
+        _cardWindow.ProposalDeferred += OnTestProposalDeferred;
+    }
+
+    private void OnTestProposalAccepted(object? sender, ProfileOverrideProposal p)
+    {
+        if (_cardWindow is null) return;
+        // Pretend the apply succeeded so the section clears. The real wiring
+        // calls HabituationOverrideApplicator.ApplyAccepted here.
+        _cardWindow.ShowProposalApplyResult(ApplyResult.Success());
+    }
+
+    private void OnTestProposalDeclined(object? sender, ProfileOverrideProposal p)
+    {
+        // Real wiring calls applicator.RecordDeclined. Visual-only stub: no-op.
+    }
+
+    private void OnTestProposalDeferred(object? sender, ProfileOverrideProposal p)
+    {
+        // Real wiring keeps the proposal pending in memory + hints on the bar.
+        // Visual-only stub: no-op (proposal already cleared by card-side click handler).
+    }
+
     private void ShowNotificationCardForCurrentTier(bool userInitiated)
     {
         var band = TierColorPalette.BandForTier(_viewModel.VimsTier);
