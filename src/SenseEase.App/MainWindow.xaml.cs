@@ -7,6 +7,7 @@ using SenseEase.App.Configuration;
 using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
+using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 
 namespace SenseEase.App;
@@ -129,6 +130,11 @@ public partial class MainWindow : Window
                 }));
             };
         }
+
+        // M3 7e production wiring: when MainViewModel validates a chatbot
+        // proposal, surface it in the Card. Card events route back through
+        // the VM's Accept/Decline/Defer methods.
+        _viewModel.ProposalSurfaceRequested += OnProposalSurfaceRequested;
 
         // ── Eye-Protection chart bootstrap ─────────────────────────────────────
         Loaded += (_, _) =>
@@ -483,6 +489,45 @@ public partial class MainWindow : Window
     /// current tier. <paramref name="userInitiated"/> = true bypasses the
     /// 6-hour mute (user clicks always win per spec). false honours mute and
     /// returns silently if the band is currently muted.</summary>
+    /// <summary>M3 7e: MainViewModel signalled that a chatbot proposal has
+    /// passed validation and should be surfaced. Opens the Card (auto-
+    /// pop per user spec), sets ActiveProposal, and subscribes Accept/
+    /// Decline/Defer once.</summary>
+    private void OnProposalSurfaceRequested(object? sender, ProfileOverrideProposal proposal)
+    {
+        ShowNotificationCardForCurrentTier(userInitiated: true);
+        if (_cardWindow is null) return;
+        WireCardProposalEventsOnce();
+        _cardWindow.ActiveProposal = proposal;
+    }
+
+    private bool _cardProposalEventsWired;
+    private void WireCardProposalEventsOnce()
+    {
+        if (_cardProposalEventsWired || _cardWindow is null) return;
+        _cardWindow.ProposalAccepted += OnCardProposalAccepted;
+        _cardWindow.ProposalDeclined += OnCardProposalDeclined;
+        _cardWindow.ProposalDeferred += OnCardProposalDeferred;
+        _cardProposalEventsWired = true;
+    }
+
+    private void OnCardProposalAccepted(object? sender, ProfileOverrideProposal p)
+    {
+        if (_cardWindow is null) return;
+        var result = _viewModel.AcceptActiveProposal();
+        _cardWindow.ShowProposalApplyResult(result);
+    }
+
+    private void OnCardProposalDeclined(object? sender, ProfileOverrideProposal p)
+    {
+        _viewModel.DeclineActiveProposal();
+    }
+
+    private void OnCardProposalDeferred(object? sender, ProfileOverrideProposal p)
+    {
+        _viewModel.DeferActiveProposal();
+    }
+
     private void ShowNotificationCardForCurrentTier(bool userInitiated)
     {
         var band = TierColorPalette.BandForTier(_viewModel.VimsTier);
@@ -503,6 +548,7 @@ public partial class MainWindow : Window
             {
                 _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
                 _cardWindow = null;
+                _cardProposalEventsWired = false;
                 // Re-engage the bar's mask since closing the card cleared it.
                 // Bar may have been hidden by user via tray menu — only
                 // re-engage if it's actually visible.
@@ -576,6 +622,17 @@ public partial class MainWindow : Window
             };
         }
         _cardWindow.SetContent(band, _viewModel.VimsTier, _viewModel.CurrentState.Pressure);
+        // M3 7e: if a chatbot proposal is pending (user clicked Later
+        // earlier, or the proposal is fresh from a chatbot turn), wire +
+        // re-surface it on this Card open. Filter expired proposals
+        // defensively — the VM's expiry watchdog should have cleared them,
+        // but a race between watchdog tick (60s) and bar click is possible.
+        if (_viewModel.ActiveProposal is { } pending
+            && pending.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            WireCardProposalEventsOnce();
+            _cardWindow.ActiveProposal = pending;
+        }
         _cardWindow.Show();
         _cardWindow.Activate();
     }

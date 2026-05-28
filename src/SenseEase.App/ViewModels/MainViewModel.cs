@@ -111,6 +111,181 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IInferenceEngine _engine;
     public  IInferenceEngine Engine => _engine;
     public  ChatbotViewModel ChatbotVm { get; }
+
+    // ── M3 Phase 7d/7e/7f/7g: chatbot write-side infrastructure ────────────
+    private readonly InMemoryChatbotActionLog _chatbotActionLog = new();
+    private readonly LongitudinalObservationWriter _observationWriter;
+    private readonly HabituationOverrideApplicator _overrideApplicator;
+
+    // Currently-surfaced (or pending-after-Later) chatbot proposal. Used by
+    // the Processor's rule 4 (one proposal at a time) and re-surfaced on the
+    // next bar click while non-null + not expired. Cleared on Accept / Decline /
+    // Expired. Read by the action-log lookup MostRecentDeclineFor (Processor
+    // rule 5). Mutated only on the UI dispatcher thread.
+    private ProfileOverrideProposal? _activeProposal;
+    private DispatcherTimer? _proposalExpiryTimer;
+
+    /// <summary>M3 7e: raised when MainViewModel has validated a chatbot
+    /// proposal via <see cref="HabituationOverrideProcessor"/> and the host
+    /// (MainWindow) should surface it in the Card UI. Carries the validated
+    /// proposal; the Card opens via the host's existing notification-card
+    /// path.</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalSurfaceRequested;
+
+    /// <summary>M3 7e: snapshot of the currently-pending proposal (set on
+    /// validate-accept, cleared on Apply/Decline/Expire). Exposed for the
+    /// host's bar-click handler to re-show the Card with the deferred
+    /// proposal after a Later click. Null when no proposal is pending.</summary>
+    public ProfileOverrideProposal? ActiveProposal => _activeProposal;
+
+    /// <summary>M3 7e: host calls this when the user clicked Accept on the
+    /// in-Card proposal. Routes through the applicator (defensive-intercept
+    /// re-check + engine write), records the outcome in the action log,
+    /// and clears the pending state.</summary>
+    public ApplyResult AcceptActiveProposal()
+    {
+        if (_activeProposal is not { } p) return ApplyResult.Blocked("no active proposal");
+        var result = _overrideApplicator.ApplyAccepted(p);
+        if (result.IsSuccess) ClearActiveProposal();
+        // BlockedBySafety path keeps the proposal active so the user can
+        // Decline / Later; the Card surfaces the safety note inline.
+        return result;
+    }
+
+    /// <summary>Host calls this when the user clicked Decline. Records the
+    /// decline (drives Processor rule-5 cooldown) and clears pending.</summary>
+    public void DeclineActiveProposal()
+    {
+        if (_activeProposal is not { } p) return;
+        _overrideApplicator.RecordDeclined(p);
+        ClearActiveProposal();
+    }
+
+    /// <summary>Host calls this when the user clicked Later. Keeps the
+    /// proposal pending so the next bar click can re-surface it. The expiry
+    /// timer auto-records Expired + clears pending if the user never
+    /// re-engages before <c>ExpiresAtUtc</c>.</summary>
+    public void DeferActiveProposal()
+    {
+        // Intentionally no applicator call — Later is a "hide for now".
+        // _activeProposal stays set; expiry timer keeps running.
+    }
+
+    private void ClearActiveProposal()
+    {
+        _activeProposal = null;
+        try { _proposalExpiryTimer?.Stop(); } catch { /* ignore */ }
+        _proposalExpiryTimer = null;
+    }
+
+    /// <summary>M3 7e: ChatbotVm.ProposalReceived handler. Runs the
+    /// Processor's 5 validation rules; on accept, stores the proposal as
+    /// active, starts the expiry watchdog, and raises
+    /// <see cref="ProposalSurfaceRequested"/> so the host (MainWindow) opens
+    /// the Card with the proposal section visible. On reject, the rejection
+    /// is logged for telemetry and the user sees nothing (the chatbot's
+    /// reply may still mention the suggestion in prose).</summary>
+    private void OnChatbotProposalReceived(object? sender, ProfileOverrideProposal proposal)
+    {
+        var snapshot = SafeLoadSnapshot();
+        var validation = HabituationOverrideProcessor.Validate(
+            proposal,
+            snapshot,
+            isAnotherProposalPending: _activeProposal is not null,
+            mostRecentDeclineFor: _chatbotActionLog.MostRecentDeclineFor);
+
+        if (!validation.IsAccepted)
+        {
+            // Log the rejection for telemetry; user-facing reply already
+            // landed in Messages so the chatbot's prose still surfaces.
+            // The Card is not opened.
+            _log.Append(new EventLogEntry
+            {
+                Category = "Habituation.SafetyIntercept",
+                Message  = $"chatbot proposal rejected by processor: {validation.RejectionReason}",
+            });
+            return;
+        }
+
+        // Clamp expiry to processor's max future window. Mistral 3B reliably
+        // overshoots the 48h target by hours-to-days; rather than discarding
+        // an otherwise-valid proposal we cap the timer at +7 days so the
+        // Card's countdown stays meaningful. The model's reply text still
+        // mentions whatever date it computed — that's a cosmetic mismatch
+        // we accept (and the user has the Card's authoritative countdown).
+        var maxExpiry = DateTime.UtcNow.AddDays(HabituationOverrideProcessor.ExpiresAtMaxFutureDays);
+        var clamped = proposal.ExpiresAtUtc > maxExpiry
+            ? proposal with { ExpiresAtUtc = maxExpiry }
+            : proposal;
+
+        _activeProposal = clamped;
+        _chatbotActionLog.Record(ChatbotActionKind.Proposed, clamped);
+        StartProposalExpiryWatchdog(clamped);
+        ProposalSurfaceRequested?.Invoke(this, clamped);
+    }
+
+    private HabituationProfileSnapshot? SafeLoadSnapshot()
+    {
+        try { return _habituationProfileStore.Load(); }
+        catch { return null; }
+    }
+
+    /// <summary>M3 7e+: user picked a profile from the in-chat picker. Builds
+    /// a SwitchProfile proposal and runs it through the standard Applicator
+    /// path (same safety intercept + action-log audit as a chatbot-driven
+    /// proposal). Pushes a confirmation / safety-block message back into
+    /// the chat thread so the user sees the outcome inline rather than
+    /// hunting in the event log.</summary>
+    private void OnChatbotProfilePickerSelected(object? sender, string profileName)
+    {
+        string canon = (profileName ?? string.Empty).Trim().ToUpperInvariant();
+        if (!Enum.TryParse<HabituationProfile>(canon, ignoreCase: true, out _))
+        {
+            ChatbotVm.PushAssistantBubble($"未知 profile：{profileName}。");
+            return;
+        }
+
+        var proposal = new ProfileOverrideProposal(
+            Intent: OverrideIntent.SwitchProfile,
+            TargetField: "profile",
+            ProposedValue: canon,
+            Rationale: "user picked from in-chat profile picker",
+            ExpiresAtUtc: DateTime.UtcNow.AddHours(48));
+
+        _chatbotActionLog.Record(ChatbotActionKind.Proposed, proposal);
+        var result = _overrideApplicator.ApplyAccepted(proposal);
+
+        if (result.IsSuccess)
+        {
+            ChatbotVm.PushAssistantBubble($"已切換到 {canon} profile。");
+        }
+        else if (result.BlockedBySafety)
+        {
+            ChatbotVm.PushAssistantBubble(
+                $"⚠ 無法切換到 {canon}：{result.Reason}");
+        }
+        else
+        {
+            ChatbotVm.PushAssistantBubble(
+                $"切換失敗：{result.Reason ?? "unknown"}");
+        }
+    }
+
+    private void StartProposalExpiryWatchdog(ProfileOverrideProposal proposal)
+    {
+        try { _proposalExpiryTimer?.Stop(); } catch { /* ignore */ }
+        _proposalExpiryTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _proposalExpiryTimer.Tick += (_, _) =>
+        {
+            if (_activeProposal is not { } p) { try { _proposalExpiryTimer?.Stop(); } catch { } return; }
+            if (DateTime.UtcNow >= p.ExpiresAtUtc)
+            {
+                _overrideApplicator.RecordExpired(p);
+                ClearActiveProposal();
+            }
+        };
+        _proposalExpiryTimer.Start();
+    }
     private readonly IEventLogStore _log = new InMemoryEventLogStore();
     private readonly INluService _nlu;
     private readonly DispatcherTimer _demoTimer;
@@ -142,8 +317,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // lifecycle events (profile change, level transition, spike, engine-
         // state change) for the chatbot's Phase 6c trajectory builder.
         _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log);
+
+        // M3 7e+ fix: mirror every _log.Append into the dashboard's bound
+        // EventLog ObservableCollection so entries originating outside
+        // MainViewModel (M1 habituation events from MockInferenceEngine,
+        // Phase 7d/7f Applicator events) appear in the UI table. Without
+        // this subscription, the Applicator's "chatbot override applied"
+        // entry only landed in _log's in-memory list and never reached the
+        // dashboard. UI marshal via dispatcher because the source event
+        // can fire from any thread.
+        _log.Appended += (_, entry) =>
+        {
+            _dispatcher.Invoke(() =>
+            {
+                EventLog.Insert(0, entry);
+                while (EventLog.Count > SenseDefaults.EventLogMaxCount)
+                    EventLog.RemoveAt(EventLog.Count - 1);
+            });
+        };
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
+
+        // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
+        // engine type is OK here because MainViewModel constructed it above
+        // (Decision 7: chatbot Applicator targets MockInferenceEngine
+        // directly, not IInferenceEngine — the chatbot-override surface
+        // doesn't belong on the abstract interface).
+        _observationWriter = new LongitudinalObservationWriter(_habituationProfileStore);
+        _overrideApplicator = new HabituationOverrideApplicator(
+            engine:       (MockInferenceEngine)_engine,
+            profileStore: _habituationProfileStore,
+            eventLog:     _log,
+            actionLog:    _chatbotActionLog);
+        ChatbotVm.LongitudinalObservationCallback = obs => _observationWriter.Append(obs);
+        ChatbotVm.ProposalReceived += OnChatbotProposalReceived;
+        ChatbotVm.ProfilePickerSelected += OnChatbotProfilePickerSelected;
 
         // M2 (Phase 6c): wire host-side lookups so ChatbotViewModel can build
         // the [habituation_state] block per turn. Power Save state comes from
@@ -1257,10 +1465,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MaskSnapshot = state?.MaskActive == true ? "ON" : "off",
         };
 
+        // Single source of writes — _log.Append fires the Appended event
+        // which the constructor wires to update EventLog on the dispatcher.
+        // Removing the direct EventLog.Insert here avoids double-insertion.
         _log.Append(entry);
-        EventLog.Insert(0, entry);
-        while (EventLog.Count > SenseDefaults.EventLogMaxCount)
-            EventLog.RemoveAt(EventLog.Count - 1);
     }
 
     // ?? INotifyPropertyChanged ?????????????????????????????????????????????

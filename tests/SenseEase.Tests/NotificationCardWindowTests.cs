@@ -31,7 +31,9 @@ public class NotificationCardWindowTests
             // Force template instantiation so TitleText is non-null.
             w.ApplyTemplate();
             w.SetContent(TierColorPalette.TierBand.Amber, 3, 27.4);
-            Assert.Equal("VIMS Tier 3/10 · Pressure 27 (mask at 85)", w.TitleText.Text);
+            // v0.9.2: title localised; pressure shows as raw integer
+            // (LeakyIntegrator is unbounded — no fake "/100" denominator).
+            Assert.Equal("VIMS 視覺壓力　第 3 級 / 10　·　壓力指數 27", w.TitleText.Text);
         });
     }
 
@@ -47,10 +49,9 @@ public class NotificationCardWindowTests
             w.ApplyTemplate();
             w.IsPowerSaveActive = true;
             w.SetContent(TierColorPalette.TierBand.Red, 8, 89);
-            Assert.Equal("VIMS · 省電模式中 / Power Save Active", w.TitleText.Text);
-            Assert.Equal(
-                "感測已暫停。按下「省電模式」可恢復。/ Sensing paused. Toggle Power Save off to resume.",
-                w.BodyText.Text);
+            // v0.9.2: zh-only below the title's VIMS product term.
+            Assert.Equal("VIMS · 省電模式中", w.TitleText.Text);
+            Assert.Equal("感測已暫停，可點擊「省電」恢復。", w.BodyText.Text);
         });
     }
 

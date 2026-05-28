@@ -35,4 +35,18 @@ public class NluResult
     /// followup is requested. Intent for the response should be <c>FollowupRequest</c>.
     /// </summary>
     public string[]? FollowupOptions { get; set; }
+
+    /// <summary>M3 Phase 7e: the LLM's full raw output (post-markdown-strip,
+    /// pre-JSON-parse) carried through alongside the deserialized envelope.
+    /// ChatbotViewModel runs <c>HabituationOverrideParser</c> on this so the
+    /// write-side structured tokens ([PROFILE_OVERRIDE] / [OBSERVATION_ADD] /
+    /// [RESUME_ACKNOWLEDGE]) survive even when the model:
+    ///   • emits the override block AFTER the envelope's closing brace
+    ///     (correct per spec, but invisible in Response),
+    ///   • embeds the block INSIDE the envelope (malformed; envelope
+    ///     parse fails → result builds from lexicon fallback so Response
+    ///     no longer carries the original LLM text).
+    /// Null = lexicon fallback path (model not loaded / envelope parse failed
+    /// AND the caller didn't carry raw through), or safety-floor short-circuit.</summary>
+    public string? RawModelOutput { get; set; }
 }

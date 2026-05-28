@@ -1,3 +1,4 @@
+using System;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Models;
@@ -13,6 +14,8 @@ public sealed class InMemoryEventLogStore : IEventLogStore
     private readonly LinkedList<EventLogEntry> _entries = new();
     private readonly object _gate = new();
 
+    public event EventHandler<EventLogEntry>? Appended;
+
     public void Append(EventLogEntry entry)
     {
         lock (_gate)
@@ -23,6 +26,9 @@ public sealed class InMemoryEventLogStore : IEventLogStore
                 _entries.RemoveLast();
             }
         }
+        // Outside the lock — subscribers (notably MainViewModel's dispatcher
+        // marshal) may take a while; we don't want to hold _gate during that.
+        Appended?.Invoke(this, entry);
     }
 
     public IReadOnlyList<EventLogEntry> Recent()

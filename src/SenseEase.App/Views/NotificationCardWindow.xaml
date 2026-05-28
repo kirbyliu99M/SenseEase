@@ -86,6 +86,7 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- title row -->
+                <RowDefinition Height="Auto"/> <!-- M3 7e: chatbot proposal (Flow A) -->
                 <RowDefinition Height="Auto"/> <!-- body -->
                 <RowDefinition Height="Auto"/> <!-- v0.9.1 round-4: discomfort quick-response -->
                 <RowDefinition Height="Auto"/> <!-- buttons -->
@@ -125,8 +126,98 @@
                            TextWrapping="Wrap"/>
             </DockPanel>
 
+            <!-- M3 7e: chatbot proposal section (Flow A, spec §4.3.5).
+                 Visible only when ProposalPanel.Visibility = Visible (set by
+                 code-behind when ActiveProposal is non-null). Sits ABOVE the
+                 tier-band body text so user sees the recommendation first
+                 when the card auto-pops on a proposal. -->
+            <Border Grid.Row="1"
+                    x:Name="ProposalPanel"
+                    Visibility="Collapsed"
+                    Background="#F2F6FE"
+                    BorderBrush="#C3D2EE"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="12,10"
+                    Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock x:Name="ProposalHeaderText"
+                               Text="&#x1F4A1; SenseEase 建議"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#1E5BB0"
+                               Margin="0,0,0,6"/>
+                    <TextBlock x:Name="ProposalSummaryText"
+                               Text=""
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="#1A1F2E"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,4"/>
+                    <TextBlock x:Name="ProposalRationaleText"
+                               Text=""
+                               FontSize="11"
+                               Foreground="#5A6478"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"/>
+                    <TextBlock x:Name="ProposalSafetyNoteText"
+                               Text=""
+                               Visibility="Collapsed"
+                               FontSize="11"
+                               Foreground="#8C2F23"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <Button x:Name="ProposalAcceptBtn"
+                                    Content="接受"
+                                    Click="OnProposalAcceptClicked"
+                                    Background="#1E5BB0"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Padding="14,6"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Cursor="Hand"/>
+                            <Button x:Name="ProposalDeclineBtn"
+                                    Content="拒絕"
+                                    Click="OnProposalDeclineClicked"
+                                    Background="#EEF1F5"
+                                    Foreground="#3A4252"
+                                    BorderThickness="0"
+                                    Padding="14,6"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    Cursor="Hand"/>
+                            <Button x:Name="ProposalLaterBtn"
+                                    Content="稍後"
+                                    Click="OnProposalLaterClicked"
+                                    Background="Transparent"
+                                    Foreground="#7A8499"
+                                    BorderBrush="#D6DBE3"
+                                    BorderThickness="1"
+                                    Padding="14,6"
+                                    FontSize="12"
+                                    Cursor="Hand"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2"
+                                   x:Name="ProposalExpiryText"
+                                   Text=""
+                                   FontSize="10"
+                                   Foreground="#7A8499"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Body text -->
-            <TextBlock Grid.Row="1"
+            <TextBlock Grid.Row="2"
                        x:Name="BodyText"
                        Text=""
                        FontSize="13"
@@ -142,7 +233,7 @@
                  the same FOV/mask/grid deltas as a typed message. Severity
                  mapping is by button Tag (1-4) → index into
                  QuickDiscomfortPhrases; labels are purely cosmetic. -->
-            <StackPanel Grid.Row="2" Margin="0,0,0,10">
+            <StackPanel Grid.Row="3" Margin="0,0,0,10">
                 <TextBlock Text="視覺不適程度"
                            FontSize="11"
                            FontWeight="SemiBold"
@@ -217,7 +308,7 @@
             <!-- Button row: Grid with two columns so PowerSaveToggle sits
                  hard-left and the action buttons sit hard-right at 480 dip.
                  Layout: [PowerSaveToggle] | [Dashboard][Engage][Mute] -->
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>  <!-- left: toggle -->
                     <ColumnDefinition Width="*"/>     <!-- stretch -->
@@ -281,7 +372,7 @@
                  tab via the host's ChatbotViewModel pipeline; the card
                  itself only shows a one-line acknowledgement so the
                  card stays compact. Enter key sends; Send button sends. -->
-            <Grid Grid.Row="4" Margin="0,10,0,0">
+            <Grid Grid.Row="5" Margin="0,10,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>

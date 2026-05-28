@@ -97,6 +97,91 @@ public sealed class MistralChatbotService : IChatbotService
         "Continue emitting the JSON envelope (intent/severity/reply/fov_delta/mask_depth_delta/grid_visibility_delta/feather_width_delta) " +
         "exactly as documented above. Habituation context does not change ANY field value rule.\n\n" +
 
+        // ── WRITE-SIDE STRUCTURED TOKENS (M3 Phase 7e) ──
+        "OPTIONAL WRITE-SIDE TOKENS (most turns emit NONE):\n" +
+        "After the JSON envelope's closing brace }, you MAY append one or more of these blocks on their own lines. " +
+        "They are NOT displayed to the user (the host strips them before render); they drive engine proposals or " +
+        "longitudinal notes.\n" +
+        "\n" +
+        "‼ CRITICAL RULES (Mistral 3B gets these wrong without explicit reminders):\n" +
+        "  1. The JSON envelope intent field is ALWAYS one of the 6 standard values:\n" +
+        "       {ReportDiscomfort, ReportComfort, ResetRequest, AnalyzeRequest, FollowupRequest, Unknown}\n" +
+        "     NEVER use 'adjust_sensitivity' / 'switch_profile' / 'adjust_strike_limit' as the envelope intent. Those\n" +
+        "     are PROFILE_OVERRIDE intents and go INSIDE the override block — never in the outer envelope.\n" +
+        "  2. The override block (if any) goes AFTER the envelope's closing } on a NEW LINE. Never embed it inside\n" +
+        "     the envelope between fields. Wrong: `..,'feather_width_delta':0.0,[PROFILE_OVERRIDE]`. Right: envelope\n" +
+        "     ends with `}` newline, THEN `[PROFILE_OVERRIDE]` newline JSON newline `[/PROFILE_OVERRIDE]`.\n" +
+        "  3. The TAG NAME is EXACTLY `[PROFILE_OVERRIDE]` and `[/PROFILE_OVERRIDE]`. NEVER use synonyms or near-words:\n" +
+        "     not `[PROFILE_OVERSIGHT]`, not `[PROFILE_PROPOSAL]`, not `[PROFILE_ADJUST]`, not `[OVERRIDE]`. Same for the\n" +
+        "     other two tags — `[OBSERVATION_ADD]` (not OBSERVATION_APPEND), `[RESUME_ACKNOWLEDGE]` (not RESUME_ACK).\n" +
+        "  4. When the user explicitly asks for a profile/sensitivity/strike-limit change, the envelope intent is\n" +
+        "     AnalyzeRequest (you're acknowledging their request based on history) with reply briefly confirming your\n" +
+        "     suggestion. The PROFILE_OVERRIDE block carries the actual proposal.\n" +
+        "\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"adjust_sensitivity\"|\"switch_profile\"|\"adjust_strike_limit\",\"target_field\":\"<field>\",\"proposed_value\":<v>,\"rationale\":\"<reason>\",\"expires_at_iso\":\"<UTC ISO8601>\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "    Use ONLY when the user explicitly asks for a profile/sensitivity/strike-limit change AND the habituation\n" +
+        "    history supports it. At most ONE per reply. expires_at_iso = TODAY's date + 1 day in ISO 8601 UTC\n" +
+        "    (e.g. if today is 2026-05-28, write \"2026-05-29T17:00:00Z\"). DO NOT pick a week in the future — the\n" +
+        "    host caps anything beyond 7 days, and proposals over 48h tend to feel stale to users.\n" +
+        "    target_field MUST be the snake_case engine field: 'personal_pressure_scale' (for adjust_sensitivity),\n" +
+        "    'profile' (for switch_profile), 'severe_strike_limit' (for adjust_strike_limit).\n" +
+        "    Value ranges: adjust_sensitivity → personal_pressure_scale ∈ [0.7, 1.5] (higher = MORE sensitive,\n" +
+        "    lower = LESS sensitive / more relaxed); switch_profile ∈ {RESILIENT, TYPICAL, SENSITIVE};\n" +
+        "    adjust_strike_limit ∈ [1, 5].\n" +
+        "    DO NOT propose relaxation if [habituation_state] shows advisory=vestibular — the host hard-rejects these\n" +
+        "    and the user sees a safety message instead of your suggestion.\n" +
+        "\n" +
+        "  [OBSERVATION_ADD]\n" +
+        "  <one-line observation about the user, ≤ 200 chars, in the user's language>\n" +
+        "  [/OBSERVATION_ADD]\n" +
+        "\n" +
+        "    Use sparingly — only when the user has shared something MEANINGFUL ACROSS SESSIONS (e.g. \"我在週末症狀更嚴重\",\n" +
+        "    \"my symptoms always spike after 30 min of scroll\"), not for within-session reactions. Max 2 per reply.\n" +
+        "\n" +
+        "  [RESUME_ACKNOWLEDGE]\n" +
+        "  {\"user_confirmed\":true|false,\"user_quote\":\"<verbatim user text>\"}\n" +
+        "  [/RESUME_ACKNOWLEDGE]\n" +
+        "\n" +
+        "    Use ONLY when [habituation_state] shows awaiting_user_confirm=true AND the user's message clearly\n" +
+        "    indicates readiness to resume (true) or reluctance (false). user_quote = a short verbatim slice.\n" +
+        "\n" +
+        "ANTI-RULES:\n" +
+        "  • Never emit these blocks unsolicited on a discomfort report — the JSON envelope's deltas are the actuator\n" +
+        "    for immediate discomfort, not PROFILE_OVERRIDE.\n" +
+        "  • Never emit PROFILE_OVERRIDE during a FollowupRequest turn (collect more info first).\n" +
+        "  • Never reference these blocks in the visible reply text; they are silent machinery.\n" +
+        "\n" +
+        "EXAMPLE 1 (user asks to relax sensitivity based on stable history):\n" +
+        "  User: 我最近 5 天 tier 一直在 6-7 穩定，可以把 sensitivity 調鬆一點嗎?\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"看到您過去 5 天 tier 維持在 6-7 穩定，我建議把 sensitivity 從 1.0 調至 0.9 — 卡片上會出現詳細選項。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"adjust_sensitivity\",\"target_field\":\"personal_pressure_scale\",\"proposed_value\":0.9,\"rationale\":\"用戶最近 5 天 tier 穩定在 6-7，可以小幅放鬆\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "EXAMPLE 2 (user wants to switch profile):\n" +
+        "  User: I'd like to switch to the resilient profile, I think I've adapted enough\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Given your steady progression, switching to RESILIENT looks reasonable — confirm on the card and I'll apply it.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"switch_profile\",\"target_field\":\"profile\",\"proposed_value\":\"RESILIENT\",\"rationale\":\"user explicitly requested a less restrictive profile and habituation history supports it\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "EXAMPLE 3 (user wants higher strike limit):\n" +
+        "  User: 把 strike limit 提高到 3，最近 1 件事件就被暫停太敏感了\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"了解，從 2 提高到 3 可減少誤觸；請在卡片上確認。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"adjust_strike_limit\",\"target_field\":\"severe_strike_limit\",\"proposed_value\":3,\"rationale\":\"用戶反映現有 limit 過敏感\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "EXAMPLE 4 (user comment is just a longitudinal observation, no proposal):\n" +
+        "  User: I've noticed my symptoms always get worse around 3pm\n" +
+        "  {\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Thanks for sharing — I'll keep an eye on the afternoon pattern in your data.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [OBSERVATION_ADD]\n" +
+        "  user reports symptoms reliably worsen around 3 pm\n" +
+        "  [/OBSERVATION_ADD]\n\n" +
+
         // ── REPLY STYLE ──
         "REPLY STYLE:\n" +
         "  • Output: ONE LINE of compact JSON. NO markdown fences. NO commentary outside the JSON.\n" +
@@ -294,10 +379,20 @@ public sealed class MistralChatbotService : IChatbotService
         }
 
         NluResult result;
+        string? rawForCarry = null;
         if (IsModelLoaded)
         {
             string? raw = await AskServerForDecisionAsync(pureUserText, stateSummary, historyPrefix, ct).ConfigureAwait(false);
             LogModelTrace(pureUserText, raw);
+            // M3 7e: stash the raw output so ChatbotViewModel can run
+            // HabituationOverrideParser on it. This survives both:
+            //   a) Correct LLM output where [PROFILE_OVERRIDE] sits AFTER
+            //      the JSON envelope — invisible in result.Response.
+            //   b) Malformed output where the block is embedded INSIDE the
+            //      envelope, breaking envelope parse — the lexicon fallback
+            //      builds result.Response from scratch, losing the original
+            //      LLM text but raw still has it.
+            rawForCarry = string.IsNullOrEmpty(raw) ? null : StripMarkdownFences(raw);
             if (!TryParseModelDecision(raw, pureUserText, out result))
                 result = BuildFallbackResult(pureUserText);
         }
@@ -305,6 +400,7 @@ public sealed class MistralChatbotService : IChatbotService
         {
             result = BuildFallbackResult(pureUserText);
         }
+        result.RawModelOutput = rawForCarry;
 
         _history.Add(new ChatMessage { Role = ChatRole.Assistant, Content = result.Response });
         while (_history.Count > 20) _history.RemoveAt(0);

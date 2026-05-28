@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -295,6 +296,51 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         string text = InputText.Trim();
         if (string.IsNullOrEmpty(text)) return;
 
+        // M3 7e+: short-circuit on profile-picker request. User typed
+        // something like "我想換 profile" / "show me profiles" without
+        // specifying which → push a chat bubble with 3 option cards and
+        // skip the LLM round-trip entirely. The bubble's option-click
+        // callback fires ProfilePickerSelected, which the host wires to
+        // HabituationOverrideApplicator (safety intercept + audit + apply).
+        if (HabituationProposalLexicon.TryDetectProfilePickerRequest(text))
+        {
+            InputText = string.Empty;
+            string? currentProfile = LoadHabituationSnapshot?.Invoke()?.Profile;
+            _dispatcher.Invoke(() =>
+            {
+                Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
+                PersistMessage(ChatRole.User, text);
+
+                var options = new List<ProfileOption>();
+                foreach (var (profile, desc) in HabituationProposalLexicon.ProfileDescriptions)
+                {
+                    string canonical = profile.ToString().ToUpperInvariant();
+                    string label = string.Equals(canonical, currentProfile, StringComparison.OrdinalIgnoreCase)
+                        ? $"{canonical}（目前）"
+                        : canonical;
+                    options.Add(new ProfileOption(label, desc));
+                }
+                string prompt = currentProfile is null
+                    ? "請選擇您想切換的 profile："
+                    : $"目前是 {currentProfile}。請選擇您想切換的 profile：";
+                Messages.Add(new ChatMessageViewModel(
+                    content: prompt,
+                    role: ChatRole.Assistant,
+                    profileOptions: options,
+                    onProfileSelected: picked =>
+                    {
+                        // The label may include "（目前）" — strip suffix to
+                        // get the canonical profile name before forwarding.
+                        string canon = picked;
+                        int paren = canon.IndexOf('（');
+                        if (paren > 0) canon = canon.Substring(0, paren).Trim();
+                        ProfilePickerSelected?.Invoke(this, canon);
+                    }));
+                PersistMessage(ChatRole.Assistant, prompt);
+            });
+            return; // skip LLM call entirely
+        }
+
         // Cancel any in-flight fake-stream animation from the prior turn so its
         // dispatcher updates can't overwrite this turn's bubble content.
         try { _streamCts.Cancel(); } catch { /* ignore */ }
@@ -321,6 +367,36 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             string contextualInput = BuildContextualInput(text);
 
             var result = await _chatbot.SendAsync(contextualInput, CancellationToken.None).ConfigureAwait(false);
+
+            // M3 7e: extract write-side structured tokens BEFORE the reply
+            // reaches the UI. The parser produces zero, one or both of:
+            //   - a ProfileOverrideProposal  → ProposalReceived event for host
+            //   - 0..2 OBSERVATION_ADD lines → LongitudinalObservationCallback
+            // Run on RawModelOutput (the full LLM output) when present so
+            // override blocks survive in BOTH cases:
+            //   • Correctly-placed blocks AFTER the JSON envelope — invisible
+            //     in result.Response (which is just the envelope's "reply"
+            //     field).
+            //   • Malformed model output where the envelope failed to parse
+            //     and result.Response is a lexicon-fallback string with no
+            //     trace of the original blocks.
+            // Falls back to result.Response (the legacy path) when the
+            // service doesn't carry raw — e.g. headless tests, lexicon-only
+            // mode, safety-floor short-circuit. Stripping is applied to
+            // result.Response only — the visible bubble never contains
+            // block markers regardless of where the parser ran.
+            string parseSource = !string.IsNullOrEmpty(result.RawModelOutput)
+                ? result.RawModelOutput!
+                : result.Response;
+            var parsedOverride = HabituationOverrideParser.TryParse(parseSource);
+            string visibleReply = HabituationOverrideParser.StripAllOverrideBlocks(result.Response);
+            // If the strip ate the entire reply, fall back to the raw text
+            // so the user sees SOMETHING in the chat (defensive — a model
+            // that emits ONLY a structured block with no human prose is
+            // misbehaving but shouldn't surface as an empty bubble).
+            if (string.IsNullOrWhiteSpace(visibleReply))
+                visibleReply = result.Response;
+
             ChatMessageViewModel? assistantBubble = null;
             string assistantContentForPersist = string.Empty;
             string deferredSummary = string.Empty;
@@ -335,12 +411,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 // assistant text is the question itself (FollowupQuestion); if the
                 // model only set Response, fall back to that.
                 bool hasFollowup = result.FollowupOptions is { Length: > 0 }
-                                && !string.IsNullOrWhiteSpace(result.FollowupQuestion ?? result.Response);
+                                && !string.IsNullOrWhiteSpace(result.FollowupQuestion ?? visibleReply);
                 if (hasFollowup)
                 {
                     string q = !string.IsNullOrWhiteSpace(result.FollowupQuestion)
                         ? result.FollowupQuestion!
-                        : result.Response;
+                        : visibleReply;
                     // Followup questions are NOT fake-streamed (must show with their option cards).
                     Messages.Add(new ChatMessageViewModel(
                         q,
@@ -353,23 +429,56 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 {
                     // Only fake-stream lexicon-mode replies. When the real model is
                     // generating, Phase 5 will deliver true incremental streaming.
-                    fakeStream = !_chatbot.IsModelLoaded && !string.IsNullOrEmpty(result.Response);
+                    fakeStream = !_chatbot.IsModelLoaded && !string.IsNullOrEmpty(visibleReply);
                     if (fakeStream)
                     {
                         assistantBubble = new ChatMessageViewModel(string.Empty, ChatRole.Assistant);
                         Messages.Add(assistantBubble);
-                        assistantContentForPersist = result.Response;
+                        assistantContentForPersist = visibleReply;
                         // Persist the reply BEFORE the summary so reload order matches
                         // the rendered order. (Also acts as crash safety for the
                         // fake-stream window — file has the full reply even if the
                         // animation aborts.)
-                        PersistMessage(ChatRole.Assistant, result.Response);
+                        PersistMessage(ChatRole.Assistant, visibleReply);
                     }
                     else
                     {
-                        Messages.Add(new ChatMessageViewModel(result.Response, ChatRole.Assistant));
-                        PersistMessage(ChatRole.Assistant, result.Response);
+                        Messages.Add(new ChatMessageViewModel(visibleReply, ChatRole.Assistant));
+                        PersistMessage(ChatRole.Assistant, visibleReply);
                     }
+                }
+
+                // M3 7e: dispatch parser outputs AFTER the visible reply lands
+                // in Messages so the user sees the assistant text first, then
+                // the Card surfaces. Inside the dispatcher.Invoke so handlers
+                // can touch UI directly without re-marshalling.
+                if (parsedOverride.Observations.Count > 0
+                    && LongitudinalObservationCallback is { } obsCb)
+                {
+                    foreach (var obs in parsedOverride.Observations)
+                    {
+                        try { obsCb(obs); } catch { /* per-observation failure swallowed */ }
+                    }
+                }
+
+                // M3 reliability: if the LLM didn't emit a parseable
+                // PROFILE_OVERRIDE block, fall back to the deterministic
+                // lexicon. Catches explicit user requests like "調鬆 sensitivity"
+                // / "switch profile to RESILIENT" / "raise strike limit" that
+                // the LLM might miss due to small-model structured-output
+                // unreliability. Lexicon is intentionally narrow — only
+                // explicit-request phrasings, no inference from ambiguous
+                // text. The LLM's natural reply still surfaces in the bubble;
+                // the lexicon just guarantees the structured proposal lands.
+                ProfileOverrideProposal? proposalToSurface = parsedOverride.Proposal;
+                if (proposalToSurface is null)
+                {
+                    var snap = LoadHabituationSnapshot?.Invoke();
+                    proposalToSurface = HabituationProposalLexicon.TryDetect(text, snap);
+                }
+                if (proposalToSurface is not null)
+                {
+                    ProposalReceived?.Invoke(this, proposalToSurface);
                 }
 
                 if (summary.Length > 0)
@@ -764,6 +873,41 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// <summary>Raised after an NLU result mutates the shared engine, so the host can refresh rendering.</summary>
     public event EventHandler? AdjustmentApplied;
 
+    /// <summary>M3 7e: raised when the chatbot's reply contains a parseable
+    /// <c>[PROFILE_OVERRIDE]</c> block. The host (MainViewModel) validates
+    /// via <see cref="HabituationOverrideProcessor"/>, surfaces the Card if
+    /// the proposal is accepted, and routes the user's Accept/Decline/Later
+    /// click into <see cref="HabituationOverrideApplicator"/>. Raised on
+    /// the dispatcher thread so the handler can touch UI directly.</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalReceived;
+
+    /// <summary>M3 7e/7g: invoked once per <c>[OBSERVATION_ADD]</c> block the
+    /// parser extracts. Host wires this to <c>LongitudinalObservationWriter.Append</c>
+    /// so chatbot accumulations land in <c>habituation_profile.json</c>.
+    /// Null = no host wiring (test contexts).</summary>
+    public Action<string>? LongitudinalObservationCallback { get; set; }
+
+    /// <summary>M3 7e+: raised when the user clicks a profile option in the
+    /// chat-bubble picker. Carries the chosen profile name (RESILIENT /
+    /// TYPICAL / SENSITIVE). Host validates + applies via
+    /// <see cref="HabituationOverrideApplicator"/> and pushes a confirmation
+    /// reply back through <see cref="PushAssistantBubble"/>.</summary>
+    public event EventHandler<string>? ProfilePickerSelected;
+
+    /// <summary>M3 7e+: host-side helper for the profile picker reply path.
+    /// Pushes an assistant message into <see cref="Messages"/> on the
+    /// dispatcher thread (so MainViewModel can confirm or report a safety
+    /// block without re-implementing the message-add boilerplate).</summary>
+    public void PushAssistantBubble(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return;
+        _dispatcher.Invoke(() =>
+        {
+            Messages.Add(new ChatMessageViewModel(content, ChatRole.Assistant));
+            PersistMessage(ChatRole.Assistant, content);
+        });
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
@@ -823,6 +967,15 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
     public Visibility FollowupVisibility =>
         FollowupOptions is { Length: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>M3 7e+: rich-option cards for the profile picker. Each option
+    /// renders as a button with a bold name + small description below
+    /// (vs the plain-string FollowupOptions which is name-only). Null when
+    /// the message doesn't offer profile picking.</summary>
+    public IReadOnlyList<ProfileOption>? ProfileOptions { get; }
+
+    public Visibility ProfileOptionsVisibility =>
+        ProfileOptions is { Count: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
+
     public Visibility TypingVisibility => IsTyping ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ContentVisibility => IsTyping ? Visibility.Collapsed : Visibility.Visible;
 
@@ -833,12 +986,20 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     public ICommand SelectFollowupCommand { get; }
 
+    /// <summary>M3 7e+: invoked when user taps one of the profile picker option
+    /// cards. Receives the picked profile name (RESILIENT / TYPICAL / SENSITIVE).</summary>
+    public Action<string>? OnProfileSelected { get; }
+
+    public ICommand SelectProfileCommand { get; }
+
     public ChatMessageViewModel(
         string content,
         ChatRole role,
         string[]? followupOptions = null,
         Action<string>? onFollowupSelected = null,
-        bool isTyping = false)
+        bool isTyping = false,
+        IReadOnlyList<ProfileOption>? profileOptions = null,
+        Action<string>? onProfileSelected = null)
     {
         _content = content ?? string.Empty;
         Role = role;
@@ -846,11 +1007,25 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FollowupOptions = followupOptions;
         OnFollowupSelected = onFollowupSelected;
         _isTyping = isTyping;
+        ProfileOptions = profileOptions;
+        OnProfileSelected = onProfileSelected;
         SelectFollowupCommand = new RelayCommand(o =>
         {
             if (o is string s && OnFollowupSelected is not null) OnFollowupSelected(s);
+        });
+        SelectProfileCommand = new RelayCommand(o =>
+        {
+            if (o is ProfileOption p && OnProfileSelected is not null) OnProfileSelected(p.Name);
+            else if (o is string s && OnProfileSelected is not null) OnProfileSelected(s);
         });
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
+
+/// <summary>M3 7e+: a profile picker option rendered inside an assistant
+/// chat bubble. Name = the canonical profile enum value (RESILIENT /
+/// TYPICAL / SENSITIVE) sent back when the user clicks; Description = the
+/// short zh blurb shown beneath the name on the button card so the user
+/// knows what each profile means.</summary>
+public sealed record ProfileOption(string Name, string Description);
