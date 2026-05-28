@@ -1,12 +1,13 @@
 # Pop-up Sprint × Habituation Sprint Integration Audit
 
+> **Audited at**: `v0.9-phase7` (Habituation Phase 7 sealed) on top of
+> `v0.9-phase6` (Phase 6 sealed) and `v0.8.x` (Pop-up sealed). Patched
+> per advisor review 2026-05-28.
+
 Cross-cutting concerns at the boundary between the two largest sprints in
 the v0.9 cycle. Records which surface interacts with which, where the
 contracts are documented, and what subtle interactions exist that aren't
 obvious from either sprint's own spec.
-
-Audited at `v0.9-phase7` (Habituation sealed) on top of `v0.8.x` (Pop-up
-sealed).
 
 ---
 
@@ -194,11 +195,30 @@ From v0.8.1 (Pop-up sprint hotfixes):
 - Overlay engaged at startup — bar/card interaction baseline
 - WGC 2-second warm-up window emits OFI=0 — Habituation events
   generated during warm-up should be filtered (currently they aren't
-  written because the engine sees benign idle data)
+  written because the engine sees benign idle data).
+  **Incidental, not enforced (advisor A2)**: warm-up filtering relies
+  on OFI=0 being interpreted as benign idle data by the engine. There
+  is no explicit `IsWarmingUp` guard at the event-write path. If WGC
+  warm-up behaviour changes — e.g. emits a cached frame from the
+  previous session instead of zero — habituation events could enter
+  the trajectory during warm-up and pollute the chatbot's summary.
+  **v1.0 candidate**: add an explicit `engine.IsWarmingUp` short-circuit
+  on the event-write path so the safety is design-enforced rather than
+  relying on a fortunate input pattern. Lesson learned L6
+  (documented-but-incidental) applies.
 
 From v0.9-phase7:
 - Q4.6 stateless chatbot — ChatbotActionLog is process-scoped; Card
-  must remember its current `ActiveProposal` in-memory only
+  must remember its current `ActiveProposal` in-memory only.
+  **Cross-doc safety implication**: the in-memory cooldown is benign
+  for ordinary proposals but lets the chatbot indefinitely re-propose
+  safety-blocked relaxations to vestibular users after restart. Defensive
+  intercept catches each apply but the repeated propose surface is an
+  experience-layer safety erosion not covered by any single sprint's
+  spec. See
+  [SAFETY-PROVISIONS §7.2](SAFETY-PROVISIONS.md#72-ichatbotactionlog-process-scoped-in-memory-only-at-v09)
+  for the v1.0 mitigation backlog (split safety-relevant decline
+  history into persisted storage).
 
 ---
 
@@ -206,7 +226,7 @@ From v0.9-phase7:
 
 | Risk | Where surfaced | Mitigation |
 |---|---|---|
-| User accepts chatbot proposal while WGC is paused (Power Save on) → proposal applies to engine but no immediate sensing feedback to validate | Habituation × Power Save | System prompt rule discourages chatbot from proposing with stale data; user-facing UX has Card's ⚠ note explaining safety blocks |
+| User accepts chatbot proposal while WGC is paused (Power Save on) → proposal applies to engine but no immediate sensing feedback to validate | Habituation × Power Save | System prompt rule discourages chatbot from proposing with stale data; user-facing UX has Card's ⚠ note explaining safety blocks. **Gap (advisor A3)**: this is a propose-time mitigation. Accept-time has no stale-state check. The dangerous path: chatbot proposes while sensing is normal → user clicks 稍後 → user enables Power Save → 3 days later user re-opens bar and the deferred proposal re-surfaces → user accepts a proposal based on data that's now 3 days stale. v1.0 candidate: deferred proposal carries propose-time snapshot fingerprint; on re-surface, if `power_save_active` flipped on (or pressure/tier moved significantly), Card surfaces "此建議基於 N 天前資料，sensing 已暫停 — 確定套用？" before Accept is enabled. |
 | Bar color change on profile-driven tier transition appears "delayed" relative to chatbot's "已切換到 X profile" reply | Pop-up × Habituation | Acceptable — chatbot reply is authoritative on the apply, bar follows on next tier transition |
 | Tier spike during a Later-deferred proposal would auto-open the Card. Card re-surfaces the deferred proposal AND the new tier content | Pop-up × Habituation | `ShowNotificationCardForCurrentTier` calls `SetContent(tier, pressure)` first then optionally sets `ActiveProposal` — both render |
 | Foreground-process poller hides the Card while a chatbot proposal is pending — proposal stays pending, user might miss it | Pop-up × Habituation | Bar-click re-surfaces; expiry watchdog handles eventual cleanup |
@@ -232,9 +252,12 @@ From the Pop-up sprint's accumulated lessons:
 
 New lessons learned in Habituation sprint:
 
-| L9 | LLM structured output is not deterministic at the 3B parameter scale | Defensive parser tolerance (tag variants, raw-output carry), deterministic lexicon fallback, expiry clamp instead of reject |
+| Lesson | Detail | Mitigation in sprint |
+|---|---|---|
+| L9  | LLM structured output is not deterministic at the 3B parameter scale | Defensive parser tolerance (tag variants, raw-output carry), deterministic lexicon fallback, expiry clamp instead of reject |
 | L10 | Prompt rules alone are insufficient — every safety rule needs a code-side guard | All vestibular / high-risk / strike-limit safety duplicated as code, not just prompt |
 | L11 | Safety floor MUST precede the LLM call | Hardcoded crisis response, never LLM-generated, short-circuit at top of SendAsync |
 | L12 | Event log → dashboard visibility hole | Surfaced when M3 7e+ user noticed missing entries. Generalized fix: IEventLogStore.Appended event lets MainViewModel mirror appends regardless of caller |
 | L13 | Mistral 3B reliably overshoots time durations | Clamp instead of reject; concrete date examples in prompt; lexicon-built proposals use deterministic 48h |
 | L14 | Test STA threading is painful — keep integration tests pipeline-focused, not UI-pump-focused | Phase 8 scenarios bypass SendCommand for pipeline tests; reserve STA-thread tests for WPF widgets where unavoidable |
+| L15 | Cross-doc audit catches gaps that single-doc reviews miss | Advisor pass after the three docs went up flagged A1 (in-memory cooldown × vestibular nudge) — a gap that touched all three docs but no single doc owned it. Future sprints: dedicated cross-cutting audit document, written *last*, is the right place to catch these. |

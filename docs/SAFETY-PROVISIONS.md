@@ -1,7 +1,10 @@
 # SenseEase Safety Provisions
 
+> **Audited at**: `v0.9-phase7` (Habituation Phase 7 sealed) on top of
+> `v0.9-phase6` (Phase 6 sealed). Patched per advisor review 2026-05-28.
+
 Inventory of every safety mechanism in the system, who enforces it, and what
-fails if it goes wrong. Audited at `v0.9-phase7`.
+fails if it goes wrong.
 
 This document is the reference for:
 - Engineers maintaining the safety stack — do not bypass these gates
@@ -42,6 +45,16 @@ en: suicide, self-harm, self harm, kill myself, end it all,
 - Crisis response is hardcoded — LLM never gets to paraphrase
 - Match is substring (case-insensitive for en, exact for zh) — no fuzzy logic
 - Floor sits BEFORE the lexicon, NLU, and chatbot send paths
+- **Both services' phrase tables MUST stay in sync** (advisor B1). The
+  "deliberately duplicated" design choice optimises for *auditability of
+  the check function* — each service can be audited end-to-end without
+  cross-file reading. But the *data* (phrase strings) doesn't benefit
+  from duplication: a phrase added to one service and forgotten in the
+  other is a silent gap. v1.0 candidate: share `SafetyFloorPhrasesZh`
+  / `SafetyFloorPhrasesEn` as a `public static readonly` const in a
+  Core/Safety location; both services consume the same const but keep
+  their own check functions. Until then, a contract test that asserts
+  both arrays are identical (string-by-string) catches drift in CI.
 
 **Test coverage**: 8 contract tests (21 Theory rows + 2 [Fact]) in
 `MistralChatbotServiceTests` and `CalibrationChatbotServiceTests`. Includes
@@ -88,19 +101,22 @@ proposal that would have been blocked.
 
 ## 3. Vestibular hard cap
 
-**Where**: enforced at three layers (defense in depth):
+**Where**: enforced at three layers (defense in depth). Layers 1 and 2
+are propose-time gates; layer 3 implements the apply-time intercept
+rules detailed in §4 below — see the cross-reference notes:
 
-1. `CalibrationProcessor` — sets `SevereStrikeLimit = 1` when
-   `Q5RiskFactors` contains `VestibularDiagnosed`, AND caps
-   `PersonalPressureScale ≤ 1.0`.
-2. `HabituationOverrideProcessor.Validate` (Phase 7c rule 3) — rejects
-   ANY relaxation proposal when snapshot has Vestibular advisory.
-3. `HabituationOverrideApplicator.CheckSafetyIntercepts` (Phase 7f
-   rule 1+2) — re-checks at apply time:
-   - Rule 1: `AdjustStrikeLimit` + current `severe_strike_limit == 1` +
-     Vestibular advisory → block (the specific "vestibular hard cap"
-     message)
-   - Rule 2: Vestibular advisory + ANY relaxation → block
+1. **Layer 1 (calibration-time)** — `CalibrationProcessor` sets
+   `SevereStrikeLimit = 1` when `Q5RiskFactors` contains
+   `VestibularDiagnosed`, AND caps `PersonalPressureScale ≤ 1.0`.
+   Establishes the hard-cap baseline at the moment the user's
+   condition is first recorded.
+2. **Layer 2 (propose-time)** — `HabituationOverrideProcessor.Validate`
+   (Phase 7c rule 3) rejects ANY relaxation proposal when snapshot has
+   Vestibular advisory. Gates whether the Card is even surfaced.
+3. **Layer 3 (apply-time)** — `HabituationOverrideApplicator.CheckSafetyIntercepts`
+   implements §4 intercept rules 1 and 2 (see §4 below for the full
+   rule definitions). Re-checks at apply time because the snapshot
+   may have changed between propose and accept.
 
 **Why defense in depth**: the Processor check is the proactive gate
 (don't surface the Card if we'd just have to reject Accept). The
@@ -129,6 +145,10 @@ escalate without intervention.
 
 **Where**: `HabituationOverrideApplicator.CheckSafetyIntercepts` (static,
 exposed for tests + UI preview).
+
+This section defines the apply-time intercept rules. Rules 1 and 2
+implement §3 layer 3 (vestibular hard cap, apply-time gate); rule 3
+extends defense to the HighRiskCombo advisory.
 
 **Three rules in specificity order** (apply-time, not propose-time):
 
@@ -160,6 +180,20 @@ didn't suggest X" — more transparent and gives the user the context
 vestibular check). Loses the apply-time re-check that catches
 post-Processor snapshot changes.
 
+**Known gap (advisor A3) — deferred proposal staleness**: the
+Applicator re-checks the safety predicates at apply time (above), but
+does NOT re-check whether the *contextual conditions* that justified
+the proposal at propose-time still hold. Specifically, if the user
+clicked 稍後 and enabled Power Save before re-engaging, the deferred
+proposal applies to engine state based on data captured before sensing
+was paused. The Card surface has no inline warning for this case.
+v1.0 candidate: proposal carries a propose-time fingerprint
+(power_save_active, current_tier, habituation_level snapshot); accept-
+time compares against current state and surfaces an "older context"
+warning before enabling Accept. See
+[POPUP-AND-HABITUATION-INTEGRATION-AUDIT §9](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md#9-known-cross-sprint-risks)
+for the cross-sprint analysis.
+
 ---
 
 ## 5. Crisis resource directory
@@ -167,8 +201,20 @@ post-Processor snapshot changes.
 **Where**: hardcoded inside `TripsSafetyFloor` (both chatbot services).
 
 **Resources**:
-- Taiwan: `1925 安心專線` (24h free, the national mental health hotline)
-- International: `https://findahelpline.com`
+- **Primary (in-country phone numbers)**: Taiwan `1925 安心專線`
+  (24h free national mental-health hotline); US `988` (Suicide &
+  Crisis Lifeline). These are the load-bearing resources — they
+  work offline-from-the-app's-perspective (user dials directly) and
+  don't depend on any third-party uptime.
+- **Secondary (URL fallback)**: `https://findahelpline.com` — an
+  international directory of crisis lines. Surfaces *additional*
+  options for users outside TW/US or who prefer a chat/text channel.
+
+**Why "primary + secondary" (advisor B2)**: even if findahelpline
+goes down, every crisis response still carries a working in-country
+phone number. The web URL is an enhancement, not a dependency. This
+isn't an accident — it's the design choice that keeps the crisis
+path robust against external single-point-of-failure.
 
 **Why hardcoded**: a "directory" stored externally could be edited or
 broken; the crisis path needs deterministic, always-available text.
@@ -231,6 +277,44 @@ Tracks proposal lifecycle separately from FOV adjustments:
 loses history; cooldown silently degrades to "no cooldown" until the
 chatbot proposes again in this session.
 
+**Cross-doc safety degradation (advisor A1)**: the in-memory cooldown
+intersects badly with the vestibular hard cap. Flow:
+
+1. Vestibular user is shown a chatbot relaxation proposal in session N
+2. User declines → `ChatbotActionLog.Record(Declined, ...)` (in-memory)
+3. App restarts → ChatbotActionLog wiped
+4. Chatbot in session N+1 sees the same favourable trajectory → proposes
+   the SAME relaxation
+5. Card surfaces again — defensive intercept (§4) blocks the *apply*,
+   but the *propose* repeats every session indefinitely
+
+For ordinary proposals this is annoyance. For vestibular-relevant
+relaxation proposals it's a **silent experience-layer safety erosion** —
+the user is repeatedly nudged toward a direction known to be unsafe for
+their condition, even though no single Apply ever succeeds. The
+defensive intercept catches the engine-write but not the
+psychological-pressure surface.
+
+**Mitigation backlog** (v1.0 candidate, not v0.9 scope): split decline
+history by safety-relevance.
+
+- Ordinary decline → in-memory cooldown (current behaviour, fine to lose
+  on restart)
+- Safety-relevant decline (Vestibular advisory + relaxation, HighRiskCombo
+  + significant relaxation, vestibular-hard-cap strike-limit) → persist
+  to disk alongside `habituation_profile.json`, so cooldown survives
+  restart
+
+Reason for splitting rather than persisting everything: keeps the
+chatbot's general "I tried X yesterday" recall transient (matches the
+Q4.6 stateless decision) while elevating the recall of safety-blocked
+proposals to persistent.
+
+**Test gap**: this scenario is NOT covered by `Phase8AcceptanceTests.cs`.
+Scenario D verifies the intercept blocks; it does NOT verify what
+happens across restarts. A v1.0 follow-up test would simulate
+session N decline → session N+1 re-propose → assert cooldown holds.
+
 ---
 
 ## 8. Engine state safety invariants
@@ -274,7 +358,34 @@ through the chatbot path.
 
 ---
 
-## 10. Out-of-scope (deliberately)
+## 10. Forward-looking note — OBSERVATION privacy
+
+`LongitudinalObservations` (Phase 7g) is a chatbot-written, user-invisible
+list inside `habituation_profile.json`. When the user reports discomfort
+(e.g. via the Card's quick-discomfort buttons or a chat message), the
+chatbot may emit an `[OBSERVATION_ADD]` block — the writer persists it
+silently and the user has no UI to read or delete the list.
+
+**At v0.9 this is acceptable risk**: SenseEase is local-only (no cloud
+sync, no profile export), the file is in `%LOCALAPPDATA%\SenseEase\`
+under the user's own account ACL, and the observations are short
+descriptive sentences not raw transcripts.
+
+**If v1.0+ introduces cloud sync, profile export, multi-device, or
+backup-to-cloud**: this silent-write behaviour must be re-evaluated.
+Options include user-visible disclosure ("the chatbot has noted: X")
+on observation-write, an opt-out toggle in Settings, or excluding
+LongitudinalObservations from the synced/exported subset. The current
+list cap (50 entries FIFO) prevents unbounded accumulation but doesn't
+address the visibility concern.
+
+This is forward-looking guard, not a current bug. Documented here so
+the next sprint planning the cloud surface has the privacy constraint
+in scope from day one.
+
+---
+
+## 11. Out-of-scope (deliberately)
 
 These are NOT safety provisions and shouldn't be confused with the above:
 

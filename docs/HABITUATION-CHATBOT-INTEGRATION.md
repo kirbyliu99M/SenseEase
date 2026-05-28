@@ -1,12 +1,17 @@
 # Habituation × Chatbot Integration
 
+> **Audited at**: `v0.9-phase7` (Habituation Phase 7 sealed) on top of
+> `v0.9-phase6` (Phase 6 sealed). Patched per advisor review 2026-05-28.
+
 Reference for Phase 6 (chatbot **reads** habituation state) + Phase 7 (chatbot
-**proposes** engine-state changes that the user confirms). Sealed at tags
-`v0.9-phase6` and `v0.9-phase7`.
+**proposes** engine-state changes that the user confirms).
 
 This document is for engineers maintaining the chatbot ↔ engine seam. End-user
 behavior lives in [POPUP-OVERLAY.md](POPUP-OVERLAY.md) and
-[CALIBRATION.md](CALIBRATION.md).
+[CALIBRATION.md](CALIBRATION.md). Cross-sprint integration risks +
+lessons learned: see
+[POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md).
+System-wide safety design: see [SAFETY-PROVISIONS.md](SAFETY-PROVISIONS.md).
 
 ---
 
@@ -364,6 +369,13 @@ Total chatbot ↔ engine test count: 193. Full suite: 629 / 0 / 1 skipped.
   stateless decision; the Processor's cooldown rule 5 silently degrades
   to "no cooldown" across restarts. If v1.0 wants cross-restart memory,
   swap for a JSONL-file-backed implementation.
+  <br>**Safety-relevant intersection**: for vestibular / high-risk-combo
+  users, the in-memory cooldown means the chatbot may re-propose the
+  SAME relaxation that was declined last session — the defensive intercept
+  (§3.4) catches the apply but the propose repeats indefinitely. See
+  [SAFETY-PROVISIONS §7.2](SAFETY-PROVISIONS.md#72-ichatbotactionlog-process-scoped-in-memory-only-at-v09)
+  for the full cross-doc analysis + v1.0 mitigation (split decline-
+  history persistence by safety-relevance).
 - **One active proposal at a time** (Decision 10): newer proposals don't
   auto-supersede; they're rejected by Processor rule 4. Means a chatbot
   trying to propose a fresh change while the user has a pending Later
