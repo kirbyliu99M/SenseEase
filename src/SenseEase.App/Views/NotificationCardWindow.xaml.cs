@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
@@ -72,6 +73,16 @@ public partial class NotificationCardWindow : Window
     /// repaint the bar/tray immediately (matches the tray-menu Settings path
     /// in <see cref="MainWindow.ShowSettingsWindow"/>). No-op if unwired.</summary>
     public Action? OnPreferencesChanged { get; set; }
+
+    /// <summary>v0.9.1 round-3: invoked when the user types into the in-card
+    /// chatbot box and presses Send (or Enter). Host wires this to the
+    /// ChatbotViewModel's Send pipeline so adjustments flow exactly like
+    /// they do from the dashboard's chat tab — same parser, same engine
+    /// hooks, same lexicon fallback. Receives the user's text; returns a
+    /// short status string the card surfaces beneath the input (e.g. the
+    /// chatbot's reply or an acknowledgement). Null = host hasn't wired
+    /// it; the Send button is hidden in that case.</summary>
+    public Func<string, Task<string?>>? SendChatMessage { get; set; }
 
     private readonly DispatcherTimer _idleTimer;
     private Storyboard? _activeFadeStoryboard;
@@ -412,6 +423,74 @@ public partial class NotificationCardWindow : Window
         mainWindow.Topmost = false;
 
         Close();
+    }
+
+    private bool _chatSendInFlight;
+
+    /// <summary>v0.9.1 round-3: send the typed message through the host's
+    /// chatbot pipeline. Guards against double-send while one is in flight,
+    /// disables the button visually, and surfaces a status line beneath
+    /// the input. Errors are swallowed into the status line so a failing
+    /// LLM doesn't crash the card.</summary>
+    private async void OnChatSendClicked(object sender, RoutedEventArgs e)
+    {
+        await TrySendChatAsync();
+    }
+
+    private async void OnChatInputKeyDown(object sender, KeyEventArgs e)
+    {
+        // Enter sends, Shift+Enter inserts newline (matches dashboard convention).
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        {
+            e.Handled = true;
+            await TrySendChatAsync();
+        }
+    }
+
+    private async Task TrySendChatAsync()
+    {
+        if (_chatSendInFlight) return;
+        string text = ChatInputBox.Text?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(text)) return;
+        if (SendChatMessage is null)
+        {
+            ChatStatusText.Text = "Chatbot 未連線 / Chatbot not wired.";
+            return;
+        }
+
+        _chatSendInFlight = true;
+        ChatSendBtn.IsEnabled = false;
+        ChatInputBox.IsEnabled = false;
+        ChatStatusText.Text = "傳送中… / Sending…";
+        // Treat any in-card activity as user interaction — defer the idle fade.
+        RestartIdleTimer();
+
+        string? reply = null;
+        try
+        {
+            reply = await SendChatMessage(text).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ChatStatusText.Text = $"傳送失敗 / Send failed: {ex.GetType().Name}";
+        }
+        finally
+        {
+            _chatSendInFlight = false;
+            ChatSendBtn.IsEnabled = true;
+            ChatInputBox.IsEnabled = true;
+            ChatInputBox.Clear();
+            ChatInputBox.Focus();
+            if (!string.IsNullOrEmpty(reply))
+            {
+                ChatStatusText.Text = reply;
+            }
+            else if (ChatStatusText.Text == "傳送中… / Sending…")
+            {
+                ChatStatusText.Text = "已套用 / Applied.";
+            }
+            RestartIdleTimer();
+        }
     }
 
     /// <summary>Monitor-coords physical-pixel rect for the WGC exclude mask

@@ -74,15 +74,12 @@ public partial class PersistentBarWindow : Window
     /// window behind it.</summary>
     public event EventHandler? Clicked;
 
-    /// <summary>v0.9.1 hotfix: raised when the cursor enters bar proximity.
-    /// Host treats this as "user wants quick-action access" and opens the
-    /// notification card — same card the bar's click event would open, just
-    /// without requiring a click. Re-armed when the user moves the cursor
-    /// out of proximity and back in.
-    /// <para>User-iter: originally 800 ms linger; bumped to instant on hover
-    /// per user request — they want pop-up buttons reachable just by moving
-    /// the cursor near the bar.</para></summary>
-    public event EventHandler? HoverSustained;
+    // v0.9.1 round-3: HoverSustained event removed. Iter-2 fired it on
+    // instant hover-in (user found it noisy) and the round-1 800 ms-linger
+    // version (which wasn't firing reliably) didn't match user intent
+    // either. Final decision: card opens on CLICK only (or tier-spike
+    // auto-show). The bar's hover state remains a visual affordance
+    // (grow + brighten) but does not auto-open anything.
 
     /// <summary>Tier → bar brush. Proxy to <see cref="TierColorPalette"/>.</summary>
     public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
@@ -308,15 +305,6 @@ public partial class PersistentBarWindow : Window
         _isHovered = nowHovered;
         IsHitTestVisible = nowHovered;
         AnimateHoverTransition(nowHovered);
-
-        // v0.9.1 hotfix: fire HoverSustained on the hover-in transition so
-        // pop-up buttons are reachable just by moving the cursor near the
-        // bar (user preference — no linger delay). The card has its own
-        // click-outside-auto-close so brushing past doesn't strand it open.
-        if (nowHovered)
-        {
-            HoverSustained?.Invoke(this, EventArgs.Empty);
-        }
     }
 
     private void AnimateHoverTransition(bool toHovered)
