@@ -317,6 +317,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // lifecycle events (profile change, level transition, spike, engine-
         // state change) for the chatbot's Phase 6c trajectory builder.
         _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log);
+
+        // M3 7e+ fix: mirror every _log.Append into the dashboard's bound
+        // EventLog ObservableCollection so entries originating outside
+        // MainViewModel (M1 habituation events from MockInferenceEngine,
+        // Phase 7d/7f Applicator events) appear in the UI table. Without
+        // this subscription, the Applicator's "chatbot override applied"
+        // entry only landed in _log's in-memory list and never reached the
+        // dashboard. UI marshal via dispatcher because the source event
+        // can fire from any thread.
+        _log.Appended += (_, entry) =>
+        {
+            _dispatcher.Invoke(() =>
+            {
+                EventLog.Insert(0, entry);
+                while (EventLog.Count > SenseDefaults.EventLogMaxCount)
+                    EventLog.RemoveAt(EventLog.Count - 1);
+            });
+        };
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
 
@@ -1447,10 +1465,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MaskSnapshot = state?.MaskActive == true ? "ON" : "off",
         };
 
+        // Single source of writes — _log.Append fires the Appended event
+        // which the constructor wires to update EventLog on the dispatcher.
+        // Removing the direct EventLog.Insert here avoids double-insertion.
         _log.Append(entry);
-        EventLog.Insert(0, entry);
-        while (EventLog.Count > SenseDefaults.EventLogMaxCount)
-            EventLog.RemoveAt(EventLog.Count - 1);
     }
 
     // ?? INotifyPropertyChanged ?????????????????????????????????????????????
