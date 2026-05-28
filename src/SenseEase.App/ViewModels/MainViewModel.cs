@@ -230,6 +230,47 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch { return null; }
     }
 
+    /// <summary>M3 7e+: user picked a profile from the in-chat picker. Builds
+    /// a SwitchProfile proposal and runs it through the standard Applicator
+    /// path (same safety intercept + action-log audit as a chatbot-driven
+    /// proposal). Pushes a confirmation / safety-block message back into
+    /// the chat thread so the user sees the outcome inline rather than
+    /// hunting in the event log.</summary>
+    private void OnChatbotProfilePickerSelected(object? sender, string profileName)
+    {
+        string canon = (profileName ?? string.Empty).Trim().ToUpperInvariant();
+        if (!Enum.TryParse<HabituationProfile>(canon, ignoreCase: true, out _))
+        {
+            ChatbotVm.PushAssistantBubble($"未知 profile：{profileName}。");
+            return;
+        }
+
+        var proposal = new ProfileOverrideProposal(
+            Intent: OverrideIntent.SwitchProfile,
+            TargetField: "profile",
+            ProposedValue: canon,
+            Rationale: "user picked from in-chat profile picker",
+            ExpiresAtUtc: DateTime.UtcNow.AddHours(48));
+
+        _chatbotActionLog.Record(ChatbotActionKind.Proposed, proposal);
+        var result = _overrideApplicator.ApplyAccepted(proposal);
+
+        if (result.IsSuccess)
+        {
+            ChatbotVm.PushAssistantBubble($"已切換到 {canon} profile。");
+        }
+        else if (result.BlockedBySafety)
+        {
+            ChatbotVm.PushAssistantBubble(
+                $"⚠ 無法切換到 {canon}：{result.Reason}");
+        }
+        else
+        {
+            ChatbotVm.PushAssistantBubble(
+                $"切換失敗：{result.Reason ?? "unknown"}");
+        }
+    }
+
     private void StartProposalExpiryWatchdog(ProfileOverrideProposal proposal)
     {
         try { _proposalExpiryTimer?.Stop(); } catch { /* ignore */ }
@@ -292,6 +333,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             actionLog:    _chatbotActionLog);
         ChatbotVm.LongitudinalObservationCallback = obs => _observationWriter.Append(obs);
         ChatbotVm.ProposalReceived += OnChatbotProposalReceived;
+        ChatbotVm.ProfilePickerSelected += OnChatbotProfilePickerSelected;
 
         // M2 (Phase 6c): wire host-side lookups so ChatbotViewModel can build
         // the [habituation_state] block per turn. Power Save state comes from

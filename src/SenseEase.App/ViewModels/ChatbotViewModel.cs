@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -294,6 +295,51 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     {
         string text = InputText.Trim();
         if (string.IsNullOrEmpty(text)) return;
+
+        // M3 7e+: short-circuit on profile-picker request. User typed
+        // something like "我想換 profile" / "show me profiles" without
+        // specifying which → push a chat bubble with 3 option cards and
+        // skip the LLM round-trip entirely. The bubble's option-click
+        // callback fires ProfilePickerSelected, which the host wires to
+        // HabituationOverrideApplicator (safety intercept + audit + apply).
+        if (HabituationProposalLexicon.TryDetectProfilePickerRequest(text))
+        {
+            InputText = string.Empty;
+            string? currentProfile = LoadHabituationSnapshot?.Invoke()?.Profile;
+            _dispatcher.Invoke(() =>
+            {
+                Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
+                PersistMessage(ChatRole.User, text);
+
+                var options = new List<ProfileOption>();
+                foreach (var (profile, desc) in HabituationProposalLexicon.ProfileDescriptions)
+                {
+                    string canonical = profile.ToString().ToUpperInvariant();
+                    string label = string.Equals(canonical, currentProfile, StringComparison.OrdinalIgnoreCase)
+                        ? $"{canonical}（目前）"
+                        : canonical;
+                    options.Add(new ProfileOption(label, desc));
+                }
+                string prompt = currentProfile is null
+                    ? "請選擇您想切換的 profile："
+                    : $"目前是 {currentProfile}。請選擇您想切換的 profile：";
+                Messages.Add(new ChatMessageViewModel(
+                    content: prompt,
+                    role: ChatRole.Assistant,
+                    profileOptions: options,
+                    onProfileSelected: picked =>
+                    {
+                        // The label may include "（目前）" — strip suffix to
+                        // get the canonical profile name before forwarding.
+                        string canon = picked;
+                        int paren = canon.IndexOf('（');
+                        if (paren > 0) canon = canon.Substring(0, paren).Trim();
+                        ProfilePickerSelected?.Invoke(this, canon);
+                    }));
+                PersistMessage(ChatRole.Assistant, prompt);
+            });
+            return; // skip LLM call entirely
+        }
 
         // Cancel any in-flight fake-stream animation from the prior turn so its
         // dispatcher updates can't overwrite this turn's bubble content.
@@ -841,6 +887,27 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// Null = no host wiring (test contexts).</summary>
     public Action<string>? LongitudinalObservationCallback { get; set; }
 
+    /// <summary>M3 7e+: raised when the user clicks a profile option in the
+    /// chat-bubble picker. Carries the chosen profile name (RESILIENT /
+    /// TYPICAL / SENSITIVE). Host validates + applies via
+    /// <see cref="HabituationOverrideApplicator"/> and pushes a confirmation
+    /// reply back through <see cref="PushAssistantBubble"/>.</summary>
+    public event EventHandler<string>? ProfilePickerSelected;
+
+    /// <summary>M3 7e+: host-side helper for the profile picker reply path.
+    /// Pushes an assistant message into <see cref="Messages"/> on the
+    /// dispatcher thread (so MainViewModel can confirm or report a safety
+    /// block without re-implementing the message-add boilerplate).</summary>
+    public void PushAssistantBubble(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return;
+        _dispatcher.Invoke(() =>
+        {
+            Messages.Add(new ChatMessageViewModel(content, ChatRole.Assistant));
+            PersistMessage(ChatRole.Assistant, content);
+        });
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
@@ -900,6 +967,15 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
     public Visibility FollowupVisibility =>
         FollowupOptions is { Length: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>M3 7e+: rich-option cards for the profile picker. Each option
+    /// renders as a button with a bold name + small description below
+    /// (vs the plain-string FollowupOptions which is name-only). Null when
+    /// the message doesn't offer profile picking.</summary>
+    public IReadOnlyList<ProfileOption>? ProfileOptions { get; }
+
+    public Visibility ProfileOptionsVisibility =>
+        ProfileOptions is { Count: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
+
     public Visibility TypingVisibility => IsTyping ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ContentVisibility => IsTyping ? Visibility.Collapsed : Visibility.Visible;
 
@@ -910,12 +986,20 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     public ICommand SelectFollowupCommand { get; }
 
+    /// <summary>M3 7e+: invoked when user taps one of the profile picker option
+    /// cards. Receives the picked profile name (RESILIENT / TYPICAL / SENSITIVE).</summary>
+    public Action<string>? OnProfileSelected { get; }
+
+    public ICommand SelectProfileCommand { get; }
+
     public ChatMessageViewModel(
         string content,
         ChatRole role,
         string[]? followupOptions = null,
         Action<string>? onFollowupSelected = null,
-        bool isTyping = false)
+        bool isTyping = false,
+        IReadOnlyList<ProfileOption>? profileOptions = null,
+        Action<string>? onProfileSelected = null)
     {
         _content = content ?? string.Empty;
         Role = role;
@@ -923,11 +1007,25 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FollowupOptions = followupOptions;
         OnFollowupSelected = onFollowupSelected;
         _isTyping = isTyping;
+        ProfileOptions = profileOptions;
+        OnProfileSelected = onProfileSelected;
         SelectFollowupCommand = new RelayCommand(o =>
         {
             if (o is string s && OnFollowupSelected is not null) OnFollowupSelected(s);
+        });
+        SelectProfileCommand = new RelayCommand(o =>
+        {
+            if (o is ProfileOption p && OnProfileSelected is not null) OnProfileSelected(p.Name);
+            else if (o is string s && OnProfileSelected is not null) OnProfileSelected(s);
         });
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
+
+/// <summary>M3 7e+: a profile picker option rendered inside an assistant
+/// chat bubble. Name = the canonical profile enum value (RESILIENT /
+/// TYPICAL / SENSITIVE) sent back when the user clicks; Description = the
+/// short zh blurb shown beneath the name on the button card so the user
+/// knows what each profile means.</summary>
+public sealed record ProfileOption(string Name, string Description);

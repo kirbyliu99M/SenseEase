@@ -816,6 +816,41 @@
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
 
+                                                    <!-- M3 7e+ Profile picker. Each card shows the canonical name
+                                                         (bold) and a short description. Click → ProfilePickerSelected
+                                                         event → MainViewModel applies via HabituationOverrideApplicator
+                                                         (safety intercept + action-log audit). -->
+                                                    <ItemsControl ItemsSource="{Binding ProfileOptions}"
+                                                                  Visibility="{Binding ProfileOptionsVisibility}"
+                                                                  Margin="0,8,0,0">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Button Command="{Binding DataContext.SelectProfileCommand,
+                                                                                          RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        Background="#FFFFFF"
+                                                                        BorderBrush="#B7CFE3"
+                                                                        BorderThickness="1"
+                                                                        Padding="12,10"
+                                                                        Margin="0,0,0,8"
+                                                                        HorizontalContentAlignment="Stretch"
+                                                                        Cursor="Hand">
+                                                                    <StackPanel Orientation="Vertical">
+                                                                        <TextBlock Text="{Binding Name}"
+                                                                                   FontSize="13"
+                                                                                   FontWeight="SemiBold"
+                                                                                   Foreground="#1E5BB0"/>
+                                                                        <TextBlock Text="{Binding Description}"
+                                                                                   FontSize="11"
+                                                                                   Foreground="#3A4252"
+                                                                                   TextWrapping="Wrap"
+                                                                                   Margin="0,4,0,0"/>
+                                                                    </StackPanel>
+                                                                </Button>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+
                                                     <TextBlock Text="{Binding Timestamp}"
                                                                FontSize="10" Foreground="#7B8DB0"
                                                                Margin="0,4,0,0"/>

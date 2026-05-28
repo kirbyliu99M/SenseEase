@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using SenseEase.Core.Models;
 
 namespace SenseEase.Core.Inference;
@@ -44,6 +45,68 @@ public static class HabituationProposalLexicon
     /// <summary>Default expiry window for lexicon-built proposals
     /// (Q4.3-locked 48 hours).</summary>
     public static readonly TimeSpan DefaultExpiry = TimeSpan.FromHours(48);
+
+    /// <summary>M3 7e+: detect a "show me the profiles" / "I want to switch
+    /// profile" intent where the user hasn't named a specific profile yet.
+    /// Caller surfaces a chat bubble with the 3 profile option cards so the
+    /// user can browse + pick interactively. Returns true ONLY for the
+    /// picker-request pattern; if the user named a profile, this returns
+    /// false and the regular <see cref="TryDetect"/> path takes over.</summary>
+    public static bool TryDetectProfilePickerRequest(string? userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText)) return false;
+        string text = userText.Trim();
+        string lower = text.ToLowerInvariant();
+
+        // If the user named a specific profile, this is NOT a picker request —
+        // the regular TryDetect path will build the proposal directly.
+        foreach (var (kw, _) in ProfileSwitchKeywords)
+        {
+            if (Contains(text, lower, kw)) return false;
+        }
+
+        // Generic profile-mention vocabulary: zh + en, without naming a
+        // specific profile.
+        bool mentionsProfile =
+            text.Contains("profile")
+            || text.Contains("模式")
+            || text.Contains("設定檔")
+            || text.Contains("等級")
+            || lower.Contains("profile");
+
+        if (!mentionsProfile) return false;
+
+        // Verb: ask/show/list/want-to-change indicators.
+        return MentionsSwitch(text, lower)
+            || text.Contains("看看")
+            || text.Contains("查看")
+            || text.Contains("有哪些")
+            || text.Contains("有什麼")
+            || text.Contains("選")
+            || lower.Contains("show")
+            || lower.Contains("list")
+            || lower.Contains("what are")
+            || lower.Contains("what's the difference")
+            || lower.Contains("what's the diff")
+            || lower.Contains("which")
+            || lower.Contains("pick");
+    }
+
+    /// <summary>M3 7e+: canonical descriptions for each profile, surfaced as
+    /// the option-card subtitle in the chatbot's profile picker. Mirrors the
+    /// docstring blurbs on <see cref="HabituationProfileParams.Resilient"/>
+    /// / .Typical / .Sensitive — kept here (not in Core) so the wording can
+    /// evolve with UX needs without rebuilding engine logic.</summary>
+    public static IReadOnlyList<(HabituationProfile profile, string description)> ProfileDescriptions { get; } =
+        new[]
+        {
+            (HabituationProfile.Resilient,
+             "為高耐受族群設計。視覺保護觸發較緩慢、回復較快。適合對視覺刺激較不敏感的使用者。"),
+            (HabituationProfile.Typical,
+             "一般使用者預設。反應速度與保護強度間取得平衡，適合多數人的日常使用。"),
+            (HabituationProfile.Sensitive,
+             "為敏感族群設計。視覺保護更早觸發、保持時間更長。適合容易頭暈、疲勞的使用者。"),
+        };
 
     /// <summary>Try to detect an explicit profile-override request in the
     /// user's text and synthesize a proposal. Returns null when the text
