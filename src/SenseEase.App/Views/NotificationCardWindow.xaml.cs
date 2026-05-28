@@ -266,14 +266,15 @@ public partial class NotificationCardWindow : Window
         if (_hasContent)
         {
             // v0.9.1 round-5: localized title. zh-only below the VIMS product
-            // term per user spec — "VIMS 視覺壓力 第 N 級 / 10 · 壓力指數 P / 100".
+            // term per user spec — "VIMS 視覺壓力 第 N 級 / 10 · 壓力指數 P".
             // Removed the internal "(mask at 85)" debug suffix from the
             // user-facing surface; the dashboard chart still surfaces the 85
-            // threshold for power users. Note the "/100" denominator was
-            // earlier dropped because LeakyIntegrator can exceed 100 — kept
-            // here per spec; large values just overflow the canonical scale
-            // visually ("壓力指數 320 / 100" reads as "very high" to users).
-            TitleText.Text = $"VIMS 視覺壓力　第 {_lastTier} 級 / 10　·　壓力指數 {Math.Round(_lastPressure)} / 100";
+            // threshold for power users. Pressure is shown WITHOUT a "/100"
+            // denominator — LeakyIntegrator pressure has no engine-level
+            // upper bound (real values can exceed 300 under sustained spikes)
+            // so a "/100" suffix would mislead users into thinking the scale
+            // caps at 100.
+            TitleText.Text = $"VIMS 視覺壓力　第 {_lastTier} 級 / 10　·　壓力指數 {Math.Round(_lastPressure)}";
         }
         else
         {
