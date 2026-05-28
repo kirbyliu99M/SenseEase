@@ -255,8 +255,8 @@ public partial class NotificationCardWindow : Window
     {
         if (_isPowerSaveActive)
         {
-            TitleText.Text = "VIMS · 省電模式中 / Power Save Active";
-            BodyText.Text  = "感測已暫停。按下「省電模式」可恢復。/ Sensing paused. Toggle Power Save off to resume.";
+            TitleText.Text = "VIMS · 省電模式中";
+            BodyText.Text  = "感測已暫停，可點擊「省電」恢復。";
             return;
         }
 
@@ -265,14 +265,16 @@ public partial class NotificationCardWindow : Window
         string body = DescriptionForBand(_lastBand);
         if (_hasContent)
         {
-            // Path Z UX iter 3: tier shown as N/10 so the scale is unambiguous
-            // (VIMS tier is a 1–10 discrete band per OverlayWindow.VimsLevels).
-            // Pressure has no engine-level upper bound (LeakyIntegrator keeps
-            // accumulating); the dashboard caps its chart at 200 with the
-            // mask trigger at 85, so show those reference points instead of
-            // a fake "/100" denominator. User reported the old "/100" was
-            // misleading because real pressure can exceed 300.
-            TitleText.Text = $"VIMS Tier {_lastTier}/10 · Pressure {Math.Round(_lastPressure)} (mask at 85)";
+            // v0.9.1 round-5: localized title. zh-only below the VIMS product
+            // term per user spec — "VIMS 視覺壓力 第 N 級 / 10 · 壓力指數 P".
+            // Removed the internal "(mask at 85)" debug suffix from the
+            // user-facing surface; the dashboard chart still surfaces the 85
+            // threshold for power users. Pressure is shown WITHOUT a "/100"
+            // denominator — LeakyIntegrator pressure has no engine-level
+            // upper bound (real values can exceed 300 under sustained spikes)
+            // so a "/100" suffix would mislead users into thinking the scale
+            // caps at 100.
+            TitleText.Text = $"VIMS 視覺壓力　第 {_lastTier} 級 / 10　·　壓力指數 {Math.Round(_lastPressure)}";
         }
         else
         {
@@ -285,7 +287,7 @@ public partial class NotificationCardWindow : Window
 
     private static string DescriptionForBand(TierColorPalette.TierBand band) => band switch
     {
-        TierColorPalette.TierBand.Grey  => "目前視覺壓力低。如有疑問請開啟設定面板。",
+        TierColorPalette.TierBand.Grey  => "目前視覺壓力低。",
         TierColorPalette.TierBand.Amber => "偵測到中度視覺壓力。建議短暫休息或暗化螢幕。",
         TierColorPalette.TierBand.Red   => "偵測到高度視覺壓力。建議立即啟動保護或暫停當前活動。",
         _                                => string.Empty,
@@ -505,14 +507,14 @@ public partial class NotificationCardWindow : Window
         if (string.IsNullOrEmpty(text)) return;
         if (SendChatMessage is null)
         {
-            ChatStatusText.Text = "Chatbot 未連線 / Chatbot not wired.";
+            ChatStatusText.Text = "Chatbot 尚未連線。";
             return;
         }
 
         _chatSendInFlight = true;
         ChatSendBtn.IsEnabled = false;
         ChatInputBox.IsEnabled = false;
-        ChatStatusText.Text = "傳送中… / Sending…";
+        ChatStatusText.Text = "傳送中…";
         // Treat any in-card activity as user interaction — defer the idle fade.
         RestartIdleTimer();
 
@@ -523,7 +525,7 @@ public partial class NotificationCardWindow : Window
         }
         catch (Exception ex)
         {
-            ChatStatusText.Text = $"傳送失敗 / Send failed: {ex.GetType().Name}";
+            ChatStatusText.Text = $"傳送失敗：{ex.GetType().Name}";
         }
         finally
         {
@@ -536,9 +538,9 @@ public partial class NotificationCardWindow : Window
             {
                 ChatStatusText.Text = reply;
             }
-            else if (ChatStatusText.Text == "傳送中… / Sending…")
+            else if (ChatStatusText.Text == "傳送中…")
             {
-                ChatStatusText.Text = "已套用 / Applied.";
+                ChatStatusText.Text = "已套用。";
             }
             RestartIdleTimer();
         }

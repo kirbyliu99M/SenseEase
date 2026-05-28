@@ -136,12 +136,19 @@
                        Margin="0,0,0,10"/>
 
             <!-- v0.9.1 round-4: discomfort quick-response. Four buttons
-                 corresponding to severity 1-4 (Slight → Severe). Each
-                 sends a localised phrase the chatbot interprets as a
+                 along a single "程度漸強" axis: 輕微 → 中等 → 明顯 → 嚴重.
+                 Each sends a localised phrase the chatbot interprets as a
                  ReportDiscomfort with the matching severity, applying
-                 the same FOV/mask/grid deltas as a typed message. Lets
-                 users escalate without typing. -->
-            <Grid Grid.Row="2" Margin="0,0,0,10">
+                 the same FOV/mask/grid deltas as a typed message. Severity
+                 mapping is by button Tag (1-4) → index into
+                 QuickDiscomfortPhrases; labels are purely cosmetic. -->
+            <StackPanel Grid.Row="2" Margin="0,0,0,10">
+                <TextBlock Text="視覺不適程度"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Foreground="#5A6478"
+                           Margin="0,0,0,6"/>
+                <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
@@ -156,15 +163,12 @@
                         Foreground="#1E5BB0"
                         BorderBrush="#B7CFE3"
                         BorderThickness="1"
-                        Padding="4,6"
-                        FontSize="11"
+                        Padding="4,8"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Content="輕微"
                         Margin="0,0,4,0"
-                        Cursor="Hand">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="1 · 輕微" FontWeight="SemiBold"/>
-                        <TextBlock Text="Slight" FontSize="9" Opacity="0.75"/>
-                    </StackPanel>
-                </Button>
+                        Cursor="Hand"/>
                 <Button Grid.Column="1"
                         x:Name="QuickDiscomfort2Btn"
                         Tag="2"
@@ -173,15 +177,12 @@
                         Foreground="#7A5310"
                         BorderBrush="#E5C98E"
                         BorderThickness="1"
-                        Padding="4,6"
-                        FontSize="11"
+                        Padding="4,8"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Content="中等"
                         Margin="2,0,2,0"
-                        Cursor="Hand">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="2 · 不適" FontWeight="SemiBold"/>
-                        <TextBlock Text="Mild" FontSize="9" Opacity="0.75"/>
-                    </StackPanel>
-                </Button>
+                        Cursor="Hand"/>
                 <Button Grid.Column="2"
                         x:Name="QuickDiscomfort3Btn"
                         Tag="3"
@@ -190,15 +191,12 @@
                         Foreground="#9B4F1A"
                         BorderBrush="#E5B388"
                         BorderThickness="1"
-                        Padding="4,6"
-                        FontSize="11"
+                        Padding="4,8"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Content="明顯"
                         Margin="2,0,2,0"
-                        Cursor="Hand">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="3 · 較強" FontWeight="SemiBold"/>
-                        <TextBlock Text="Strong" FontSize="9" Opacity="0.75"/>
-                    </StackPanel>
-                </Button>
+                        Cursor="Hand"/>
                 <Button Grid.Column="3"
                         x:Name="QuickDiscomfort4Btn"
                         Tag="4"
@@ -207,16 +205,14 @@
                         Foreground="#8C2F23"
                         BorderBrush="#E5928B"
                         BorderThickness="1"
-                        Padding="4,6"
-                        FontSize="11"
+                        Padding="4,8"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Content="嚴重"
                         Margin="4,0,0,0"
-                        Cursor="Hand">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="4 · 嚴重" FontWeight="SemiBold"/>
-                        <TextBlock Text="Severe" FontSize="9" Opacity="0.75"/>
-                    </StackPanel>
-                </Button>
-            </Grid>
+                        Cursor="Hand"/>
+                </Grid>
+            </StackPanel>
 
             <!-- Button row: Grid with two columns so PowerSaveToggle sits
                  hard-left and the action buttons sit hard-right at 480 dip.
@@ -238,10 +234,13 @@
                           VerticalAlignment="Center"
                           Foreground="#3A4252"
                           Cursor="Hand"
-                          ToolTip="暫停 / 恢復 SenseEase 感測 (不會關閉應用程式)&#x0a;Pause / Resume SenseEase sensing (app keeps running)"
+                          ToolTip="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
                           Checked="OnPowerSaveToggled"
                           Unchecked="OnPowerSaveToggled">
-                    <TextBlock Text="&#x23FB;" FontSize="18" FontWeight="SemiBold"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="&#x23FB;" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="省電" FontSize="12" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
                 </CheckBox>
 
                 <StackPanel Grid.Column="2"
@@ -250,12 +249,8 @@
                     <Button x:Name="OpenDashboardBtn"
                             Style="{StaticResource PrimaryDeepBlueButtonStyle}"
                             Click="OnOpenDashboardClicked"
-                            Margin="0,0,8,0">
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                            <TextBlock Text="開啟主視窗" FontSize="12" FontWeight="SemiBold"/>
-                            <TextBlock Text="Open Dashboard" FontSize="10" Opacity="0.8"/>
-                        </StackPanel>
-                    </Button>
+                            Content="開啟主視窗"
+                            Margin="0,0,8,0"/>
                     <Button x:Name="EngageBtn"
                             Content="啟動保護"
                             Click="OnEngageClicked"
@@ -311,7 +306,7 @@
                     <TextBox.Resources>
                         <VisualBrush x:Key="PlaceholderBrush" Stretch="None" AlignmentX="Left">
                             <VisualBrush.Visual>
-                                <TextBlock Text="跟 SenseEase 說話 / Talk to SenseEase" Foreground="#9AA3B0" FontSize="12" Margin="2,0,0,0"/>
+                                <TextBlock Text="跟 SenseEase 說話" Foreground="#9AA3B0" FontSize="12" Margin="2,0,0,0"/>
                             </VisualBrush.Visual>
                         </VisualBrush>
                     </TextBox.Resources>
@@ -328,7 +323,7 @@
 
                 <Button Grid.Row="0" Grid.Column="1"
                         x:Name="ChatSendBtn"
-                        Content="送出 / Send"
+                        Content="送出"
                         Click="OnChatSendClicked"
                         Style="{StaticResource PrimaryDeepBlueButtonStyle}"
                         Padding="12,6"/>
