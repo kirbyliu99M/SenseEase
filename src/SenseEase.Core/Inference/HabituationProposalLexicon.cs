@@ -58,6 +58,13 @@ public static class HabituationProposalLexicon
         string text = userText.Trim();
         string lower = text.ToLowerInvariant();
 
+        // Bare-word shortcut: user types just "profile" / "Profile" / "PROFILE"
+        // (with optional trailing punctuation/whitespace) → trigger picker
+        // without requiring an additional verb. Cheap one-word entry point.
+        string stripped = text.TrimEnd('?', '？', '.', '。', '!', '！', ' ', '\t').Trim();
+        if (string.Equals(stripped, "profile", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         // If the user named a specific profile, this is NOT a picker request —
         // the regular TryDetect path will build the proposal directly.
         foreach (var (kw, _) in ProfileSwitchKeywords)
@@ -85,9 +92,9 @@ public static class HabituationProposalLexicon
             || text.Contains("選")
             || lower.Contains("show")
             || lower.Contains("list")
-            || lower.Contains("what are")
-            || lower.Contains("what's the difference")
-            || lower.Contains("what's the diff")
+            || lower.Contains("available")
+            || lower.Contains("what ")        // covers "what profiles…" / "what are…"
+            || lower.Contains("what's")
             || lower.Contains("which")
             || lower.Contains("pick");
     }
@@ -252,6 +259,8 @@ public static class HabituationProposalLexicon
         || text.Contains("換成")
         || text.Contains("改成")
         || text.Contains("切到")
+        || text.Contains("想換")
+        || text.Contains("要換")
         || lower.Contains("switch")
         || lower.Contains("change")
         || lower.Contains("set to")

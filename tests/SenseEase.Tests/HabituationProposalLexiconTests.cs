@@ -164,6 +164,52 @@ public class HabituationProposalLexiconTests
 
     // ── Expiry ──────────────────────────────────────────────────────────────
 
+    // ── ProfilePickerRequest detection ───────────────────────────────────────
+
+    [Theory]
+    [InlineData("profile")]
+    [InlineData("Profile")]
+    [InlineData("PROFILE")]
+    [InlineData("profile?")]
+    [InlineData("Profile？")]
+    [InlineData("  profile  ")]
+    public void TryDetectProfilePickerRequest_BareWord_True(string input)
+    {
+        Assert.True(HabituationProposalLexicon.TryDetectProfilePickerRequest(input));
+    }
+
+    [Theory]
+    [InlineData("我想換 profile")]
+    [InlineData("show me profile options")]
+    [InlineData("what profiles are available")]
+    [InlineData("有哪些 profile")]
+    [InlineData("which profile should I use")]
+    public void TryDetectProfilePickerRequest_GenericRequest_True(string input)
+    {
+        Assert.True(HabituationProposalLexicon.TryDetectProfilePickerRequest(input));
+    }
+
+    [Theory]
+    [InlineData("switch to RESILIENT")]
+    [InlineData("change profile to TYPICAL")]
+    [InlineData("換成敏感模式")]
+    public void TryDetectProfilePickerRequest_SpecificProfile_False(string input)
+    {
+        // Specific profile named → routes through TryDetect (lexicon-built
+        // SwitchProfile proposal), NOT the picker.
+        Assert.False(HabituationProposalLexicon.TryDetectProfilePickerRequest(input));
+    }
+
+    [Theory]
+    [InlineData("hello")]
+    [InlineData("我頭暈")]
+    [InlineData("how are you")]
+    [InlineData("")]
+    public void TryDetectProfilePickerRequest_UnrelatedInput_False(string? input)
+    {
+        Assert.False(HabituationProposalLexicon.TryDetectProfilePickerRequest(input));
+    }
+
     [Fact]
     public void TryDetect_Proposal_HasExpiryWithin48HoursOfNow()
     {
