@@ -79,19 +79,23 @@ public sealed class MistralChatbotService : IChatbotService
         "  Unknown — greetings, off-topic chat, unclear non-discomfort. Friendly short reply. Zero deltas.\n" +
         "Never accumulate severity from history — current message only.\n\n" +
 
-        // ── HABITUATION STATE (M2 Phase 6d) ──
-        "HABITUATION STATE CONTEXT:\n" +
-        "User messages may contain a [habituation_state] ... [/habituation_state] block. " +
-        "It describes the user's current SenseEase state. Use it to ground your conversation:\n" +
-        "  • Reference current tier/level when relevant. Translate to natural language — NEVER echo raw key:value pairs.\n" +
-        "  • If awaiting_user_confirm is true, acknowledge the recent tier ≥ 8 spike and offer a gentle check-in.\n" +
-        "  • If power_save_active is true, treat tier/level as stale; acknowledge sensing is paused.\n" +
-        "  • If advisory=vestibular: when user requests reducing protection, surface this history and offer alternatives.\n" +
-        "  • If advisory=high_risk_combo: be more cautious with relaxation suggestions.\n" +
-        "  • Reference longitudinal_observations when user mentions past experiences or asks about progress.\n" +
-        "  • If trajectory shows level rise, acknowledge it. If shows setback, gently inquire what might have changed.\n" +
-        "The block is INFORMATIONAL context. It does NOT override the JSON output rules — continue emitting one-line JSON " +
-        "with intent/severity/reply/deltas as before. Habituation context affects reply TEXT only, not deltas.\n\n" +
+        // ── HABITUATION STATE (M2 Phase 6d, hotfixed v0.9.1) ──
+        "HABITUATION STATE CONTEXT (background only):\n" +
+        "Messages may carry [habituation_state]…[/habituation_state]. This is BACKGROUND CONTEXT for richer reply wording. " +
+        "It MUST NOT change your intent classification or your delta values.\n" +
+        "  ⚠ A user reporting CURRENT discomfort (e.g. 'I feel dizzy', '頭暈', 'headache', 'eye strain') is ReportDiscomfort " +
+        "    with non-zero deltas per the actuator rules above — even if the habituation block is present. NEVER downgrade " +
+        "    such messages to AnalyzeRequest just because the user has prior calibration history.\n" +
+        "  ⚠ A user asking about PAST sessions or PROGRESS ('how am I doing', 'check my log', '最近怎麼樣') is AnalyzeRequest.\n" +
+        "  ⚠ A user reporting current discomfort AND mentioning the past ('I felt off in the demo too') is still ReportDiscomfort " +
+        "    — the 'right now' part wins. Emit appropriate deltas; you may reference the past in the reply text.\n" +
+        "Optional weaving rules (apply only inside reply TEXT, never in delta fields):\n" +
+        "  • power_save_active: true → acknowledge sensing is paused, treat tier/level as stale\n" +
+        "  • advisory=vestibular → if user asks to reduce protection, surface this history before complying\n" +
+        "  • advisory=high_risk_combo → be slightly more cautious with relaxation reply wording\n" +
+        "  • recent_observations → reference if user explicitly asks about past experiences\n" +
+        "Continue emitting the JSON envelope (intent/severity/reply/fov_delta/mask_depth_delta/grid_visibility_delta/feather_width_delta) " +
+        "exactly as documented above. Habituation context does not change ANY field value rule.\n\n" +
 
         // ── REPLY STYLE ──
         "REPLY STYLE:\n" +
@@ -480,7 +484,28 @@ public sealed class MistralChatbotService : IChatbotService
                     || d.MaskDepthDelta.HasValue
                     || d.GridVisibilityDelta.HasValue
                     || d.FeatherWidthDelta.HasValue;
-                if (modelProvidedDeltas)
+
+                // v0.9.1 hotfix: belt-and-suspenders for the Phase 6d prompt
+                // regression. Mistral 3B, when the [habituation_state] block
+                // is present, began emitting intent=ReportDiscomfort with ALL
+                // FOUR deltas explicitly set to 0 — i.e. "engaged" per the
+                // check above but the values are all zero so nothing actuates.
+                // Treat that as model-didn't-engage and fall back to the
+                // lexicon's severity-bucket defaults. The conditions are
+                // narrow (only ReportDiscomfort, only when ALL four are
+                // exactly 0, only when severity ≥ 2) so legitimate
+                // "tiny nudge" responses where the model deliberately
+                // chooses zeros aren't accidentally amplified.
+                bool reportedDiscomfortWithAllZeros =
+                    intent == "ReportDiscomfort"
+                    && severity >= 2
+                    && modelProvidedDeltas
+                    && (d.FovDelta            ?? 0) == 0
+                    && (d.MaskDepthDelta      ?? 0) == 0.0
+                    && (d.GridVisibilityDelta ?? 0) == 0.0
+                    && (d.FeatherWidthDelta   ?? 0) == 0.0;
+
+                if (modelProvidedDeltas && !reportedDiscomfortWithAllZeros)
                 {
                     fov = Math.Clamp(d.FovDelta ?? 0,            -30, 0);
                     md  = Math.Clamp(d.MaskDepthDelta ?? 0,      -0.3, 0.3);

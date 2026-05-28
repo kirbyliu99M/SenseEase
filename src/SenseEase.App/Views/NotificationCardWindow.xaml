@@ -8,10 +8,11 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        SizeToContent="Manual"
-        Width="480" Height="220"
+        SizeToContent="Height"
+        Width="480"
+        MinHeight="220"
         WindowStartupLocation="Manual"
-        Focusable="False">
+        ShowActivated="False">
     <Window.Resources>
         <!-- overlay-bar-redesign D4: light-theme primary action button.
              Replaces the dark-theme PrimaryHpBlueButtonStyle. Deep blue fill
@@ -85,8 +86,10 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- title row -->
-                <RowDefinition Height="*"/>    <!-- body -->
+                <RowDefinition Height="Auto"/> <!-- body -->
+                <RowDefinition Height="Auto"/> <!-- v0.9.1 round-4: discomfort quick-response -->
                 <RowDefinition Height="Auto"/> <!-- buttons -->
+                <RowDefinition Height="Auto"/> <!-- v0.9.1 round-3: chatbot input -->
             </Grid.RowDefinitions>
 
             <!-- Title + settings (gear) + close (X). DockPanel docks right-side
@@ -130,12 +133,95 @@
                        Foreground="#3A4252"
                        TextWrapping="Wrap"
                        VerticalAlignment="Top"
-                       Margin="0,0,0,12"/>
+                       Margin="0,0,0,10"/>
+
+            <!-- v0.9.1 round-4: discomfort quick-response. Four buttons
+                 corresponding to severity 1-4 (Slight → Severe). Each
+                 sends a localised phrase the chatbot interprets as a
+                 ReportDiscomfort with the matching severity, applying
+                 the same FOV/mask/grid deltas as a typed message. Lets
+                 users escalate without typing. -->
+            <Grid Grid.Row="2" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0"
+                        x:Name="QuickDiscomfort1Btn"
+                        Tag="1"
+                        Click="OnQuickDiscomfortClicked"
+                        Background="#E5F0F8"
+                        Foreground="#1E5BB0"
+                        BorderBrush="#B7CFE3"
+                        BorderThickness="1"
+                        Padding="4,6"
+                        FontSize="11"
+                        Margin="0,0,4,0"
+                        Cursor="Hand">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <TextBlock Text="1 · 輕微" FontWeight="SemiBold"/>
+                        <TextBlock Text="Slight" FontSize="9" Opacity="0.75"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1"
+                        x:Name="QuickDiscomfort2Btn"
+                        Tag="2"
+                        Click="OnQuickDiscomfortClicked"
+                        Background="#FFF1D6"
+                        Foreground="#7A5310"
+                        BorderBrush="#E5C98E"
+                        BorderThickness="1"
+                        Padding="4,6"
+                        FontSize="11"
+                        Margin="2,0,2,0"
+                        Cursor="Hand">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <TextBlock Text="2 · 不適" FontWeight="SemiBold"/>
+                        <TextBlock Text="Mild" FontSize="9" Opacity="0.75"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2"
+                        x:Name="QuickDiscomfort3Btn"
+                        Tag="3"
+                        Click="OnQuickDiscomfortClicked"
+                        Background="#FFE0CC"
+                        Foreground="#9B4F1A"
+                        BorderBrush="#E5B388"
+                        BorderThickness="1"
+                        Padding="4,6"
+                        FontSize="11"
+                        Margin="2,0,2,0"
+                        Cursor="Hand">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <TextBlock Text="3 · 較強" FontWeight="SemiBold"/>
+                        <TextBlock Text="Strong" FontSize="9" Opacity="0.75"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="3"
+                        x:Name="QuickDiscomfort4Btn"
+                        Tag="4"
+                        Click="OnQuickDiscomfortClicked"
+                        Background="#FBD0CB"
+                        Foreground="#8C2F23"
+                        BorderBrush="#E5928B"
+                        BorderThickness="1"
+                        Padding="4,6"
+                        FontSize="11"
+                        Margin="4,0,0,0"
+                        Cursor="Hand">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <TextBlock Text="4 · 嚴重" FontWeight="SemiBold"/>
+                        <TextBlock Text="Severe" FontSize="9" Opacity="0.75"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
 
             <!-- Button row: Grid with two columns so PowerSaveToggle sits
                  hard-left and the action buttons sit hard-right at 480 dip.
                  Layout: [PowerSaveToggle] | [Dashboard][Engage][Mute] -->
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="3">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>  <!-- left: toggle -->
                     <ColumnDefinition Width="*"/>     <!-- stretch -->
@@ -191,6 +277,70 @@
                             FontSize="12"
                             Cursor="Hand"/>
                 </StackPanel>
+            </Grid>
+
+            <!-- v0.9.1 round-3: inline chatbot input. Lets the user adjust
+                 comfort settings via natural-language ("worse", "tighten",
+                 "more open") without opening the dashboard. The reply
+                 (and any deltas applied) flow into the dashboard's chat
+                 tab via the host's ChatbotViewModel pipeline; the card
+                 itself only shows a one-line acknowledgement so the
+                 card stays compact. Enter key sends; Send button sends. -->
+            <Grid Grid.Row="4" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBox Grid.Row="0" Grid.Column="0"
+                         x:Name="ChatInputBox"
+                         Background="#F7F8FA"
+                         Foreground="#1A1F2E"
+                         BorderBrush="#D6DBE3"
+                         BorderThickness="1"
+                         Padding="8,6"
+                         FontSize="12"
+                         MaxLength="240"
+                         VerticalContentAlignment="Center"
+                         KeyDown="OnChatInputKeyDown"
+                         Margin="0,0,8,0">
+                    <TextBox.Resources>
+                        <VisualBrush x:Key="PlaceholderBrush" Stretch="None" AlignmentX="Left">
+                            <VisualBrush.Visual>
+                                <TextBlock Text="跟 SenseEase 說話 / Talk to SenseEase" Foreground="#9AA3B0" FontSize="12" Margin="2,0,0,0"/>
+                            </VisualBrush.Visual>
+                        </VisualBrush>
+                    </TextBox.Resources>
+                    <TextBox.Style>
+                        <Style TargetType="TextBox">
+                            <Style.Triggers>
+                                <Trigger Property="Text" Value="">
+                                    <Setter Property="Background" Value="{StaticResource PlaceholderBrush}"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBox.Style>
+                </TextBox>
+
+                <Button Grid.Row="0" Grid.Column="1"
+                        x:Name="ChatSendBtn"
+                        Content="送出 / Send"
+                        Click="OnChatSendClicked"
+                        Style="{StaticResource PrimaryDeepBlueButtonStyle}"
+                        Padding="12,6"/>
+
+                <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
+                           x:Name="ChatStatusText"
+                           Text=""
+                           FontSize="10"
+                           Foreground="#7A8499"
+                           Margin="2,4,0,0"
+                           TextWrapping="Wrap"
+                           MaxHeight="32"/>
             </Grid>
         </Grid>
     </Border>

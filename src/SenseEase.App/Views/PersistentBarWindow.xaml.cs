@@ -74,6 +74,13 @@ public partial class PersistentBarWindow : Window
     /// window behind it.</summary>
     public event EventHandler? Clicked;
 
+    // v0.9.1 round-3: HoverSustained event removed. Iter-2 fired it on
+    // instant hover-in (user found it noisy) and the round-1 800 ms-linger
+    // version (which wasn't firing reliably) didn't match user intent
+    // either. Final decision: card opens on CLICK only (or tier-spike
+    // auto-show). The bar's hover state remains a visual affordance
+    // (grow + brighten) but does not auto-open anything.
+
     /// <summary>Tier → bar brush. Proxy to <see cref="TierColorPalette"/>.</summary>
     public static SolidColorBrush BrushForTier(int tier) => TierColorPalette.BrushForTier(tier);
 
@@ -96,12 +103,15 @@ public partial class PersistentBarWindow : Window
         Loaded += OnLoaded;
         Closed += OnClosed;
 
-        // 30 Hz proximity poll. Cheap (Win32 GetCursorPos + a couple of
-        // float comparisons + an Animation.Begin only on transition); does
-        // not pin the dispatcher.
+        // 60 Hz proximity poll. v0.9.1 hotfix: bumped from 30 Hz because
+        // dropped-click reports correlated with the 33 ms race window between
+        // "cursor enters proximity" and "next tick flips IsHitTestVisible
+        // true". Halving the window to ~16 ms makes the bar feel reliably
+        // clickable. Cost is still negligible (Win32 GetCursorPos + a few
+        // float compares per tick).
         _proximityTimer = new DispatcherTimer(DispatcherPriority.Input)
         {
-            Interval = TimeSpan.FromMilliseconds(33),
+            Interval = TimeSpan.FromMilliseconds(16),
         };
         _proximityTimer.Tick += OnProximityTick;
 
@@ -176,7 +186,15 @@ public partial class PersistentBarWindow : Window
 
     private void OnLeftClick(object sender, MouseButtonEventArgs e)
     {
-        if (_isHovered) Clicked?.Invoke(this, EventArgs.Empty);
+        // v0.9.1 hotfix: clicks were dropping intermittently. Root cause is a
+        // race between the 30 Hz proximity poller and the click event — if
+        // the cursor entered proximity between two ticks, `_isHovered` was
+        // still false when the click fired and the event was eaten. WPF only
+        // delivers MouseLeftButtonUp to a hit-test-visible window in the
+        // first place, so receiving this event already means the cursor is
+        // on the bar — fire unconditionally rather than re-gating on a
+        // possibly-stale cached flag.
+        Clicked?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Sets the bar's fill brush for the given VIMS tier. Idempotent —
@@ -257,8 +275,9 @@ public partial class PersistentBarWindow : Window
         // Periodic topmost re-assertion. Even if no focus event fired (rare
         // but possible — DWM Alt-Tab animation, fullscreen window claiming
         // topmost, splash screens), this guarantees the bar comes back to
-        // top within ~200 ms of any disruption.
-        if (++_topmostTickCounter >= 6)
+        // top within ~200 ms of any disruption. Counter recalibrated for
+        // 60 Hz tick: 12 ticks ≈ 200 ms.
+        if (++_topmostTickCounter >= 12)
         {
             _topmostTickCounter = 0;
             ForceTopmostViaWin32();
@@ -280,6 +299,7 @@ public partial class PersistentBarWindow : Window
         double dist = Math.Sqrt((dx * dx) + (dy * dy));
 
         bool nowHovered = dist <= HoverProximityDip;
+
         if (nowHovered == _isHovered) return;
 
         _isHovered = nowHovered;

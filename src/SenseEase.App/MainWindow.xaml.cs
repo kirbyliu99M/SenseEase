@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using SenseEase.App.Configuration;
@@ -469,6 +470,12 @@ public partial class MainWindow : Window
         // 200 dip per spec) — click-through behaviour while far away keeps
         // accidental swallowing minimal.
         _persistentBar.Clicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
+
+        // v0.9.1 round-3: HoverSustained removed. Card opens on click or
+        // tier-spike auto-show only (per user revision). Hover state remains
+        // visual-only (grow + brighten); pop-up buttons + chatbot input live
+        // in the card surface that opens on click.
+
         _persistentBar.Show();
     }
 
@@ -537,6 +544,35 @@ public partial class MainWindow : Window
             {
                 _persistentBar?.SetTier(_viewModel.VimsTier);
                 _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
+            };
+            // v0.9.1 round-3: wire the in-card chatbot input through the
+            // existing ChatbotViewModel pipeline. Same parser, same engine
+            // adjustment hooks, same lexicon fallback. The user gets to
+            // "talk to SenseEase" without opening the dashboard. Returns
+            // the chatbot's most-recent assistant message so the card can
+            // surface a one-line ack beneath the input.
+            _cardWindow.SendChatMessage = async text =>
+            {
+                var vm = _viewModel.ChatbotVm;
+                int beforeCount = vm.Messages.Count;
+                vm.InputText = text;
+                if (vm.SendCommand.CanExecute(null))
+                    vm.SendCommand.Execute(null);
+                // SendCommand kicks an async task internally; poll briefly
+                // (≤6 s) for the assistant reply to land. If it doesn't
+                // arrive (LLM down, etc.) the caller surfaces "Applied."
+                // since deltas may have applied via lexicon fallback.
+                for (int i = 0; i < 60; i++)
+                {
+                    await Task.Delay(100).ConfigureAwait(true);
+                    if (vm.Messages.Count > beforeCount + 1)
+                    {
+                        var last = vm.Messages[vm.Messages.Count - 1];
+                        if (last.Role == ChatRole.Assistant)
+                            return last.Content;
+                    }
+                }
+                return null;
             };
         }
         _cardWindow.SetContent(band, _viewModel.VimsTier, _viewModel.CurrentState.Pressure);
