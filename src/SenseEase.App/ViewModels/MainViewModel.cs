@@ -287,6 +287,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _proposalExpiryTimer.Start();
     }
     private readonly IEventLogStore _log = new InMemoryEventLogStore();
+
+    // ── M3 head-tracking sprint: IHeadPoseReader registration ────────────────
+    // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
+    // container — services are composed as `readonly` fields on the view-
+    // models that need them (see `_mockSensing`, `_cursorSensing`, `_log`
+    // above for the same pattern). Per M3 spec, the DefaultHeadPoseReader
+    // stub is constructed here so the IHeadPoseReader binding is live and
+    // compiles, but is intentionally NOT wired into any consumer (no read
+    // path, no event subscription, no engine integration). M4 will swap
+    // DefaultHeadPoseReader for SidecarHeadPoseReader and add the consumer
+    // (engine pre-tick or overlay apply-pass). Exposed `internal` so the
+    // M4 integration test can reach in and assert the binding without
+    // widening the public surface (mirrors the `InternalsVisibleTo
+    // SenseEase.Tests` plumbing already in SenseEase.Infrastructure).
+    private readonly IHeadPoseReader _headPoseReader = new DefaultHeadPoseReader();
+    internal IHeadPoseReader HeadPoseReader => _headPoseReader;
+
     private readonly INluService _nlu;
     private readonly DispatcherTimer _demoTimer;
     private readonly DispatcherTimer _idleTimer; // keeps decay visible in Demo Mode when slider is idle

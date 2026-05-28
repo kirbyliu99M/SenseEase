@@ -216,4 +216,15 @@ public static class AppConfig
     // this back to false at runtime, surrendering automation in favour of explicit user
     // control for the remainder of the session.
     public static bool AutoDriverPassengerModeEnabled { get; set; } = true;
+
+    /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven
+    /// FOV mask centering. Defaults to false (privacy + stability). When
+    /// false, all head-tracking code paths are dead — overlay behaves exactly
+    /// like v0.9 baseline (cx=0.5, cy=0.5 hardcoded center).
+    ///
+    /// <para>AppConfig is a static class (no init-only properties available),
+    /// so this is exposed as a settable property for symmetry with the other
+    /// runtime feature flags above. Default = false; flipping requires
+    /// explicit opt-in either at startup or via a future settings UI.</para></summary>
+    public static bool HeadTrackingEnabled { get; set; } = false;
 }
