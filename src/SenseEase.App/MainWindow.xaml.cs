@@ -136,16 +136,13 @@ public partial class MainWindow : Window
         // without the full chatbot pipeline being wired. Production wiring
         // (chatbot reply → parser → processor → card.ActiveProposal) lands
         // in a follow-up commit after visual sign-off.
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == System.Windows.Input.Key.P
-                && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0
-                && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0)
-            {
-                InjectTestProposalForVisualVerification();
-                e.Handled = true;
-            }
-        };
+        // Registered as a CLASS handler on Window so the shortcut fires
+        // regardless of which SenseEase window (dashboard / bar / card /
+        // settings) currently has keyboard focus.
+        System.Windows.EventManager.RegisterClassHandler(
+            typeof(Window),
+            KeyDownEvent,
+            new System.Windows.Input.KeyEventHandler(OnAnyWindowTestProposalKey));
 
         // ── Eye-Protection chart bootstrap ─────────────────────────────────────
         Loaded += (_, _) =>
@@ -500,6 +497,21 @@ public partial class MainWindow : Window
     /// current tier. <paramref name="userInitiated"/> = true bypasses the
     /// 6-hour mute (user clicks always win per spec). false honours mute and
     /// returns silently if the band is currently muted.</summary>
+    /// <summary>M3 7e visual verification: class-level handler that fires
+    /// on ANY SenseEase window's KeyDown, so Ctrl+Shift+P works regardless
+    /// of focus (dashboard / bar / card / settings). Bound via
+    /// EventManager.RegisterClassHandler in the constructor.</summary>
+    private void OnAnyWindowTestProposalKey(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.P
+            && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0
+            && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0)
+        {
+            InjectTestProposalForVisualVerification();
+            e.Handled = true;
+        }
+    }
+
     /// <summary>M3 7e visual verification helper: builds a fake
     /// AdjustSensitivity proposal and pushes it through the card's
     /// proposal pipeline so the new section's layout is visible without
