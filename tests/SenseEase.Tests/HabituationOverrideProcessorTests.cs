@@ -72,12 +72,16 @@ public class HabituationOverrideProcessorTests
     }
 
     [Fact]
-    public void Validate_ExpiresMoreThan7DaysOut_Rejects()
+    public void Validate_ExpiresMoreThan7DaysOut_NowAccepts_CallerClamps()
     {
+        // M3 reliability change: the over-cap-expiry case no longer rejects.
+        // Mistral 3B reliably overshoots the 48h target; the host's
+        // MainViewModel clamps the expiry to +7 days when storing the active
+        // proposal rather than discarding an otherwise-valid block over a
+        // few-hours date arithmetic miss.
         var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 1.1, expires: NowFixed.AddDays(10));
         var result = HabituationOverrideProcessor.Validate(proposal, MakeSnapshot(), now: NowFixed);
-        Assert.False(result.IsAccepted);
-        Assert.Contains("hallucination", result.RejectionReason);
+        Assert.True(result.IsAccepted);
     }
 
     // ── Rule 2: value-in-range per intent ────────────────────────────────────

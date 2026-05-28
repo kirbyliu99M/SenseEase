@@ -88,16 +88,21 @@ public static class HabituationOverrideProcessor
         DateTime utcNow = now ?? DateTime.UtcNow;
 
         // ── Rule 1: expires_at_iso in [now, now + 7 days] ──
+        // Past expiry is a hard reject — the proposal is already stale and
+        // surfacing the Card would just show a "已過期" timer. Future-but-
+        // over-cap is treated as the model getting the absolute date slightly
+        // wrong (Mistral 3B reliably overshoots — verified end-to-end at
+        // 18:21:00, model wanted 48h but emitted 7d + 6h); we LOG the over-
+        // cap and clamp downstream rather than discard a well-formed proposal
+        // over an off-by-hours expiry calculation.
         if (proposal.ExpiresAtUtc <= utcNow)
         {
             return OverrideValidationResult.Reject(
                 "proposal expiry is in the past");
         }
-        if (proposal.ExpiresAtUtc > utcNow + TimeSpan.FromDays(ExpiresAtMaxFutureDays))
-        {
-            return OverrideValidationResult.Reject(
-                $"proposal expiry > {ExpiresAtMaxFutureDays} days out (likely LLM hallucination)");
-        }
+        // No upper-bound rejection any more — Applicator stores the proposal
+        // with min(model expiry, now + 7 days) so the cap is enforced at the
+        // pending-proposal level, not the validation gate.
 
         // ── Rule 2: proposed_value in valid range for the intent ──
         if (!IsValueInRange(proposal, out string? rangeReason))

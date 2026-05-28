@@ -207,10 +207,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        _activeProposal = proposal;
-        _chatbotActionLog.Record(ChatbotActionKind.Proposed, proposal);
-        StartProposalExpiryWatchdog(proposal);
-        ProposalSurfaceRequested?.Invoke(this, proposal);
+        // Clamp expiry to processor's max future window. Mistral 3B reliably
+        // overshoots the 48h target by hours-to-days; rather than discarding
+        // an otherwise-valid proposal we cap the timer at +7 days so the
+        // Card's countdown stays meaningful. The model's reply text still
+        // mentions whatever date it computed — that's a cosmetic mismatch
+        // we accept (and the user has the Card's authoritative countdown).
+        var maxExpiry = DateTime.UtcNow.AddDays(HabituationOverrideProcessor.ExpiresAtMaxFutureDays);
+        var clamped = proposal.ExpiresAtUtc > maxExpiry
+            ? proposal with { ExpiresAtUtc = maxExpiry }
+            : proposal;
+
+        _activeProposal = clamped;
+        _chatbotActionLog.Record(ChatbotActionKind.Proposed, clamped);
+        StartProposalExpiryWatchdog(clamped);
+        ProposalSurfaceRequested?.Invoke(this, clamped);
     }
 
     private HabituationProfileSnapshot? SafeLoadSnapshot()

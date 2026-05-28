@@ -123,7 +123,9 @@ public sealed class MistralChatbotService : IChatbotService
         "  [/PROFILE_OVERRIDE]\n" +
         "\n" +
         "    Use ONLY when the user explicitly asks for a profile/sensitivity/strike-limit change AND the habituation\n" +
-        "    history supports it. At most ONE per reply. expires_at_iso = a real future UTC timestamp within 48h.\n" +
+        "    history supports it. At most ONE per reply. expires_at_iso = TODAY's date + 1 day in ISO 8601 UTC\n" +
+        "    (e.g. if today is 2026-05-28, write \"2026-05-29T17:00:00Z\"). DO NOT pick a week in the future — the\n" +
+        "    host caps anything beyond 7 days, and proposals over 48h tend to feel stale to users.\n" +
         "    target_field MUST be the snake_case engine field: 'personal_pressure_scale' (for adjust_sensitivity),\n" +
         "    'profile' (for switch_profile), 'severe_strike_limit' (for adjust_strike_limit).\n" +
         "    Value ranges: adjust_sensitivity → personal_pressure_scale ∈ [0.7, 1.5] (higher = MORE sensitive,\n" +
