@@ -152,13 +152,33 @@ public sealed class MistralChatbotService : IChatbotService
         "  • Never emit PROFILE_OVERRIDE during a FollowupRequest turn (collect more info first).\n" +
         "  • Never reference these blocks in the visible reply text; they are silent machinery.\n" +
         "\n" +
-        "EXAMPLE (user asks to relax sensitivity based on stable history):\n" +
+        "EXAMPLE 1 (user asks to relax sensitivity based on stable history):\n" +
         "  User: 我最近 5 天 tier 一直在 6-7 穩定，可以把 sensitivity 調鬆一點嗎?\n" +
-        "  Correct output (envelope, then block, separated by newline):\n" +
         "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"看到您過去 5 天 tier 維持在 6-7 穩定，我建議把 sensitivity 從 1.0 調至 0.9 — 卡片上會出現詳細選項。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "  [PROFILE_OVERRIDE]\n" +
         "  {\"intent\":\"adjust_sensitivity\",\"target_field\":\"personal_pressure_scale\",\"proposed_value\":0.9,\"rationale\":\"用戶最近 5 天 tier 穩定在 6-7，可以小幅放鬆\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
-        "  [/PROFILE_OVERRIDE]\n\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "EXAMPLE 2 (user wants to switch profile):\n" +
+        "  User: I'd like to switch to the resilient profile, I think I've adapted enough\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Given your steady progression, switching to RESILIENT looks reasonable — confirm on the card and I'll apply it.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"switch_profile\",\"target_field\":\"profile\",\"proposed_value\":\"RESILIENT\",\"rationale\":\"user explicitly requested a less restrictive profile and habituation history supports it\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "EXAMPLE 3 (user wants higher strike limit):\n" +
+        "  User: 把 strike limit 提高到 3，最近 1 件事件就被暫停太敏感了\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"了解，從 2 提高到 3 可減少誤觸；請在卡片上確認。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [PROFILE_OVERRIDE]\n" +
+        "  {\"intent\":\"adjust_strike_limit\",\"target_field\":\"severe_strike_limit\",\"proposed_value\":3,\"rationale\":\"用戶反映現有 limit 過敏感\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
+        "  [/PROFILE_OVERRIDE]\n" +
+        "\n" +
+        "EXAMPLE 4 (user comment is just a longitudinal observation, no proposal):\n" +
+        "  User: I've noticed my symptoms always get worse around 3pm\n" +
+        "  {\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Thanks for sharing — I'll keep an eye on the afternoon pattern in your data.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  [OBSERVATION_ADD]\n" +
+        "  user reports symptoms reliably worsen around 3 pm\n" +
+        "  [/OBSERVATION_ADD]\n\n" +
 
         // ── REPLY STYLE ──
         "REPLY STYLE:\n" +

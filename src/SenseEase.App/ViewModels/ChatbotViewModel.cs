@@ -414,9 +414,25 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                         try { obsCb(obs); } catch { /* per-observation failure swallowed */ }
                     }
                 }
-                if (parsedOverride.Proposal is { } proposal)
+
+                // M3 reliability: if the LLM didn't emit a parseable
+                // PROFILE_OVERRIDE block, fall back to the deterministic
+                // lexicon. Catches explicit user requests like "調鬆 sensitivity"
+                // / "switch profile to RESILIENT" / "raise strike limit" that
+                // the LLM might miss due to small-model structured-output
+                // unreliability. Lexicon is intentionally narrow — only
+                // explicit-request phrasings, no inference from ambiguous
+                // text. The LLM's natural reply still surfaces in the bubble;
+                // the lexicon just guarantees the structured proposal lands.
+                ProfileOverrideProposal? proposalToSurface = parsedOverride.Proposal;
+                if (proposalToSurface is null)
                 {
-                    ProposalReceived?.Invoke(this, proposal);
+                    var snap = LoadHabituationSnapshot?.Invoke();
+                    proposalToSurface = HabituationProposalLexicon.TryDetect(text, snap);
+                }
+                if (proposalToSurface is not null)
+                {
+                    ProposalReceived?.Invoke(this, proposalToSurface);
                 }
 
                 if (summary.Length > 0)
