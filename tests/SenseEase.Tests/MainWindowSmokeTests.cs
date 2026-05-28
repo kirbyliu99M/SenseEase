@@ -1,7 +1,9 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using SenseEase.Core.Models;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -42,11 +44,12 @@ public class MainWindowSmokeTests
                 window.ShowInTaskbar = false;
 
                 // Schedule shutdown after the window has had a chance to render + first
-                // few timer ticks fire (~600 ms is enough to surface most binding errors).
+                // few timer ticks fire + the v0.9.3 cross-thread regression block has
+                // a chance to run (~900 ms gives 150ms × 3 fires + buffer).
                 var dispatcher = Dispatcher.CurrentDispatcher;
                 var shutdownTimer = new DispatcherTimer(DispatcherPriority.Background)
                 {
-                    Interval = TimeSpan.FromMilliseconds(700)
+                    Interval = TimeSpan.FromMilliseconds(900)
                 };
                 shutdownTimer.Tick += (_, _) =>
                 {
@@ -57,6 +60,25 @@ public class MainWindowSmokeTests
                 shutdownTimer.Start();
 
                 window.Show();
+
+                // v0.9.3 regression: deterministically fire OnStateChanged from
+                // the thread pool (production trigger is WgcSensingProvider.OnTick).
+                // Before the hotfix this hit Dispatcher.VerifyAccess on
+                // PersistentBarWindow.SetTier + OverlayWindow.ApplyState. With the
+                // marshal in place the dispatcher loop processes it cleanly. Three
+                // fires (~150ms apart) ensures the handler runs multiple times and
+                // exercises both internal paths. Captured into the same
+                // `captured` field so a regression here fails this test.
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(150);
+                    try { window.OnStateChanged(null, new SenseState()); } catch (Exception ex) { captured ??= ex; }
+                    await Task.Delay(150);
+                    try { window.OnStateChanged(null, new SenseState { VimsTier = 4 }); } catch (Exception ex) { captured ??= ex; }
+                    await Task.Delay(150);
+                    try { window.OnStateChanged(null, new SenseState { VimsTier = 7 }); } catch (Exception ex) { captured ??= ex; }
+                });
+
                 Dispatcher.Run();
 
                 app.DispatcherUnhandledException -= onDispatch;
@@ -79,4 +101,5 @@ public class MainWindowSmokeTests
             throw new Xunit.Sdk.XunitException(
                 "MainWindow construction or first layout threw: " + captured);
     }
+
 }
