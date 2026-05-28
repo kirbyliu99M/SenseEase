@@ -326,13 +326,23 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // reaches the UI. The parser produces zero, one or both of:
             //   - a ProfileOverrideProposal  → ProposalReceived event for host
             //   - 0..2 OBSERVATION_ADD lines → LongitudinalObservationCallback
-            // and StripAllOverrideBlocks gives us the visible-only reply
-            // (no [PROFILE_OVERRIDE]/[OBSERVATION_ADD]/[RESUME_ACKNOWLEDGE]
-            // blocks bleeding into the chat bubble). RESUME_ACKNOWLEDGE
-            // routing is deferred — the engine's AcknowledgeAndResume hook
-            // doesn't have a chatbot caller today; that lands when the
-            // chatbot's auto-resume policy is designed.
-            var parsedOverride = HabituationOverrideParser.TryParse(result.Response);
+            // Run on RawModelOutput (the full LLM output) when present so
+            // override blocks survive in BOTH cases:
+            //   • Correctly-placed blocks AFTER the JSON envelope — invisible
+            //     in result.Response (which is just the envelope's "reply"
+            //     field).
+            //   • Malformed model output where the envelope failed to parse
+            //     and result.Response is a lexicon-fallback string with no
+            //     trace of the original blocks.
+            // Falls back to result.Response (the legacy path) when the
+            // service doesn't carry raw — e.g. headless tests, lexicon-only
+            // mode, safety-floor short-circuit. Stripping is applied to
+            // result.Response only — the visible bubble never contains
+            // block markers regardless of where the parser ran.
+            string parseSource = !string.IsNullOrEmpty(result.RawModelOutput)
+                ? result.RawModelOutput!
+                : result.Response;
+            var parsedOverride = HabituationOverrideParser.TryParse(parseSource);
             string visibleReply = HabituationOverrideParser.StripAllOverrideBlocks(result.Response);
             // If the strip ate the entire reply, fall back to the raw text
             // so the user sees SOMETHING in the chat (defensive — a model
