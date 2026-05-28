@@ -57,17 +57,26 @@ namespace SenseEase.Core.Inference;
 
 public static class HabituationOverrideParser
 {
+    // Tag-name tolerance: Mistral 3B occasionally hallucinates the tag name
+    // (verified end-to-end at 17:58:22 — emitted PROFILE_OVERSIGHT instead
+    // of PROFILE_OVERRIDE). Accept known variants AND case-insensitive
+    // matching so we don't lose the block to a one-character model wobble.
+    // The canonical name is still the one in the system prompt; this is
+    // a robustness net, not an invitation for the prompt to drift.
+    private const RegexOptions BlockRegexOpts =
+        RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase;
+
     private static readonly Regex ProfileOverrideBlockRegex = new(
-        @"\[PROFILE_OVERRIDE\](?<body>.*?)\[/PROFILE_OVERRIDE\]",
-        RegexOptions.Compiled | RegexOptions.Singleline);
+        @"\[PROFILE_(?:OVERRIDE|OVERSIGHT|PROPOSAL|ADJUST)\](?<body>.*?)\[/PROFILE_(?:OVERRIDE|OVERSIGHT|PROPOSAL|ADJUST)\]",
+        BlockRegexOpts);
 
     private static readonly Regex ObservationAddBlockRegex = new(
-        @"\[OBSERVATION_ADD\](?<body>.*?)\[/OBSERVATION_ADD\]",
-        RegexOptions.Compiled | RegexOptions.Singleline);
+        @"\[OBSERVATION_(?:ADD|APPEND|NEW)\](?<body>.*?)\[/OBSERVATION_(?:ADD|APPEND|NEW)\]",
+        BlockRegexOpts);
 
     private static readonly Regex ResumeAcknowledgeBlockRegex = new(
-        @"\[RESUME_ACKNOWLEDGE\](?<body>.*?)\[/RESUME_ACKNOWLEDGE\]",
-        RegexOptions.Compiled | RegexOptions.Singleline);
+        @"\[RESUME_(?:ACKNOWLEDGE|ACK|CONFIRM)\](?<body>.*?)\[/RESUME_(?:ACKNOWLEDGE|ACK|CONFIRM)\]",
+        BlockRegexOpts);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {

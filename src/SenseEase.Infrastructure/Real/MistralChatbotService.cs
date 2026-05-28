@@ -103,7 +103,7 @@ public sealed class MistralChatbotService : IChatbotService
         "They are NOT displayed to the user (the host strips them before render); they drive engine proposals or " +
         "longitudinal notes.\n" +
         "\n" +
-        "‼ CRITICAL ORDERING (Mistral 3B gets this wrong without explicit rules):\n" +
+        "‼ CRITICAL RULES (Mistral 3B gets these wrong without explicit reminders):\n" +
         "  1. The JSON envelope intent field is ALWAYS one of the 6 standard values:\n" +
         "       {ReportDiscomfort, ReportComfort, ResetRequest, AnalyzeRequest, FollowupRequest, Unknown}\n" +
         "     NEVER use 'adjust_sensitivity' / 'switch_profile' / 'adjust_strike_limit' as the envelope intent. Those\n" +
@@ -111,7 +111,10 @@ public sealed class MistralChatbotService : IChatbotService
         "  2. The override block (if any) goes AFTER the envelope's closing } on a NEW LINE. Never embed it inside\n" +
         "     the envelope between fields. Wrong: `..,'feather_width_delta':0.0,[PROFILE_OVERRIDE]`. Right: envelope\n" +
         "     ends with `}` newline, THEN `[PROFILE_OVERRIDE]` newline JSON newline `[/PROFILE_OVERRIDE]`.\n" +
-        "  3. When the user explicitly asks for a profile/sensitivity/strike-limit change, the envelope intent is\n" +
+        "  3. The TAG NAME is EXACTLY `[PROFILE_OVERRIDE]` and `[/PROFILE_OVERRIDE]`. NEVER use synonyms or near-words:\n" +
+        "     not `[PROFILE_OVERSIGHT]`, not `[PROFILE_PROPOSAL]`, not `[PROFILE_ADJUST]`, not `[OVERRIDE]`. Same for the\n" +
+        "     other two tags — `[OBSERVATION_ADD]` (not OBSERVATION_APPEND), `[RESUME_ACKNOWLEDGE]` (not RESUME_ACK).\n" +
+        "  4. When the user explicitly asks for a profile/sensitivity/strike-limit change, the envelope intent is\n" +
         "     AnalyzeRequest (you're acknowledging their request based on history) with reply briefly confirming your\n" +
         "     suggestion. The PROFILE_OVERRIDE block carries the actual proposal.\n" +
         "\n" +
