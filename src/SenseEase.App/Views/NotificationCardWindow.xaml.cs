@@ -158,24 +158,45 @@ public partial class NotificationCardWindow : Window
         var work = SystemParameters.WorkArea;
         Left = work.Left + (work.Width - Width) / 2.0;
         Top  = work.Top + 16;
-
-        // Smooth fade-in (~220 ms) so the card doesn't snap on screen.
-        Opacity = 0;
-        var fadeIn = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)));
-        BeginAnimation(OpacityProperty, fadeIn);
-
-        // Start the idle countdown. MouseMove on CardBorder restarts it.
-        RestartIdleTimer();
+        // Initial fade-in + timers handled by OnIsVisibleChanged below so
+        // second/third/Nth Show() also resets state (v0.9.1 round-4 fix:
+        // previously the idle-fade left Opacity=0 and OnLoaded didn't re-
+        // fire, so re-showing the card produced an invisible window).
     }
 
     // v0.8 hotfix: keep the foreground-check timer aligned with the card's
     // visibility. Stops the timer when card is hidden (cheap when card isn't
     // open), restarts when Show()n. IsVisibleChanged fires on both Show and
     // Hide so this is the right hook (Loaded fires only once per construction).
+    // v0.9.1 round-4: also resets per-Show state — Opacity, idle timer,
+    // in-flight chat-send guard, and any pending fade storyboard — so the
+    // card recovers cleanly across repeated Show/Hide cycles.
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (IsVisible)
         {
+            // Cancel any leftover fade animation (idle-fade may have set
+            // Opacity to 0 via a storyboard whose animation is still attached
+            // to the OpacityProperty). BeginAnimation(null) detaches it so
+            // the local Opacity assignment below actually takes effect.
+            BeginAnimation(OpacityProperty, null);
+            _activeFadeStoryboard?.Stop(this);
+            _activeFadeStoryboard = null;
+            Opacity = 0;
+            var fadeIn = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)));
+            BeginAnimation(OpacityProperty, fadeIn);
+
+            // Recover from a stuck in-flight chat send. If the previous
+            // SendChatMessage callback threw before the finally block could
+            // re-enable the UI, _chatSendInFlight would be left true and the
+            // input/button would stay disabled across Hides. Reset here as a
+            // belt-and-suspenders safeguard.
+            _chatSendInFlight = false;
+            if (ChatSendBtn is not null)  ChatSendBtn.IsEnabled = true;
+            if (ChatInputBox is not null) ChatInputBox.IsEnabled = true;
+
+            RestartIdleTimer();
+
             if (_foregroundCheckTimer is null)
             {
                 _foregroundCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -426,6 +447,36 @@ public partial class NotificationCardWindow : Window
     }
 
     private bool _chatSendInFlight;
+
+    // v0.9.1 round-4: localized phrases the four quick-response buttons send.
+    // The chatbot pipeline (FeedbackLexicon + Mistral NLU) interprets these
+    // as ReportDiscomfort with the matching severity, producing the same
+    // FOV/mask/grid deltas a typed equivalent would. zh phrasing matches
+    // FeedbackLexicon's known triggers so the deterministic lexicon path
+    // applies before any LLM round-trip — quick-response stays snappy.
+    private static readonly string[] QuickDiscomfortPhrases =
+    {
+        string.Empty,                  // 0: unused
+        "我有點不舒服",                // 1: slight
+        "我不舒服",                    // 2: mild
+        "我很不舒服",                  // 3: strong
+        "我非常不舒服，請大力調整",     // 4: severe
+    };
+
+    /// <summary>v0.9.1 round-4: quick-response handler. Stuffs the matching
+    /// localized phrase into the chat input and fires Send, so the existing
+    /// chatbot pipeline interprets the discomfort and applies adjustments.
+    /// Severity comes from the button's <c>Tag</c> ("1"–"4"). Reuses the
+    /// SendChatMessage callback so the same status surface + double-send
+    /// guard + idle-timer reset all apply.</summary>
+    private async void OnQuickDiscomfortClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button btn) return;
+        if (!int.TryParse(btn.Tag?.ToString(), out int severity)) return;
+        if (severity < 1 || severity >= QuickDiscomfortPhrases.Length) return;
+        ChatInputBox.Text = QuickDiscomfortPhrases[severity];
+        await TrySendChatAsync();
+    }
 
     /// <summary>v0.9.1 round-3: send the typed message through the host's
     /// chatbot pipeline. Guards against double-send while one is in flight,
