@@ -652,24 +652,22 @@ public partial class MainWindow : Window
         // UpdateFromState). VimsTier is also a Set-ref bindable property; we
         // listen via StateChanged so the bar updates on every state push
         // including ones the engine raises outside the dispatcher timer.
+        // v0.9.3: StateChanged is raised from WgcSensingProvider's
+        // thread-pool timer (OnTick), but everything inside this handler
+        // touches WPF DependencyObjects (PersistentBarWindow.SetTier,
+        // ShowNotificationCardForCurrentTier → NotificationCardWindow).
+        // Without dispatcher marshalling we hit Dispatcher.VerifyAccess
+        // throws on any non-UI-thread invocation — the bug that crashed
+        // MainWindowSmokeTests under the test host's deterministic timing
+        // (v0.9 baseline got a lucky pass; production race was latent).
         _viewModel.StateChanged += (_, st) =>
         {
-            _persistentBar?.SetTier(st.VimsTier);
-
-            // Task 5: tier-up auto-expand. When the band crosses
-            // grey → amber (≤5 → ≥6) we treat that as a meaningful
-            // state escalation worth the card if Toggle A is ON. Track
-            // the previous band so we only fire on the CROSSING edge,
-            // not every sample within the new band.
-            var newBand = TierColorPalette.BandForTier(st.VimsTier);
-            if (_lastBand == TierColorPalette.TierBand.Grey
-                && newBand != TierColorPalette.TierBand.Grey
-                && UserPreferences.Current.UseNewBarOverlay
-                && UserPreferences.Current.AutoExpandNotifications)
+            if (!Dispatcher.CheckAccess())
             {
-                ShowNotificationCardForCurrentTier(userInitiated: false);
+                Dispatcher.BeginInvoke(() => OnViewModelStateChanged(st));
+                return;
             }
-            _lastBand = newBand;
+            OnViewModelStateChanged(st);
         };
         // Pop-up sprint Task 4: bar click opens the notification card. The
         // click event only fires when the bar is "hovered" (cursor within
@@ -683,6 +681,30 @@ public partial class MainWindow : Window
         // in the card surface that opens on click.
 
         _persistentBar.Show();
+    }
+
+    /// <summary>v0.9.3: extracted body of the StateChanged handler. Must run
+    /// on the UI thread (touches WPF DependencyObjects). The handler at the
+    /// subscription site marshals here via Dispatcher.BeginInvoke when
+    /// called from a non-UI thread (e.g. WgcSensingProvider.OnTick).</summary>
+    private void OnViewModelStateChanged(SenseState st)
+    {
+        _persistentBar?.SetTier(st.VimsTier);
+
+        // Task 5: tier-up auto-expand. When the band crosses
+        // grey → amber (≤5 → ≥6) we treat that as a meaningful
+        // state escalation worth the card if Toggle A is ON. Track
+        // the previous band so we only fire on the CROSSING edge,
+        // not every sample within the new band.
+        var newBand = TierColorPalette.BandForTier(st.VimsTier);
+        if (_lastBand == TierColorPalette.TierBand.Grey
+            && newBand != TierColorPalette.TierBand.Grey
+            && UserPreferences.Current.UseNewBarOverlay
+            && UserPreferences.Current.AutoExpandNotifications)
+        {
+            ShowNotificationCardForCurrentTier(userInitiated: false);
+        }
+        _lastBand = newBand;
     }
 
     /// <summary>Pop-up sprint Task 4: shows the notification card for the
@@ -1026,8 +1048,24 @@ public partial class MainWindow : Window
         _viewModel.OverlayVisible = false;    // B4: keep checkbox/button in sync
     }
 
-    private void OnStateChanged(object? sender, SenseState state)
+    // v0.9.3: visibility internal so the cross-thread regression test in
+    // SenseEase.Tests can call this directly from a thread-pool task (the
+    // production trigger path is WgcSensingProvider.OnTick).
+    internal void OnStateChanged(object? sender, SenseState state)
     {
+        // v0.9.3: this is the SECOND cross-thread anti-pattern fixed in the
+        // hotfix. StateChanged fires from WgcSensingProvider's thread-pool
+        // timer; OverlayWindow.ApplyState touches WPF DependencyObjects
+        // (Panel.InternalChildren) which require UI-thread access. Without
+        // the dispatcher marshal we hit Dispatcher.VerifyAccess throws.
+        // Sibling fix: the StateChanged → PersistentBar lambda at
+        // StartPersistentBar gets the same treatment.
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => OnStateChanged(sender, state));
+            return;
+        }
+
         if (_overlay is { IsVisible: true })
         {
             // Issue #4 — Always-on overlay: floor the displayed tier to the user's
