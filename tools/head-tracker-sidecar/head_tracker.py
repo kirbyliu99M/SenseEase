@@ -76,15 +76,28 @@ DEFAULT_CY: float = 0.5
 # ---------------------------------------------------------------------------
 @dataclass
 class FrameRecord:
-    """Schema for one stdout JSON line. Only these fields are emitted."""
+    """Schema for one stdout JSON line. Only these fields are emitted.
+
+    G1 advisor decision (2026-05-29): the original `confidence` field is
+    renamed to `face_present` and kept as float in {0.0, 1.0}. MediaPipe
+    FaceLandmarker IMAGE-mode does not expose a per-detection scalar
+    score; the binary value reflects "face matrix present this frame".
+    The schema slot is preserved so a future model with real scalar
+    confidence can reuse it without breaking C# consumers.
+
+    G1 advisor decision (Q2): `yaw_deg` / `pitch_deg` are debug-only —
+    emitted only when the sidecar is launched with `--debug`. Production
+    consumers see them as absent keys (filtered out before json.dumps),
+    not as `null` values.
+    """
     t_ms: int
     cx: float
     cy: float
     luma: float
     face_detected: bool
-    confidence: float
-    yaw_deg: Optional[float] = None   # raw decomposed (pre-smoothing) for debugging
-    pitch_deg: Optional[float] = None  # raw decomposed (pre-smoothing) for debugging
+    face_present: float
+    yaw_deg: Optional[float] = None   # debug-only (pre-smoothing raw)
+    pitch_deg: Optional[float] = None  # debug-only (pre-smoothing raw)
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +386,7 @@ def run(
     model_path: Optional[str],
     mirror: bool,
     loop_video: bool,
+    debug: bool = False,
 ) -> int:
     model_resolved = resolve_model_path(model_path)
     landmarker = make_face_landmarker(model_resolved)
@@ -412,10 +426,11 @@ def run(
             result = landmarker.detect(mp_image)
 
             face_detected = False
-            confidence = 1.0  # MediaPipe FaceLandmarker doesn't expose a per-detection
-                              # score in IMAGE mode; presence implies >= configured
-                              # min_face_presence_confidence (0.5). We report 1.0 when
-                              # present, 0.0 when absent. See PRIVACY.md.
+            face_present = 0.0  # MediaPipe FaceLandmarker doesn't expose a per-detection
+                                # score in IMAGE mode; presence implies >= configured
+                                # min_face_presence_confidence (0.5). We report 1.0 when
+                                # present, 0.0 when absent. G1-renamed from `confidence`;
+                                # schema slot preserved for v1.0 scalar-confidence model.
             raw_yaw: Optional[float] = None
             raw_pitch: Optional[float] = None
             cx_raw = DEFAULT_CX
@@ -429,11 +444,11 @@ def run(
                     raw_yaw, raw_pitch = yaw, pitch
                     cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
                     face_detected = True
-                    confidence = 1.0
+                    face_present = 1.0
                 else:
-                    confidence = 0.0
+                    face_present = 0.0
             else:
-                confidence = 0.0
+                face_present = 0.0
 
             cx, cy = smoother.update(cx_raw, cy_raw)
             # Clamp again post-smoothing for safety.
@@ -449,16 +464,19 @@ def run(
                 cy=round(cy, 4),
                 luma=round(luma, 4),
                 face_detected=face_detected,
-                confidence=round(confidence, 3),
-                yaw_deg=(round(raw_yaw, 2) if raw_yaw is not None else None),
-                pitch_deg=(round(raw_pitch, 2) if raw_pitch is not None else None),
+                face_present=round(face_present, 3),
+                yaw_deg=(round(raw_yaw, 2) if (debug and raw_yaw is not None) else None),
+                pitch_deg=(round(raw_pitch, 2) if (debug and raw_pitch is not None) else None),
             )
 
             if stats is not None:
                 stats.add(latency_ms, face_detected)
                 # In soak mode we suppress per-frame JSON output.
             else:
-                sys.stdout.write(json.dumps(asdict(rec), separators=(",", ":")) + "\n")
+                # Filter out None debug fields so production schema is exactly
+                # the production fields — no null keys for absent debug data.
+                payload = {k: v for k, v in asdict(rec).items() if v is not None}
+                sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
                 sys.stdout.flush()
 
     finally:
@@ -505,15 +523,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to face_landmarker.task. Falls back to "
              "$SENSEEASE_FACE_LANDMARKER_MODEL then ./face_landmarker.task.",
     )
+    # G1 advisor decision (Q4): default ON. Selfie-view feels natural to
+    # most users (head right → mask center right). Use --no-mirror to
+    # disable when the camera driver already mirrors or the user prefers
+    # raw-frame yaw mapping.
     p.add_argument(
         "--mirror",
-        action="store_true",
-        help="Horizontal-flip incoming frames (selfie-view). Off by default.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Horizontal-flip incoming frames (selfie-view). Default: ON. "
+             "Use --no-mirror to disable.",
     )
     p.add_argument(
         "--loop",
         action="store_true",
         help="Loop a finite video file on EOF (implied by --soak).",
+    )
+    # G1 advisor decision (Q2): yaw_deg / pitch_deg are emitted only when
+    # --debug is set. Production omits them entirely (filtered before
+    # json.dumps) to keep the schema minimal.
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Emit pre-smoothing yaw_deg / pitch_deg in per-frame JSON. "
+             "Off by default; useful during M5 UX-iteration gain tuning.",
     )
     return p
 
@@ -526,6 +559,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         model_path=args.model,
         mirror=args.mirror,
         loop_video=args.loop,
+        debug=args.debug,
     )
 
 

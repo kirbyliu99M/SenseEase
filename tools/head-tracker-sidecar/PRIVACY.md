@@ -30,29 +30,33 @@ change that violates them must be rejected at review.
 
 ## Emitted-on-stdout schema (allowlist)
 
-Per-frame JSON line fields. **Only** these fields are permitted:
+Per-frame JSON line fields. **Only** these fields are permitted (G1-signed):
 
-| field            | type           | purpose                                          |
-|------------------|----------------|--------------------------------------------------|
-| `t_ms`           | int            | monotonic timestamp, ms since sidecar start      |
-| `cx`             | float [0, 1]   | smoothed + clamped FOV mask center X             |
-| `cy`             | float [0, 1]   | smoothed + clamped FOV mask center Y             |
-| `luma`           | float [0, 1]   | frame mean luma (Rec. 601 Y), normalized         |
-| `face_detected`  | bool           | true when MediaPipe returned a transformation    |
-| `confidence`     | float [0, 1]   | 1.0 when face present, 0.0 when not (see note)   |
-| `yaw_deg`        | float or null  | pre-smoothing raw yaw, for debugging only        |
-| `pitch_deg`      | float or null  | pre-smoothing raw pitch, for debugging only      |
+| field            | type           | emitted when         | purpose                                       |
+|------------------|----------------|----------------------|-----------------------------------------------|
+| `t_ms`           | int            | always               | monotonic timestamp, ms since sidecar start   |
+| `cx`             | float [0, 1]   | always               | smoothed + clamped FOV mask center X          |
+| `cy`             | float [0, 1]   | always               | smoothed + clamped FOV mask center Y          |
+| `luma`           | float [0, 1]   | always               | frame mean luma (Rec. 601 Y), normalized      |
+| `face_detected`  | bool           | always               | true when MediaPipe returned a transformation |
+| `face_present`   | float [0, 1]   | always               | 1.0 when face present, 0.0 when not (see note)|
+| `yaw_deg`        | float          | `--debug` only       | pre-smoothing raw yaw                         |
+| `pitch_deg`      | float          | `--debug` only       | pre-smoothing raw pitch                       |
 
-**Note on `confidence`:** MediaPipe's FaceLandmarker IMAGE-mode API does
-not expose a per-detection scalar score; the `min_face_presence_confidence`
-threshold gates the detection internally. We therefore emit `1.0` when
-a face landmark set is returned (and the matrix is well-formed), `0.0`
-otherwise. This is documented in `head_tracker.py` next to where it is
-assigned.
+**Note on `face_present`** (G1 schema decision, renamed from `confidence`):
+MediaPipe's FaceLandmarker IMAGE-mode API does not expose a per-detection
+scalar score; the `min_face_presence_confidence` threshold gates the
+detection internally. We emit `1.0` when a face landmark set is returned
+(and the matrix is well-formed), `0.0` otherwise. The field is float (not
+bool) so a future model with real scalar confidence can reuse the slot
+without breaking C# consumers; the rename from `confidence` to
+`face_present` makes the binary-today semantic precise.
 
-`yaw_deg` and `pitch_deg` are included **only** as debugging aids and are
-considered low-sensitivity pose data (not raw landmarks). They may be
-stripped by downstream consumers without changing the contract.
+**Note on debug fields:** `yaw_deg` / `pitch_deg` are emitted **only**
+when the sidecar is launched with `--debug`. In production they are
+absent keys (not `null`) — the per-frame JSON literally does not
+contain them. Use during M5 UX-iteration gain tuning; do not enable
+in shipped builds.
 
 ## What is explicitly forbidden
 

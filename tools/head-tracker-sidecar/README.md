@@ -84,8 +84,10 @@ python head_tracker.py --input 0
 Per-frame JSON is written to stdout, one object per line, e.g.:
 
 ```json
-{"t_ms":123,"cx":0.512,"cy":0.498,"luma":0.387,"face_detected":true,"confidence":1.0,"yaw_deg":-0.81,"pitch_deg":0.04}
+{"t_ms":123,"cx":0.512,"cy":0.498,"luma":0.387,"face_detected":true,"face_present":1.0}
 ```
+
+(With `--debug` the line also includes `"yaw_deg":-0.81,"pitch_deg":0.04`. Production omits these keys entirely — they are not emitted as `null`.)
 
 Pipe to a file with `> out.jsonl` or to another process via pipe.
 
@@ -111,27 +113,28 @@ on stdout at the end. The result feeds `PERF.md`'s three-layer analysis.
 python head_tracker.py --input <0|path/to/video> [options]
 
 Options:
-  --input         (required) webcam index OR path to a video file
-  --soak SECONDS  run for SECONDS seconds in perf-report mode
-  --model PATH    override the face_landmarker.task location
-  --mirror        horizontal-flip frames (selfie-view)
-  --loop          loop a finite video file on EOF (implied by --soak)
+  --input               (required) webcam index OR path to a video file
+  --soak SECONDS        run for SECONDS seconds in perf-report mode
+  --model PATH          override the face_landmarker.task location
+  --mirror / --no-mirror  horizontal-flip frames (default: ON; --no-mirror disables)
+  --loop                loop a finite video file on EOF (implied by --soak)
+  --debug               include yaw_deg / pitch_deg in per-frame JSON (off by default)
 ```
 
 ## Output schema (allowlisted by `PRIVACY.md`)
 
 Per-frame JSON line — only these fields:
 
-| field           | type         | range / values |
-|-----------------|--------------|----------------|
-| `t_ms`          | int          | monotonic ms since start |
-| `cx`            | float        | `[0.0, 1.0]`   |
-| `cy`            | float        | `[0.0, 1.0]`   |
-| `luma`          | float        | `[0.0, 1.0]`   |
-| `face_detected` | bool         | true / false   |
-| `confidence`    | float        | `0.0` or `1.0` (see PRIVACY.md note) |
-| `yaw_deg`       | float / null | raw pre-smoothing, debug only |
-| `pitch_deg`     | float / null | raw pre-smoothing, debug only |
+| field           | type    | emitted when    | range / values |
+|-----------------|---------|-----------------|----------------|
+| `t_ms`          | int     | always          | monotonic ms since start |
+| `cx`            | float   | always          | `[0.0, 1.0]`   |
+| `cy`            | float   | always          | `[0.0, 1.0]`   |
+| `luma`          | float   | always          | `[0.0, 1.0]`   |
+| `face_detected` | bool    | always          | true / false   |
+| `face_present`  | float   | always          | `0.0` or `1.0` (see PRIVACY.md note) |
+| `yaw_deg`       | float   | `--debug` only  | raw pre-smoothing |
+| `pitch_deg`     | float   | `--debug` only  | raw pre-smoothing |
 
 ## Privacy
 
