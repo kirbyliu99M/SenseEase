@@ -1,24 +1,12 @@
 # Three-Layer Perf Report
 
-> **Honest disclosure (M2 author):** The actual soak run was NOT executed
-> in this sprint's M2 agent sandbox. The agent environment for this
-> milestone is a restricted shell with no Python interpreter on PATH and
-> with `Bash` / `PowerShell` execution blocked for arbitrary commands
-> (only a small allowlist of read-only tooling is permitted). The
-> sidecar code is complete and statically validated, but the
-> mediapipe + opencv install + 5-minute soak cannot run here.
+> **2026-05-29 update**: soak completed by user on actual target-class hardware
+> (AMD Ryzen AI 9 HX 370). See Layer 1 for results. Layer 2 verdict GREEN.
 >
-> This file therefore contains **NO measured numbers**. It explicitly
-> documents what would be measured, the procedure to obtain it, and
-> the qualitative analysis required for Layer 3. The advisor at G1
-> must either:
->   1. Run the soak themselves on a real Windows host (steps below), or
->   2. Defer the perf-early-signal decision until the user (or a
->      follow-up agent with Python execution permissions) runs the
->      soak and pastes the report JSON into the "Layer 1 result" slot.
->
-> Faking numbers here would derail the sprint — see the M2 brief's
-> "be honest" instruction.
+> Original M2-author disclosure (preserved for context): the soak could not
+> run in the M2 agent sandbox because Python execution was blocked there.
+> The sidecar code shipped statically validated; the user ran the documented
+> procedure (below) on real hardware to obtain Layer 1 numbers.
 
 ---
 
@@ -73,23 +61,47 @@ verdict — Hz + per-frame latency are the load-bearing numbers.
 
 ## Layer 1 — Pure-CPU baseline
 
-純 CPU 在 **<CPU model — TBD by soak operator>** 達 **<X> Hz** /
-**<Y>% CPU** / **<Z> MB peak RSS**
+**MEASURED 2026-05-29** by user (Kirby) on the actual target-class hardware.
+Soak: `python head_tracker.py --input 0 --soak 300` (webcam, 5 minutes).
 
-Latency table (filled from `soak_report.json`):
+純 CPU 在 **AMD Ryzen AI 9 HX 370 w/ Radeon 890M** 達 **14.988 Hz** /
+**165 MB peak RSS** / CPU% not sampled (see note below).
 
-| stat              | value (ms) |
-|-------------------|-----------:|
-| mean              | TBD        |
-| p50               | TBD        |
-| p95               | TBD        |
-| p99               | TBD        |
-| max               | TBD        |
-| achieved Hz       | TBD        |
-| dropped frames    | TBD        |
-| peak RSS (MB)     | TBD        |
+| stat                | value      |
+|---------------------|-----------:|
+| latency mean (ms)   | 5.805      |
+| latency p50 (ms)    | 7.022      |
+| latency p95 (ms)    | 8.484      |
+| latency p99 (ms)    | 11.926     |
+| latency max (ms)    | 14.288     |
+| achieved Hz (mean)  | 14.988     |
+| target Hz           | 15.000     |
+| frames processed    | 4501       |
+| frames with face    | 2636       |
+| dropped frames      | 3 (0.07 %) |
+| peak RSS (MB)       | 165.2      |
+| elapsed (s)         | 300.297    |
 
-**Status: NOT YET MEASURED.** See disclosure at top of file.
+Headroom analysis: at the 15 Hz target the per-frame budget is 66.7 ms.
+p99 latency (11.9 ms) consumes **17.9 %** of that budget; even max
+latency (14.3 ms) stays well within budget. Inference is not the
+bottleneck on this hardware.
+
+**Notes**:
+- CPU% sampling was not implemented in the sidecar (M2 author's
+  deliberate omission per OBS scope — Hz + latency are the
+  load-bearing numbers; CPU% can be sampled separately with
+  `Get-Counter '\Process(python)\% Processor Time'` if a follow-up
+  needs it).
+- `cpu_model` field in soak_report.json was `"unknown"` because the
+  `wmic cpu get name` call returned blank in the sidecar's subprocess
+  context. The model above was captured separately by the operator via
+  `(Get-CimInstance Win32_Processor).Name`. M4 should switch the
+  sidecar to the same CimInstance call for future runs.
+- Face-detection rate 58.6 % is normal for webcam soak (operator
+  moves in and out of frame); does not affect per-frame inference
+  latency since MediaPipe runs the same pipeline regardless of
+  face presence.
 
 ---
 
@@ -113,7 +125,7 @@ Decision rule (locked in M2 brief):
       best Hz it can sustain and rely on the EMA + the C#-side
       WPF render cap (60 fps) to absorb sidecar jitter.
 
-**Verdict: pending Layer 1 numbers.**
+**Verdict (2026-05-29): X = 14.988 Hz ≈ 15 Hz target with full latency headroom (p99 = 17.9 % of frame budget). Pure-CPU prototype is USABLE on AMD Ryzen AI 9 HX 370. NPU acceleration in v1.0 becomes a bonus, not a prerequisite. Path B is the right architectural choice. M3/M4 may proceed with confidence.**
 
 ---
 
@@ -179,6 +191,21 @@ to relax `TARGET_HZ`.
 anywhere in `[8 Hz, 60 Hz]` on a modern x86 laptop, Path B is on
 track and the NPU work in v1.0 should comfortably hit a low-latency
 target. If Layer 1 lands below 8 Hz, raise the issue at G1.
+
+### Concrete Layer 3 expectation (post-Layer-1 update 2026-05-29)
+
+User's hardware is AMD Ryzen AI 9 HX 370 with a 50 TOPS XDNA 2 NPU —
+directly target-class for the sprint's hardware requirement. The pure-CPU
+Layer 1 already meets target with ~80 % budget unused, so:
+
+- v1.0 NPU path on this exact hardware is expected to drop per-frame
+  inference latency from ~6 ms (CPU) into single-digit ms or lower.
+- AMD's XDNA 2 is supported by ONNX Runtime DirectML provider and
+  AMD's Ryzen AI SDK (Vitis AI ONNX runtime). Either route requires
+  TFLite → ONNX conversion of the FaceLandmarker graph; both are
+  established Phase 2.5 paths.
+- 15 Hz target is comfortable today, and 30 Hz would also be
+  achievable on NPU if a future product decision warrants it.
 
 ---
 
