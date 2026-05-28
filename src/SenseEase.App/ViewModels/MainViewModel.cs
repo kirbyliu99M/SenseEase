@@ -288,21 +288,53 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     private readonly IEventLogStore _log = new InMemoryEventLogStore();
 
-    // ── M3 head-tracking sprint: IHeadPoseReader registration ────────────────
+    // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
     // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
     // container — services are composed as `readonly` fields on the view-
     // models that need them (see `_mockSensing`, `_cursorSensing`, `_log`
-    // above for the same pattern). Per M3 spec, the DefaultHeadPoseReader
-    // stub is constructed here so the IHeadPoseReader binding is live and
-    // compiles, but is intentionally NOT wired into any consumer (no read
-    // path, no event subscription, no engine integration). M4 will swap
-    // DefaultHeadPoseReader for SidecarHeadPoseReader and add the consumer
-    // (engine pre-tick or overlay apply-pass). Exposed `internal` so the
-    // M4 integration test can reach in and assert the binding without
-    // widening the public surface (mirrors the `InternalsVisibleTo
-    // SenseEase.Tests` plumbing already in SenseEase.Infrastructure).
-    private readonly IHeadPoseReader _headPoseReader = new DefaultHeadPoseReader();
+    // above for the same pattern). M3 wired the DefaultHeadPoseReader stub
+    // unconditionally; M4 switches the field to a flag-aware factory call
+    // so SidecarHeadPoseReader is instantiated when HeadTrackingEnabled is
+    // true and DefaultHeadPoseReader otherwise. The M4 invariant: with the
+    // flag false (default), the field still binds to DefaultHeadPoseReader,
+    // no sidecar process is spawned, and the consumer (M5) sees null on
+    // every ReadLatest call → falls back to the (0.5, 0.5) center default.
+    // Exposed `internal` so the M4 integration test can reach in and assert
+    // the binding without widening the public surface (mirrors the
+    // `InternalsVisibleTo SenseEase.Tests` plumbing already in
+    // SenseEase.Infrastructure).
+    private readonly IHeadPoseReader _headPoseReader = CreateHeadPoseReader();
     internal IHeadPoseReader HeadPoseReader => _headPoseReader;
+
+    /// <summary>M4 factory: chooses the reader implementation based on
+    /// <see cref="AppConfig.HeadTrackingEnabled"/>. Q5-locked DI pattern:
+    /// no container, no service collection — just a static factory that
+    /// reads the static flag and returns the appropriate instance.</summary>
+    private static IHeadPoseReader CreateHeadPoseReader()
+    {
+        if (!AppConfig.HeadTrackingEnabled)
+            return new DefaultHeadPoseReader();
+        return new SidecarHeadPoseReader(
+            pythonExePath:     AppConfig.SidecarPythonPath,
+            sidecarScriptPath: AppConfig.SidecarScriptPath,
+            log:               null,
+            mirror:            true,
+            webcamIndex:       0);
+    }
+
+    /// <summary>M4: kick the sidecar process if head-tracking is enabled.
+    /// Called from MainWindow.Loaded so the spawn happens after the visual
+    /// tree is ready (parity with the WGC validation / persistent bar /
+    /// tray icon Loaded handlers). Flag-off invariant: returns immediately
+    /// without touching the reader at all.</summary>
+    public void StartHeadTrackingIfEnabled()
+    {
+        if (!AppConfig.HeadTrackingEnabled) return;
+        if (_headPoseReader is SidecarHeadPoseReader sidecar)
+        {
+            try { sidecar.Start(); } catch { /* sidecar is best-effort */ }
+        }
+    }
 
     private readonly INluService _nlu;
     private readonly DispatcherTimer _demoTimer;
@@ -1494,6 +1526,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void DisposeServices()
     {
         try { _activityDetector.Dispose(); } catch { }
+        // M4 head-tracking sprint: gracefully stop the sidecar process if it
+        // was spawned. The JobObject reaper would catch a hard exit anyway,
+        // but explicit Dispose is faster + flushes the stderr tail log.
+        if (_headPoseReader is IDisposable disposable)
+        {
+            try { disposable.Dispose(); } catch { }
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

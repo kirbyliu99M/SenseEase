@@ -317,6 +317,28 @@ public partial class MainWindow : Window
         {
             if (!_viewModel.OverlayVisible) _viewModel.OverlayVisible = true;
         };
+
+        // M4 head-tracking sprint: spawn the Python sidecar if
+        // HeadTrackingEnabled is true. Idempotent + flag-off invariant
+        // safe: returns immediately when the flag is false (no process
+        // spawned, byte-equivalent to M3 baseline). Wrapped in the same
+        // entry/exit log pattern as the other Loaded handlers so a silent
+        // sidecar-start failure is visible in wgc_diag.txt.
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#4] StartHeadTrackingIfEnabled entry");
+            try
+            {
+                _viewModel.StartHeadTrackingIfEnabled();
+                SafeLog("[Loaded#4] StartHeadTrackingIfEnabled exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#4] StartHeadTrackingIfEnabled EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                // Don't rethrow — head-tracking is opt-in and must never
+                // block the dashboard from coming up.
+            }
+        };
     }
 
     /// <summary>overlay-bar-redesign diag-2: best-effort append to

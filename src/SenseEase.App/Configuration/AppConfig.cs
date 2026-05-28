@@ -227,4 +227,49 @@ public static class AppConfig
     /// runtime feature flags above. Default = false; flipping requires
     /// explicit opt-in either at startup or via a future settings UI.</para></summary>
     public static bool HeadTrackingEnabled { get; set; } = false;
+
+    // M4 (head-tracking sprint): paths to the Python sidecar's interpreter
+    // and script. Resolved with the same "alongside the EXE, then walk up
+    // looking for the repo's tools/ folder" probe used for ModelPath /
+    // DemoVideoPath so both development and shipping installs work. Only
+    // consulted when HeadTrackingEnabled is true; the probe is cached at
+    // first access. Default sidecar layout (committed at the M2 tag):
+    //   tools/head-tracker-sidecar/.venv/Scripts/python.exe   (Windows)
+    //   tools/head-tracker-sidecar/head_tracker.py
+    private const string SidecarPythonRelative =
+        "tools/head-tracker-sidecar/.venv/Scripts/python.exe";
+    private const string SidecarScriptRelative =
+        "tools/head-tracker-sidecar/head_tracker.py";
+
+    /// <summary>M4: resolved absolute path to the sidecar's Python
+    /// interpreter, or the canonical (alongside-EXE) candidate if not
+    /// found. SidecarHeadPoseReader treats "file not found" as a soft
+    /// disable (logs + ReadLatest returns null), so a missing venv on a
+    /// fresh install never crashes the host.</summary>
+    public static string SidecarPythonPath { get; } =
+        ResolveSidecarPath(SidecarPythonRelative);
+
+    /// <summary>M4: resolved absolute path to head_tracker.py.</summary>
+    public static string SidecarScriptPath { get; } =
+        ResolveSidecarPath(SidecarScriptRelative);
+
+    private static string ResolveSidecarPath(string relative)
+    {
+        string rel = relative.Replace('/', Path.DirectorySeparatorChar);
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        string inBin = Path.Combine(baseDir, rel);
+        if (File.Exists(inBin)) return inBin;
+
+        var info = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 8 && info is not null; i++)
+        {
+            info = info.Parent;
+            if (info is null) break;
+            string candidate = Path.Combine(info.FullName, rel);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return inBin; // canonical-install path for the "not found" diagnostic
+    }
 }
