@@ -94,6 +94,26 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     // future sidecar tuning), re-introduce with velocity-aware thresholding
     // rather than positional median.
 
+    // M5.1-C PRECONDITION instrumentation (2026-05-29 per advisor sign-off):
+    // count successful JSON-line parses so the C# side can directly measure
+    // sidecar received Hz under full-active load. The webcam can only be held
+    // by one process at a time, so we can't run sidecar --soak alongside the
+    // dashboard. This counter is the alternative: dashboard runs normally,
+    // sidecar produces samples that the reader receives + parses + counts.
+    // MainWindow's 5-second timer-rate log reads + resets the counter so the
+    // same log line carries both achieved-timer-Hz and received-sidecar-Hz.
+    // Interlocked because incremented on the reader Task, read on the UI
+    // dispatcher thread.
+    private int _receivedSampleCount;
+
+    /// <summary>M5.1-C PRECONDITION: atomically read + reset the
+    /// received-sample counter. Returns the count of successful parses since
+    /// the last call (or since reader start). Safe to call from any thread.</summary>
+    public int ConsumeReceivedSampleCount()
+    {
+        return Interlocked.Exchange(ref _receivedSampleCount, 0);
+    }
+
     /// <summary>Construct the reader. Does NOT spawn the sidecar — call
     /// <see cref="Start"/> for that. Separating construction from startup
     /// keeps the flag-off path zero-cost: if HeadTrackingEnabled is false,
@@ -308,6 +328,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 {
                     Volatile.Write(ref _latest, sample);
                     Interlocked.Exchange(ref _latestStoredAtUtcTicks, DateTime.UtcNow.Ticks);
+                    Interlocked.Increment(ref _receivedSampleCount); // M5.1-C
                 }
                 else
                 {

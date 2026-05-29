@@ -423,7 +423,9 @@ public partial class MainWindow : Window
                 headGazeY: pose?.Cy ?? 0.5,
                 active:    pose is not null);
 
-            // M5.1-C PRECONDITION rate log: every 5s, write achieved tick rate.
+            // M5.1-C PRECONDITION rate log: every 5s, write achieved tick rate
+            // + advisor-required full-active sidecar received Hz (the inferred
+            // gap the advisor flagged at M5.1-A close).
             _headPoseTickCount++;
             if (_headPoseTickCountStartUtc == default)
                 _headPoseTickCountStartUtc = DateTime.UtcNow;
@@ -431,7 +433,11 @@ public partial class MainWindow : Window
             if (elapsed.TotalSeconds >= 5.0)
             {
                 double achievedHz = _headPoseTickCount / elapsed.TotalSeconds;
-                SafeLog($"[HeadPoseTimer] ticks={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target 30.00)");
+                int sidecarSamples = 0;
+                if (_viewModel.EffectiveHeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar)
+                    sidecarSamples = sidecar.ConsumeReceivedSampleCount();
+                double sidecarHz = sidecarSamples / elapsed.TotalSeconds;
+                SafeLog($"[HeadPoseTimer] ticks={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target 30.00) sidecar_received={sidecarSamples} sidecarHz={sidecarHz:F2} (target 15.00)");
                 _headPoseTickCount = 0;
                 _headPoseTickCountStartUtc = DateTime.UtcNow;
             }
