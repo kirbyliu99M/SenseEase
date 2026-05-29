@@ -297,4 +297,127 @@ public class SidecarHeadPoseReaderTests
             AppConfig.HeadTrackingEnabled = prior;
         }
     }
+
+    // ── M5.1-A Layer 3: temporal median outlier rejection ─────────────────
+
+    /// <summary>M5.1-A Layer 3: first samples pass through untouched (buffer
+    /// is filling). Filter only engages once the 5-sample buffer is full.</summary>
+    [Fact]
+    public void SidecarHeadPoseReader_TemporalMedianFilter_FirstSamplesPassThrough()
+    {
+        var reader = NewIsolatedReaderForFilterTests();
+
+        for (int i = 0; i < 4; i++)
+        {
+            var input = MakeSample(cx: 0.50, cy: 0.50);
+            var output = reader.ApplyTemporalMedianFilter(input);
+            Assert.Equal(input.Cx, output.Cx, 4);
+            Assert.Equal(input.Cy, output.Cy, 4);
+        }
+    }
+
+    /// <summary>M5.1-A Layer 3: with a stable buffer at (0.50, 0.50) and a
+    /// new sample within the 0.25 threshold, the new sample passes through.</summary>
+    [Fact]
+    public void SidecarHeadPoseReader_TemporalMedianFilter_WithinThreshold_PassesThrough()
+    {
+        var reader = NewIsolatedReaderForFilterTests();
+
+        // Fill buffer with center values.
+        for (int i = 0; i < 5; i++)
+            reader.ApplyTemporalMedianFilter(MakeSample(cx: 0.50, cy: 0.50));
+
+        // New sample 0.20 from median — within threshold, passes through.
+        var input = MakeSample(cx: 0.70, cy: 0.30);
+        var output = reader.ApplyTemporalMedianFilter(input);
+        Assert.Equal(0.70, output.Cx, 4);
+        Assert.Equal(0.30, output.Cy, 4);
+    }
+
+    /// <summary>M5.1-A Layer 3: an outlier > 0.25 from median on the cx axis
+    /// is substituted with the median; cy independently evaluated and kept
+    /// because it's within threshold.</summary>
+    [Fact]
+    public void SidecarHeadPoseReader_TemporalMedianFilter_OutlierCxAxis_ClampedToMedian()
+    {
+        var reader = NewIsolatedReaderForFilterTests();
+
+        for (int i = 0; i < 5; i++)
+            reader.ApplyTemporalMedianFilter(MakeSample(cx: 0.50, cy: 0.50));
+
+        // Cx jumps 0.40 from median (> 0.25 threshold) — substitute with median 0.50.
+        // Cy at 0.60 is only 0.10 from median — pass through.
+        var input = MakeSample(cx: 0.90, cy: 0.60);
+        var output = reader.ApplyTemporalMedianFilter(input);
+        Assert.Equal(0.50, output.Cx, 4);   // substituted
+        Assert.Equal(0.60, output.Cy, 4);   // passthrough
+    }
+
+    /// <summary>M5.1-A Layer 3: both axes are outliers, both substituted
+    /// with the buffer median values.</summary>
+    [Fact]
+    public void SidecarHeadPoseReader_TemporalMedianFilter_BothAxesOutlier_BothClampedToMedian()
+    {
+        var reader = NewIsolatedReaderForFilterTests();
+
+        for (int i = 0; i < 5; i++)
+            reader.ApplyTemporalMedianFilter(MakeSample(cx: 0.40, cy: 0.60));
+
+        // Both axes far from median.
+        var input = MakeSample(cx: 0.95, cy: 0.05);
+        var output = reader.ApplyTemporalMedianFilter(input);
+        Assert.Equal(0.40, output.Cx, 4);
+        Assert.Equal(0.60, output.Cy, 4);
+    }
+
+    /// <summary>M5.1-A Layer 3: the buffer stores INPUTS (not outputs), so
+    /// after the buffer is fully repopulated with new central-tendency
+    /// values, the median tracks the new stream rather than locking in
+    /// at the original calibration. This guards against the "filter locks
+    /// in stale state when user genuinely moves" failure mode.</summary>
+    [Fact]
+    public void SidecarHeadPoseReader_TemporalMedianFilter_BufferTracksMovingStream()
+    {
+        var reader = NewIsolatedReaderForFilterTests();
+
+        // Fill buffer with one cluster.
+        for (int i = 0; i < 5; i++)
+            reader.ApplyTemporalMedianFilter(MakeSample(cx: 0.20, cy: 0.20));
+
+        // Now feed a new cluster within-threshold of the previous so each
+        // passes through and slowly shifts the median.
+        for (int i = 0; i < 5; i++)
+            reader.ApplyTemporalMedianFilter(MakeSample(cx: 0.40, cy: 0.40));
+
+        // Median should now be at the new cluster (0.40, 0.40).
+        // A sample at (0.65, 0.65) is 0.25 from the new median — right at
+        // the threshold (Math.Abs > 0.25 is strict, so 0.25 passes through).
+        var input = MakeSample(cx: 0.65, cy: 0.65);
+        var output = reader.ApplyTemporalMedianFilter(input);
+        Assert.Equal(0.65, output.Cx, 4);
+        Assert.Equal(0.65, output.Cy, 4);
+
+        // But a sample at (0.70, 0.70) is 0.30 from new median — substituted.
+        var input2 = MakeSample(cx: 0.70, cy: 0.70);
+        var output2 = reader.ApplyTemporalMedianFilter(input2);
+        Assert.Equal(0.40, output2.Cx, 4);
+        Assert.Equal(0.40, output2.Cy, 4);
+    }
+
+    private static SidecarHeadPoseReader NewIsolatedReaderForFilterTests() =>
+        new SidecarHeadPoseReader(
+            pythonExePath:     @"C:\nonexistent\python.exe",
+            sidecarScriptPath: @"C:\nonexistent\head_tracker.py",
+            log:               null,
+            mirror:            true,
+            webcamIndex:       0);
+
+    private static HeadPoseSample MakeSample(double cx, double cy) =>
+        new HeadPoseSample(
+            TimestampMs:  0,
+            Cx:           cx,
+            Cy:           cy,
+            Luma:         0.5,
+            FaceDetected: true,
+            FacePresent:  1.0);
 }

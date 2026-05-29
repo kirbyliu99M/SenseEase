@@ -123,13 +123,23 @@ def decompose_yaw_pitch_roll(mat4: np.ndarray) -> tuple[float, float, float]:
         roll  = atan2(-R[0,1], R[0,0])     # rotation about Z
 
     This matches the convention used by most MediaPipe head-pose examples.
-    Sign convention here:
-        yaw  > 0  -> head turns to the user's RIGHT (which is camera's LEFT
-                     for an un-mirrored capture; we treat the un-mirrored
-                     camera frame as canonical here -- see CLI flag --mirror
-                     in main() for selfie-view).
-        pitch > 0 -> head tilts UP (chin raises).
-        roll  > 0 -> head tilts toward user's RIGHT shoulder.
+    Sign convention here (raw from the decomposition — see M5.1-A fix below
+    for the compensated convention used downstream):
+        yaw  > 0  -> head turns to the user's RIGHT (un-mirrored frame
+                     convention; the --mirror=on default flips the frame
+                     before MediaPipe sees it, so the user-facing post-
+                     fix convention is set in the run() loop).
+        pitch > 0 -> head tilts DOWN (chin drops). NOTE: an earlier comment
+                     here claimed "pitch > 0 -> chin UP" — that was the
+                     intuitive intent, but the actual atan2(-R[1,2], R[2,2])
+                     decomposition with MediaPipe's Y-up world frame yields
+                     positive pitch for chin DOWN, not chin UP. Verified by
+                     M5.1-A diagnostic CSV analysis (user 2026-05-29: tilted
+                     chin UP first, pitch went strongly NEGATIVE in the
+                     data). The run() loop compensates by negating pitch
+                     so the downstream convention matches "pitch > 0 = up".
+        roll  > 0 -> head tilts toward user's RIGHT shoulder (raw; not used
+                     by the (cx, cy) mapping).
     """
     R = mat4[:3, :3]
     # Clamp R[0,2] into [-1, 1] for numerical safety before asin.
@@ -410,6 +420,19 @@ def run(
         diag_file = open(diag_path, "w", encoding="utf-8", buffering=1)
         diag_file.write("t_ms,yaw_deg,pitch_deg,cx_raw,cy_raw,cx_smoothed,cy_smoothed,face_detected,face_present,mirror\n")
 
+    # M5.1-A Layer 1 (2026-05-29): frame validity filter. On any frame where
+    # face_present == 0 OR yaw / pitch jumps > MAX_JUMP_PER_FRAME_DEG since
+    # the last VALID sample, skip emitting and repeat the previously-valid
+    # (cx, cy). Diagnose analysis showed max legitimate single-frame jump
+    # ≈ 13° during rapid mixed motion; threshold at 25° catches detection
+    # glitches without false-positives at observed motion ceilings.
+    MAX_JUMP_PER_FRAME_DEG = 25.0
+    last_valid_yaw: Optional[float] = None
+    last_valid_pitch: Optional[float] = None
+    last_valid_cx_raw: float = DEFAULT_CX
+    last_valid_cy_raw: float = DEFAULT_CY
+    skipped_frame_count = 0
+
     t0_mono = time.monotonic()
     next_tick = t0_mono
     deadline = (t0_mono + soak_seconds) if soak_seconds is not None else None
@@ -459,14 +482,21 @@ def run(
                     # cv2.flip(frame, 1) inverts the horizontal axis BEFORE
                     # MediaPipe sees the frame, so the extracted yaw has
                     # the OPPOSITE sign from the user's physical head
-                    # direction. The Q4-locked semantic ("head right → mask
-                    # right" in selfie-view) is only correct if we compensate
-                    # here. Pitch is unaffected (vertical axis preserved by
-                    # horizontal flip). Verified visually by user 2026-05-29
-                    # who reported inverted horizontal behavior with the
-                    # original implementation.
+                    # direction. Negate to restore selfie-view semantic.
                     if mirror:
                         yaw = -yaw
+                    # M5.1-A (2026-05-29): the documentation in
+                    # decompose_yaw_pitch_roll above claimed "pitch > 0 =
+                    # chin UP" but the actual atan2(-R[1,2], R[2,2])
+                    # decomposition returns the OPPOSITE — chin-up gives
+                    # negative pitch. The M2 cy mapping was then computed
+                    # against the wrong assumption, so chin-up moved the
+                    # mask to the BOTTOM. Diagnose CSV from user (chin-up-
+                    # first procedure) showed pitch going to −40° during
+                    # chin-up motion, confirming the inversion. Negate
+                    # unconditionally (not mirror-conditional — horizontal
+                    # flip doesn't affect rotation around the X axis).
+                    pitch = -pitch
                     raw_yaw, raw_pitch = yaw, pitch
                     cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
                     face_detected = True
@@ -475,6 +505,30 @@ def run(
                     face_present = 0.0
             else:
                 face_present = 0.0
+
+            # M5.1-A Layer 1: validity check. If face missing OR pose jumped
+            # too far from the last valid sample, treat this frame as a
+            # detection glitch and repeat the last valid (cx, cy).
+            frame_is_valid = face_present > 0.5
+            if frame_is_valid and last_valid_yaw is not None:
+                yaw_jump   = abs(raw_yaw   - last_valid_yaw)   if raw_yaw   is not None else 0.0
+                pitch_jump = abs(raw_pitch - last_valid_pitch) if raw_pitch is not None else 0.0
+                if yaw_jump > MAX_JUMP_PER_FRAME_DEG or pitch_jump > MAX_JUMP_PER_FRAME_DEG:
+                    frame_is_valid = False
+
+            if not frame_is_valid:
+                # Skip glitch / dropout: feed the smoother the last valid
+                # raw (so EMA continues converging) instead of injecting
+                # noise. raw_yaw / raw_pitch left as-is for diag CSV so the
+                # rejection is visible in the trace.
+                cx_raw = last_valid_cx_raw
+                cy_raw = last_valid_cy_raw
+                skipped_frame_count += 1
+            else:
+                last_valid_yaw   = raw_yaw
+                last_valid_pitch = raw_pitch
+                last_valid_cx_raw = cx_raw
+                last_valid_cy_raw = cy_raw
 
             cx, cy = smoother.update(cx_raw, cy_raw)
             # Clamp again post-smoothing for safety.
