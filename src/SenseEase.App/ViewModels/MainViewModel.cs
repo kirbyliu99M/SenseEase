@@ -306,6 +306,57 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IHeadPoseReader _headPoseReader = CreateHeadPoseReader();
     internal IHeadPoseReader HeadPoseReader => _headPoseReader;
 
+    // ── M5: developer/QA mock-sweep override ─────────────────────────────────
+    // When non-null, takes precedence over _headPoseReader inside the
+    // UpdateFromState ReadLatest pull. Set by StartMockHeadPoseSweep (bound
+    // to Ctrl+Shift+H at the MainWindow level) and cleared automatically
+    // when the sweep completes (its ReadLatest returns null past 20 s, but
+    // we also schedule a hard-clear timer for the field swap so the next
+    // sweep press can start fresh). Volatile via Interlocked so the
+    // OFI/cursor/demo timers can read it without locking; mutated only on
+    // the UI dispatcher thread (by the hotkey handler + timer Tick).
+    private IHeadPoseReader? _overrideReader;
+    internal IHeadPoseReader? OverrideHeadPoseReaderForTests
+    {
+        get => _overrideReader;
+        set => _overrideReader = value;
+    }
+    private DispatcherTimer? _mockSweepClearTimer;
+
+    /// <summary>M5 developer/QA hook: install a deterministic 20-second
+    /// mock head-pose sweep and surface it through the same UpdateFromState
+    /// path used by the real sidecar reader. Used by the G4 UVHS demo and
+    /// by anyone visually verifying the wiring without a working webcam.
+    ///
+    /// <para>Independent of <see cref="AppConfig.HeadTrackingEnabled"/>:
+    /// the sweep WILL drive the FOV-mask center even when head-tracking is
+    /// disabled overall, because its purpose is to prove the wiring on
+    /// machines without webcams or with broken MediaPipe detection.</para>
+    ///
+    /// <para>Idempotent: a second press while a sweep is in flight is
+    /// ignored (so the user can't double-trigger).</para>
+    /// </summary>
+    public void StartMockHeadPoseSweep()
+    {
+        if (_overrideReader is not null) return; // sweep already running
+        _overrideReader = new MockSweepHeadPoseReader();
+        _mockSweepClearTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(MockSweepHeadPoseReader.SweepDurationSeconds + 0.25),
+        };
+        _mockSweepClearTimer.Tick += (_, _) =>
+        {
+            try { _mockSweepClearTimer?.Stop(); } catch { }
+            _mockSweepClearTimer = null;
+            _overrideReader = null;
+        };
+        _mockSweepClearTimer.Start();
+    }
+
+    /// <summary>True while a mock sweep is active. Exposed for tray/diag
+    /// surfaces or future UI indicators.</summary>
+    public bool IsMockHeadPoseSweepActive => _overrideReader is not null;
+
     /// <summary>M4 factory: chooses the reader implementation based on
     /// <see cref="AppConfig.HeadTrackingEnabled"/>. Q5-locked DI pattern:
     /// no container, no service collection — just a static factory that
@@ -1320,6 +1371,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : "Pressure returned below threshold, FOV mask released.", state);
         }
     }
+    /// <summary>M5 test seam: drive the engine→state publication path
+    /// without needing a real <c>OnOpticalFlowSampled</c> tick. Internal +
+    /// InternalsVisibleTo("SenseEase.Tests"). Tests inject a synthetic
+    /// SenseState and observe the StateChanged callback for asserting
+    /// HeadGaze + HeadTrackingActive plumbing.</summary>
+    internal void UpdateFromStateForTests(SenseState state) => UpdateFromState(state);
+
     private void UpdateFromState(SenseState state)
     {
         CurrentState = state;
@@ -1363,6 +1421,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // History ring-buffer — O(1) append via RingHistory.
         OfiHistory.Append(state.OpticalFlowIndex);
         PressureHistory.Append(state.Pressure);
+
+        // ── M5: head-pose-driven FOV-mask centering ────────────────────────
+        // Pull the latest head-pose sample (sidecar reader OR the developer
+        // mock-sweep override, override wins) and write it into SenseState
+        // before publishing. Flag-off + no-sample path leaves the state at
+        // the (0.5, 0.5) center defaults so OverlayWindow.ApplyFovMask keeps
+        // its v0.9-baseline behavior. Q3-verified: sidecar cx/cy use the
+        // same MappingMode.RelativeToBoundingBox convention as the WPF
+        // RadialGradientBrush.Center — no conversion needed at any layer.
+        var poseReader = _overrideReader ?? _headPoseReader;
+        HeadPoseSample? pose = poseReader.ReadLatest();
+        if (pose is not null)
+        {
+            state.HeadGazeX = pose.Cx;
+            state.HeadGazeY = pose.Cy;
+            state.HeadTrackingActive = true;
+        }
+        else
+        {
+            state.HeadGazeX = 0.5;
+            state.HeadGazeY = 0.5;
+            state.HeadTrackingActive = false;
+        }
 
         StateChanged?.Invoke(this, state);
 

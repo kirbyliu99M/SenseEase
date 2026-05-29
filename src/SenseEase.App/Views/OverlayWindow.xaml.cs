@@ -313,6 +313,15 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         ApplyGridFalloff(state);
     }
 
+    /// <summary>Render the FOV mask for the supplied state. Mutates the
+    /// shared <c>_fovBrush</c> (a <see cref="RadialGradientBrush"/> on
+    /// <c>FovMask.Fill</c>) — so <b>must run on the UI dispatcher thread</b>.
+    /// The v0.9.3 cross-thread-marshal hotfix in
+    /// <c>MainWindow.OnStateChanged</c> already wraps the inbound
+    /// <c>StateChanged</c> callback in <c>Dispatcher.CheckAccess + BeginInvoke</c>,
+    /// so by the time <c>ApplyState → ApplyFovMask</c> runs we are always
+    /// on the dispatcher. M5 (head-pose centering) relies on this invariant
+    /// and does NOT introduce a new background → UI code path.</summary>
     private void ApplyFovMask(SenseState state)
     {
         // Engine snaps `state.VimsTier` discretely (hysteresis + debounce → no flicker on
@@ -378,9 +387,33 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             }
         }
 
+        // ── M5: head-pose-driven center ───────────────────────────────────
+        // When state.HeadTrackingActive is true, follow the smoothed head
+        // gaze; otherwise snap back to the v0.9 hardcoded (0.5, 0.5) center.
+        // Q3-verified self-consistent: sidecar cx/cy use the same
+        // MappingMode.RelativeToBoundingBox convention as the WPF brush,
+        // so no axis or sign conversion happens at any layer. The
+        // Center != center guard short-circuits no-op mutations to avoid
+        // re-rendering on identical updates (and to preserve the v0.9
+        // baseline byte-for-byte when HeadTrackingEnabled is false).
+        double cx = state.HeadTrackingActive ? state.HeadGazeX : 0.5;
+        double cy = state.HeadTrackingActive ? state.HeadGazeY : 0.5;
+        var center = new Point(cx, cy);
+        if (_fovBrush!.Center != center)
+        {
+            _fovBrush.Center         = center;
+            _fovBrush.GradientOrigin = center;
+        }
+
         FovMask.BeginAnimation(OpacityProperty, null);
         FovMask.Opacity = 1.0;
     }
+
+    /// <summary>M5 test seam: expose the FOV mask brush so STA-bound unit
+    /// tests can verify <c>Center</c> follows <c>HeadGazeX/Y</c>. Internal
+    /// + <c>InternalsVisibleTo("SenseEase.Tests")</c>, no widening of the
+    /// public surface.</summary>
+    internal RadialGradientBrush? FovBrushForTests => _fovBrush;
 
     private void ApplyGridFalloff(SenseState state)
     {

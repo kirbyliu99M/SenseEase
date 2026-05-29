@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using SenseEase.App.Configuration;
 using SenseEase.App.Services;
@@ -316,6 +317,25 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             if (!_viewModel.OverlayVisible) _viewModel.OverlayVisible = true;
+        };
+
+        // M5 head-tracking sprint: Ctrl+Shift+H triggers the developer
+        // mock head-pose sweep. 20-second deterministic pattern (horizontal
+        // → vertical → circular → center hold). Intentionally independent
+        // of AppConfig.HeadTrackingEnabled — the hotkey is a developer/QA
+        // surface used during G4 UVHS to prove the wiring end-to-end on
+        // machines without a working webcam. Second press while a sweep
+        // is in flight is a no-op (ViewModel.StartMockHeadPoseSweep returns
+        // immediately if _overrideReader is already non-null).
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.H &&
+                (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
+                (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
+            {
+                _viewModel.StartMockHeadPoseSweep();
+                e.Handled = true;
+            }
         };
 
         // M4 head-tracking sprint: spawn the Python sidecar if
