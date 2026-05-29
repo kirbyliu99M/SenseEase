@@ -398,6 +398,15 @@ public partial class MainWindow : Window
 
     private System.Windows.Threading.DispatcherTimer? _headPoseTimer;
 
+    // M5.1-C PRECONDITION instrumentation (2026-05-29): rolling tick-rate
+    // counter so the full-active perf measurement can answer "is the C# 30 Hz
+    // timer actually achieving 30 Hz under load, or is starvation causing
+    // some of the perceived lag?". Sampled every 5 seconds via SafeLog so
+    // the user-side soak run produces a wgc_diag.txt trace alongside the
+    // sidecar's own --soak report. Removable after M5.1-C completes.
+    private int _headPoseTickCount;
+    private DateTime _headPoseTickCountStartUtc;
+
     /// <summary>M5 UX-iter 3 Fix C: per-tick head-pose pull at 30 Hz. Pulls
     /// from MainViewModel.EffectiveHeadPoseReader (which respects the mock-
     /// sweep override) and pushes cx/cy directly into OverlayWindow's brush
@@ -413,6 +422,19 @@ public partial class MainWindow : Window
                 headGazeX: pose?.Cx ?? 0.5,
                 headGazeY: pose?.Cy ?? 0.5,
                 active:    pose is not null);
+
+            // M5.1-C PRECONDITION rate log: every 5s, write achieved tick rate.
+            _headPoseTickCount++;
+            if (_headPoseTickCountStartUtc == default)
+                _headPoseTickCountStartUtc = DateTime.UtcNow;
+            var elapsed = DateTime.UtcNow - _headPoseTickCountStartUtc;
+            if (elapsed.TotalSeconds >= 5.0)
+            {
+                double achievedHz = _headPoseTickCount / elapsed.TotalSeconds;
+                SafeLog($"[HeadPoseTimer] ticks={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target 30.00)");
+                _headPoseTickCount = 0;
+                _headPoseTickCountStartUtc = DateTime.UtcNow;
+            }
         }
         catch
         {
