@@ -387,6 +387,7 @@ def run(
     mirror: bool,
     loop_video: bool,
     debug: bool = False,
+    diag_path: Optional[str] = None,
 ) -> int:
     model_resolved = resolve_model_path(model_path)
     landmarker = make_face_landmarker(model_resolved)
@@ -395,6 +396,19 @@ def run(
     smoother = Ema2D(SMOOTH_ALPHA, DEFAULT_CX, DEFAULT_CY)
     stats = SoakStats() if soak_seconds is not None else None
     soak_loop = loop_video or (soak_seconds is not None)
+
+    # M5.1-A PRECONDITION (2026-05-29): per-frame diagnostic CSV for the
+    # "sometimes inverted" investigation. When --diag is set, every frame
+    # writes a row with raw pose (pre-smoothing yaw/pitch, mirror-corrected)
+    # + raw cx/cy + smoothed cx/cy + face_present + face_detected. Allows
+    # post-run analysis of:
+    #   - whether yaw/pitch monotonic in single-axis tests (mirror sign correct)
+    #   - whether mixed motion produces axis jumps (gimbal lock vs noise)
+    #   - what frame-to-frame jump magnitudes look like (Layer 1 threshold)
+    diag_file = None
+    if diag_path is not None:
+        diag_file = open(diag_path, "w", encoding="utf-8", buffering=1)
+        diag_file.write("t_ms,yaw_deg,pitch_deg,cx_raw,cy_raw,cx_smoothed,cy_smoothed,face_detected,face_present,mirror\n")
 
     t0_mono = time.monotonic()
     next_tick = t0_mono
@@ -470,6 +484,18 @@ def run(
             infer_end = time.perf_counter()
             latency_ms = (infer_end - infer_start) * 1000.0
 
+            # M5.1-A diagnostic CSV append (only when --diag is set).
+            if diag_file is not None:
+                t_ms = int((time.monotonic() - t0_mono) * 1000.0)
+                yaw_str   = f"{raw_yaw:.3f}"   if raw_yaw   is not None else ""
+                pitch_str = f"{raw_pitch:.3f}" if raw_pitch is not None else ""
+                diag_file.write(
+                    f"{t_ms},{yaw_str},{pitch_str},"
+                    f"{cx_raw:.4f},{cy_raw:.4f},{cx:.4f},{cy:.4f},"
+                    f"{int(face_detected)},{face_present:.1f},"
+                    f"{int(mirror)}\n"
+                )
+
             rec = FrameRecord(
                 t_ms=int((time.monotonic() - t0_mono) * 1000.0),
                 cx=round(cx, 4),
@@ -497,6 +523,11 @@ def run(
         except Exception:
             pass
         cap.release()
+        if diag_file is not None:
+            try:
+                diag_file.close()
+            except Exception:
+                pass
 
     if stats is not None:
         report = stats.report(TARGET_HZ)
@@ -560,6 +591,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Emit pre-smoothing yaw_deg / pitch_deg in per-frame JSON. "
              "Off by default; useful during M5 UX-iteration gain tuning.",
     )
+    # M5.1-A PRECONDITION (2026-05-29): per-frame diagnostic CSV for the
+    # "sometimes inverted" investigation. Stays orthogonal to --debug:
+    # --debug controls stdout JSON schema; --diag dumps a raw analysis CSV.
+    p.add_argument(
+        "--diag",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Write per-frame diagnostic CSV (t_ms, yaw_deg, pitch_deg, "
+             "cx_raw, cy_raw, cx_smoothed, cy_smoothed, face_detected, "
+             "face_present, mirror) to PATH. Used by the M5.1-A inverted-"
+             "direction diagnosis. Off by default.",
+    )
     return p
 
 
@@ -572,6 +616,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         mirror=args.mirror,
         loop_video=args.loop,
         debug=args.debug,
+        diag_path=args.diag,
     )
 
 
