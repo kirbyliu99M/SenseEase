@@ -441,6 +441,18 @@ def run(
                                  dtype=np.float64)
                 if mat.shape == (4, 4):
                     yaw, pitch, _roll = decompose_yaw_pitch_roll(mat)
+                    # M5 UX-iter 3 Fix A (2026-05-29): when --mirror is on,
+                    # cv2.flip(frame, 1) inverts the horizontal axis BEFORE
+                    # MediaPipe sees the frame, so the extracted yaw has
+                    # the OPPOSITE sign from the user's physical head
+                    # direction. The Q4-locked semantic ("head right → mask
+                    # right" in selfie-view) is only correct if we compensate
+                    # here. Pitch is unaffected (vertical axis preserved by
+                    # horizontal flip). Verified visually by user 2026-05-29
+                    # who reported inverted horizontal behavior with the
+                    # original implementation.
+                    if mirror:
+                        yaw = -yaw
                     raw_yaw, raw_pitch = yaw, pitch
                     cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
                     face_detected = True

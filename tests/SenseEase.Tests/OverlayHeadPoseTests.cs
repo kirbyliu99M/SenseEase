@@ -228,27 +228,26 @@ public class OverlayHeadPoseTests
         });
     }
 
-    // ── 6) M5 UX-iter 2: head-gaze travel clamp + dynamic brush radius ───
+    // ── 6) M5 UX-iter 3: full [0, 1] travel + state-driven dynamic radius ─
 
-    /// <summary>M5 UX-iteration 2 (2026-05-29): hybrid travel clamp + dynamic
-    /// BrushRadius. Extreme head-gaze values clamped to
-    /// [0.5 - 0.35, 0.5 + 0.35] = [0.15, 0.85]; BrushRadius dynamically widens
-    /// from 0.85 to 1.20 when head-tracking is active so opposite-side screen
-    /// edge stays inside the gradient. Verified visually by user.</summary>
+    /// <summary>M5 UX-iter 3 Fix B: head-gaze travels the full [0, 1] range
+    /// (no static clamp) when head-tracking is active. Corner (1, 1) passes
+    /// through unchanged so user can look at screen corners with the mask
+    /// following.</summary>
     [Fact]
-    public void OverlayWindow_HeadGazeBeyondClampRange_ClampedToCentralWindow()
+    public void OverlayWindow_HeadGazeFullTravelRange_NoClampWhenActive()
     {
         RunOnSta(() =>
         {
             var w = new OverlayWindow();
             w.ApplyTemplate();
 
-            // Sample value at one extreme (cx=0.1, cy=0.9 — mock-sweep edges).
+            // Extreme corner — should pass through unchanged.
             var state = new SenseState
             {
                 VimsTier            = 3,
-                HeadGazeX           = 0.1,      // below clamp → 0.15
-                HeadGazeY           = 0.9,      // above clamp → 0.85
+                HeadGazeX           = 1.0,
+                HeadGazeY           = 1.0,
                 HeadTrackingActive  = true,
                 MaskActive          = true,
             };
@@ -256,52 +255,56 @@ public class OverlayHeadPoseTests
 
             var brush = w.FovBrushForTests;
             Assert.NotNull(brush);
-            Assert.Equal(0.15, brush!.Center.X, 3);
-            Assert.Equal(0.85, brush.Center.Y, 3);
+            Assert.Equal(1.0, brush!.Center.X, 3);
+            Assert.Equal(1.0, brush.Center.Y, 3);
 
-            // Sample at the other extreme.
+            // Other corner.
             var state2 = new SenseState
             {
                 VimsTier            = 3,
-                HeadGazeX           = 0.95,     // above clamp → 0.85
-                HeadGazeY           = 0.05,     // below clamp → 0.15
+                HeadGazeX           = 0.0,
+                HeadGazeY           = 0.0,
                 HeadTrackingActive  = true,
                 MaskActive          = true,
             };
             w.ApplyState(state2);
 
-            Assert.Equal(0.85, brush.Center.X, 3);
-            Assert.Equal(0.15, brush.Center.Y, 3);
+            Assert.Equal(0.0, brush.Center.X, 3);
+            Assert.Equal(0.0, brush.Center.Y, 3);
 
-            // Inside-range value passes through unchanged.
+            // Out-of-range still clamped to [0, 1] for safety.
             var state3 = new SenseState
             {
                 VimsTier            = 3,
-                HeadGazeX           = 0.55,
-                HeadGazeY           = 0.45,
+                HeadGazeX           = 1.5,
+                HeadGazeY           = -0.3,
                 HeadTrackingActive  = true,
                 MaskActive          = true,
             };
             w.ApplyState(state3);
 
-            Assert.Equal(0.55, brush.Center.X, 3);
-            Assert.Equal(0.45, brush.Center.Y, 3);
+            Assert.Equal(1.0, brush.Center.X, 3);
+            Assert.Equal(0.0, brush.Center.Y, 3);
         });
     }
 
-    /// <summary>M5 UX-iteration 2: BrushRadius widens from 0.85 (v0.9 baseline)
-    /// to 1.20 when head-tracking is active. At HeadTrackingActive=false, radius
-    /// returns to 0.85 — the v0.9 baseline byte-for-byte invariant holds.</summary>
+    /// <summary>M5 UX-iter 3 Fix B: BrushRadius dynamically scales to keep
+    /// the farthest screen corner inside the gradient. At center=(0.5, 0.5)
+    /// the farthest corner is at distance sqrt(0.5) ≈ 0.707; radius needed
+    /// is 0.707 × 1.10 = 0.78, but capped at v0.9 baseline 0.85.
+    /// At full corner center=(1, 1), opposite (0, 0) is at distance sqrt(2);
+    /// radius = sqrt(2) × 1.10 = 1.556. v0.9 baseline (active=false) keeps
+    /// the static 0.85.</summary>
     [Fact]
-    public void OverlayWindow_BrushRadius_DynamicallyWidensWhenHeadTrackingActive()
+    public void OverlayWindow_BrushRadius_ScalesToFarthestCornerWhenActive()
     {
         RunOnSta(() =>
         {
             var w = new OverlayWindow();
             w.ApplyTemplate();
 
-            // Active path: radius widens to 1.20.
-            var stateActive = new SenseState
+            // Center: radius pinned to baseline 0.85 (computed need is below).
+            var stateCenter = new SenseState
             {
                 VimsTier            = 3,
                 HeadGazeX           = 0.5,
@@ -309,14 +312,39 @@ public class OverlayHeadPoseTests
                 HeadTrackingActive  = true,
                 MaskActive          = true,
             };
-            w.ApplyState(stateActive);
-
+            w.ApplyState(stateCenter);
             var brush = w.FovBrushForTests;
             Assert.NotNull(brush);
-            Assert.Equal(1.20, brush!.RadiusX, 3);
-            Assert.Equal(1.20, brush.RadiusY, 3);
+            Assert.Equal(0.85, brush!.RadiusX, 3);
 
-            // Flag-off path: radius snaps back to v0.9 baseline 0.85.
+            // Corner: radius = sqrt(2) * 1.10 ≈ 1.556.
+            var stateCorner = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 1.0,
+                HeadGazeY           = 1.0,
+                HeadTrackingActive  = true,
+                MaskActive          = true,
+            };
+            w.ApplyState(stateCorner);
+            double expected = Math.Sqrt(2.0) * 1.10;
+            Assert.Equal(expected, brush.RadiusX, 3);
+            Assert.Equal(expected, brush.RadiusY, 3);
+
+            // Edge (1, 0.5): radius = sqrt(1 + 0.25) * 1.10 ≈ 1.230.
+            var stateEdge = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 1.0,
+                HeadGazeY           = 0.5,
+                HeadTrackingActive  = true,
+                MaskActive          = true,
+            };
+            w.ApplyState(stateEdge);
+            double expectedEdge = Math.Sqrt(1.0 + 0.25) * 1.10;
+            Assert.Equal(expectedEdge, brush.RadiusX, 3);
+
+            // Flag-off: radius snaps back to v0.9 baseline 0.85.
             var stateOff = new SenseState
             {
                 VimsTier            = 3,
@@ -326,9 +354,49 @@ public class OverlayHeadPoseTests
                 MaskActive          = true,
             };
             w.ApplyState(stateOff);
-
             Assert.Equal(0.85, brush.RadiusX, 3);
             Assert.Equal(0.85, brush.RadiusY, 3);
+        });
+    }
+
+    /// <summary>M5 UX-iter 3 Fix C: UpdateHeadGazeCenter applies the same
+    /// brush mutation as ApplyFovMask's state-driven path. Verifies the
+    /// 30 Hz timer's entry point produces consistent brush state.</summary>
+    [Fact]
+    public void OverlayWindow_UpdateHeadGazeCenter_AppliesSameBrushMutation()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // Seed the brush with the v0.9 baseline by applying an initial
+            // flag-off state.
+            var stateInit = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 0.5,
+                HeadGazeY           = 0.5,
+                HeadTrackingActive  = false,
+                MaskActive          = true,
+            };
+            w.ApplyState(stateInit);
+            var brush = w.FovBrushForTests;
+            Assert.NotNull(brush);
+
+            // Now exercise the timer's entry point directly.
+            w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: true);
+            Assert.Equal(0.7, brush!.Center.X, 3);
+            Assert.Equal(0.3, brush.Center.Y, 3);
+            // Radius math: farX = 0.7, farY = 0.7, farthest = sqrt(0.98) ≈ 0.99, × 1.10 ≈ 1.089.
+            double expected = Math.Sqrt(0.49 + 0.49) * 1.10;
+            Assert.Equal(expected, brush.RadiusX, 3);
+
+            // Snap back via active=false.
+            w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: false);
+            Assert.Equal(0.5, brush.Center.X, 3);
+            Assert.Equal(0.5, brush.Center.Y, 3);
+            Assert.Equal(0.85, brush.RadiusX, 3);
         });
     }
 

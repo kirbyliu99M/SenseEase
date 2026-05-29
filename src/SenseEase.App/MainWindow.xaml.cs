@@ -359,6 +359,66 @@ public partial class MainWindow : Window
                 // block the dashboard from coming up.
             }
         };
+
+        // M5 UX-iter 3 Fix C (2026-05-29): high-frequency head-pose timer.
+        // Decouples mask-follows-head smoothness from the engine tick
+        // (~3.3 Hz) which user reported as "smooth but big lag". The timer
+        // pulls from MainViewModel.EffectiveHeadPoseReader at 30 Hz and
+        // calls OverlayWindow.UpdateHeadGazeCenter, bypassing the full
+        // ApplyState grid/mask color recomputation. Engine tick still
+        // drives SenseState.HeadGazeX/Y for telemetry; this timer is
+        // purely a visual smoothness path.
+        //
+        // Cost: ~10 µs per tick × 30 Hz = 300 µs/sec ≈ 0.03% of one core.
+        // Stopped when window unloads.
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#5] HeadPoseTimer start");
+            try
+            {
+                _headPoseTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(33),  // ~30 Hz
+                };
+                _headPoseTimer.Tick += OnHeadPoseTimerTick;
+                _headPoseTimer.Start();
+                SafeLog("[Loaded#5] HeadPoseTimer start exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#5] HeadPoseTimer start EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            }
+        };
+        Unloaded += (_, _) =>
+        {
+            try { _headPoseTimer?.Stop(); } catch { /* ignore */ }
+            _headPoseTimer = null;
+        };
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _headPoseTimer;
+
+    /// <summary>M5 UX-iter 3 Fix C: per-tick head-pose pull at 30 Hz. Pulls
+    /// from MainViewModel.EffectiveHeadPoseReader (which respects the mock-
+    /// sweep override) and pushes cx/cy directly into OverlayWindow's brush
+    /// without going through SenseState + StateChanged. Engine tick still
+    /// owns SenseState for telemetry; this is the visual-smoothness path.</summary>
+    private void OnHeadPoseTimerTick(object? sender, EventArgs e)
+    {
+        if (_overlay is null) return;
+        try
+        {
+            var pose = _viewModel.EffectiveHeadPoseReader.ReadLatest();
+            _overlay.UpdateHeadGazeCenter(
+                headGazeX: pose?.Cx ?? 0.5,
+                headGazeY: pose?.Cy ?? 0.5,
+                active:    pose is not null);
+        }
+        catch
+        {
+            // Best-effort: a single read failure must not kill the timer.
+            // If the reader is in a bad state it'll recover on next tick.
+        }
     }
 
     /// <summary>overlay-bar-redesign diag-2: best-effort append to

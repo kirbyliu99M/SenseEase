@@ -306,6 +306,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IHeadPoseReader _headPoseReader = CreateHeadPoseReader();
     internal IHeadPoseReader HeadPoseReader => _headPoseReader;
 
+    /// <summary>M5 UX-iter 3 Fix C: the reader the high-frequency head-pose
+    /// timer in MainWindow pulls from. Mirrors the override-wins logic in
+    /// UpdateFromState so the timer pulls from the mock-sweep reader when
+    /// active (Ctrl+Shift+H deterministic pattern) and from the real
+    /// SidecarHeadPoseReader otherwise.</summary>
+    internal IHeadPoseReader EffectiveHeadPoseReader => _overrideReader ?? _headPoseReader;
+
     // ── M5: developer/QA mock-sweep override ─────────────────────────────────
     // When non-null, takes precedence over _headPoseReader inside the
     // UpdateFromState ReadLatest pull. Set by StartMockHeadPoseSweep (bound

@@ -19,31 +19,28 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 {
     private const double BrushRadius = 0.85;
 
-    // M5 UX-iteration 2 (2026-05-29): hybrid head-gaze travel + dynamic brush radius.
-    // Previous UX-iter 1 (radius 0.20 → clamp [0.30, 0.70]) eliminated the
-    // "too black" band but the advisor flagged that it sacrificed the sprint's
-    // core value — user looking at a screen edge would still see the dark
-    // periphery covering what they wanted to fixate, because mask travel
-    // stopped at 40% from center.
+    // M5 UX-iteration 3 (2026-05-29): replace static clamp + fixed expanded
+    // radius with state-driven dynamic radius. User reported the [0.15, 0.85]
+    // clamp blocked the sprint's actual goal — "look at screen corners with
+    // the mask following." Fix B removes the clamp entirely; cx/cy travel
+    // the full [0, 1]. The radius dynamically expands so the farthest screen
+    // corner always sits inside the gradient regardless of mask center
+    // position. v0.9 baseline (HeadTrackingActive=false) keeps BrushRadius
+    // = 0.85 at center (0.5, 0.5) — zero behavioral drift.
     //
-    // Two-axis fix (Z hybrid per advisor's framing):
-    //   1. Widen travel clamp to [0.15, 0.85] (radius 0.35) — mask center can
-    //      now reach 70% of screen, much closer to the sprint's intended
-    //      "follow gaze to edge" behavior.
-    //   2. Dynamically expand BrushRadius when HeadTrackingActive=true, so
-    //      even at extreme center (0.15 or 0.85) the opposite screen edge
-    //      stays inside the gradient — no peak-alpha bands forming.
+    // Formula for dynamic radius (in ApplyFovMask):
+    //   farX = max(cx, 1 - cx)
+    //   farY = max(cy, 1 - cy)
+    //   farthestCorner = sqrt(farX² + farY²)
+    //   radius = max(BrushRadius, farthestCorner * BrushRadiusCornerMargin)
     //
-    // Worst-case math at center=(0.85, 0.5), screen corner at (0, 1):
-    //   distance = sqrt(0.85² + 0.5²) ≈ 0.99
-    //   normalized over BrushRadiusHeadTracking=1.20 → 0.82, INSIDE gradient.
+    // Center=(0.5, 0.5): radius = max(0.85, 0.71 × 1.10) = 0.85 → v0.9 baseline
+    // Center=(0.85, 0.5): radius = max(0.85, 0.99 × 1.10) = 1.09
+    // Center=(1, 1) corner: radius = max(0.85, 1.41 × 1.10) = 1.55
     //
-    // v0.9 baseline (HeadTrackingActive=false): BrushRadius=0.85 unchanged,
-    // center stays at hardcoded (0.5, 0.5). Zero behavioral drift.
-    private const double HeadGazeTravelRadius      = 0.35;
-    private const double HeadGazeMin               = 0.5 - HeadGazeTravelRadius;
-    private const double HeadGazeMax               = 0.5 + HeadGazeTravelRadius;
-    private const double BrushRadiusHeadTracking   = 1.20;
+    // The radius scales exactly to need with a 10% safety margin so the
+    // farthest corner sits at smoothstep ~0.91, not at the gradient edge.
+    private const double BrushRadiusCornerMargin = 1.10;
 
     /// <summary>
     /// VIMS 10-level table (方案 A). Each row is (R, G, B, peak-alpha fraction 0–1).
@@ -422,29 +419,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // Center != center guard short-circuits no-op mutations to avoid
         // re-rendering on identical updates (and to preserve the v0.9
         // baseline byte-for-byte when HeadTrackingEnabled is false).
-        double cx = state.HeadTrackingActive
-            ? Math.Clamp(state.HeadGazeX, HeadGazeMin, HeadGazeMax)
-            : 0.5;
-        double cy = state.HeadTrackingActive
-            ? Math.Clamp(state.HeadGazeY, HeadGazeMin, HeadGazeMax)
-            : 0.5;
-        var center = new Point(cx, cy);
-        if (_fovBrush!.Center != center)
-        {
-            _fovBrush.Center         = center;
-            _fovBrush.GradientOrigin = center;
-        }
-
-        // M5 UX-iter 2: expand brush radius when head-tracking is active so
-        // the opposite-side screen edge stays inside the gradient even with
-        // center near the [0.15, 0.85] clamp extremes. v0.9 baseline path
-        // (HeadTrackingActive=false) keeps BrushRadius=0.85 untouched.
-        double radius = state.HeadTrackingActive ? BrushRadiusHeadTracking : BrushRadius;
-        if (_fovBrush.RadiusX != radius)
-        {
-            _fovBrush.RadiusX = radius;
-            _fovBrush.RadiusY = radius;
-        }
+        // M5 UX-iter 3: head-pose application is factored into
+        // ApplyHeadPoseToBrush so the high-frequency dispatcher timer
+        // (Fix C, MainWindow Loaded#5) can also call it without
+        // re-running the grid/mask color recomputation above. State-driven
+        // path runs at engine tick; timer-driven path runs at ~30 Hz.
+        ApplyHeadPoseToBrush(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
 
         FovMask.BeginAnimation(OpacityProperty, null);
         FovMask.Opacity = 1.0;
@@ -455,6 +435,59 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// + <c>InternalsVisibleTo("SenseEase.Tests")</c>, no widening of the
     /// public surface.</summary>
     internal RadialGradientBrush? FovBrushForTests => _fovBrush;
+
+    /// <summary>M5 UX-iter 3 Fix C: high-frequency entry point for the head-pose
+    /// dispatcher timer (~30 Hz). Bypasses the full ApplyState grid/mask color
+    /// recomputation and updates ONLY the brush's <c>Center</c> + <c>Radius</c>.
+    /// Decouples mask-follows-head smoothness from the engine tick (~3.3 Hz)
+    /// which was the perceived "lag / inconsistent framerate" reported during
+    /// Demo B. Must run on UI thread (mutates DependencyObjects).</summary>
+    public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active)
+    {
+        if (_fovBrush is null) return;
+        ApplyHeadPoseToBrush(headGazeX, headGazeY, active);
+    }
+
+    /// <summary>M5 UX-iter 3: shared head-pose → brush mutation. Both the
+    /// state-driven path (ApplyFovMask, engine tick) and the timer-driven
+    /// path (UpdateHeadGazeCenter, 30 Hz) call this so the brush state
+    /// stays consistent. Active=false snaps to v0.9 baseline (center 0.5/0.5,
+    /// radius BrushRadius).</summary>
+    private void ApplyHeadPoseToBrush(double headGazeX, double headGazeY, bool active)
+    {
+        if (_fovBrush is null) return;
+
+        // Fix B: no static clamp; full [0, 1] travel.
+        double cx = active ? Math.Clamp(headGazeX, 0.0, 1.0) : 0.5;
+        double cy = active ? Math.Clamp(headGazeY, 0.0, 1.0) : 0.5;
+        var center = new Point(cx, cy);
+        if (_fovBrush.Center != center)
+        {
+            _fovBrush.Center         = center;
+            _fovBrush.GradientOrigin = center;
+        }
+
+        // Fix B: dynamic radius scales to the farthest screen corner so
+        // even at full-corner center, opposite (0, 0) sits inside gradient
+        // at smoothstep ~0.91. v0.9 baseline (active=false) keeps 0.85.
+        double radius;
+        if (active)
+        {
+            double farX = Math.Max(cx, 1.0 - cx);
+            double farY = Math.Max(cy, 1.0 - cy);
+            double farthestCorner = Math.Sqrt(farX * farX + farY * farY);
+            radius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
+        }
+        else
+        {
+            radius = BrushRadius;
+        }
+        if (_fovBrush.RadiusX != radius)
+        {
+            _fovBrush.RadiusX = radius;
+            _fovBrush.RadiusY = radius;
+        }
+    }
 
     private void ApplyGridFalloff(SenseState state)
     {
