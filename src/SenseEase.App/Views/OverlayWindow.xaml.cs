@@ -19,6 +19,23 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 {
     private const double BrushRadius = 0.85;
 
+    // M5 UX-iteration 1 (2026-05-29): clamp head-gaze travel to a central
+    // window so the periphery on the opposite side of the moving center
+    // never falls past the radial gradient — without this cap, when the
+    // mask center goes to e.g. cx=0.1 during sweep, the right edge at
+    // cx=1.0 is at normalized distance 0.9 / BrushRadius=0.85 ≈ 1.06
+    // (past the outermost gradient stop), so it renders at the peak tier
+    // alpha = fully opaque dark band. The clamp keeps cx/cy in
+    // [0.5 - HeadGazeTravelRadius, 0.5 + HeadGazeTravelRadius] so the
+    // worst-case distance is at most 0.5 + r normalized over BrushRadius.
+    // At r=0.20 with BrushRadius=0.85 → worst-case 0.70/0.85 ≈ 0.82,
+    // inside the gradient. Verified visually by user 2026-05-29.
+    // v0.9 baseline behavior (HeadTrackingActive=false) is unaffected —
+    // center stays at hardcoded (0.5, 0.5).
+    private const double HeadGazeTravelRadius = 0.20;
+    private const double HeadGazeMin = 0.5 - HeadGazeTravelRadius;
+    private const double HeadGazeMax = 0.5 + HeadGazeTravelRadius;
+
     /// <summary>
     /// VIMS 10-level table (方案 A). Each row is (R, G, B, peak-alpha fraction 0–1).
     /// L1-L6 are pure gray (#666 → #444 → #222). L7-L10 carry a subtle cool tint
@@ -396,8 +413,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // Center != center guard short-circuits no-op mutations to avoid
         // re-rendering on identical updates (and to preserve the v0.9
         // baseline byte-for-byte when HeadTrackingEnabled is false).
-        double cx = state.HeadTrackingActive ? state.HeadGazeX : 0.5;
-        double cy = state.HeadTrackingActive ? state.HeadGazeY : 0.5;
+        double cx = state.HeadTrackingActive
+            ? Math.Clamp(state.HeadGazeX, HeadGazeMin, HeadGazeMax)
+            : 0.5;
+        double cy = state.HeadTrackingActive
+            ? Math.Clamp(state.HeadGazeY, HeadGazeMin, HeadGazeMax)
+            : 0.5;
         var center = new Point(cx, cy);
         if (_fovBrush!.Center != center)
         {

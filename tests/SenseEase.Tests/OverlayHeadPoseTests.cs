@@ -228,6 +228,67 @@ public class OverlayHeadPoseTests
         });
     }
 
+    // ── 6) M5 UX-iter 1: head-gaze travel clamp ───────────────────────────
+
+    /// <summary>M5 UX-iteration 1: extreme head-gaze values must be clamped
+    /// to the central [0.5 - HeadGazeTravelRadius, 0.5 + HeadGazeTravelRadius]
+    /// window so the opposite side of the screen never falls past the
+    /// RadialGradientBrush radius (which would render fully opaque dark).
+    /// Verified visually by user 2026-05-29 with HeadGazeTravelRadius=0.20.</summary>
+    [Fact]
+    public void OverlayWindow_HeadGazeBeyondClampRange_ClampedToCentralWindow()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // Sample value at one extreme (cx=0.1, cy=0.9 — mock-sweep edges).
+            var state = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 0.1,      // below clamp → 0.30
+                HeadGazeY           = 0.9,      // above clamp → 0.70
+                HeadTrackingActive  = true,
+                MaskActive          = true,
+            };
+            w.ApplyState(state);
+
+            var brush = w.FovBrushForTests;
+            Assert.NotNull(brush);
+            Assert.Equal(0.30, brush!.Center.X, 3);
+            Assert.Equal(0.70, brush.Center.Y, 3);
+
+            // Sample at the other extreme.
+            var state2 = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 0.95,     // above clamp → 0.70
+                HeadGazeY           = 0.05,     // below clamp → 0.30
+                HeadTrackingActive  = true,
+                MaskActive          = true,
+            };
+            w.ApplyState(state2);
+
+            Assert.Equal(0.70, brush.Center.X, 3);
+            Assert.Equal(0.30, brush.Center.Y, 3);
+
+            // Inside-range value passes through unchanged.
+            var state3 = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 0.55,
+                HeadGazeY           = 0.45,
+                HeadTrackingActive  = true,
+                MaskActive          = true,
+            };
+            w.ApplyState(state3);
+
+            Assert.Equal(0.55, brush.Center.X, 3);
+            Assert.Equal(0.45, brush.Center.Y, 3);
+        });
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private sealed class NullStubReader : IHeadPoseReader
