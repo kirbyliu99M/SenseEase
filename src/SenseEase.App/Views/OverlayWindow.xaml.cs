@@ -141,13 +141,18 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     // ── FIX #2: cached, frozen grid opacity-mask brush ───────────────────────
 
     /// <summary>
-    /// Invariant radial feather used as GridCanvas.OpacityMask. Built once, frozen.
-    /// Always uses BuildLevelFeather(255, Colors.White) — the only call site.
+    /// Radial feather used as GridCanvas.OpacityMask. M5.1-A v2 hotfix
+    /// (2026-05-29): converted from static-frozen to per-instance-unfrozen
+    /// so Center + RadiusX/Y can be updated alongside the FOV brush when
+    /// head tracking is active. Previously the grid's transparency hole
+    /// stayed pinned at (0.5, 0.5) while the FOV mask moved → grid lines
+    /// remained visible exactly where the user was looking. Same geometry
+    /// stops (BuildLevelFeather(255, white)) so the two layers stay aligned.
     /// </summary>
-    private static readonly RadialGradientBrush GridOpacityMaskBrush = BuildGridOpacityMaskBrush();
+    private RadialGradientBrush _gridOpacityMaskBrush = BuildGridOpacityMaskBrush();
     private static RadialGradientBrush BuildGridOpacityMaskBrush()
     {
-        var brush = new RadialGradientBrush
+        return new RadialGradientBrush
         {
             GradientOrigin = new Point(0.5, 0.5),
             Center         = new Point(0.5, 0.5),
@@ -155,8 +160,6 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             RadiusY        = BrushRadius,
             GradientStops  = BuildLevelFeather(255, Colors.White),
         };
-        brush.Freeze();
-        return brush;
     }
 
     // ── FIX #13: cached grid line objects ────────────────────────────────────
@@ -487,6 +490,22 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             _fovBrush.RadiusX = radius;
             _fovBrush.RadiusY = radius;
         }
+
+        // M5.1-A v2 hotfix: mirror the FOV brush's Center / Radius onto the
+        // grid OpacityMask brush so the grid's transparency hole tracks the
+        // FOV clear zone. Without this, the grid lines remain visible
+        // exactly where the user is looking — the exact glitch reported
+        // during M5.1-A v2 UVHS. Same coordinates, same radius scaling.
+        if (_gridOpacityMaskBrush.Center != center)
+        {
+            _gridOpacityMaskBrush.Center         = center;
+            _gridOpacityMaskBrush.GradientOrigin = center;
+        }
+        if (_gridOpacityMaskBrush.RadiusX != radius)
+        {
+            _gridOpacityMaskBrush.RadiusX = radius;
+            _gridOpacityMaskBrush.RadiusY = radius;
+        }
     }
 
     private void ApplyGridFalloff(SenseState state)
@@ -498,8 +517,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // GridCanvas.Opacity (driven in ApplyGridIntensity by `coverage`).
         // FIX #2: assign the pre-built frozen brush; one reference-compare guards
         // against external code clearing the mask — avoids allocation every tick.
-        if (!ReferenceEquals(GridCanvas.OpacityMask, GridOpacityMaskBrush))
-            GridCanvas.OpacityMask = GridOpacityMaskBrush;
+        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridOpacityMaskBrush))
+            GridCanvas.OpacityMask = _gridOpacityMaskBrush;
     }
 
     // Builds the FIXED gradient structure mandated by the VIMS comfort spec:
