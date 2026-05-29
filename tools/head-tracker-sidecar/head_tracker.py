@@ -499,6 +499,7 @@ def run(
                     # negation restores the M2 original convention: positive
                     # raw yaw maps to cx > 0.5 = mask right, which matches
                     # physical head-right under the default --mirror=on flow.
+                    pitch = -pitch
                     raw_yaw, raw_pitch = yaw, pitch
                     cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
                     face_detected = True
