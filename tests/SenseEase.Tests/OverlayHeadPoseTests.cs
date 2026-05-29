@@ -228,13 +228,13 @@ public class OverlayHeadPoseTests
         });
     }
 
-    // ── 6) M5 UX-iter 1: head-gaze travel clamp ───────────────────────────
+    // ── 6) M5 UX-iter 2: head-gaze travel clamp + dynamic brush radius ───
 
-    /// <summary>M5 UX-iteration 1: extreme head-gaze values must be clamped
-    /// to the central [0.5 - HeadGazeTravelRadius, 0.5 + HeadGazeTravelRadius]
-    /// window so the opposite side of the screen never falls past the
-    /// RadialGradientBrush radius (which would render fully opaque dark).
-    /// Verified visually by user 2026-05-29 with HeadGazeTravelRadius=0.20.</summary>
+    /// <summary>M5 UX-iteration 2 (2026-05-29): hybrid travel clamp + dynamic
+    /// BrushRadius. Extreme head-gaze values clamped to
+    /// [0.5 - 0.35, 0.5 + 0.35] = [0.15, 0.85]; BrushRadius dynamically widens
+    /// from 0.85 to 1.20 when head-tracking is active so opposite-side screen
+    /// edge stays inside the gradient. Verified visually by user.</summary>
     [Fact]
     public void OverlayWindow_HeadGazeBeyondClampRange_ClampedToCentralWindow()
     {
@@ -247,8 +247,8 @@ public class OverlayHeadPoseTests
             var state = new SenseState
             {
                 VimsTier            = 3,
-                HeadGazeX           = 0.1,      // below clamp → 0.30
-                HeadGazeY           = 0.9,      // above clamp → 0.70
+                HeadGazeX           = 0.1,      // below clamp → 0.15
+                HeadGazeY           = 0.9,      // above clamp → 0.85
                 HeadTrackingActive  = true,
                 MaskActive          = true,
             };
@@ -256,22 +256,22 @@ public class OverlayHeadPoseTests
 
             var brush = w.FovBrushForTests;
             Assert.NotNull(brush);
-            Assert.Equal(0.30, brush!.Center.X, 3);
-            Assert.Equal(0.70, brush.Center.Y, 3);
+            Assert.Equal(0.15, brush!.Center.X, 3);
+            Assert.Equal(0.85, brush.Center.Y, 3);
 
             // Sample at the other extreme.
             var state2 = new SenseState
             {
                 VimsTier            = 3,
-                HeadGazeX           = 0.95,     // above clamp → 0.70
-                HeadGazeY           = 0.05,     // below clamp → 0.30
+                HeadGazeX           = 0.95,     // above clamp → 0.85
+                HeadGazeY           = 0.05,     // below clamp → 0.15
                 HeadTrackingActive  = true,
                 MaskActive          = true,
             };
             w.ApplyState(state2);
 
-            Assert.Equal(0.70, brush.Center.X, 3);
-            Assert.Equal(0.30, brush.Center.Y, 3);
+            Assert.Equal(0.85, brush.Center.X, 3);
+            Assert.Equal(0.15, brush.Center.Y, 3);
 
             // Inside-range value passes through unchanged.
             var state3 = new SenseState
@@ -286,6 +286,49 @@ public class OverlayHeadPoseTests
 
             Assert.Equal(0.55, brush.Center.X, 3);
             Assert.Equal(0.45, brush.Center.Y, 3);
+        });
+    }
+
+    /// <summary>M5 UX-iteration 2: BrushRadius widens from 0.85 (v0.9 baseline)
+    /// to 1.20 when head-tracking is active. At HeadTrackingActive=false, radius
+    /// returns to 0.85 — the v0.9 baseline byte-for-byte invariant holds.</summary>
+    [Fact]
+    public void OverlayWindow_BrushRadius_DynamicallyWidensWhenHeadTrackingActive()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // Active path: radius widens to 1.20.
+            var stateActive = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 0.5,
+                HeadGazeY           = 0.5,
+                HeadTrackingActive  = true,
+                MaskActive          = true,
+            };
+            w.ApplyState(stateActive);
+
+            var brush = w.FovBrushForTests;
+            Assert.NotNull(brush);
+            Assert.Equal(1.20, brush!.RadiusX, 3);
+            Assert.Equal(1.20, brush.RadiusY, 3);
+
+            // Flag-off path: radius snaps back to v0.9 baseline 0.85.
+            var stateOff = new SenseState
+            {
+                VimsTier            = 3,
+                HeadGazeX           = 0.5,
+                HeadGazeY           = 0.5,
+                HeadTrackingActive  = false,
+                MaskActive          = true,
+            };
+            w.ApplyState(stateOff);
+
+            Assert.Equal(0.85, brush.RadiusX, 3);
+            Assert.Equal(0.85, brush.RadiusY, 3);
         });
     }
 

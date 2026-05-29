@@ -19,22 +19,31 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 {
     private const double BrushRadius = 0.85;
 
-    // M5 UX-iteration 1 (2026-05-29): clamp head-gaze travel to a central
-    // window so the periphery on the opposite side of the moving center
-    // never falls past the radial gradient — without this cap, when the
-    // mask center goes to e.g. cx=0.1 during sweep, the right edge at
-    // cx=1.0 is at normalized distance 0.9 / BrushRadius=0.85 ≈ 1.06
-    // (past the outermost gradient stop), so it renders at the peak tier
-    // alpha = fully opaque dark band. The clamp keeps cx/cy in
-    // [0.5 - HeadGazeTravelRadius, 0.5 + HeadGazeTravelRadius] so the
-    // worst-case distance is at most 0.5 + r normalized over BrushRadius.
-    // At r=0.20 with BrushRadius=0.85 → worst-case 0.70/0.85 ≈ 0.82,
-    // inside the gradient. Verified visually by user 2026-05-29.
-    // v0.9 baseline behavior (HeadTrackingActive=false) is unaffected —
-    // center stays at hardcoded (0.5, 0.5).
-    private const double HeadGazeTravelRadius = 0.20;
-    private const double HeadGazeMin = 0.5 - HeadGazeTravelRadius;
-    private const double HeadGazeMax = 0.5 + HeadGazeTravelRadius;
+    // M5 UX-iteration 2 (2026-05-29): hybrid head-gaze travel + dynamic brush radius.
+    // Previous UX-iter 1 (radius 0.20 → clamp [0.30, 0.70]) eliminated the
+    // "too black" band but the advisor flagged that it sacrificed the sprint's
+    // core value — user looking at a screen edge would still see the dark
+    // periphery covering what they wanted to fixate, because mask travel
+    // stopped at 40% from center.
+    //
+    // Two-axis fix (Z hybrid per advisor's framing):
+    //   1. Widen travel clamp to [0.15, 0.85] (radius 0.35) — mask center can
+    //      now reach 70% of screen, much closer to the sprint's intended
+    //      "follow gaze to edge" behavior.
+    //   2. Dynamically expand BrushRadius when HeadTrackingActive=true, so
+    //      even at extreme center (0.15 or 0.85) the opposite screen edge
+    //      stays inside the gradient — no peak-alpha bands forming.
+    //
+    // Worst-case math at center=(0.85, 0.5), screen corner at (0, 1):
+    //   distance = sqrt(0.85² + 0.5²) ≈ 0.99
+    //   normalized over BrushRadiusHeadTracking=1.20 → 0.82, INSIDE gradient.
+    //
+    // v0.9 baseline (HeadTrackingActive=false): BrushRadius=0.85 unchanged,
+    // center stays at hardcoded (0.5, 0.5). Zero behavioral drift.
+    private const double HeadGazeTravelRadius      = 0.35;
+    private const double HeadGazeMin               = 0.5 - HeadGazeTravelRadius;
+    private const double HeadGazeMax               = 0.5 + HeadGazeTravelRadius;
+    private const double BrushRadiusHeadTracking   = 1.20;
 
     /// <summary>
     /// VIMS 10-level table (方案 A). Each row is (R, G, B, peak-alpha fraction 0–1).
@@ -424,6 +433,17 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         {
             _fovBrush.Center         = center;
             _fovBrush.GradientOrigin = center;
+        }
+
+        // M5 UX-iter 2: expand brush radius when head-tracking is active so
+        // the opposite-side screen edge stays inside the gradient even with
+        // center near the [0.15, 0.85] clamp extremes. v0.9 baseline path
+        // (HeadTrackingActive=false) keeps BrushRadius=0.85 untouched.
+        double radius = state.HeadTrackingActive ? BrushRadiusHeadTracking : BrushRadius;
+        if (_fovBrush.RadiusX != radius)
+        {
+            _fovBrush.RadiusX = radius;
+            _fovBrush.RadiusY = radius;
         }
 
         FovMask.BeginAnimation(OpacityProperty, null);
