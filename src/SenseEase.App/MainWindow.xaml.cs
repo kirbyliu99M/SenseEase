@@ -360,43 +360,57 @@ public partial class MainWindow : Window
             }
         };
 
-        // M5 UX-iter 3 Fix C (2026-05-29): high-frequency head-pose timer.
-        // Decouples mask-follows-head smoothness from the engine tick
-        // (~3.3 Hz) which user reported as "smooth but big lag". The timer
-        // pulls from MainViewModel.EffectiveHeadPoseReader at 30 Hz and
-        // calls OverlayWindow.UpdateHeadGazeCenter, bypassing the full
-        // ApplyState grid/mask color recomputation. Engine tick still
-        // drives SenseState.HeadGazeX/Y for telemetry; this timer is
-        // purely a visual smoothness path.
+        // M5 UX-iter 3 Fix C (2026-05-29) + M5.1-C iter 2 (2026-05-30):
+        // brush position update was originally a 30 Hz DispatcherTimer (Fix
+        // C) but PRECONDITION measurement showed it only achieved ~20 Hz
+        // under load due to dispatcher contention. On the user's 165 Hz
+        // monitor, that meant brush.Center was held unchanged for 8 render
+        // frames between updates — a visibly choppy 20 fps animation on a
+        // 165 fps display.
         //
-        // Cost: ~10 µs per tick × 30 Hz = 300 µs/sec ≈ 0.03% of one core.
-        // Stopped when window unloads.
+        // M5.1-C iter 2: subscribe to CompositionTarget.Rendering instead
+        // of a DispatcherTimer. Rendering fires once per WPF composition
+        // pass (i.e. at display refresh rate, 165 Hz on this monitor) and
+        // is the standard hook for frame-rate-decoupled animation. On each
+        // render frame we pull the latest sample from the reader and
+        // interpolate the displayed brush position toward it with a short
+        // half-life (~15 ms). brush.Center mutates 165 times per second
+        // with sub-frame motion between sample arrivals — perceived smooth
+        // motion. Sidecar still produces at 15 Hz; the interpolation
+        // tweens between those discrete sample arrivals.
+        //
+        // Cost: ~10 µs × 165 Hz = 1.65 ms/sec ≈ 0.17% of one core.
         Loaded += (_, _) =>
         {
-            SafeLog("[Loaded#5] HeadPoseTimer start");
+            SafeLog("[Loaded#5] HeadPoseRendering subscribe");
             try
             {
-                _headPoseTimer = new System.Windows.Threading.DispatcherTimer
-                {
-                    Interval = TimeSpan.FromMilliseconds(33),  // ~30 Hz
-                };
-                _headPoseTimer.Tick += OnHeadPoseTimerTick;
-                _headPoseTimer.Start();
-                SafeLog("[Loaded#5] HeadPoseTimer start exit OK");
+                System.Windows.Media.CompositionTarget.Rendering += OnCompositionRendering;
+                _renderingSubscribed = true;
+                SafeLog("[Loaded#5] HeadPoseRendering subscribe exit OK");
             }
             catch (Exception ex)
             {
-                SafeLog($"[Loaded#5] HeadPoseTimer start EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                SafeLog($"[Loaded#5] HeadPoseRendering subscribe EXCEPTION: {ex.GetType().Name}: {ex.Message}");
             }
         };
         Unloaded += (_, _) =>
         {
-            try { _headPoseTimer?.Stop(); } catch { /* ignore */ }
-            _headPoseTimer = null;
+            if (_renderingSubscribed)
+            {
+                try { System.Windows.Media.CompositionTarget.Rendering -= OnCompositionRendering; } catch { /* ignore */ }
+                _renderingSubscribed = false;
+            }
         };
     }
 
-    private System.Windows.Threading.DispatcherTimer? _headPoseTimer;
+    private bool _renderingSubscribed;
+    // Interpolated brush position. _displayedCx/Cy is what's pushed to the
+    // brush; _targetCx/Cy is the latest sample reading (from the reader).
+    // Each render frame lerps displayed toward target.
+    private double _displayedCx = 0.5;
+    private double _displayedCy = 0.5;
+    private DateTime _lastRenderUtc;
 
     // M5.1-C PRECONDITION instrumentation (2026-05-29): rolling tick-rate
     // counter so the full-active perf measurement can answer "is the C# 30 Hz
@@ -407,25 +421,47 @@ public partial class MainWindow : Window
     private int _headPoseTickCount;
     private DateTime _headPoseTickCountStartUtc;
 
-    /// <summary>M5 UX-iter 3 Fix C: per-tick head-pose pull at 30 Hz. Pulls
-    /// from MainViewModel.EffectiveHeadPoseReader (which respects the mock-
-    /// sweep override) and pushes cx/cy directly into OverlayWindow's brush
-    /// without going through SenseState + StateChanged. Engine tick still
-    /// owns SenseState for telemetry; this is the visual-smoothness path.</summary>
-    private void OnHeadPoseTimerTick(object? sender, EventArgs e)
+    /// <summary>M5.1-C iter 2 (2026-05-30): per-render brush update.
+    /// CompositionTarget.Rendering fires once per WPF composition pass —
+    /// at display refresh rate when the dispatcher isn't saturated, so
+    /// brush.Center mutates ~165 Hz on a 165 Hz monitor (vs the previous
+    /// ~20 Hz DispatcherTimer which produced visibly stepped motion).
+    /// Per-frame logic: pull latest sample → update target → lerp
+    /// displayed toward target with a 15 ms half-life → push displayed
+    /// to OverlayWindow.UpdateHeadGazeCenter. The interpolation tweens
+    /// between the sidecar's 15 Hz sample arrivals so the user perceives
+    /// continuous motion.</summary>
+    private void OnCompositionRendering(object? sender, EventArgs e)
     {
         if (_overlay is null) return;
         try
         {
             var pose = _viewModel.EffectiveHeadPoseReader.ReadLatest();
-            _overlay.UpdateHeadGazeCenter(
-                headGazeX: pose?.Cx ?? 0.5,
-                headGazeY: pose?.Cy ?? 0.5,
-                active:    pose is not null);
+            double targetCx = pose?.Cx ?? 0.5;
+            double targetCy = pose?.Cy ?? 0.5;
+            bool active = pose is not null;
 
-            // M5.1-C PRECONDITION rate log: every 5s, write achieved tick rate
-            // + advisor-required full-active sidecar received Hz (the inferred
-            // gap the advisor flagged at M5.1-A close).
+            // Time-based lerp toward target. 15 ms half-life means we
+            // close half the remaining distance every 15 ms, ~30 ms to
+            // get within 25 %, ~50 ms to get within ~10 %. Sample arrives
+            // every ~67 ms (15 Hz sidecar), so we always settle before
+            // the next sample arrives without adding visible latency.
+            var now = DateTime.UtcNow;
+            double dtMs = (now - _lastRenderUtc).TotalMilliseconds;
+            _lastRenderUtc = now;
+            if (dtMs <= 0 || dtMs > 100) dtMs = 6.0; // first frame / overflow fallback
+
+            const double HalfLifeMs = 15.0;
+            double factor = 1.0 - Math.Exp(-dtMs * Math.Log(2.0) / HalfLifeMs);
+            _displayedCx += factor * (targetCx - _displayedCx);
+            _displayedCy += factor * (targetCy - _displayedCy);
+
+            _overlay.UpdateHeadGazeCenter(
+                headGazeX: _displayedCx,
+                headGazeY: _displayedCy,
+                active:    active);
+
+            // Per-frame perf log (every 5 s, achieved render Hz + sidecar Hz).
             _headPoseTickCount++;
             if (_headPoseTickCountStartUtc == default)
                 _headPoseTickCountStartUtc = DateTime.UtcNow;
@@ -437,7 +473,7 @@ public partial class MainWindow : Window
                 if (_viewModel.EffectiveHeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar)
                     sidecarSamples = sidecar.ConsumeReceivedSampleCount();
                 double sidecarHz = sidecarSamples / elapsed.TotalSeconds;
-                SafeLog($"[HeadPoseTimer] ticks={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target 30.00) sidecar_received={sidecarSamples} sidecarHz={sidecarHz:F2} (target 15.00)");
+                SafeLog($"[HeadPoseRender] renders={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target=monitor refresh) sidecar_received={sidecarSamples} sidecarHz={sidecarHz:F2} (target 15.00)");
                 _headPoseTickCount = 0;
                 _headPoseTickCountStartUtc = DateTime.UtcNow;
             }
