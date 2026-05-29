@@ -315,7 +315,7 @@ public sealed class WebcamLuxProvider : IAmbientLightProvider, IDisposable
     /// downstream LuxComfortMapper smooths in log space and applies a hysteresis
     /// deadband, which is exactly what an ordinal signal needs.
     /// </summary>
-    private static double LuminanceToLux(double meanY)
+    internal static double LuminanceToLux(double meanY)
     {
         meanY = Math.Clamp(meanY, 0.0, 255.0);
         double t = meanY / 255.0;                    // 0..1
@@ -328,6 +328,26 @@ public sealed class WebcamLuxProvider : IAmbientLightProvider, IDisposable
         double mixed = 0.5 * t + 0.5 * shaped;
         double logLux = logLuxMin + mixed * (logLuxMax - logLuxMin);
         return Math.Pow(10.0, logLux);
+    }
+
+    /// <summary>M6 (head-tracking sprint, 2026-05-30): luma scale bridge for
+    /// <see cref="SidecarLuxProvider"/>. The sidecar emits
+    /// <c>frame_mean_luma_normalized</c> in [0, 1]; WebcamLuxProvider's
+    /// luminance-to-lux curve is calibrated on a [0, 255] input. Scaling by
+    /// 255 and reusing <see cref="LuminanceToLux"/> means both providers
+    /// produce the SAME lux for the same physical scene brightness, so
+    /// toggling head-tracking on/off at runtime (or migrating between the
+    /// two providers in any future flow) does not bump the
+    /// <see cref="SenseEase.App.Comfort.LuxComfortController"/>'s perceived
+    /// ambient baseline. Documented in commit M6 (luma scale verification).</summary>
+    /// <param name="lumaNormalized">Mean frame luma in [0, 1]. Out-of-range
+    /// values are clamped (defensive against a buggy future sidecar).</param>
+    /// <returns>Lux estimate on the same curve a webcam-AE frame would
+    /// produce for an equivalent scene brightness.</returns>
+    public static double LumaNormalizedToLux(double lumaNormalized)
+    {
+        double clamped = Math.Clamp(lumaNormalized, 0.0, 1.0);
+        return LuminanceToLux(clamped * 255.0);
     }
 
     public void Dispose()

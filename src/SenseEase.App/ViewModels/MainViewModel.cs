@@ -1541,14 +1541,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             // Keep the concrete type local so we can read Source — the interface
             // intentionally does not expose it (UI-only concern).
-            var lsp = new LightSensorProvider(AppConfig.UseWebcamLuxFallback);
+            //
+            // M6 (head-tracking sprint): when head-tracking is on, the sidecar
+            // owns the single webcam (locked decision 3). Instantiating a
+            // WebcamLuxProvider in that case would either fail MediaCapture
+            // init or contend with the sidecar's capture loop, so we route
+            // through the SidecarLuxProvider path that piggy-backs on the
+            // sidecar's existing per-frame luma JSON field. Startup-time
+            // decision is sufficient: runtime toggling of HeadTrackingEnabled
+            // is not a supported flow in M6 (a future v1.0 enhancement would
+            // need to also rebuild the LuxController).
+            LightSensorProvider lsp = AppConfig.HeadTrackingEnabled
+                ? new LightSensorProvider(_headPoseReader)
+                : new LightSensorProvider(AppConfig.UseWebcamLuxFallback);
             provider   = lsp;
             sourceKind = lsp.Source;
         }
         LuxSourceLabel = sourceKind switch
         {
-            LightSensorProvider.LuxSourceKind.Als    => "ALS",
-            LightSensorProvider.LuxSourceKind.Webcam => "Webcam",
+            LightSensorProvider.LuxSourceKind.Als     => "ALS",
+            LightSensorProvider.LuxSourceKind.Webcam  => "Webcam",
+            LightSensorProvider.LuxSourceKind.Sidecar => "Sidecar",
             _ => AppConfig.LuxMode == LuxSensingMode.Mock ? "Mock" : "Not available",
         };
 
