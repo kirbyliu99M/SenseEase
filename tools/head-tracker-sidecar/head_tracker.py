@@ -478,13 +478,6 @@ def run(
                                  dtype=np.float64)
                 if mat.shape == (4, 4):
                     yaw, pitch, _roll = decompose_yaw_pitch_roll(mat)
-                    # M5 UX-iter 3 Fix A (2026-05-29): when --mirror is on,
-                    # cv2.flip(frame, 1) inverts the horizontal axis BEFORE
-                    # MediaPipe sees the frame, so the extracted yaw has
-                    # the OPPOSITE sign from the user's physical head
-                    # direction. Negate to restore selfie-view semantic.
-                    if mirror:
-                        yaw = -yaw
                     # M5.1-A (2026-05-29): the documentation in
                     # decompose_yaw_pitch_roll above claimed "pitch > 0 =
                     # chin UP" but the actual atan2(-R[1,2], R[2,2])
@@ -496,7 +489,16 @@ def run(
                     # chin-up motion, confirming the inversion. Negate
                     # unconditionally (not mirror-conditional — horizontal
                     # flip doesn't affect rotation around the X axis).
-                    pitch = -pitch
+                    # M5.1-A v2 (2026-05-29): YAW NEGATION REMOVED. UX-iter 3
+                    # added "if mirror: yaw = -yaw" to fix what user reported
+                    # as "sometimes inverted". Diagnose CSV + M5.1-A re-test
+                    # revealed the negation made yaw GENUINELY inverted. The
+                    # "sometimes inverted" symptom was actually smoothing lag
+                    # during rapid motion (raw vs smoothed direction opposite
+                    # during reversals), not a sign issue. Removing the
+                    # negation restores the M2 original convention: positive
+                    # raw yaw maps to cx > 0.5 = mask right, which matches
+                    # physical head-right under the default --mirror=on flow.
                     raw_yaw, raw_pitch = yaw, pitch
                     cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
                     face_detected = True

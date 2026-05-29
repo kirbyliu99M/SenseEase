@@ -82,23 +82,17 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     private readonly StringBuilder _stderrTail = new();
     private const int StderrTailMax = 4096;
 
-    // M5.1-A Layer 3 (2026-05-29): temporal median outlier rejection. A
-    // 5-sample ring buffer of raw (cx, cy) feeds a median filter; new
-    // samples whose cx or cy deviate from the median by more than the
-    // outlier threshold are substituted with the median value. Layer 1
-    // in the sidecar already filters glitches before emit; Layer 3 is a
-    // belt-and-suspenders defense for any sub-threshold drift the sidecar
-    // can't catch (e.g., a single rogue frame that survived the 25° jump
-    // filter because the previous valid sample happened to be on the same
-    // edge). Per the M5.1-A diagnose, no outliers appeared in 22s of
-    // varied motion; this is prophylactic for future scenarios.
-    private const int    TemporalMedianBufferSize        = 5;
-    private const double TemporalMedianOutlierThreshold  = 0.25;
-    private readonly double[] _cxMedianBuffer            = new double[TemporalMedianBufferSize];
-    private readonly double[] _cyMedianBuffer            = new double[TemporalMedianBufferSize];
-    private int _medianBufferWriteIdx;
-    private int _medianBufferCount;
-    private readonly object _medianBufferLock = new();
+    // M5.1-A Layer 3 was REMOVED in M5.1-A v2 (2026-05-29). The temporal
+    // median filter blocked fast intentional travel to screen corners — when
+    // user push their head rapidly toward an edge, the median lagged behind,
+    // and each new sample was substituted with the stale median for 2-3
+    // frames. User reported "unable to push to corner" during M5.1-A UVHS.
+    // Diagnose CSV showed zero outliers in 22s of varied motion, so Layer 3
+    // was prophylactic for a problem that didn't exist while creating a real
+    // problem. Layer 1 (sidecar 25° jump filter) is sufficient for glitch
+    // protection. If outliers later appear (e.g., M5.1-C perf changes,
+    // future sidecar tuning), re-introduce with velocity-aware thresholding
+    // rather than positional median.
 
     /// <summary>Construct the reader. Does NOT spawn the sidecar — call
     /// <see cref="Start"/> for that. Separating construction from startup
@@ -312,8 +306,6 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
                 if (TryParseSampleLine(line, out HeadPoseSample? sample) && sample is not null)
                 {
-                    // M5.1-A Layer 3: substitute outlier cx/cy with median.
-                    sample = ApplyTemporalMedianFilter(sample);
                     Volatile.Write(ref _latest, sample);
                     Interlocked.Exchange(ref _latestStoredAtUtcTicks, DateTime.UtcNow.Ticks);
                 }
@@ -405,59 +397,6 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
         [JsonPropertyName("pitch_deg")]
         public double? PitchDeg { get; set; }
-    }
-
-    /// <summary>M5.1-A Layer 3: 5-sample temporal median outlier rejection.
-    /// Stores the INPUT cx/cy in a ring buffer (so the central-tendency
-    /// estimate tracks the actual stream and won't lock in after the user
-    /// genuinely moves). If the new sample deviates from the buffer median
-    /// by more than <see cref="TemporalMedianOutlierThreshold"/>, the
-    /// outlier axis (cx and/or cy independently) is substituted with the
-    /// median value. First TemporalMedianBufferSize-1 samples pass through
-    /// untouched (buffer not full yet).
-    ///
-    /// <para>Internal so unit tests can hit it directly without orchestrating
-    /// a full reader lifecycle.</para></summary>
-    internal HeadPoseSample ApplyTemporalMedianFilter(HeadPoseSample input)
-    {
-        double medianCx, medianCy;
-        bool bufferFull;
-        lock (_medianBufferLock)
-        {
-            // Always enqueue (FIFO ring) so the median tracks recent stream.
-            _cxMedianBuffer[_medianBufferWriteIdx] = input.Cx;
-            _cyMedianBuffer[_medianBufferWriteIdx] = input.Cy;
-            _medianBufferWriteIdx = (_medianBufferWriteIdx + 1) % TemporalMedianBufferSize;
-            if (_medianBufferCount < TemporalMedianBufferSize) _medianBufferCount++;
-            bufferFull = _medianBufferCount >= TemporalMedianBufferSize;
-            if (!bufferFull) { medianCx = input.Cx; medianCy = input.Cy; }
-            else
-            {
-                Span<double> cxSorted = stackalloc double[TemporalMedianBufferSize];
-                Span<double> cySorted = stackalloc double[TemporalMedianBufferSize];
-                for (int i = 0; i < TemporalMedianBufferSize; i++)
-                {
-                    cxSorted[i] = _cxMedianBuffer[i];
-                    cySorted[i] = _cyMedianBuffer[i];
-                }
-                cxSorted.Sort();
-                cySorted.Sort();
-                medianCx = cxSorted[TemporalMedianBufferSize / 2];
-                medianCy = cySorted[TemporalMedianBufferSize / 2];
-            }
-        }
-
-        if (!bufferFull) return input;
-
-        bool outlierCx = Math.Abs(input.Cx - medianCx) > TemporalMedianOutlierThreshold;
-        bool outlierCy = Math.Abs(input.Cy - medianCy) > TemporalMedianOutlierThreshold;
-        if (!outlierCx && !outlierCy) return input;
-
-        return input with
-        {
-            Cx = outlierCx ? medianCx : input.Cx,
-            Cy = outlierCy ? medianCy : input.Cy,
-        };
     }
 
     /// <summary>Parse one sidecar stdout line into a <see cref="HeadPoseSample"/>.
