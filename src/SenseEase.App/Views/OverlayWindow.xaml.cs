@@ -429,8 +429,73 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // path runs at engine tick; timer-driven path runs at ~30 Hz.
         ApplyHeadPoseToBrush(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
 
-        FovMask.BeginAnimation(OpacityProperty, null);
-        FovMask.Opacity = 1.0;
+        // M5.1-B: don't clobber the escape-hatch alpha animation. When
+        // _escapeHatchActive is true, the Storyboard owns FovMask.Opacity
+        // until it completes and clears the flag.
+        if (!_escapeHatchActive)
+        {
+            FovMask.BeginAnimation(OpacityProperty, null);
+            FovMask.Opacity = 1.0;
+        }
+    }
+
+    // ── M5.1-B: escape-hatch alpha dip ───────────────────────────────────────
+
+    private bool _escapeHatchActive;
+    private Storyboard? _escapeHatchStoryboard;
+
+    /// <summary>M5.1-B: temporarily fade the FOV mask to 30 % opacity for
+    /// 3 seconds with a 250 ms fade-down + 500 ms fade-up. Triggered by
+    /// double-tapping Ctrl when <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
+    /// is true. Lets a Balanced-mode user peek at a screen corner without
+    /// committing to FullFollow permanently. Orthogonal to the follow-mode
+    /// choice — works whether head-tracking is on or off, in either mode.
+    /// Safe to call repeatedly: a new call mid-animation resets the cycle
+    /// (the user gets a fresh 3 second window).</summary>
+    public void TriggerEscapeHatch()
+    {
+        if (!Configuration.AppConfig.HeadTrackingEscapeHatchEnabled) return;
+
+        try { _escapeHatchStoryboard?.Stop(this); } catch { /* ignore */ }
+
+        var sb = new Storyboard();
+
+        var fadeDown = new DoubleAnimation
+        {
+            From          = 1.0,
+            To            = 0.30,
+            Duration      = new Duration(TimeSpan.FromMilliseconds(250)),
+            BeginTime     = TimeSpan.Zero,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+        };
+        Storyboard.SetTarget(fadeDown, FovMask);
+        Storyboard.SetTargetProperty(fadeDown, new PropertyPath(OpacityProperty));
+        sb.Children.Add(fadeDown);
+
+        // 250 ms (end of fade-down) + 3000 ms hold → fade-up starts at 3250 ms.
+        var fadeUp = new DoubleAnimation
+        {
+            From          = 0.30,
+            To            = 1.0,
+            Duration      = new Duration(TimeSpan.FromMilliseconds(500)),
+            BeginTime     = TimeSpan.FromMilliseconds(3250),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+        };
+        Storyboard.SetTarget(fadeUp, FovMask);
+        Storyboard.SetTargetProperty(fadeUp, new PropertyPath(OpacityProperty));
+        sb.Children.Add(fadeUp);
+
+        sb.Completed += (_, _) =>
+        {
+            _escapeHatchActive = false;
+            // After the storyboard ends, hand opacity back to ApplyFovMask
+            // by leaving it animated-to-1.0; ApplyFovMask's own reset will
+            // take over on the next tick.
+        };
+
+        _escapeHatchStoryboard = sb;
+        _escapeHatchActive = true;
+        sb.Begin(this, true);
     }
 
     /// <summary>M5 test seam: expose the FOV mask brush so STA-bound unit
@@ -460,9 +525,24 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     {
         if (_fovBrush is null) return;
 
-        // Fix B: no static clamp; full [0, 1] travel.
-        double cx = active ? Math.Clamp(headGazeX, 0.0, 1.0) : 0.5;
-        double cy = active ? Math.Clamp(headGazeY, 0.0, 1.0) : 0.5;
+        // M5.1-B: mode-based clamp. Balanced (default) restricts travel to
+        // [0.10, 0.90] so the periphery is always partially dimmed regardless
+        // of gaze direction — clinical default for VIMS mitigation. FullFollow
+        // (opt-in) allows the full [0, 1] range; user uses the escape-hatch
+        // hotkey if they want to peek at a corner without committing to
+        // FullFollow permanently.
+        double low, high;
+        if (Configuration.AppConfig.HeadTrackingFollowMode
+            == Configuration.HeadTrackingFollowModeKind.FullFollow)
+        {
+            low = 0.0; high = 1.0;
+        }
+        else
+        {
+            low = 0.10; high = 0.90;
+        }
+        double cx = active ? Math.Clamp(headGazeX, low, high) : 0.5;
+        double cy = active ? Math.Clamp(headGazeY, low, high) : 0.5;
         var center = new Point(cx, cy);
         if (_fovBrush.Center != center)
         {

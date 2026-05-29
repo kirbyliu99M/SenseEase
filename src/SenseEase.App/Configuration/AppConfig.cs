@@ -13,6 +13,20 @@ public enum SensingMode
 
 public enum LuxSensingMode { Real, Mock }
 
+/// <summary>M5.1-B follow-mode choice. See
+/// <see cref="AppConfig.HeadTrackingFollowMode"/> for semantics.</summary>
+public enum HeadTrackingFollowModeKind
+{
+    /// <summary>Mask center clamped to [0.10, 0.90] — periphery always
+    /// partially dimmed. Default; aligned with the sprint's clinical
+    /// VIMS-mitigation purpose.</summary>
+    Balanced,
+
+    /// <summary>Mask center in [0, 1] — follows gaze all the way to
+    /// screen corners. Opt-in; may feel less stable.</summary>
+    FullFollow,
+}
+
 /// <summary>
 /// Runtime feature flags. Change Mode to switch sensing providers without restart.
 /// </summary>
@@ -227,6 +241,32 @@ public static class AppConfig
     /// runtime feature flags above. Default = false; flipping requires
     /// explicit opt-in either at startup or via a future settings UI.</para></summary>
     public static bool HeadTrackingEnabled { get; set; } = false;
+
+    /// <summary>M5.1-B (head-tracking sprint, 2026-05-30): user-facing
+    /// "how much should the mask follow head gaze" choice.
+    ///
+    /// <list type="bullet">
+    ///   <item><c>Balanced</c> — DEFAULT. cx/cy clamped to [0.10, 0.90].
+    ///         Mask center stays in the central 80 % of the screen so the
+    ///         periphery is always partially dimmed regardless of gaze
+    ///         direction. Aligned with the sprint's clinical purpose
+    ///         (peripheral motion is the VIMS trigger; the mask is there
+    ///         to dim it). Most users want this.</item>
+    ///   <item><c>FullFollow</c> — opt-in. cx/cy in [0, 1]. The mask can
+    ///         follow gaze all the way to a screen corner. May feel less
+    ///         stable as the dark periphery shifts more dramatically.
+    ///         Use the escape-hatch hotkey if you only occasionally need
+    ///         to peek at a corner.</item>
+    /// </list></summary>
+    public static HeadTrackingFollowModeKind HeadTrackingFollowMode { get; set; }
+        = HeadTrackingFollowModeKind.Balanced;
+
+    /// <summary>M5.1-B: when true (default), double-tapping Ctrl
+    /// temporarily dims the FOV mask to 30 % opacity for 3 seconds with
+    /// a 250 ms fade-down + 500 ms fade-up. Lets a Balanced-mode user
+    /// see a screen corner without permanently switching to FullFollow.
+    /// Orthogonal to the follow-mode choice — works in any mode.</summary>
+    public static bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
 
     // M4 (head-tracking sprint): paths to the Python sidecar's interpreter
     // and script. Resolved with the same "alongside the EXE, then walk up

@@ -335,6 +335,39 @@ public partial class MainWindow : Window
             {
                 _viewModel.StartMockHeadPoseSweep();
                 e.Handled = true;
+                return;
+            }
+
+            // M5.1-B escape hatch: double-tap Ctrl (no other keys) within
+            // 400 ms triggers OverlayWindow.TriggerEscapeHatch(). Detection
+            // strategy: track Ctrl KeyDown events that arrive cleanly (no
+            // other key being held). On the second clean Ctrl KeyDown
+            // within the window, fire. Reset on any non-Ctrl KeyDown so
+            // chord typing (Ctrl+C, Ctrl+S, etc.) doesn't poison the state.
+            bool isCtrl = e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl;
+            if (isCtrl)
+            {
+                // Ignore auto-repeat (held Ctrl spams KeyDown).
+                if (e.IsRepeat) return;
+
+                var now = DateTime.UtcNow;
+                var sinceLast = now - _lastCtrlTapUtc;
+                if (sinceLast.TotalMilliseconds <= 400)
+                {
+                    // Double-tap. Trigger and reset.
+                    _lastCtrlTapUtc = default;
+                    _overlay?.TriggerEscapeHatch();
+                }
+                else
+                {
+                    _lastCtrlTapUtc = now;
+                }
+            }
+            else
+            {
+                // Any other key resets the double-tap window so Ctrl+X
+                // doesn't accidentally fire the escape hatch.
+                _lastCtrlTapUtc = default;
             }
         };
 
@@ -405,6 +438,7 @@ public partial class MainWindow : Window
     }
 
     private bool _renderingSubscribed;
+    private DateTime _lastCtrlTapUtc;   // M5.1-B escape-hatch double-tap timestamp
     // Interpolated brush position. _displayedCx/Cy is what's pushed to the
     // brush; _targetCx/Cy is the latest sample reading (from the reader).
     // Each render frame lerps displayed toward target.

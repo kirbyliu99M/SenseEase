@@ -228,63 +228,128 @@ public class OverlayHeadPoseTests
         });
     }
 
-    // ── 6) M5 UX-iter 3: full [0, 1] travel + state-driven dynamic radius ─
+    // ── 6) M5 UX-iter 3 + M5.1-B: travel range depends on follow mode ───
 
-    /// <summary>M5 UX-iter 3 Fix B: head-gaze travels the full [0, 1] range
-    /// (no static clamp) when head-tracking is active. Corner (1, 1) passes
-    /// through unchanged so user can look at screen corners with the mask
-    /// following.</summary>
+    /// <summary>M5.1-B Balanced mode (default): head-gaze clamped to
+    /// [0.10, 0.90] so the periphery is always partially dimmed regardless
+    /// of gaze direction. Corner values (1.0 / 0.0) clamp to the central
+    /// window. Within-range values pass through.</summary>
     [Fact]
-    public void OverlayWindow_HeadGazeFullTravelRange_NoClampWhenActive()
+    public void OverlayWindow_HeadGazeBalancedMode_ClampsToCentralWindow()
     {
         RunOnSta(() =>
         {
-            var w = new OverlayWindow();
-            w.ApplyTemplate();
-
-            // Extreme corner — should pass through unchanged.
-            var state = new SenseState
+            // Balanced is the AppConfig default; assert explicitly so a
+            // future change to the default doesn't silently break this test.
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.Balanced;
+            try
             {
-                VimsTier            = 3,
-                HeadGazeX           = 1.0,
-                HeadGazeY           = 1.0,
-                HeadTrackingActive  = true,
-                MaskActive          = true,
-            };
-            w.ApplyState(state);
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
 
-            var brush = w.FovBrushForTests;
-            Assert.NotNull(brush);
-            Assert.Equal(1.0, brush!.Center.X, 3);
-            Assert.Equal(1.0, brush.Center.Y, 3);
+                // Corner (1.0, 1.0) clamps to (0.90, 0.90).
+                w.ApplyState(new SenseState
+                {
+                    VimsTier            = 3,
+                    HeadGazeX           = 1.0,
+                    HeadGazeY           = 1.0,
+                    HeadTrackingActive  = true,
+                    MaskActive          = true,
+                });
+                var brush = w.FovBrushForTests;
+                Assert.NotNull(brush);
+                Assert.Equal(0.90, brush!.Center.X, 3);
+                Assert.Equal(0.90, brush.Center.Y, 3);
 
-            // Other corner.
-            var state2 = new SenseState
+                // Other corner (0.0, 0.0) clamps to (0.10, 0.10).
+                w.ApplyState(new SenseState
+                {
+                    VimsTier            = 3,
+                    HeadGazeX           = 0.0,
+                    HeadGazeY           = 0.0,
+                    HeadTrackingActive  = true,
+                    MaskActive          = true,
+                });
+                Assert.Equal(0.10, brush.Center.X, 3);
+                Assert.Equal(0.10, brush.Center.Y, 3);
+
+                // In-range value (0.55, 0.45) passes through unchanged.
+                w.ApplyState(new SenseState
+                {
+                    VimsTier            = 3,
+                    HeadGazeX           = 0.55,
+                    HeadGazeY           = 0.45,
+                    HeadTrackingActive  = true,
+                    MaskActive          = true,
+                });
+                Assert.Equal(0.55, brush.Center.X, 3);
+                Assert.Equal(0.45, brush.Center.Y, 3);
+            }
+            finally
             {
-                VimsTier            = 3,
-                HeadGazeX           = 0.0,
-                HeadGazeY           = 0.0,
-                HeadTrackingActive  = true,
-                MaskActive          = true,
-            };
-            w.ApplyState(state2);
+                AppConfig.HeadTrackingFollowMode = prior;
+            }
+        });
+    }
 
-            Assert.Equal(0.0, brush.Center.X, 3);
-            Assert.Equal(0.0, brush.Center.Y, 3);
-
-            // Out-of-range still clamped to [0, 1] for safety.
-            var state3 = new SenseState
+    /// <summary>M5.1-B FullFollow mode (opt-in): head-gaze travels the
+    /// full [0, 1] range. Corner values pass through unchanged so the
+    /// mask can follow gaze all the way to a screen corner.</summary>
+    [Fact]
+    public void OverlayWindow_HeadGazeFullFollowMode_NoClampWhenActive()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
             {
-                VimsTier            = 3,
-                HeadGazeX           = 1.5,
-                HeadGazeY           = -0.3,
-                HeadTrackingActive  = true,
-                MaskActive          = true,
-            };
-            w.ApplyState(state3);
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
 
-            Assert.Equal(1.0, brush.Center.X, 3);
-            Assert.Equal(0.0, brush.Center.Y, 3);
+                // Extreme corner passes through.
+                w.ApplyState(new SenseState
+                {
+                    VimsTier            = 3,
+                    HeadGazeX           = 1.0,
+                    HeadGazeY           = 1.0,
+                    HeadTrackingActive  = true,
+                    MaskActive          = true,
+                });
+                var brush = w.FovBrushForTests;
+                Assert.NotNull(brush);
+                Assert.Equal(1.0, brush!.Center.X, 3);
+                Assert.Equal(1.0, brush.Center.Y, 3);
+
+                // Other corner.
+                w.ApplyState(new SenseState
+                {
+                    VimsTier            = 3,
+                    HeadGazeX           = 0.0,
+                    HeadGazeY           = 0.0,
+                    HeadTrackingActive  = true,
+                    MaskActive          = true,
+                });
+                Assert.Equal(0.0, brush.Center.X, 3);
+                Assert.Equal(0.0, brush.Center.Y, 3);
+
+                // Out-of-range still clamped to [0, 1] for safety.
+                w.ApplyState(new SenseState
+                {
+                    VimsTier            = 3,
+                    HeadGazeX           = 1.5,
+                    HeadGazeY           = -0.3,
+                    HeadTrackingActive  = true,
+                    MaskActive          = true,
+                });
+                Assert.Equal(1.0, brush.Center.X, 3);
+                Assert.Equal(0.0, brush.Center.Y, 3);
+            }
+            finally
+            {
+                AppConfig.HeadTrackingFollowMode = prior;
+            }
         });
     }
 
@@ -298,8 +363,16 @@ public class OverlayHeadPoseTests
     [Fact]
     public void OverlayWindow_BrushRadius_ScalesToFarthestCornerWhenActive()
     {
+        // Exercise this in FullFollow so we can drive the brush.Center all
+        // the way to (1, 1) and observe radius scaling against the farthest
+        // corner. The dynamic-radius math itself is identical in Balanced
+        // mode; just the cx/cy values would clamp before reaching it.
         RunOnSta(() =>
         {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
             var w = new OverlayWindow();
             w.ApplyTemplate();
 
@@ -356,6 +429,11 @@ public class OverlayHeadPoseTests
             w.ApplyState(stateOff);
             Assert.Equal(0.85, brush.RadiusX, 3);
             Assert.Equal(0.85, brush.RadiusY, 3);
+            }
+            finally
+            {
+                AppConfig.HeadTrackingFollowMode = prior;
+            }
         });
     }
 
