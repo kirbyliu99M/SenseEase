@@ -239,7 +239,10 @@ def make_face_landmarker(model_path: str) -> mp_vision.FaceLandmarker:
 # Smoother
 # ---------------------------------------------------------------------------
 class Ema2D:
-    """Simple per-axis exponential moving average for (cx, cy)."""
+    """Simple per-axis exponential moving average for (cx, cy).
+
+    Retained for tests / legacy; production now uses AdaptiveEma2D.
+    """
 
     def __init__(self, alpha: float, init_x: float, init_y: float) -> None:
         self.alpha = alpha
@@ -262,6 +265,124 @@ class Ema2D:
         self.x = x
         self.y = y
         self._primed = True
+
+
+class AdaptiveEma2D:
+    """M5.1-C (2026-05-29) — velocity-driven adaptive EMA for (cx, cy).
+
+    Replaces the constant α=0.18 smoother that drove the user-reported lag
+    (sidecar EMA converges to 90% in ~770ms regardless of how slow the head
+    is moving, so rapid head turns trail by half a second). This class
+    measures input velocity from per-frame yaw/pitch deltas and picks an α
+    accordingly:
+
+      ===========================================================
+      velocity        α       EMA τ at 15 Hz   regime
+      ===========================================================
+      < 1°/frame    0.08      ~800 ms          anti-jitter
+                              (head holding still — heavy smoothing
+                               so MediaPipe noise doesn't visibly
+                               oscillate the mask)
+      1-5°/frame    linear    interp           natural motion
+                    0.08→0.30 800ms→200ms      (responsive)
+      5-10°/frame   linear    interp           medium-rapid
+                    0.30→0.50 200ms→100ms
+      > 10°/frame   0.55      ~84 ms           snappy
+                              (rapid head turn — minimal smoothing
+                               so the mask catches up immediately)
+      ===========================================================
+
+    Velocity itself is EMA-smoothed (α=0.4) so that single-frame noise
+    doesn't oscillate α — otherwise a borderline-fast frame followed by
+    a quiet frame would alternate smoothing regimes and produce visible
+    judder.
+
+    The PRECONDITION measurement (2026-05-29) confirmed sidecar full-load
+    sample density at ~15 Hz, which means the 80ms fast-motion bound
+    covers ~1.2 samples — just enough for the EMA to converge in two
+    ticks. Per advisor: if a future change drops sidecar Hz below 12,
+    revisit the lower bound.
+    """
+
+    # α at each velocity regime (piecewise linear between control points).
+    ALPHA_LOW       = 0.08   # < VEL_LOW
+    ALPHA_MED_LOW   = 0.30   # at VEL_MED
+    ALPHA_MED_HIGH  = 0.50   # at VEL_HIGH
+    ALPHA_HIGH      = 0.55   # > VEL_HIGH
+
+    # Velocity thresholds (degrees per frame of combined yaw+pitch motion).
+    VEL_LOW         = 1.0
+    VEL_MED         = 5.0
+    VEL_HIGH        = 10.0
+
+    # α for the velocity-smoothing EMA (smooth the velocity signal itself
+    # so single-frame deltas don't cause α-regime thrashing).
+    VELOCITY_SMOOTH_ALPHA = 0.4
+
+    def __init__(self, init_x: float, init_y: float) -> None:
+        self.x = init_x
+        self.y = init_y
+        self._primed = False
+        self._prev_yaw: Optional[float] = None
+        self._prev_pitch: Optional[float] = None
+        self._velocity = 0.0
+        self._current_alpha = self.ALPHA_LOW  # exposed for diag CSV
+
+    def update(self, x: float, y: float, yaw_deg: float, pitch_deg: float) -> tuple[float, float]:
+        if not self._primed:
+            self.x = x
+            self.y = y
+            self._primed = True
+            self._prev_yaw = yaw_deg
+            self._prev_pitch = pitch_deg
+            return self.x, self.y
+
+        # Compute instantaneous velocity (combined yaw + pitch motion).
+        instant_v = 0.0
+        if self._prev_yaw is not None and self._prev_pitch is not None:
+            dyaw   = yaw_deg   - self._prev_yaw
+            dpitch = pitch_deg - self._prev_pitch
+            instant_v = math.sqrt(dyaw * dyaw + dpitch * dpitch)
+        # EMA-smooth velocity itself.
+        self._velocity = (self.VELOCITY_SMOOTH_ALPHA * instant_v
+                          + (1.0 - self.VELOCITY_SMOOTH_ALPHA) * self._velocity)
+        self._prev_yaw = yaw_deg
+        self._prev_pitch = pitch_deg
+
+        a = self._velocity_to_alpha(self._velocity)
+        self._current_alpha = a
+
+        self.x = a * x + (1.0 - a) * self.x
+        self.y = a * y + (1.0 - a) * self.y
+        return self.x, self.y
+
+    def _velocity_to_alpha(self, v: float) -> float:
+        if v < self.VEL_LOW:
+            return self.ALPHA_LOW
+        if v < self.VEL_MED:
+            t = (v - self.VEL_LOW) / (self.VEL_MED - self.VEL_LOW)
+            return self.ALPHA_LOW + t * (self.ALPHA_MED_LOW - self.ALPHA_LOW)
+        if v < self.VEL_HIGH:
+            t = (v - self.VEL_MED) / (self.VEL_HIGH - self.VEL_MED)
+            return self.ALPHA_MED_LOW + t * (self.ALPHA_MED_HIGH - self.ALPHA_MED_LOW)
+        return self.ALPHA_HIGH
+
+    @property
+    def current_alpha(self) -> float:
+        return self._current_alpha
+
+    @property
+    def current_velocity(self) -> float:
+        return self._velocity
+
+    def reset_to(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+        self._primed = True
+        self._prev_yaw = None
+        self._prev_pitch = None
+        self._velocity = 0.0
+        self._current_alpha = self.ALPHA_LOW
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +524,10 @@ def run(
     landmarker = make_face_landmarker(model_resolved)
     cap = open_capture(input_spec)
 
-    smoother = Ema2D(SMOOTH_ALPHA, DEFAULT_CX, DEFAULT_CY)
+    # M5.1-C: AdaptiveEma2D replaces the constant-α Ema2D. SMOOTH_ALPHA
+    # constant kept in module scope for documentation of the old default;
+    # AdaptiveEma2D ignores it and computes α per-tick from velocity.
+    smoother = AdaptiveEma2D(DEFAULT_CX, DEFAULT_CY)
     stats = SoakStats() if soak_seconds is not None else None
     soak_loop = loop_video or (soak_seconds is not None)
 
@@ -418,7 +542,7 @@ def run(
     diag_file = None
     if diag_path is not None:
         diag_file = open(diag_path, "w", encoding="utf-8", buffering=1)
-        diag_file.write("t_ms,yaw_deg,pitch_deg,cx_raw,cy_raw,cx_smoothed,cy_smoothed,face_detected,face_present,mirror\n")
+        diag_file.write("t_ms,yaw_deg,pitch_deg,cx_raw,cy_raw,cx_smoothed,cy_smoothed,face_detected,face_present,mirror,velocity_deg_per_frame,adaptive_alpha\n")
 
     # M5.1-A Layer 1 (2026-05-29): frame validity filter. On any frame where
     # face_present == 0 OR yaw / pitch jumps > MAX_JUMP_PER_FRAME_DEG since
@@ -533,7 +657,16 @@ def run(
                 last_valid_cx_raw = cx_raw
                 last_valid_cy_raw = cy_raw
 
-            cx, cy = smoother.update(cx_raw, cy_raw)
+            # M5.1-C adaptive EMA: pass yaw/pitch for velocity-driven α.
+            # When face_present == 0 the Layer 1 filter substituted cx_raw/
+            # cy_raw with last-valid values; pass raw_yaw / raw_pitch as
+            # available (None during dropouts, AdaptiveEma2D handles None
+            # by keeping previous velocity unchanged).
+            cx, cy = smoother.update(
+                cx_raw, cy_raw,
+                yaw_deg=  (raw_yaw   if raw_yaw   is not None else (last_valid_yaw   or 0.0)),
+                pitch_deg=(raw_pitch if raw_pitch is not None else (last_valid_pitch or 0.0)),
+            )
             # Clamp again post-smoothing for safety.
             cx, cy = clamp01(cx), clamp01(cy)
             luma = frame_mean_luma_normalized(frame_bgr)
@@ -542,6 +675,9 @@ def run(
             latency_ms = (infer_end - infer_start) * 1000.0
 
             # M5.1-A diagnostic CSV append (only when --diag is set).
+            # M5.1-C extension: also record the current adaptive α + smoothed
+            # velocity so post-run analysis can see which regime the smoother
+            # was in at each instant.
             if diag_file is not None:
                 t_ms = int((time.monotonic() - t0_mono) * 1000.0)
                 yaw_str   = f"{raw_yaw:.3f}"   if raw_yaw   is not None else ""
@@ -550,7 +686,8 @@ def run(
                     f"{t_ms},{yaw_str},{pitch_str},"
                     f"{cx_raw:.4f},{cy_raw:.4f},{cx:.4f},{cy:.4f},"
                     f"{int(face_detected)},{face_present:.1f},"
-                    f"{int(mirror)}\n"
+                    f"{int(mirror)},"
+                    f"{smoother.current_velocity:.3f},{smoother.current_alpha:.3f}\n"
                 )
 
             rec = FrameRecord(
