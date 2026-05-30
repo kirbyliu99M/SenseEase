@@ -1,0 +1,4 @@
+﻿BRANCH: feature/headtracking-mediapipe
+HEAD_COMMIT: 8ae37b00af52cdc3d80d19fdec7e36547d54c1c9
+BASE_TAG: v0.9
+BASE_COMMIT: 8ae37b00af52cdc3d80d19fdec7e36547d54c1c9

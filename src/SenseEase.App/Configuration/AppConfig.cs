@@ -13,6 +13,20 @@ public enum SensingMode
 
 public enum LuxSensingMode { Real, Mock }
 
+/// <summary>M5.1-B follow-mode choice. See
+/// <see cref="AppConfig.HeadTrackingFollowMode"/> for semantics.</summary>
+public enum HeadTrackingFollowModeKind
+{
+    /// <summary>Mask center clamped to [0.10, 0.90] — periphery always
+    /// partially dimmed. Default; aligned with the sprint's clinical
+    /// VIMS-mitigation purpose.</summary>
+    Balanced,
+
+    /// <summary>Mask center in [0, 1] — follows gaze all the way to
+    /// screen corners. Opt-in; may feel less stable.</summary>
+    FullFollow,
+}
+
 /// <summary>
 /// Runtime feature flags. Change Mode to switch sensing providers without restart.
 /// </summary>
@@ -216,4 +230,107 @@ public static class AppConfig
     // this back to false at runtime, surrendering automation in favour of explicit user
     // control for the remainder of the session.
     public static bool AutoDriverPassengerModeEnabled { get; set; } = true;
+
+    /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven
+    /// FOV mask centering. Defaults to false (privacy + stability). When
+    /// false, all head-tracking code paths are dead — overlay behaves exactly
+    /// like v0.9 baseline (cx=0.5, cy=0.5 hardcoded center).
+    ///
+    /// <para>AppConfig is a static class (no init-only properties available),
+    /// so this is exposed as a settable property for symmetry with the other
+    /// runtime feature flags above. Default = false; flipping requires
+    /// explicit opt-in either at startup or via a future settings UI.</para></summary>
+    public static bool HeadTrackingEnabled { get; set; } = false;
+
+    /// <summary>M5.1-B (head-tracking sprint, 2026-05-30): user-facing
+    /// "how much should the mask follow head gaze" choice.
+    ///
+    /// <list type="bullet">
+    ///   <item><c>Balanced</c> — DEFAULT. cx/cy clamped to [0.10, 0.90].
+    ///         Mask center stays in the central 80 % of the screen so the
+    ///         periphery is always partially dimmed regardless of gaze
+    ///         direction. Aligned with the sprint's clinical purpose
+    ///         (peripheral motion is the VIMS trigger; the mask is there
+    ///         to dim it). Most users want this.</item>
+    ///   <item><c>FullFollow</c> — opt-in. cx/cy in [0, 1]. The mask can
+    ///         follow gaze all the way to a screen corner. May feel less
+    ///         stable as the dark periphery shifts more dramatically.
+    ///         Use the escape-hatch hotkey if you only occasionally need
+    ///         to peek at a corner.</item>
+    /// </list></summary>
+    public static HeadTrackingFollowModeKind HeadTrackingFollowMode { get; set; }
+        = HeadTrackingFollowModeKind.Balanced;
+
+    /// <summary>M5.1-B: when true (default), double-tapping Ctrl
+    /// temporarily dims the FOV mask to 30 % opacity for 3 seconds with
+    /// a 250 ms fade-down + 500 ms fade-up. Lets a Balanced-mode user
+    /// see a screen corner without permanently switching to FullFollow.
+    /// Orthogonal to the follow-mode choice — works in any mode.</summary>
+    public static bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
+
+    /// <summary>M8 head-tracking sprint (2026-05-30): debug-only telemetry
+    /// flag gating the per-5-seconds <c>[HeadPoseRender]</c> log line in
+    /// <c>MainWindow.OnCompositionRendering</c>. The two underlying counters
+    /// (WPF render-frame count, sidecar received-sample count) were added
+    /// during M5.1-C PRECONDITION measurement to answer the advisor's
+    /// "is the dispatcher contention or the sidecar?" question — they
+    /// proved their value at G6 perf decision but are dead weight in
+    /// production (5-second log spam in wgc_diag.txt, no user value).
+    ///
+    /// <para>Default <c>false</c> — production builds emit no
+    /// <c>[HeadPoseRender]</c> lines. The counters still tick
+    /// (<c>Interlocked.Increment</c> is negligible) but the log emission
+    /// + <see cref="SenseEase.Infrastructure.Real.SidecarHeadPoseReader.ConsumeReceivedSampleCount"/>
+    /// reset are skipped.</para>
+    ///
+    /// <para>Flip to <c>true</c> in code (same pattern as
+    /// <see cref="HeadTrackingEnabled"/>) when debugging a head-tracking
+    /// perf regression. After flipping + republishing, the log lines
+    /// reappear every 5 seconds as before.</para></summary>
+    public static bool HeadTrackingPerfLogEnabled { get; set; } = false;
+
+    // M4 (head-tracking sprint): paths to the Python sidecar's interpreter
+    // and script. Resolved with the same "alongside the EXE, then walk up
+    // looking for the repo's tools/ folder" probe used for ModelPath /
+    // DemoVideoPath so both development and shipping installs work. Only
+    // consulted when HeadTrackingEnabled is true; the probe is cached at
+    // first access. Default sidecar layout (committed at the M2 tag):
+    //   tools/head-tracker-sidecar/.venv/Scripts/python.exe   (Windows)
+    //   tools/head-tracker-sidecar/head_tracker.py
+    private const string SidecarPythonRelative =
+        "tools/head-tracker-sidecar/.venv/Scripts/python.exe";
+    private const string SidecarScriptRelative =
+        "tools/head-tracker-sidecar/head_tracker.py";
+
+    /// <summary>M4: resolved absolute path to the sidecar's Python
+    /// interpreter, or the canonical (alongside-EXE) candidate if not
+    /// found. SidecarHeadPoseReader treats "file not found" as a soft
+    /// disable (logs + ReadLatest returns null), so a missing venv on a
+    /// fresh install never crashes the host.</summary>
+    public static string SidecarPythonPath { get; } =
+        ResolveSidecarPath(SidecarPythonRelative);
+
+    /// <summary>M4: resolved absolute path to head_tracker.py.</summary>
+    public static string SidecarScriptPath { get; } =
+        ResolveSidecarPath(SidecarScriptRelative);
+
+    private static string ResolveSidecarPath(string relative)
+    {
+        string rel = relative.Replace('/', Path.DirectorySeparatorChar);
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        string inBin = Path.Combine(baseDir, rel);
+        if (File.Exists(inBin)) return inBin;
+
+        var info = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 8 && info is not null; i++)
+        {
+            info = info.Parent;
+            if (info is null) break;
+            string candidate = Path.Combine(info.FullName, rel);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return inBin; // canonical-install path for the "not found" diagnostic
+    }
 }

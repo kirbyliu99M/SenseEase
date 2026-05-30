@@ -19,6 +19,16 @@ namespace SenseEase.App.Views;
 ///
 /// <para>i18n: zh-only (same TODO as tray service — i18n service is out
 /// of scope for this sprint).</para>
+///
+/// <para>M8 head-tracking sprint (2026-05-30): adds the
+/// "頭部追蹤 / Head Tracking" section. Mirrors changes onto the static
+/// AppConfig.HeadTracking* props for runtime-readable settings (follow
+/// mode + escape hatch) and persists everything to UserPreferences for the
+/// next launch. The enable toggle is annotated "需重新啟動" because the
+/// IHeadPoseReader factory + LightSensorProvider both bind once at
+/// MainViewModel construction. Escape hatch is force-disabled for users
+/// with a vestibular diagnosis (FOV mask is their VIMS protection;
+/// opening a 3-second transparency window could surface symptoms).</para>
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -51,6 +61,37 @@ public partial class SettingsWindow : Window
         // externally or a prior write failed. The two are reconciled by
         // OnToggleRunAtStartupChanged on every user interaction.
         ToggleRunAtStartup.IsChecked   = AutoStartRegistry.IsEnabled();
+
+        // M8 head-tracking sprint: hydrate the three new toggles from prefs.
+        ToggleHeadTrackingEnabled.IsChecked =
+            UserPreferences.Current.HeadTrackingEnabled;
+
+        bool isFullFollow = string.Equals(
+            UserPreferences.Current.HeadTrackingFollowMode,
+            "FullFollow",
+            StringComparison.OrdinalIgnoreCase);
+        FollowModeBalanced.IsChecked = !isFullFollow;
+        FollowModeFull.IsChecked     =  isFullFollow;
+
+        ToggleEscapeHatch.IsChecked =
+            UserPreferences.Current.HeadTrackingEscapeHatchEnabled;
+
+        // Escape hatch × vestibular guard (M8 Item 3). When the user's
+        // calibration recorded a vestibular diagnosis, the escape hatch is
+        // disabled at the UI level AND the OverlayWindow side (defensive
+        // layer in case prefs flip without restart). Tooltip explains why
+        // so the disabled state isn't perceived as "broken".
+        bool vest = _hasVestibularDiagnosis();
+        if (vest)
+        {
+            ToggleEscapeHatch.IsEnabled = false;
+            ToggleEscapeHatch.ToolTip =
+                "因為偵測到前庭敏感，暫時透明功能已停用以維持視覺保護。\n" +
+                "Disabled because vestibular sensitivity detected; temporary " +
+                "transparency would compromise visual protection.";
+            EscapeHatchVestibularNote.Visibility = Visibility.Visible;
+        }
+
         _wiring = false;
     }
 
@@ -136,6 +177,61 @@ public partial class SettingsWindow : Window
         }
         UserPreferences.Current.RunAtWindowsStartup = desired;
         UserPreferences.Current.Save();
+    }
+
+    // ── M8 head-tracking sprint handlers ─────────────────────────────────────
+
+    /// <summary>M8: master opt-in for head tracking. Persists to prefs and
+    /// to AppConfig (so a subsequent in-session restart sees the new value
+    /// without re-reading the file). Effect at runtime requires app restart:
+    /// the IHeadPoseReader factory + LightSensorProvider factory both run
+    /// once at MainViewModel construction, so flipping this mid-session
+    /// does not start or stop the sidecar. The XAML annotation
+    /// "需重新啟動 / Requires restart" surfaces this constraint to the user.</summary>
+    private void OnToggleHeadTrackingEnabledChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        bool desired = ToggleHeadTrackingEnabled.IsChecked == true;
+        UserPreferences.Current.HeadTrackingEnabled = desired;
+        UserPreferences.Current.Save();
+        // Mirror to AppConfig so the in-memory value matches what the next
+        // launch will read. The current MainViewModel instance keeps its
+        // already-bound reader (whichever variant the factory built) until
+        // the app restarts.
+        AppConfig.HeadTrackingEnabled = desired;
+    }
+
+    /// <summary>M8: follow mode (Balanced / FullFollow). Runtime-changeable:
+    /// OverlayWindow.ApplyHeadPoseToBrush reads AppConfig.HeadTrackingFollowMode
+    /// per frame, so the change takes effect immediately without restart.
+    /// Fires from either RadioButton's Checked event; we read whichever is
+    /// currently checked from the group.</summary>
+    private void OnFollowModeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        bool isFullFollow = FollowModeFull.IsChecked == true;
+        UserPreferences.Current.HeadTrackingFollowMode =
+            isFullFollow ? "FullFollow" : "Balanced";
+        UserPreferences.Current.Save();
+        AppConfig.HeadTrackingFollowMode = isFullFollow
+            ? HeadTrackingFollowModeKind.FullFollow
+            : HeadTrackingFollowModeKind.Balanced;
+    }
+
+    /// <summary>M8: escape-hatch (double-tap Ctrl) opt-in. Runtime-changeable:
+    /// MainWindow's PreviewKeyDown handler reads AppConfig.HeadTrackingEscapeHatchEnabled
+    /// on each Ctrl tap and OverlayWindow.TriggerEscapeHatch also gates on
+    /// it as a defensive second check. For vestibular-diagnosed users the
+    /// CheckBox is disabled at load time (see OnLoaded) AND OverlayWindow
+    /// no-ops at TriggerEscapeHatch (see Item 3 OverlayWindow change) so
+    /// even a forced-on state via JSON edit still preserves the protection.</summary>
+    private void OnToggleEscapeHatchChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        bool desired = ToggleEscapeHatch.IsChecked == true;
+        UserPreferences.Current.HeadTrackingEscapeHatchEnabled = desired;
+        UserPreferences.Current.Save();
+        AppConfig.HeadTrackingEscapeHatchEnabled = desired;
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();

@@ -41,3 +41,21 @@ samples/*.mp4
 # Restore source: %TEMP%\llama-b9294-cuda + %TEMP%\cudart-b9294, or download
 # from https://github.com/ggml-org/llama.cpp/releases (tag b9294).
 runtimes/
+
+# Python sidecar (tools/head-tracker-sidecar/) — sprint decision:
+# single worktree, .venv gitignored. Keep these out of git repo-wide so
+# nobody accidentally commits a virtualenv from anywhere in the tree.
+.venv/
+__pycache__/
+*.pyc
+
+# MediaPipe model binary used by the head-tracker sidecar. Downloaded
+# per machine, not committed. See tools/head-tracker-sidecar/README.md.
+tools/head-tracker-sidecar/face_landmarker.task
+
+# Test-video binaries for the head-tracker sidecar. Documented but not
+# committed (mirrors the existing samples/*.mp4 rule).
+tools/head-tracker-sidecar/fixtures/*.mp4
+tools/head-tracker-sidecar/fixtures/*.webm
+tools/head-tracker-sidecar/fixtures/*.mov
+tools/head-tracker-sidecar/fixtures/*.mkv

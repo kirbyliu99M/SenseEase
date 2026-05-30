@@ -1,0 +1,25 @@
+# SenseEase head-tracker sidecar (Path B) — pinned dependencies.
+#
+# Python: 3.10 - 3.12 (MediaPipe 0.10.x wheels do not yet support 3.13).
+# Tested target: CPython 3.11 on Windows 10/11 x64.
+#
+# To install:
+#   py -3.11 -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# MediaPipe Tasks FaceLandmarker is available from mediapipe 0.10.9 onward.
+# 0.10.14 is the latest stable in the 0.10.x series at sprint start and
+# ships wheels for win_amd64 / cp310-cp312. Pin exact for reproducibility.
+mediapipe==0.10.14
+
+# OpenCV (capture + color conversion + luma). 4.10.0.84 is the latest stable
+# headless-compatible release with cp310-cp312 wheels.
+opencv-python==4.10.0.84
+
+# numpy is pulled transitively but we pin explicitly to keep behavior frozen.
+# mediapipe 0.10.14 requires numpy<2 on Windows.
+numpy==1.26.4
+
+# Optional but used for peak-RSS reporting in --soak mode. Tiny dep, worth it.
+psutil==6.0.0

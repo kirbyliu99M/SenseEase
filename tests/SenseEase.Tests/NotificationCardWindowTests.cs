@@ -1,6 +1,10 @@
 using System;
 using System.Threading;
+using System.Windows;
+using System.Windows.Controls.Primitives;
+using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
+using SenseEase.Core.Inference;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -72,6 +76,127 @@ public class NotificationCardWindowTests
 
             w.PowerSaveToggle.IsChecked = false;
             Assert.False(received);
+        });
+    }
+
+    // ── D3 (audit) — M3 Phase 7e chatbot proposal section ────────────────
+
+    /// <summary>D3 Test A: setting ActiveProposal to a non-null value reveals
+    /// the proposal panel and populates summary/rationale; setting it back to
+    /// null collapses the panel. Closes the audit-flagged D3 gap (plan promised
+    /// a Card unit test for the proposal section but none existed in v0.9).</summary>
+    [Fact]
+    public void NotificationCardWindow_ActiveProposal_TogglesPanelAndPopulatesText()
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            w.ApplyTemplate();
+            Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
+
+            var proposal = new ProfileOverrideProposal(
+                Intent:        OverrideIntent.SwitchProfile,
+                TargetField:   "profile",
+                ProposedValue: "SENSITIVE",
+                Rationale:     "user reports easy nausea",
+                ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+
+            w.ActiveProposal = proposal;
+
+            Assert.Equal(Visibility.Visible, w.ProposalPanel.Visibility);
+            Assert.Contains("SENSITIVE", w.ProposalSummaryText.Text);
+            Assert.Contains("profile", w.ProposalSummaryText.Text);
+            Assert.Contains("user reports easy nausea", w.ProposalRationaleText.Text);
+            Assert.True(w.ProposalAcceptBtn.IsEnabled);
+
+            w.ActiveProposal = null;
+            Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
+        });
+    }
+
+    /// <summary>D3 Test B: clicking Accept raises <see cref="NotificationCardWindow.ProposalAccepted"/>
+    /// with the active proposal payload. Mirrors how MainViewModel wires the
+    /// event to <see cref="HabituationOverrideApplicator.ApplyAccepted"/>.</summary>
+    [Fact]
+    public void NotificationCardWindow_AcceptClick_RaisesProposalAcceptedWithPayload()
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            w.ApplyTemplate();
+            var proposal = new ProfileOverrideProposal(
+                Intent:        OverrideIntent.AdjustStrikeLimit,
+                TargetField:   "strike_limit",
+                ProposedValue: 4,
+                Rationale:     "user wants stricter cutoff",
+                ExpiresAtUtc:  DateTime.UtcNow.AddHours(6));
+            w.ActiveProposal = proposal;
+
+            ProfileOverrideProposal? received = null;
+            w.ProposalAccepted += (_, p) => received = p;
+
+            w.ProposalAcceptBtn.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.NotNull(received);
+            Assert.Equal(OverrideIntent.AdjustStrikeLimit, received!.Intent);
+            Assert.Equal(4, received.ProposedValue);
+            Assert.False(w.ProposalAcceptBtn.IsEnabled);
+        });
+    }
+
+    /// <summary>D3 Test C: clicking Decline raises <see cref="NotificationCardWindow.ProposalDeclined"/>
+    /// and immediately clears the panel (so the user doesn't re-click).</summary>
+    [Fact]
+    public void NotificationCardWindow_DeclineClick_RaisesProposalDeclinedAndClearsPanel()
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            w.ApplyTemplate();
+            var proposal = new ProfileOverrideProposal(
+                Intent:        OverrideIntent.AdjustSensitivity,
+                TargetField:   "sensitivity",
+                ProposedValue: 0.6,
+                Rationale:     "test",
+                ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+            w.ActiveProposal = proposal;
+
+            ProfileOverrideProposal? received = null;
+            w.ProposalDeclined += (_, p) => received = p;
+
+            w.ProposalDeclineBtn.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.NotNull(received);
+            Assert.Equal(OverrideIntent.AdjustSensitivity, received!.Intent);
+            Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
+        });
+    }
+
+    /// <summary>D3 Test D: <see cref="NotificationCardWindow.ShowProposalApplyResult"/>
+    /// with a BlockedBySafety result keeps the panel visible, surfaces the
+    /// intercept reason in red, and disables Accept. This is the surface
+    /// MainViewModel uses to feed Phase 7f intercepts back to the user.</summary>
+    [Fact]
+    public void NotificationCardWindow_BlockedApplyResult_SurfacesSafetyNoteAndDisablesAccept()
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            w.ApplyTemplate();
+            var proposal = new ProfileOverrideProposal(
+                Intent:        OverrideIntent.AdjustSensitivity,
+                TargetField:   "sensitivity",
+                ProposedValue: 0.8,
+                Rationale:     "test",
+                ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+            w.ActiveProposal = proposal;
+
+            w.ShowProposalApplyResult(ApplyResult.Blocked("vestibular advisory active"));
+
+            Assert.Equal(Visibility.Visible, w.ProposalPanel.Visibility);
+            Assert.Equal(Visibility.Visible, w.ProposalSafetyNoteText.Visibility);
+            Assert.Contains("vestibular advisory active", w.ProposalSafetyNoteText.Text);
+            Assert.False(w.ProposalAcceptBtn.IsEnabled);
         });
     }
 

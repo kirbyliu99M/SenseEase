@@ -287,6 +287,113 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _proposalExpiryTimer.Start();
     }
     private readonly IEventLogStore _log = new InMemoryEventLogStore();
+
+    // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
+    // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
+    // container — services are composed as `readonly` fields on the view-
+    // models that need them (see `_mockSensing`, `_cursorSensing`, `_log`
+    // above for the same pattern). M3 wired the DefaultHeadPoseReader stub
+    // unconditionally; M4 switches the field to a flag-aware factory call
+    // so SidecarHeadPoseReader is instantiated when HeadTrackingEnabled is
+    // true and DefaultHeadPoseReader otherwise. The M4 invariant: with the
+    // flag false (default), the field still binds to DefaultHeadPoseReader,
+    // no sidecar process is spawned, and the consumer (M5) sees null on
+    // every ReadLatest call → falls back to the (0.5, 0.5) center default.
+    // Exposed `internal` so the M4 integration test can reach in and assert
+    // the binding without widening the public surface (mirrors the
+    // `InternalsVisibleTo SenseEase.Tests` plumbing already in
+    // SenseEase.Infrastructure).
+    private readonly IHeadPoseReader _headPoseReader = CreateHeadPoseReader();
+    internal IHeadPoseReader HeadPoseReader => _headPoseReader;
+
+    /// <summary>M5 UX-iter 3 Fix C: the reader the high-frequency head-pose
+    /// timer in MainWindow pulls from. Mirrors the override-wins logic in
+    /// UpdateFromState so the timer pulls from the mock-sweep reader when
+    /// active (Ctrl+Shift+H deterministic pattern) and from the real
+    /// SidecarHeadPoseReader otherwise.</summary>
+    internal IHeadPoseReader EffectiveHeadPoseReader => _overrideReader ?? _headPoseReader;
+
+    // ── M5: developer/QA mock-sweep override ─────────────────────────────────
+    // When non-null, takes precedence over _headPoseReader inside the
+    // UpdateFromState ReadLatest pull. Set by StartMockHeadPoseSweep (bound
+    // to Ctrl+Shift+H at the MainWindow level) and cleared automatically
+    // when the sweep completes (its ReadLatest returns null past 20 s, but
+    // we also schedule a hard-clear timer for the field swap so the next
+    // sweep press can start fresh). Volatile via Interlocked so the
+    // OFI/cursor/demo timers can read it without locking; mutated only on
+    // the UI dispatcher thread (by the hotkey handler + timer Tick).
+    private IHeadPoseReader? _overrideReader;
+    internal IHeadPoseReader? OverrideHeadPoseReaderForTests
+    {
+        get => _overrideReader;
+        set => _overrideReader = value;
+    }
+    private DispatcherTimer? _mockSweepClearTimer;
+
+    /// <summary>M5 developer/QA hook: install a deterministic 20-second
+    /// mock head-pose sweep and surface it through the same UpdateFromState
+    /// path used by the real sidecar reader. Used by the G4 UVHS demo and
+    /// by anyone visually verifying the wiring without a working webcam.
+    ///
+    /// <para>Independent of <see cref="AppConfig.HeadTrackingEnabled"/>:
+    /// the sweep WILL drive the FOV-mask center even when head-tracking is
+    /// disabled overall, because its purpose is to prove the wiring on
+    /// machines without webcams or with broken MediaPipe detection.</para>
+    ///
+    /// <para>Idempotent: a second press while a sweep is in flight is
+    /// ignored (so the user can't double-trigger).</para>
+    /// </summary>
+    public void StartMockHeadPoseSweep()
+    {
+        if (_overrideReader is not null) return; // sweep already running
+        _overrideReader = new MockSweepHeadPoseReader();
+        _mockSweepClearTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(MockSweepHeadPoseReader.SweepDurationSeconds + 0.25),
+        };
+        _mockSweepClearTimer.Tick += (_, _) =>
+        {
+            try { _mockSweepClearTimer?.Stop(); } catch { }
+            _mockSweepClearTimer = null;
+            _overrideReader = null;
+        };
+        _mockSweepClearTimer.Start();
+    }
+
+    /// <summary>True while a mock sweep is active. Exposed for tray/diag
+    /// surfaces or future UI indicators.</summary>
+    public bool IsMockHeadPoseSweepActive => _overrideReader is not null;
+
+    /// <summary>M4 factory: chooses the reader implementation based on
+    /// <see cref="AppConfig.HeadTrackingEnabled"/>. Q5-locked DI pattern:
+    /// no container, no service collection — just a static factory that
+    /// reads the static flag and returns the appropriate instance.</summary>
+    private static IHeadPoseReader CreateHeadPoseReader()
+    {
+        if (!AppConfig.HeadTrackingEnabled)
+            return new DefaultHeadPoseReader();
+        return new SidecarHeadPoseReader(
+            pythonExePath:     AppConfig.SidecarPythonPath,
+            sidecarScriptPath: AppConfig.SidecarScriptPath,
+            log:               null,
+            mirror:            true,
+            webcamIndex:       0);
+    }
+
+    /// <summary>M4: kick the sidecar process if head-tracking is enabled.
+    /// Called from MainWindow.Loaded so the spawn happens after the visual
+    /// tree is ready (parity with the WGC validation / persistent bar /
+    /// tray icon Loaded handlers). Flag-off invariant: returns immediately
+    /// without touching the reader at all.</summary>
+    public void StartHeadTrackingIfEnabled()
+    {
+        if (!AppConfig.HeadTrackingEnabled) return;
+        if (_headPoseReader is SidecarHeadPoseReader sidecar)
+        {
+            try { sidecar.Start(); } catch { /* sidecar is best-effort */ }
+        }
+    }
+
     private readonly INluService _nlu;
     private readonly DispatcherTimer _demoTimer;
     private readonly DispatcherTimer _idleTimer; // keeps decay visible in Demo Mode when slider is idle
@@ -1271,6 +1378,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : "Pressure returned below threshold, FOV mask released.", state);
         }
     }
+    /// <summary>M5 test seam: drive the engine→state publication path
+    /// without needing a real <c>OnOpticalFlowSampled</c> tick. Internal +
+    /// InternalsVisibleTo("SenseEase.Tests"). Tests inject a synthetic
+    /// SenseState and observe the StateChanged callback for asserting
+    /// HeadGaze + HeadTrackingActive plumbing.</summary>
+    internal void UpdateFromStateForTests(SenseState state) => UpdateFromState(state);
+
     private void UpdateFromState(SenseState state)
     {
         CurrentState = state;
@@ -1314,6 +1428,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // History ring-buffer — O(1) append via RingHistory.
         OfiHistory.Append(state.OpticalFlowIndex);
         PressureHistory.Append(state.Pressure);
+
+        // ── M5: head-pose-driven FOV-mask centering ────────────────────────
+        // Pull the latest head-pose sample (sidecar reader OR the developer
+        // mock-sweep override, override wins) and write it into SenseState
+        // before publishing. Flag-off + no-sample path leaves the state at
+        // the (0.5, 0.5) center defaults so OverlayWindow.ApplyFovMask keeps
+        // its v0.9-baseline behavior. Q3-verified: sidecar cx/cy use the
+        // same MappingMode.RelativeToBoundingBox convention as the WPF
+        // RadialGradientBrush.Center — no conversion needed at any layer.
+        var poseReader = _overrideReader ?? _headPoseReader;
+        HeadPoseSample? pose = poseReader.ReadLatest();
+        if (pose is not null)
+        {
+            state.HeadGazeX = pose.Cx;
+            state.HeadGazeY = pose.Cy;
+            state.HeadTrackingActive = true;
+        }
+        else
+        {
+            state.HeadGazeX = 0.5;
+            state.HeadGazeY = 0.5;
+            state.HeadTrackingActive = false;
+        }
 
         StateChanged?.Invoke(this, state);
 
@@ -1404,14 +1541,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             // Keep the concrete type local so we can read Source — the interface
             // intentionally does not expose it (UI-only concern).
-            var lsp = new LightSensorProvider(AppConfig.UseWebcamLuxFallback);
+            //
+            // M6 (head-tracking sprint): when head-tracking is on, the sidecar
+            // owns the single webcam (locked decision 3). Instantiating a
+            // WebcamLuxProvider in that case would either fail MediaCapture
+            // init or contend with the sidecar's capture loop, so we route
+            // through the SidecarLuxProvider path that piggy-backs on the
+            // sidecar's existing per-frame luma JSON field. Startup-time
+            // decision is sufficient: runtime toggling of HeadTrackingEnabled
+            // is not a supported flow in M6 (a future v1.0 enhancement would
+            // need to also rebuild the LuxController).
+            LightSensorProvider lsp = AppConfig.HeadTrackingEnabled
+                ? new LightSensorProvider(_headPoseReader)
+                : new LightSensorProvider(AppConfig.UseWebcamLuxFallback);
             provider   = lsp;
             sourceKind = lsp.Source;
         }
         LuxSourceLabel = sourceKind switch
         {
-            LightSensorProvider.LuxSourceKind.Als    => "ALS",
-            LightSensorProvider.LuxSourceKind.Webcam => "Webcam",
+            LightSensorProvider.LuxSourceKind.Als     => "ALS",
+            LightSensorProvider.LuxSourceKind.Webcam  => "Webcam",
+            LightSensorProvider.LuxSourceKind.Sidecar => "Sidecar",
             _ => AppConfig.LuxMode == LuxSensingMode.Mock ? "Mock" : "Not available",
         };
 
@@ -1477,6 +1627,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void DisposeServices()
     {
         try { _activityDetector.Dispose(); } catch { }
+        // M4 head-tracking sprint: gracefully stop the sidecar process if it
+        // was spawned. The JobObject reaper would catch a hard exit anyway,
+        // but explicit Dispose is faster + flushes the stderr tail log.
+        if (_headPoseReader is IDisposable disposable)
+        {
+            try { disposable.Dispose(); } catch { }
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

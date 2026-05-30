@@ -19,6 +19,29 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 {
     private const double BrushRadius = 0.85;
 
+    // M5 UX-iteration 3 (2026-05-29): replace static clamp + fixed expanded
+    // radius with state-driven dynamic radius. User reported the [0.15, 0.85]
+    // clamp blocked the sprint's actual goal — "look at screen corners with
+    // the mask following." Fix B removes the clamp entirely; cx/cy travel
+    // the full [0, 1]. The radius dynamically expands so the farthest screen
+    // corner always sits inside the gradient regardless of mask center
+    // position. v0.9 baseline (HeadTrackingActive=false) keeps BrushRadius
+    // = 0.85 at center (0.5, 0.5) — zero behavioral drift.
+    //
+    // Formula for dynamic radius (in ApplyFovMask):
+    //   farX = max(cx, 1 - cx)
+    //   farY = max(cy, 1 - cy)
+    //   farthestCorner = sqrt(farX² + farY²)
+    //   radius = max(BrushRadius, farthestCorner * BrushRadiusCornerMargin)
+    //
+    // Center=(0.5, 0.5): radius = max(0.85, 0.71 × 1.10) = 0.85 → v0.9 baseline
+    // Center=(0.85, 0.5): radius = max(0.85, 0.99 × 1.10) = 1.09
+    // Center=(1, 1) corner: radius = max(0.85, 1.41 × 1.10) = 1.55
+    //
+    // The radius scales exactly to need with a 10% safety margin so the
+    // farthest corner sits at smoothstep ~0.91, not at the gradient edge.
+    private const double BrushRadiusCornerMargin = 1.10;
+
     /// <summary>
     /// VIMS 10-level table (方案 A). Each row is (R, G, B, peak-alpha fraction 0–1).
     /// L1-L6 are pure gray (#666 → #444 → #222). L7-L10 carry a subtle cool tint
@@ -118,13 +141,18 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     // ── FIX #2: cached, frozen grid opacity-mask brush ───────────────────────
 
     /// <summary>
-    /// Invariant radial feather used as GridCanvas.OpacityMask. Built once, frozen.
-    /// Always uses BuildLevelFeather(255, Colors.White) — the only call site.
+    /// Radial feather used as GridCanvas.OpacityMask. M5.1-A v2 hotfix
+    /// (2026-05-29): converted from static-frozen to per-instance-unfrozen
+    /// so Center + RadiusX/Y can be updated alongside the FOV brush when
+    /// head tracking is active. Previously the grid's transparency hole
+    /// stayed pinned at (0.5, 0.5) while the FOV mask moved → grid lines
+    /// remained visible exactly where the user was looking. Same geometry
+    /// stops (BuildLevelFeather(255, white)) so the two layers stay aligned.
     /// </summary>
-    private static readonly RadialGradientBrush GridOpacityMaskBrush = BuildGridOpacityMaskBrush();
+    private RadialGradientBrush _gridOpacityMaskBrush = BuildGridOpacityMaskBrush();
     private static RadialGradientBrush BuildGridOpacityMaskBrush()
     {
-        var brush = new RadialGradientBrush
+        return new RadialGradientBrush
         {
             GradientOrigin = new Point(0.5, 0.5),
             Center         = new Point(0.5, 0.5),
@@ -132,8 +160,6 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             RadiusY        = BrushRadius,
             GradientStops  = BuildLevelFeather(255, Colors.White),
         };
-        brush.Freeze();
-        return brush;
     }
 
     // ── FIX #13: cached grid line objects ────────────────────────────────────
@@ -313,6 +339,15 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         ApplyGridFalloff(state);
     }
 
+    /// <summary>Render the FOV mask for the supplied state. Mutates the
+    /// shared <c>_fovBrush</c> (a <see cref="RadialGradientBrush"/> on
+    /// <c>FovMask.Fill</c>) — so <b>must run on the UI dispatcher thread</b>.
+    /// The v0.9.3 cross-thread-marshal hotfix in
+    /// <c>MainWindow.OnStateChanged</c> already wraps the inbound
+    /// <c>StateChanged</c> callback in <c>Dispatcher.CheckAccess + BeginInvoke</c>,
+    /// so by the time <c>ApplyState → ApplyFovMask</c> runs we are always
+    /// on the dispatcher. M5 (head-pose centering) relies on this invariant
+    /// and does NOT introduce a new background → UI code path.</summary>
     private void ApplyFovMask(SenseState state)
     {
         // Engine snaps `state.VimsTier` discretely (hysteresis + debounce → no flicker on
@@ -378,8 +413,208 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             }
         }
 
-        FovMask.BeginAnimation(OpacityProperty, null);
-        FovMask.Opacity = 1.0;
+        // ── M5: head-pose-driven center ───────────────────────────────────
+        // When state.HeadTrackingActive is true, follow the smoothed head
+        // gaze; otherwise snap back to the v0.9 hardcoded (0.5, 0.5) center.
+        // Q3-verified self-consistent: sidecar cx/cy use the same
+        // MappingMode.RelativeToBoundingBox convention as the WPF brush,
+        // so no axis or sign conversion happens at any layer. The
+        // Center != center guard short-circuits no-op mutations to avoid
+        // re-rendering on identical updates (and to preserve the v0.9
+        // baseline byte-for-byte when HeadTrackingEnabled is false).
+        // M5 UX-iter 3: head-pose application is factored into
+        // ApplyHeadPoseToBrush so the high-frequency dispatcher timer
+        // (Fix C, MainWindow Loaded#5) can also call it without
+        // re-running the grid/mask color recomputation above. State-driven
+        // path runs at engine tick; timer-driven path runs at ~30 Hz.
+        ApplyHeadPoseToBrush(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
+
+        // M5.1-B: don't clobber the escape-hatch alpha animation. When
+        // _escapeHatchActive is true, the Storyboard owns FovMask.Opacity
+        // until it completes and clears the flag.
+        if (!_escapeHatchActive)
+        {
+            FovMask.BeginAnimation(OpacityProperty, null);
+            FovMask.Opacity = 1.0;
+        }
+    }
+
+    // ── M5.1-B: escape-hatch alpha dip ───────────────────────────────────────
+
+    private bool _escapeHatchActive;
+    private Storyboard? _escapeHatchStoryboard;
+
+    /// <summary>M8 head-tracking sprint: host-wired lookup of "does the user
+    /// have a vestibular diagnosis on file?". When set and returns true,
+    /// <see cref="TriggerEscapeHatch"/> is a no-op even if
+    /// <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
+    /// is true. The FOV mask IS the VIMS protection for vestibular-sensitive
+    /// users — opening a 3-second window of 30 % opacity could surface
+    /// symptoms during a high-motion moment. This is the defensive layer;
+    /// the Settings UI also greys out the checkbox at load time. Read-only
+    /// consumer of the existing MainViewModel.HasVestibularDiagnosis API
+    /// (the engine + snapshot types from SenseEase.Core are NOT modified
+    /// by the head-tracking sprint — verified via empty diff at M8 close).
+    /// Mirrors the same Func&lt;bool&gt; pattern used by NotificationCardWindow.HasVestibularDiagnosis.
+    /// Null defaults to "() =&gt; false" so an unwired test or future caller
+    /// keeps the old behaviour. Locked-file note: the lookup itself lives
+    /// on MainViewModel (read-only consumer of the calibration responses
+    /// on the habituation profile snapshot — engine + snapshot types are
+    /// not modified by the head-tracking sprint).</summary>
+    public Func<bool>? HasVestibularDiagnosis { get; set; }
+
+    /// <summary>M5.1-B: temporarily fade the FOV mask to 30 % opacity for
+    /// 3 seconds with a 250 ms fade-down + 500 ms fade-up. Triggered by
+    /// double-tapping Ctrl when <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
+    /// is true. Lets a Balanced-mode user peek at a screen corner without
+    /// committing to FullFollow permanently. Orthogonal to the follow-mode
+    /// choice — works whether head-tracking is on or off, in either mode.
+    /// Safe to call repeatedly: a new call mid-animation resets the cycle
+    /// (the user gets a fresh 3 second window).
+    ///
+    /// <para>M8 escape × vestibular guard: returns early when
+    /// <see cref="HasVestibularDiagnosis"/> reports true. The FOV mask is
+    /// the VIMS protection for vestibular-sensitive users; we never lower
+    /// it. Defensive layer — the Settings UI ALSO disables the checkbox
+    /// at load time, but a user with a forced-on JSON edit (or a Ctrl tap
+    /// before the prefs are hydrated) still gets the protection here.</para></summary>
+    public void TriggerEscapeHatch()
+    {
+        if (!Configuration.AppConfig.HeadTrackingEscapeHatchEnabled) return;
+        // M8: vestibular guard — read-only consumer of the host's lookup.
+        // Null fallback returns false (i.e. unwired = previous behaviour).
+        if (HasVestibularDiagnosis?.Invoke() == true) return;
+
+        try { _escapeHatchStoryboard?.Stop(this); } catch { /* ignore */ }
+
+        var sb = new Storyboard();
+
+        var fadeDown = new DoubleAnimation
+        {
+            From          = 1.0,
+            To            = 0.30,
+            Duration      = new Duration(TimeSpan.FromMilliseconds(250)),
+            BeginTime     = TimeSpan.Zero,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+        };
+        Storyboard.SetTarget(fadeDown, FovMask);
+        Storyboard.SetTargetProperty(fadeDown, new PropertyPath(OpacityProperty));
+        sb.Children.Add(fadeDown);
+
+        // 250 ms (end of fade-down) + 3000 ms hold → fade-up starts at 3250 ms.
+        var fadeUp = new DoubleAnimation
+        {
+            From          = 0.30,
+            To            = 1.0,
+            Duration      = new Duration(TimeSpan.FromMilliseconds(500)),
+            BeginTime     = TimeSpan.FromMilliseconds(3250),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+        };
+        Storyboard.SetTarget(fadeUp, FovMask);
+        Storyboard.SetTargetProperty(fadeUp, new PropertyPath(OpacityProperty));
+        sb.Children.Add(fadeUp);
+
+        sb.Completed += (_, _) =>
+        {
+            _escapeHatchActive = false;
+            // After the storyboard ends, hand opacity back to ApplyFovMask
+            // by leaving it animated-to-1.0; ApplyFovMask's own reset will
+            // take over on the next tick.
+        };
+
+        _escapeHatchStoryboard = sb;
+        _escapeHatchActive = true;
+        sb.Begin(this, true);
+    }
+
+    /// <summary>M5 test seam: expose the FOV mask brush so STA-bound unit
+    /// tests can verify <c>Center</c> follows <c>HeadGazeX/Y</c>. Internal
+    /// + <c>InternalsVisibleTo("SenseEase.Tests")</c>, no widening of the
+    /// public surface.</summary>
+    internal RadialGradientBrush? FovBrushForTests => _fovBrush;
+
+    /// <summary>M5 UX-iter 3 Fix C: high-frequency entry point for the head-pose
+    /// dispatcher timer (~30 Hz). Bypasses the full ApplyState grid/mask color
+    /// recomputation and updates ONLY the brush's <c>Center</c> + <c>Radius</c>.
+    /// Decouples mask-follows-head smoothness from the engine tick (~3.3 Hz)
+    /// which was the perceived "lag / inconsistent framerate" reported during
+    /// Demo B. Must run on UI thread (mutates DependencyObjects).</summary>
+    public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active)
+    {
+        if (_fovBrush is null) return;
+        ApplyHeadPoseToBrush(headGazeX, headGazeY, active);
+    }
+
+    /// <summary>M5 UX-iter 3: shared head-pose → brush mutation. Both the
+    /// state-driven path (ApplyFovMask, engine tick) and the timer-driven
+    /// path (UpdateHeadGazeCenter, 30 Hz) call this so the brush state
+    /// stays consistent. Active=false snaps to v0.9 baseline (center 0.5/0.5,
+    /// radius BrushRadius).</summary>
+    private void ApplyHeadPoseToBrush(double headGazeX, double headGazeY, bool active)
+    {
+        if (_fovBrush is null) return;
+
+        // M5.1-B: mode-based clamp. Balanced (default) restricts travel to
+        // [0.10, 0.90] so the periphery is always partially dimmed regardless
+        // of gaze direction — clinical default for VIMS mitigation. FullFollow
+        // (opt-in) allows the full [0, 1] range; user uses the escape-hatch
+        // hotkey if they want to peek at a corner without committing to
+        // FullFollow permanently.
+        double low, high;
+        if (Configuration.AppConfig.HeadTrackingFollowMode
+            == Configuration.HeadTrackingFollowModeKind.FullFollow)
+        {
+            low = 0.0; high = 1.0;
+        }
+        else
+        {
+            low = 0.10; high = 0.90;
+        }
+        double cx = active ? Math.Clamp(headGazeX, low, high) : 0.5;
+        double cy = active ? Math.Clamp(headGazeY, low, high) : 0.5;
+        var center = new Point(cx, cy);
+        if (_fovBrush.Center != center)
+        {
+            _fovBrush.Center         = center;
+            _fovBrush.GradientOrigin = center;
+        }
+
+        // Fix B: dynamic radius scales to the farthest screen corner so
+        // even at full-corner center, opposite (0, 0) sits inside gradient
+        // at smoothstep ~0.91. v0.9 baseline (active=false) keeps 0.85.
+        double radius;
+        if (active)
+        {
+            double farX = Math.Max(cx, 1.0 - cx);
+            double farY = Math.Max(cy, 1.0 - cy);
+            double farthestCorner = Math.Sqrt(farX * farX + farY * farY);
+            radius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
+        }
+        else
+        {
+            radius = BrushRadius;
+        }
+        if (_fovBrush.RadiusX != radius)
+        {
+            _fovBrush.RadiusX = radius;
+            _fovBrush.RadiusY = radius;
+        }
+
+        // M5.1-A v2 hotfix: mirror the FOV brush's Center / Radius onto the
+        // grid OpacityMask brush so the grid's transparency hole tracks the
+        // FOV clear zone. Without this, the grid lines remain visible
+        // exactly where the user is looking — the exact glitch reported
+        // during M5.1-A v2 UVHS. Same coordinates, same radius scaling.
+        if (_gridOpacityMaskBrush.Center != center)
+        {
+            _gridOpacityMaskBrush.Center         = center;
+            _gridOpacityMaskBrush.GradientOrigin = center;
+        }
+        if (_gridOpacityMaskBrush.RadiusX != radius)
+        {
+            _gridOpacityMaskBrush.RadiusX = radius;
+            _gridOpacityMaskBrush.RadiusY = radius;
+        }
     }
 
     private void ApplyGridFalloff(SenseState state)
@@ -391,8 +626,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // GridCanvas.Opacity (driven in ApplyGridIntensity by `coverage`).
         // FIX #2: assign the pre-built frozen brush; one reference-compare guards
         // against external code clearing the mask — avoids allocation every tick.
-        if (!ReferenceEquals(GridCanvas.OpacityMask, GridOpacityMaskBrush))
-            GridCanvas.OpacityMask = GridOpacityMaskBrush;
+        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridOpacityMaskBrush))
+            GridCanvas.OpacityMask = _gridOpacityMaskBrush;
     }
 
     // Builds the FIXED gradient structure mandated by the VIMS comfort spec:

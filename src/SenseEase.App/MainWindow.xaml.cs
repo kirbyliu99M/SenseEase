@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using SenseEase.App.Configuration;
 using SenseEase.App.Services;
@@ -317,6 +318,229 @@ public partial class MainWindow : Window
         {
             if (!_viewModel.OverlayVisible) _viewModel.OverlayVisible = true;
         };
+
+        // M5 head-tracking sprint: Ctrl+Shift+H triggers the developer
+        // mock head-pose sweep. 20-second deterministic pattern (horizontal
+        // → vertical → circular → center hold). Intentionally independent
+        // of AppConfig.HeadTrackingEnabled — the hotkey is a developer/QA
+        // surface used during G4 UVHS to prove the wiring end-to-end on
+        // machines without a working webcam. Second press while a sweep
+        // is in flight is a no-op (ViewModel.StartMockHeadPoseSweep returns
+        // immediately if _overrideReader is already non-null).
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.H &&
+                (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
+                (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
+            {
+                _viewModel.StartMockHeadPoseSweep();
+                e.Handled = true;
+                return;
+            }
+
+            // M5.1-B escape hatch: double-tap Ctrl (no other keys) within
+            // 400 ms triggers OverlayWindow.TriggerEscapeHatch(). Detection
+            // strategy: track Ctrl KeyDown events that arrive cleanly (no
+            // other key being held). On the second clean Ctrl KeyDown
+            // within the window, fire. Reset on any non-Ctrl KeyDown so
+            // chord typing (Ctrl+C, Ctrl+S, etc.) doesn't poison the state.
+            //
+            // M8 escape × vestibular guard (defensive layer): even before
+            // we look at AppConfig.HeadTrackingEscapeHatchEnabled, no-op
+            // entirely for vestibular-diagnosed users. The OverlayWindow
+            // also checks via HasVestibularDiagnosis (set on construction)
+            // — this site is a belt-and-braces second check so a forced-on
+            // AppConfig + JSON edit can't bypass the protection.
+            if (_viewModel.HasVestibularDiagnosis())
+            {
+                _lastCtrlTapUtc = default;
+                return;
+            }
+            bool isCtrl = e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl;
+            if (isCtrl)
+            {
+                // Ignore auto-repeat (held Ctrl spams KeyDown).
+                if (e.IsRepeat) return;
+
+                var now = DateTime.UtcNow;
+                var sinceLast = now - _lastCtrlTapUtc;
+                if (sinceLast.TotalMilliseconds <= 400)
+                {
+                    // Double-tap. Trigger and reset.
+                    _lastCtrlTapUtc = default;
+                    _overlay?.TriggerEscapeHatch();
+                }
+                else
+                {
+                    _lastCtrlTapUtc = now;
+                }
+            }
+            else
+            {
+                // Any other key resets the double-tap window so Ctrl+X
+                // doesn't accidentally fire the escape hatch.
+                _lastCtrlTapUtc = default;
+            }
+        };
+
+        // M4 head-tracking sprint: spawn the Python sidecar if
+        // HeadTrackingEnabled is true. Idempotent + flag-off invariant
+        // safe: returns immediately when the flag is false (no process
+        // spawned, byte-equivalent to M3 baseline). Wrapped in the same
+        // entry/exit log pattern as the other Loaded handlers so a silent
+        // sidecar-start failure is visible in wgc_diag.txt.
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#4] StartHeadTrackingIfEnabled entry");
+            try
+            {
+                _viewModel.StartHeadTrackingIfEnabled();
+                SafeLog("[Loaded#4] StartHeadTrackingIfEnabled exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#4] StartHeadTrackingIfEnabled EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                // Don't rethrow — head-tracking is opt-in and must never
+                // block the dashboard from coming up.
+            }
+        };
+
+        // M5 UX-iter 3 Fix C (2026-05-29) + M5.1-C iter 2 (2026-05-30):
+        // brush position update was originally a 30 Hz DispatcherTimer (Fix
+        // C) but PRECONDITION measurement showed it only achieved ~20 Hz
+        // under load due to dispatcher contention. On the user's 165 Hz
+        // monitor, that meant brush.Center was held unchanged for 8 render
+        // frames between updates — a visibly choppy 20 fps animation on a
+        // 165 fps display.
+        //
+        // M5.1-C iter 2: subscribe to CompositionTarget.Rendering instead
+        // of a DispatcherTimer. Rendering fires once per WPF composition
+        // pass (i.e. at display refresh rate, 165 Hz on this monitor) and
+        // is the standard hook for frame-rate-decoupled animation. On each
+        // render frame we pull the latest sample from the reader and
+        // interpolate the displayed brush position toward it with a short
+        // half-life (~15 ms). brush.Center mutates 165 times per second
+        // with sub-frame motion between sample arrivals — perceived smooth
+        // motion. Sidecar still produces at 15 Hz; the interpolation
+        // tweens between those discrete sample arrivals.
+        //
+        // Cost: ~10 µs × 165 Hz = 1.65 ms/sec ≈ 0.17% of one core.
+        Loaded += (_, _) =>
+        {
+            SafeLog("[Loaded#5] HeadPoseRendering subscribe");
+            try
+            {
+                System.Windows.Media.CompositionTarget.Rendering += OnCompositionRendering;
+                _renderingSubscribed = true;
+                SafeLog("[Loaded#5] HeadPoseRendering subscribe exit OK");
+            }
+            catch (Exception ex)
+            {
+                SafeLog($"[Loaded#5] HeadPoseRendering subscribe EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            }
+        };
+        Unloaded += (_, _) =>
+        {
+            if (_renderingSubscribed)
+            {
+                try { System.Windows.Media.CompositionTarget.Rendering -= OnCompositionRendering; } catch { /* ignore */ }
+                _renderingSubscribed = false;
+            }
+        };
+    }
+
+    private bool _renderingSubscribed;
+    private DateTime _lastCtrlTapUtc;   // M5.1-B escape-hatch double-tap timestamp
+    // Interpolated brush position. _displayedCx/Cy is what's pushed to the
+    // brush; _targetCx/Cy is the latest sample reading (from the reader).
+    // Each render frame lerps displayed toward target.
+    private double _displayedCx = 0.5;
+    private double _displayedCy = 0.5;
+    private DateTime _lastRenderUtc;
+
+    // M5.1-C PRECONDITION instrumentation (2026-05-29): rolling tick-rate
+    // counter so the full-active perf measurement can answer "is the C# 30 Hz
+    // timer actually achieving 30 Hz under load, or is starvation causing
+    // some of the perceived lag?". Sampled every 5 seconds via SafeLog so
+    // the user-side soak run produces a wgc_diag.txt trace alongside the
+    // sidecar's own --soak report. Removable after M5.1-C completes.
+    private int _headPoseTickCount;
+    private DateTime _headPoseTickCountStartUtc;
+
+    /// <summary>M5.1-C iter 2 (2026-05-30): per-render brush update.
+    /// CompositionTarget.Rendering fires once per WPF composition pass —
+    /// at display refresh rate when the dispatcher isn't saturated, so
+    /// brush.Center mutates ~165 Hz on a 165 Hz monitor (vs the previous
+    /// ~20 Hz DispatcherTimer which produced visibly stepped motion).
+    /// Per-frame logic: pull latest sample → update target → lerp
+    /// displayed toward target with a 15 ms half-life → push displayed
+    /// to OverlayWindow.UpdateHeadGazeCenter. The interpolation tweens
+    /// between the sidecar's 15 Hz sample arrivals so the user perceives
+    /// continuous motion.</summary>
+    private void OnCompositionRendering(object? sender, EventArgs e)
+    {
+        if (_overlay is null) return;
+        try
+        {
+            var pose = _viewModel.EffectiveHeadPoseReader.ReadLatest();
+            double targetCx = pose?.Cx ?? 0.5;
+            double targetCy = pose?.Cy ?? 0.5;
+            bool active = pose is not null;
+
+            // Time-based lerp toward target. 15 ms half-life means we
+            // close half the remaining distance every 15 ms, ~30 ms to
+            // get within 25 %, ~50 ms to get within ~10 %. Sample arrives
+            // every ~67 ms (15 Hz sidecar), so we always settle before
+            // the next sample arrives without adding visible latency.
+            var now = DateTime.UtcNow;
+            double dtMs = (now - _lastRenderUtc).TotalMilliseconds;
+            _lastRenderUtc = now;
+            if (dtMs <= 0 || dtMs > 100) dtMs = 6.0; // first frame / overflow fallback
+
+            const double HalfLifeMs = 15.0;
+            double factor = 1.0 - Math.Exp(-dtMs * Math.Log(2.0) / HalfLifeMs);
+            _displayedCx += factor * (targetCx - _displayedCx);
+            _displayedCy += factor * (targetCy - _displayedCy);
+
+            _overlay.UpdateHeadGazeCenter(
+                headGazeX: _displayedCx,
+                headGazeY: _displayedCy,
+                active:    active);
+
+            // M8 head-tracking sprint: per-frame perf log gated behind
+            // AppConfig.HeadTrackingPerfLogEnabled (default false). The two
+            // counters proved their value at G6 perf decision but are dead
+            // weight in production (5-second log spam, no user value). Flag
+            // off → skip the entire 5-second block (no log emission, no
+            // sidecar reset). The Interlocked.Increment on _headPoseTickCount
+            // (one int add per frame) stays unconditional — it's negligible
+            // and lets the flag flip take effect on the next 5-second window
+            // when debugging. Mirror the AppConfig.HeadTrackingEnabled flip
+            // pattern (code edit + republish) when debugging a perf issue.
+            if (Configuration.AppConfig.HeadTrackingPerfLogEnabled)
+            {
+                _headPoseTickCount++;
+                if (_headPoseTickCountStartUtc == default)
+                    _headPoseTickCountStartUtc = DateTime.UtcNow;
+                var elapsed = DateTime.UtcNow - _headPoseTickCountStartUtc;
+                if (elapsed.TotalSeconds >= 5.0)
+                {
+                    double achievedHz = _headPoseTickCount / elapsed.TotalSeconds;
+                    int sidecarSamples = 0;
+                    if (_viewModel.EffectiveHeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar)
+                        sidecarSamples = sidecar.ConsumeReceivedSampleCount();
+                    double sidecarHz = sidecarSamples / elapsed.TotalSeconds;
+                    SafeLog($"[HeadPoseRender] renders={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target=monitor refresh) sidecar_received={sidecarSamples} sidecarHz={sidecarHz:F2} (target 15.00)");
+                    _headPoseTickCount = 0;
+                    _headPoseTickCountStartUtc = DateTime.UtcNow;
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort: a single read failure must not kill the timer.
+            // If the reader is in a bad state it'll recover on next tick.
+        }
     }
 
     /// <summary>overlay-bar-redesign diag-2: best-effort append to
@@ -828,7 +1052,18 @@ public partial class MainWindow : Window
         {
             if (_overlay == null || !_overlay.IsLoaded)
             {
-                _overlay = new OverlayWindow();
+                _overlay = new OverlayWindow
+                {
+                    // M8 escape × vestibular guard: read-only consumer of
+                    // MainViewModel.HasVestibularDiagnosis. When the user's
+                    // calibration recorded a vestibular diagnosis,
+                    // OverlayWindow.TriggerEscapeHatch no-ops even if the
+                    // AppConfig flag is true. Settings UI also greys out
+                    // the toggle; this is the defensive second layer.
+                    // HabituationEngine + HabituationProfileSnapshot are
+                    // NOT modified — we only consume the existing API.
+                    HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis,
+                };
                 _overlay.Closed += OnOverlayClosed;   // B4: keep VM in sync
             }
 

@@ -1,0 +1,28 @@
+# Python virtualenv — sprint decision: single worktree, .venv gitignored.
+.venv/
+venv/
+env/
+
+# Python build / cache artifacts.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# MediaPipe model binary — download once per machine, not committed.
+# See README.md for the download URL.
+face_landmarker.task
+
+# Test-video binaries — keep out of git per project convention
+# (mirrors the root-level samples/*.mp4 rule).
+fixtures/*.mp4
+fixtures/*.webm
+fixtures/*.mov
+fixtures/*.mkv
+
+# Soak output artifacts (if a developer pipes a run to a file locally).
+*.jsonl
+soak_*.json
+perf_*.json

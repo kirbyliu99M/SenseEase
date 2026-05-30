@@ -51,4 +51,28 @@ public class SenseState
 
     /// <summary>Timestamp of the most recent inference update.</summary>
     public DateTime LastUpdatedAt { get; set; }
+
+    // ── M3 head-tracking sprint: head-pose-driven FOV mask centering ─────────
+    // These three properties carry the smoothed normalized head-gaze sample
+    // from IHeadPoseReader (M4 wiring) through to OverlayWindow's mask draw.
+    // Defaults match the v0.9 baseline (centered mask, tracking inactive) so
+    // an unconfigured state is byte-equivalent to pre-M3 behavior. SenseState
+    // is a `class` (not a `record`) in this codebase, so these match the
+    // existing `{ get; set; }` style. Engine MUST NOT read these as input —
+    // they're forward-only display knobs, mutated by the head-pose consumer
+    // before each Apply pass.
+
+    /// <summary>Normalized head-gaze X (0.0 left edge .. 1.0 right edge).
+    /// Default 0.5 (center) so flag-off path is parameter-identical to v0.9.</summary>
+    public double HeadGazeX { get; set; } = 0.5;
+
+    /// <summary>Normalized head-gaze Y (0.0 top edge .. 1.0 bottom edge).
+    /// Default 0.5 (center) so flag-off path is parameter-identical to v0.9.</summary>
+    public double HeadGazeY { get; set; } = 0.5;
+
+    /// <summary>True iff IHeadPoseReader produced a fresh sample on the most
+    /// recent inference tick (sidecar up + face detected + confidence ok).
+    /// Default false. When false, consumers MUST fall back to the (0.5, 0.5)
+    /// center default — never trust HeadGazeX/Y when this is false.</summary>
+    public bool HeadTrackingActive { get; set; } = false;
 }
