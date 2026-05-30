@@ -34,6 +34,18 @@ public partial class MainWindow : Window
     // before any user interaction is consistent with the on-by-default
     // mental model.
     private bool _overlayVisibleBeforePowerSave = true;
+
+    // UI Consolidation Sprint Phase 3 fix-round-2 (2026-05-30, verification
+    // HIGH #D): monotonic epoch for coalescing rapid Power Save toggles.
+    // The SemaphoreSlim _lifecycleGate inside SidecarHeadPoseReader
+    // serializes EXECUTION but ThreadPool worker ordering is not FIFO, so
+    // rapid Task.Run dispatch of Stop/Restart can be picked up out of order
+    // — final state may not match the user's last click. Epoch comparison
+    // inside each Task.Run body short-circuits any task whose dispatch is
+    // no longer the latest, so only the most recent ApplyPowerSave's
+    // operation actually runs. Combined with the in-sidecar gate, this
+    // gives both serialization AND order preservation.
+    private long _powerSaveDispatchEpoch;
     // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
     // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.
     private BarStubWindow? _wgcBarStub;
@@ -952,6 +964,67 @@ public partial class MainWindow : Window
         if (_cardWindow is not null)
         {
             _cardWindow.IsPowerSaveActive = enabled;
+        }
+
+        // UI Consolidation Sprint Phase 3 (2026-05-30, D-B locked): Power
+        // Save also kills the head-tracking sidecar to release the webcam
+        // (the OS SCREEN CAPTURE indicator drops — visible privacy proof).
+        // On exit, the sidecar restarts iff head-tracking is still enabled,
+        // with a ~1-2 s warm-up during which ReadLatest returns null and
+        // the FOV mask sits at (0.5, 0.5) center — same fall-back path used
+        // when the sidecar dies, so no new shimmer to design.
+        //
+        // Task.Run for both Stop and Restart because SidecarHeadPoseReader.
+        // Stop() waits up to 3 s for the reader task to drain; blocking the
+        // UI dispatcher on PowerSave toggle would feel laggy.
+        //
+        // Phase 3 fix-round-2 (2026-05-30, verification HIGH #D): monotonic
+        // epoch comparison preserves user-click order even when the
+        // ThreadPool picks Tasks out of order. The SidecarHeadPoseReader's
+        // _lifecycleGate serializes execution; this epoch check ensures the
+        // final state matches the user's last toggle (not a stale earlier
+        // dispatch). Rapid taps coalesce: only the latest dispatched Task
+        // does the lifecycle work; earlier Tasks short-circuit at the epoch
+        // check and return immediately.
+        //
+        // Per advisor's 3-quadrant simplification (audit A.5: PowerSave
+        // is session-scoped, not persisted), startup PowerSave=off is
+        // guaranteed, so we only handle runtime transitions here.
+        if (_viewModel.HeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar)
+        {
+            long myEpoch = Interlocked.Increment(ref _powerSaveDispatchEpoch);
+            bool wantStop = enabled;
+            bool canRestart = !enabled && AppConfig.HeadTrackingEnabled;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Coalescing guard: only the most-recently dispatched
+                    // Task may proceed. If a newer ApplyPowerSave was
+                    // dispatched after we were queued, our work is stale —
+                    // bail out so the newer Task gets exclusive access to
+                    // the lifecycle gate and the final state matches the
+                    // user's last click.
+                    if (Interlocked.Read(ref _powerSaveDispatchEpoch) != myEpoch) return;
+
+                    if (wantStop)        sidecar.Stop();
+                    else if (canRestart) sidecar.Restart();
+                }
+                catch (Exception ex)
+                {
+                    // Phase 3 fix-round-2 (2026-05-30, verification HIGH #D
+                    // boundary log gap): the previous empty `catch { }`
+                    // swallowed ObjectDisposedException from a disposed-gate
+                    // race and all other boundary escapes, directly
+                    // undermining BLOCKER-3's diagnostic-visibility goal.
+                    // SafeLog routes to %TEMP%/wgc_diag.txt — same sink the
+                    // SidecarLifecycleLog uses, so PowerSave-lifecycle errors
+                    // are co-located with internal sidecar diagnostics for
+                    // UVHS post-mortems.
+                    SafeLog($"[ApplyPowerSave] sidecar lifecycle threw {ex.GetType().Name}: {ex.Message}");
+                }
+            });
         }
     }
 

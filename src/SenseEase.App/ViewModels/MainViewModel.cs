@@ -375,9 +375,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return new SidecarHeadPoseReader(
             pythonExePath:     AppConfig.SidecarPythonPath,
             sidecarScriptPath: AppConfig.SidecarScriptPath,
-            log:               null,
+            log:               SidecarLifecycleLog,
             mirror:            true,
             webcamIndex:       0);
+    }
+
+    /// <summary>Phase 3 fix (2026-05-30): SidecarHeadPoseReader diagnostic
+    /// sink. Appends to <c>%TEMP%/wgc_diag.txt</c> (the same diagnostic file
+    /// MainWindow + TrayIconService + WgcSensingProvider write to), tagged
+    /// with the <c>[SidecarHeadPose]</c> prefix. Fire-and-forget: IO
+    /// failures are swallowed so a logging error can never break the sidecar
+    /// lifecycle (which itself runs from a Task.Run background thread).</summary>
+    private static void SidecarLifecycleLog(string msg)
+    {
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                $"[{DateTime.UtcNow:O}] [SidecarHeadPose] {msg}\n");
+        }
+        catch { /* fire-and-forget */ }
     }
 
     /// <summary>M4: kick the sidecar process if head-tracking is enabled.

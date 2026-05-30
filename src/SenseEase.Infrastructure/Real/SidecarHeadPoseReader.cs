@@ -69,13 +69,29 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     // Used to enforce the staleness fallback. Read/written with Interlocked.
     private long _latestStoredAtUtcTicks;
 
-    private Process? _process;
+    // Volatile so OnProcessExited (ThreadPool process-monitor thread) and
+    // ReaderLoop's terminal block read a fresh reference for the identity
+    // check — see fix #1 below. The _process field is mutated under
+    // _lifecycleGate by DoStart/DoStop/Restart/Dispose, but the readers
+    // are not gated (event-callback / abandoned-loop paths), so volatile
+    // semantics matter.
+    private volatile Process? _process;
     private Task?    _readerTask;
     private CancellationTokenSource? _cts;
 
     private int _sidecarDead;   // 0 = alive, 1 = dead. Interlocked-flag.
     private int _started;       // 0 = not started, 1 = started. Interlocked-flag.
     private int _disposed;      // 0 = live, 1 = disposed. Interlocked-flag.
+
+    // UI Consolidation Sprint Phase 3 fix (2026-05-30, adversarial review):
+    // serialization gate across Stop / Start / Restart / Dispose. Without
+    // this, rapid Power Save toggling via MainWindow.ApplyPowerSave's
+    // fire-and-forget Task.Run calls could (a) spawn an orphan sidecar
+    // while UI shows Power Save ON (the D-B webcam-release privacy proof
+    // breaks silently) or (b) leave the freshly-restarted sidecar dead
+    // because a stale Stop wins the race against the new Start.
+    // SemaphoreSlim(1,1) gives a simple non-reentrant mutex.
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
 
     // Small ring of stderr tail for diagnostics when the sidecar exits.
     private readonly object _stderrLock = new();
@@ -147,11 +163,33 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// task. Idempotent: a second call is a no-op. Best-effort: if the
     /// Python binary or script isn't where we expect, log + flip the dead
     /// flag so ReadLatest() returns null and the consumer falls back to
-    /// center default. The app does NOT crash on a missing sidecar.</summary>
+    /// center default. The app does NOT crash on a missing sidecar.
+    ///
+    /// <para>Phase 3 fix (2026-05-30): public surface acquires the
+    /// <see cref="_lifecycleGate"/> so concurrent Start/Stop/Restart from
+    /// Power Save Task.Run callers are serialized. The pre-gate disposed
+    /// check is a fast-path; a re-check inside the gate guards against
+    /// disposal racing past the fast-path.</para></summary>
     public void Start()
     {
-        if (Interlocked.Exchange(ref _started, 1) == 1) return;
         if (Volatile.Read(ref _disposed) == 1) return;
+        _lifecycleGate.Wait();
+        try
+        {
+            if (Volatile.Read(ref _disposed) == 1) return;
+            DoStart();
+        }
+        finally { _lifecycleGate.Release(); }
+    }
+
+    /// <summary>Gate-internal Start body. CALLER MUST hold _lifecycleGate.
+    /// Used by public Start (acquires gate) and Restart (already holds gate).
+    /// The _started one-shot guard is retained inside the gate so a second
+    /// DoStart inside the same gated transaction is still a no-op — defensive
+    /// against future callers.</summary>
+    private void DoStart()
+    {
+        if (Interlocked.Exchange(ref _started, 1) == 1) return;
 
         try
         {
@@ -252,8 +290,43 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
     /// <summary>Stop the sidecar and wait for the reader task to finish.
     /// Idempotent. Sets the dead flag so any in-flight ReadLatest call
-    /// returns null even before the process actually exits.</summary>
+    /// returns null even before the process actually exits.
+    ///
+    /// <para>Phase 3 fix (2026-05-30): public surface acquires
+    /// <see cref="_lifecycleGate"/> for serialization across concurrent
+    /// Power Save Task.Run callers.</para>
+    ///
+    /// <para>Phase 3 fix-round-2 (2026-05-30, verification HIGH #C): added
+    /// pre-gate <c>_disposed</c> fast-path matching <see cref="Start"/> and
+    /// <see cref="Restart"/>. Without this, a Task.Run-queued Stop that
+    /// fires AFTER <see cref="Dispose"/> ran would hit
+    /// <see cref="ObjectDisposedException"/> from <see cref="SemaphoreSlim.Wait()"/>
+    /// on the disposed gate. The Phase 3 caller (MainWindow.ApplyPowerSave)
+    /// wraps in catch but that empty catch directly undermines BLOCKER-3's
+    /// diagnostic-visibility goal at the most likely failure path
+    /// (app shutdown).</para></summary>
     public void Stop()
+    {
+        if (Volatile.Read(ref _disposed) == 1) return;
+        _lifecycleGate.Wait();
+        try
+        {
+            if (Volatile.Read(ref _disposed) == 1) return;
+            DoStop();
+        }
+        finally { _lifecycleGate.Release(); }
+    }
+
+    /// <summary>Gate-internal Stop body. CALLER MUST hold _lifecycleGate.
+    ///
+    /// <para>Phase 3 fix (2026-05-30): unsubscribes <c>OnProcessExited</c>
+    /// and <c>OnStderrLine</c> from the live Process BEFORE Kill so that
+    /// a late-firing Exited callback for THIS generation cannot land on a
+    /// future generation's _process / _sidecarDead state. The unsubscribe
+    /// alone is racy (the callback may already be queued by .NET's process
+    /// monitor before -= runs), so <see cref="OnProcessExited"/> ALSO does
+    /// an identity check via <c>ReferenceEquals(sender, _process)</c>.</para></summary>
+    private void DoStop()
     {
         if (Volatile.Read(ref _started) == 0) return;
 
@@ -261,8 +334,17 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         try { _cts?.Cancel(); } catch { }
 
         var proc = _process;
+        int pidForLog = -1;
         if (proc is not null)
         {
+            // Snapshot the pid BEFORE Kill so we can log it even if the
+            // Process handle goes into an unusable state mid-tear-down.
+            try { pidForLog = proc.Id; } catch { }
+
+            // Phase 3 fix #2: unsubscribe handlers before Kill. Belt; the
+            // identity check in OnProcessExited is the suspenders.
+            try { proc.Exited            -= OnProcessExited; } catch { }
+            try { proc.ErrorDataReceived -= OnStderrLine;    } catch { }
             try
             {
                 if (!proc.HasExited)
@@ -274,6 +356,20 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 }
             }
             catch { /* best effort */ }
+
+            // Phase 3 UVHS audit fix (2026-05-30): emit caller-initiated
+            // stop diagnostic. Round-1 Fix #1 (proc.Exited -= above)
+            // intentionally prevents OnProcessExited from running on the
+            // common Stop/Restart path — which silenced the "Sidecar exited
+            // (code=...)" log line at OnProcessExited too. The UVHS audit
+            // workflow confirmed 7 Started pids + 0 exit lines in a healthy
+            // 6-restart-cycle run. This 1-line patch restores diagnostic
+            // parity with the spawn-side "Started pid=N" log. Distinct
+            // phrasing ("Sidecar stopped, caller-initiated") so the original
+            // OnProcessExited log line ("Sidecar exited (code=X). stderr
+            // tail: ...") now means UNEXPECTED death — a strictly more
+            // useful signal that should be ZERO during a clean UVHS run.
+            _log?.Invoke($"[SidecarHeadPoseReader] Sidecar stopped (caller-initiated, pid={pidForLog}).");
         }
 
         try { _readerTask?.Wait(TimeSpan.FromSeconds(3)); } catch { }
@@ -282,12 +378,94 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
-        try { Stop(); } catch { }
-        try { _process?.Dispose(); } catch { }
-        try { _cts?.Dispose(); } catch { }
-        _process    = null;
-        _readerTask = null;
-        _cts        = null;
+
+        // Phase 3 fix (2026-05-30): acquire the lifecycle gate so any
+        // in-flight Power-Save-triggered Stop/Restart finishes before we
+        // tear down. Then call DoStop (not public Stop — we're already
+        // inside the gate). Finally dispose the gate AFTER releasing it.
+        try
+        {
+            _lifecycleGate.Wait();
+            try
+            {
+                DoStop();
+                try { _process?.Dispose(); } catch { }
+                try { _cts?.Dispose(); }     catch { }
+                _process    = null;
+                _readerTask = null;
+                _cts        = null;
+            }
+            finally { _lifecycleGate.Release(); }
+        }
+        catch { /* never throw from Dispose */ }
+
+        try { _lifecycleGate.Dispose(); } catch { }
+    }
+
+    /// <summary>UI Consolidation Sprint Phase 3 (2026-05-30): stop the
+    /// current sidecar (if running) and spawn a fresh one. Used by
+    /// <c>MainWindow.ApplyPowerSave(false)</c> to bring head-tracking back
+    /// after a Power Save session.
+    ///
+    /// <para>Behaviour: under <see cref="_lifecycleGate"/>, calls
+    /// <see cref="DoStop"/> (which unsubscribes Exited + waits for the
+    /// reader task to drain) + disposes the previous Process handle +
+    /// resets the <c>_started</c> / <c>_sidecarDead</c> one-shot flags +
+    /// clears the stale <c>_latest</c> sample + calls <see cref="DoStart"/>.
+    /// After this returns, the new sidecar takes ~1-2 s to produce the first
+    /// frame (MediaPipe model warm-up + webcam initialisation); during the
+    /// warm-up <see cref="ReadLatest"/> returns null and the FOV mask sits
+    /// at (0.5, 0.5) center default per <see cref="IHeadPoseReader"/>'s
+    /// contract — the same path used when the sidecar dies, so no new UX
+    /// shimmer.</para>
+    ///
+    /// <para>Phase 3 review fix (2026-05-30): all lifecycle transitions are
+    /// serialized through <see cref="_lifecycleGate"/>. A rapid Power Save
+    /// PS-ON→PS-OFF→PS-ON sequence that posts multiple Task.Run callbacks
+    /// will now execute them strictly serially — eliminating the
+    /// "stale-Stop-after-Restart kills the new sidecar" and
+    /// "two concurrent Restarts spawn two sidecars" races identified in
+    /// the adversarial review. The non-atomic Stop+reset+Start sequence
+    /// is now an atomic critical section.</para>
+    ///
+    /// <para>No-op if already disposed. Best-effort: spawn failure flips
+    /// <c>_sidecarDead</c> back to 1 and the consumer sees null + falls
+    /// back to center default (same as a startup failure).</para>
+    ///
+    /// <para>Thread-safety: callers should invoke from a background thread
+    /// (e.g. <c>Task.Run</c>) because <see cref="DoStop"/> may block up to
+    /// 3 seconds waiting for the reader task to drain and the gate may
+    /// add additional queueing if multiple lifecycle ops are in flight.</para></summary>
+    public void Restart()
+    {
+        if (Volatile.Read(ref _disposed) == 1) return;
+        _lifecycleGate.Wait();
+        try
+        {
+            if (Volatile.Read(ref _disposed) == 1) return;
+
+            DoStop();
+
+            // Dispose the previous Process + CTS handles explicitly so we
+            // don't leak OS handles across restart cycles. DoStart will
+            // overwrite the fields with fresh instances.
+            try { _process?.Dispose(); } catch { /* best-effort */ }
+            try { _cts?.Dispose(); }     catch { /* best-effort */ }
+            _process    = null;
+            _readerTask = null;
+            _cts        = null;
+
+            // Reset the one-shot guards so DoStart can fire again. _disposed
+            // is intentionally NOT reset — a disposed reader stays disposed.
+            Interlocked.Exchange(ref _started, 0);
+            Interlocked.Exchange(ref _sidecarDead, 0);
+            Volatile.Write(ref _latest, null);
+            Interlocked.Exchange(ref _latestStoredAtUtcTicks, 0);
+            Interlocked.Exchange(ref _receivedSampleCount, 0);
+
+            DoStart();
+        }
+        finally { _lifecycleGate.Release(); }
     }
 
     // ── Internals ──────────────────────────────────────────────────────────
@@ -311,6 +489,21 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
+                // Phase 3 fix-round-2 (2026-05-30, verification HIGH #A):
+                // identity check at every iteration. DoStop's _readerTask.
+                // Wait(3s) can time out if stdout teardown is slow on the
+                // kernel side; this loop may keep parsing buffered stdout
+                // lines AFTER Restart has advanced _process to the new
+                // generation. Without this guard, the abandoned reader's
+                // next successful parse would silently inject a stale
+                // sample into the NEW generation's _latest field, fooling
+                // the 2-second staleness fallback for up to ~150ms of the
+                // 165Hz CompositionRendering pull. The terminal _sidecarDead
+                // write at line 502 has its own identity check; this
+                // per-frame guard prevents the data-level write from
+                // sneaking through first.
+                if (!ReferenceEquals(proc, _process)) break;
+
                 string? line;
                 try
                 {
@@ -348,16 +541,57 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         // Reader loop exiting = sidecar's stdout closed = effectively dead
         // even if Process.Exited hasn't fired yet. Flip the flag now so
         // ReadLatest returns null immediately.
-        Interlocked.Exchange(ref _sidecarDead, 1);
+        //
+        // Phase 3 fix (2026-05-30, adversarial review blocker #1/#2 non-blocker):
+        // identity check against the current _process. If Stop's 3-second
+        // Wait timed out before this loop drained, Restart may have already
+        // advanced to the next generation. An abandoned reader writing
+        // _sidecarDead=1 onto the new generation would silently brick
+        // head-tracking. Mirror the OnProcessExited defense.
+        if (ReferenceEquals(proc, _process))
+            Interlocked.Exchange(ref _sidecarDead, 1);
     }
 
     private void OnProcessExited(object? sender, EventArgs e)
     {
-        Interlocked.Exchange(ref _sidecarDead, 1);
+        // Phase 3 fix (2026-05-30, adversarial review blocker #1): identity
+        // check. .NET dispatches Process.Exited on a process-monitor thread
+        // that is NOT serialized with our lifecycle gate. After Restart
+        // resets _sidecarDead=0 and DoStart spawns a new Process, a
+        // late-firing Exited callback for the PREVIOUS generation must NOT
+        // write _sidecarDead=1 onto the new generation's shared state —
+        // that would silently brick head-tracking until the user toggled
+        // HeadTrackingEnabled OFF→ON in Settings.
+        //
+        // DoStop unsubscribes Exited before Kill (belt), but .NET may have
+        // already queued this callback before the -= ran. The identity
+        // check via ReferenceEquals against the volatile _process field
+        // is the suspenders: a stale sender silently no-ops.
+        if (sender is not Process p) return;
+        if (!ReferenceEquals(p, _process))
+        {
+            // Stale callback from a previous-generation Process. Do nothing.
+            return;
+        }
+
+        // Phase 3 fix-round-2 (2026-05-30, verification HIGH #B): collect
+        // exit info using the LOCAL p reference (already identity-confirmed
+        // for this generation), then re-check identity immediately before
+        // the dead-flag write. This narrows the TOCTOU window between the
+        // first identity check above and the Interlocked.Exchange to a
+        // handful of instructions. Even if Restart races and swaps _process
+        // between line A and line B below, the second check catches it and
+        // we silently no-op rather than poisoning the new generation's
+        // _sidecarDead flag.
         string tail;
         lock (_stderrLock) { tail = _stderrTail.ToString(); }
         int exitCode = -1;
-        try { if (_process is { } p) exitCode = p.ExitCode; } catch { }
+        try { exitCode = p.ExitCode; } catch { }
+
+        // Line A: gather state above. Line B: final identity guard immediately
+        // before the publication side-effect.
+        if (!ReferenceEquals(p, _process)) return;
+        Interlocked.Exchange(ref _sidecarDead, 1);
         _log?.Invoke($"[SidecarHeadPoseReader] Sidecar exited (code={exitCode}). stderr tail:\n{tail}");
     }
 
