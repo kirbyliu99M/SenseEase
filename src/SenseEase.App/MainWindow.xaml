@@ -955,6 +955,20 @@
                 </Grid>
             </TabItem>
 
+            <!-- ── Tab 4: Settings (UI Consolidation Sprint M-Phase-1, 2026-05-30) ──
+                 Hosts the shared SettingsContent UserControl. State is
+                 shared with SettingsWindow (tray menu / Pop-up Card gear)
+                 via static UserPreferences.Current + AppConfig.* singletons
+                 + the UserPreferences.Changed event for visual sync.
+                 Phase 1.5 user feedback: tab background follows the main
+                 console light palette (transparent → inherits #E2ECFF from
+                 MainTabs), not the dark Pop-up sprint theme. -->
+            <TabItem Header="設定">
+                <Grid Background="#E2ECFF">
+                    <views:SettingsContent x:Name="SettingsTabContent"/>
+                </Grid>
+            </TabItem>
+
         </TabControl>
 
     </DockPanel>

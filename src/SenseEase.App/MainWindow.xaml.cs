@@ -69,6 +69,14 @@ public partial class MainWindow : Window
         // Pop-up sprint iter 2); the VM reads through this callback.
         _viewModel.SetPowerSaveActiveLookup(() => _powerSaveActive);
 
+        // UI Consolidation Sprint M-Phase-1 (2026-05-30): wire the new
+        // "設定" tab's shared SettingsContent. Same vestibular lookup +
+        // PreferencesChanged-handler pattern that ShowSettingsWindow uses
+        // for the tray-menu / Pop-up Card SettingsWindow instance, so a
+        // toggle flipped in the tab repaints bar/tray identically.
+        SettingsTabContent.HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis;
+        SettingsTabContent.PreferencesChanged    += (_, _) => RefreshSettingsDependentSurfaces();
+
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
         _viewModel.StateChanged             += OnStateChanged;
 
@@ -627,21 +635,21 @@ public partial class MainWindow : Window
         }
         _settingsWindow = new SettingsWindow(_viewModel.HasVestibularDiagnosis);
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
-        _settingsWindow.PreferencesChanged += (_, _) =>
-        {
-            // Toggle B may have flipped — repaint bar/tray immediately
-            // rather than wait for the next StateChanged push. Tray's
-            // ApplyState reads UserPreferences.Current on every state
-            // event, so triggering a state event is the simplest path:
-            // SetTier on the bar and call OnStateChanged-equivalent on
-            // the tray via a synthetic re-push.
-            _persistentBar?.SetTier(_viewModel.VimsTier);
-            // For the tray, we route a fake state by re-raising
-            // StateChanged from the VM — but that affects other listeners
-            // too. Cleaner: expose a Refresh method on the tray.
-            _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
-        };
+        _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
         _settingsWindow.Show();
+    }
+
+    /// <summary>UI Consolidation Sprint M-Phase-1 (2026-05-30): bar + tray
+    /// repaint after any persisted Settings change, called by both the
+    /// tray-menu / Pop-up Card SettingsWindow path AND the main console's
+    /// 設定 tab path. Toggle B may have flipped — repaint immediately
+    /// rather than wait for the next StateChanged push. Tray's ApplyState
+    /// reads UserPreferences.Current on every state event; the bar takes
+    /// a SetTier so band recompute uses the new BarTrayColorEnabled.</summary>
+    private void RefreshSettingsDependentSurfaces()
+    {
+        _persistentBar?.SetTier(_viewModel.VimsTier);
+        _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
     }
 
     private void StartPersistentBar()
