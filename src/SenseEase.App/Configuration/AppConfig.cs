@@ -11,7 +11,8 @@ public enum SensingMode
     Wgc,    // Phase 2.2: WgcSensingProvider (Windows.Graphics.Capture pixel-diff 15 Hz)
 }
 
-public enum LuxSensingMode { Real, Mock }
+// LuxSensingMode enum removed at v0.11 (UI Consolidation Sprint Phase 4) —
+// Display Comfort feature decommissioned. See CHANGELOG.md v0.11 "Removed".
 
 /// <summary>M5.1-B follow-mode choice. See
 /// <see cref="AppConfig.HeadTrackingFollowMode"/> for semantics.</summary>
@@ -195,27 +196,12 @@ public static class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "calibration_history.jsonl");
 
-    // Phase 4 — Ambient Light Comfort. Hardware-mutating; defaults OFF (explicit opt-in).
-    public static bool AmbientLightComfortEnabled { get; set; } = false;
-    public static LuxSensingMode LuxMode { get; set; } = LuxSensingMode.Real;
-    public static string DisplayBaselinePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "display-baseline.json");
-
-    // Phase 4 fallback — when the device has no Windows ALS (the typical case on most
-    // laptops and all desktops), estimate lux from the webcam's average frame luminance.
-    // DEFAULT ON per user direction: insisting on non-existent ALS hardware leaves the
-    // entire ambient-comfort pipeline dormant on the majority of target devices, so the
-    // pragmatic answer is to use the RGB camera that exists. Privacy/power notes:
-    //   • Opening the webcam prompts Windows for camera permission on first use; denial
-    //     is caught and degrades silently to "no lux available" (no crash).
-    //   • Polling is 10 s (see WebcamLuxProvider) so battery cost is negligible.
-    //   • Webcam auto-exposure means the lux value is ORDINAL ("darker / brighter than
-    //     baseline") rather than absolute illuminance — LuxComfortMapper's log curve
-    //     plus hysteresis absorbs this; the actuator's DDC/CI writes are unaffected.
-    //   • Only fires when `AmbientLightComfortEnabled` is also true (which is OFF by
-    //     default — it writes the monitor's NVRAM, separate opt-in).
-    public static bool UseWebcamLuxFallback { get; set; } = true;
+    // Display Comfort AppConfig fields (AmbientLightComfortEnabled, LuxMode,
+    // DisplayBaselinePath, UseWebcamLuxFallback) removed at v0.11 (UI
+    // Consolidation Sprint Phase 4) — feature decommissioned. The
+    // display-baseline.json file at the historical %LOCALAPPDATA%\SenseEase
+    // path is deleted once on app startup (App.OnStartup migration). See
+    // CHANGELOG.md v0.11 "Removed".
 
     // Phase 2.1 fix: reject OFI accumulated by user-driven cursor activity (window drags,
     // selections, scrollbar drags). Self-generated motion does not induce vection — the
@@ -240,7 +226,7 @@ public static class AppConfig
     /// so this is exposed as a settable property for symmetry with the other
     /// runtime feature flags above. Default = false; flipping requires
     /// explicit opt-in either at startup or via a future settings UI.</para></summary>
-    public static bool HeadTrackingEnabled { get; set; } = false;
+    public static bool HeadTrackingEnabled { get; set; } = true;
 
     /// <summary>M5.1-B (head-tracking sprint, 2026-05-30): user-facing
     /// "how much should the mask follow head gaze" choice.

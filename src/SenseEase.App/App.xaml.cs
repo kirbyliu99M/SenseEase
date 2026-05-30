@@ -5,13 +5,12 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
-using SenseEase.App.Comfort;
-
 namespace SenseEase.App;
 
 public partial class App : Application
 {
-    private static LuxComfortController? _luxController;
+    // _luxController + LuxComfortController removed at v0.11 (Display Comfort
+    // decommissioned). See CHANGELOG.md v0.11 "Removed".
 
     // v0.8 hotfix: single-instance guard. Pop-up sprint iter 5 introduced
     // "minimize to tray on close" — but never added a re-launch guard. So
@@ -62,10 +61,7 @@ public partial class App : Application
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "crash.log");
 
-    /// <summary>Called by MainViewModel.WireLuxComfort so SafeShutdownLux can reach
-    /// the controller from any thread without touching WPF objects.</summary>
-    public static void RegisterLuxController(LuxComfortController controller) =>
-        _luxController = controller;
+    // RegisterLuxController removed at v0.11 — Display Comfort decommissioned.
 
     /// <summary>Path Z UX iter 5: true iff the app was launched with the
     /// <c>--minimized</c> command-line arg (set by the AutoStartRegistry
@@ -187,18 +183,51 @@ public partial class App : Application
                 $"{ex.GetType().Name}: {ex.Message} — using AppConfig defaults");
         }
 
+        // Phase 4 (UI Consolidation Sprint, v0.11): one-time cleanup of the
+        // orphaned Display Comfort baseline file. Display Comfort was
+        // decommissioned (depth 2) at v0.11 — the DDC/CI monitor-mutation
+        // pipeline was unreliable in field testing and is now removed. The
+        // baseline JSON file under %LOCALAPPDATA% remained from prior
+        // installs but no longer has a consumer; delete it so the user's
+        // local profile directory stays clean. Hardcoded path because the
+        // AppConfig.DisplayBaselinePath property was removed in the same
+        // commit, and we don't want this migration to acquire a runtime
+        // dependency that disappears. File.Delete is a no-op if the file
+        // doesn't exist, so this is safe to run unconditionally on every
+        // launch (cheap and idempotent — no migration-version bookkeeping
+        // needed).
+        try
+        {
+            string orphanedBaseline = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SenseEase", "display-baseline.json");
+            if (File.Exists(orphanedBaseline))
+            {
+                File.Delete(orphanedBaseline);
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [App.OnStartup] orphaned display-baseline.json deleted (v0.11 migration)");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort — a permission error or AV lock just leaves the
+            // stale file in place; no functional impact (no consumer reads it).
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.OnStartup] display-baseline.json delete failed: " +
+                $"{ex.GetType().Name}: {ex.Message} — leaving stale file in place");
+        }
+
         DispatcherUnhandledException += (_, args) =>
         {
             LogCrash(args.Exception, "DispatcherUnhandledException");
-            SafeShutdownLux();
+            SafeShutdownActivityFilter();
         };
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             LogCrash(args.ExceptionObject as Exception, "AppDomain.UnhandledException");
-            // Only restore when the runtime is terminating — non-terminating exceptions
-            // on background threads must NOT shut the controller down or the display is
-            // stuck at baseline while the app continues to run.
-            if (args.IsTerminating) SafeShutdownLux();
+            // Only act when the runtime is terminating — non-terminating exceptions
+            // on background threads must NOT trigger shutdown.
+            if (args.IsTerminating) SafeShutdownActivityFilter();
         };
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
         {
@@ -206,13 +235,13 @@ public partial class App : Application
             LogCrash(args.Exception, "UnobservedTaskException");
             args.SetObserved();
         };
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeShutdownLux();
-        SessionEnding += (_, _) => SafeShutdownLux();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeShutdownActivityFilter();
+        SessionEnding += (_, _) => SafeShutdownActivityFilter();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        SafeShutdownLux();
+        SafeShutdownActivityFilter();
         try { _singleInstanceMutex?.ReleaseMutex(); } catch { }
         try { _singleInstanceMutex?.Dispose(); } catch { }
         _singleInstanceMutex = null;
@@ -238,12 +267,18 @@ public partial class App : Application
         catch { /* best-effort */ }
     }
 
-    /// <summary>Idempotent, thread-safe, never throws. The user's hard requirement
-    /// "restore on close" routes through here on every exit path.</summary>
-    private static void SafeShutdownLux()
+    /// <summary>Idempotent, thread-safe, never throws. Shuts down
+    /// <see cref="SenseEase.Infrastructure.Real.WindowsActivityFilter"/> on
+    /// every exit path so its session-tracking timer doesn't leak.
+    ///
+    /// <para>v0.11 (UI Consolidation Sprint Phase 4): formerly
+    /// <c>SafeShutdownLux</c>; the LuxComfortController shutdown branch was
+    /// removed alongside the Display Comfort feature. Renamed so the call
+    /// sites communicate what's still happening (ActivityFilter teardown).
+    /// See CHANGELOG.md v0.11 "Removed".</para></summary>
+    private static void SafeShutdownActivityFilter()
     {
-        try { SenseEase.Infrastructure.Real.WindowsActivityFilter.Instance.Shutdown(); } catch { }
-        try { _luxController?.Shutdown(); }
+        try { SenseEase.Infrastructure.Real.WindowsActivityFilter.Instance.Shutdown(); }
         catch { /* never crash on shutdown */ }
     }
 

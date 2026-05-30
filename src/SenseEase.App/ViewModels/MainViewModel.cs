@@ -7,7 +7,6 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using SenseEase.App.Configuration;
-using SenseEase.App.Comfort;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
@@ -367,7 +366,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>M4 factory: chooses the reader implementation based on
     /// <see cref="AppConfig.HeadTrackingEnabled"/>. Q5-locked DI pattern:
     /// no container, no service collection — just a static factory that
-    /// reads the static flag and returns the appropriate instance.</summary>
+    /// reads the static flag and returns the appropriate instance.
+    ///
+    /// <para>Phase 3 fix (2026-05-30, adversarial review blocker #3): the
+    /// log delegate now routes SidecarHeadPoseReader lifecycle diagnostics
+    /// (spawn failure, Python missing, stderr tail on exit, parse errors,
+    /// Restart errors) to %TEMP%/wgc_diag.txt — same fire-and-forget pattern
+    /// MainWindow.SafeLog uses for tray/WGC diagnostics. Without this,
+    /// Phase 3's PowerSave Stop/Restart failure modes were completely
+    /// invisible: a venv quarantined by AV, a deleted tools/ folder, or a
+    /// Python-3.13 mismatch would leave the FOV mask stuck at center after
+    /// a PowerSave round-trip with NO signal anywhere to diagnose it.</para></summary>
     private static IHeadPoseReader CreateHeadPoseReader()
     {
         if (!AppConfig.HeadTrackingEnabled)
@@ -421,8 +430,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _lastMaskActive;
     private double _demoOfi;
 
-    // Phase 4 — Lux Comfort
-    public LuxComfortController? LuxController { get; private set; }
+    // Display Comfort (LuxController) removed at v0.11 (UI Consolidation
+    // Sprint Phase 4) — feature decommissioned. See CHANGELOG.md.
 
     private ISensingProvider ProviderFor(SensingMode mode) => mode switch
     {
@@ -682,55 +691,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set => Set(ref _sensingModeLabel, value);
     }
 
-    // Phase 4 — Lux Comfort bindable state
-    private double _currentLux;
-    public double CurrentLux { get => _currentLux; private set => Set(ref _currentLux, value); }
-
-    private int _targetContrast, _targetBrightness, _targetSharpness;
-    public int TargetContrast   { get => _targetContrast;   private set => Set(ref _targetContrast,   value); }
-    public int TargetBrightness { get => _targetBrightness; private set => Set(ref _targetBrightness, value); }
-    public int TargetSharpness  { get => _targetSharpness;  private set => Set(ref _targetSharpness,  value); }
-
-    private bool _luxComfortEnabled;
-    public bool LuxComfortEnabled
-    {
-        get => _luxComfortEnabled;
-        set { if (Set(ref _luxComfortEnabled, value)) LuxController?.SetEnabled(value); }
-    }
-
-    private bool _displaySupported, _alsAvailable;
-    public bool DisplaySupported { get => _displaySupported; private set => Set(ref _displaySupported, value); }
-    public bool AlsAvailable     { get => _alsAvailable;     private set => Set(ref _alsAvailable,     value); }
-
-    private double _mockLux = 300.0;
-    public double MockLux
-    {
-        get => _mockLux;
-        set
-        {
-            if (Set(ref _mockLux, value) && AppConfig.LuxMode == LuxSensingMode.Mock)
-                LuxController?.PushMockLux(value);
-        }
-    }
-
-    public string LuxStatusText
-    {
-        get
-        {
-            string baseText;
-            if (!AlsAvailable && AppConfig.LuxMode == LuxSensingMode.Real)
-                baseText = "未偵測到環境光感測器 / No ambient light sensor detected";
-            else if (!DisplaySupported)
-                baseText = "此螢幕不支援 DDC/CI 控制 / This display does not support DDC/CI control";
-            else
-                baseText = LuxComfortEnabled
-                    ? "啟用中 / Active"
-                    : "已停用 / Disabled — toggle to enable";
-            // Append the lux source so users can see whether ambient lux is coming
-            // from ALS hardware, the RGB webcam fallback, the mock slider, etc.
-            return $"{baseText} · Source: {_luxSourceLabel}";
-        }
-    }
+    // Display Comfort bindable state (CurrentLux, TargetContrast, TargetBrightness,
+    // TargetSharpness, LuxComfortEnabled, DisplaySupported, AlsAvailable, MockLux,
+    // LuxStatusText) removed at v0.11 (UI Consolidation Sprint Phase 4).
+    // See CHANGELOG.md v0.11 "Removed".
 
     private double _opticalFlowIndex;
     public double OpticalFlowIndex
@@ -779,19 +743,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _vimsTier;
     public int VimsTier { get => _vimsTier; private set => Set(ref _vimsTier, value); }
 
-    // Human-readable label for the current lux source. Surfaces in the Display
-    // Comfort card so users can see whether the lux reading is from ALS hardware,
-    // the RGB webcam fallback, the mock slider, or "Not available".
-    private string _luxSourceLabel = "—";
-    public string LuxSourceLabel
-    {
-        get => _luxSourceLabel;
-        private set
-        {
-            if (Set(ref _luxSourceLabel, value))
-                OnPropertyChanged(nameof(LuxStatusText)); // status text concatenates this
-        }
-    }
+    // LuxSourceLabel removed at v0.11 — Display Comfort decommissioned.
 
     // Live OS-chrome suppression status from WindowsActivityFilter. Refreshed at
     // 1 Hz from the metrics timer. Empty filter reason → "Idle"; otherwise
@@ -1539,82 +1491,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     // ?? Log ????????????????????????????????????????????????????????????????
 
-    // Phase 4 — Lux Comfort wiring
-
-    public void WireLuxComfort(IntPtr hwnd)
-    {
-        IAmbientLightProvider provider;
-        LightSensorProvider.LuxSourceKind sourceKind;
-        if (AppConfig.LuxMode == LuxSensingMode.Mock)
-        {
-            provider   = new SenseEase.Infrastructure.Mock.MockAmbientLightProvider();
-            sourceKind = LightSensorProvider.LuxSourceKind.None; // labelled "Mock" below
-        }
-        else
-        {
-            // Keep the concrete type local so we can read Source — the interface
-            // intentionally does not expose it (UI-only concern).
-            //
-            // M6 (head-tracking sprint): when head-tracking is on, the sidecar
-            // owns the single webcam (locked decision 3). Instantiating a
-            // WebcamLuxProvider in that case would either fail MediaCapture
-            // init or contend with the sidecar's capture loop, so we route
-            // through the SidecarLuxProvider path that piggy-backs on the
-            // sidecar's existing per-frame luma JSON field. Startup-time
-            // decision is sufficient: runtime toggling of HeadTrackingEnabled
-            // is not a supported flow in M6 (a future v1.0 enhancement would
-            // need to also rebuild the LuxController).
-            LightSensorProvider lsp = AppConfig.HeadTrackingEnabled
-                ? new LightSensorProvider(_headPoseReader)
-                : new LightSensorProvider(AppConfig.UseWebcamLuxFallback);
-            provider   = lsp;
-            sourceKind = lsp.Source;
-        }
-        LuxSourceLabel = sourceKind switch
-        {
-            LightSensorProvider.LuxSourceKind.Als     => "ALS",
-            LightSensorProvider.LuxSourceKind.Webcam  => "Webcam",
-            LightSensorProvider.LuxSourceKind.Sidecar => "Sidecar",
-            _ => AppConfig.LuxMode == LuxSensingMode.Mock ? "Mock" : "Not available",
-        };
-
-        IDisplayComfortActuator actuator = hwnd == IntPtr.Zero
-            ? (IDisplayComfortActuator)new NullDisplayActuator()
-            : new Dxva2DisplayActuator(hwnd);
-
-        var store = new SenseEase.Infrastructure.Storage.FileDisplayBaselineStore(AppConfig.DisplayBaselinePath);
-        LuxController = new LuxComfortController(provider, actuator, store);
-        App.RegisterLuxController(LuxController);
-        LuxController.StateChanged += (_, _) => _dispatcher.Invoke(OnLuxControllerStateChanged);
-
-        _ = LuxController.InitializeAsync().ContinueWith(_ =>
-        {
-            _dispatcher.Invoke(() =>
-            {
-                LuxController.Start();
-                AlsAvailable = LuxController.AlsAvailable;
-                DisplaySupported = LuxController.DisplaySupported;
-                OnPropertyChanged(nameof(LuxStatusText));
-                // If feature flag is on (default OFF), respect it; user toggles from UI.
-                LuxComfortEnabled = AppConfig.AmbientLightComfortEnabled;
-                AppendLog("Lux", DisplaySupported
-                    ? "顯示器舒適模式已就緒 / Display comfort ready"
-                    : "顯示器不支援 DDC/CI 控制 / Display does not support DDC/CI", CurrentState);
-            });
-        });
-    }
-
-    private void OnLuxControllerStateChanged()
-    {
-        if (LuxController is null) return;
-        CurrentLux       = LuxController.CurrentLux;
-        TargetContrast   = LuxController.TargetContrast;
-        TargetBrightness = LuxController.TargetBrightness;
-        TargetSharpness  = LuxController.TargetSharpness;
-        DisplaySupported = LuxController.DisplaySupported;
-        AlsAvailable     = LuxController.AlsAvailable;
-        OnPropertyChanged(nameof(LuxStatusText));
-    }
+    // Display Comfort wiring (WireLuxComfort + OnLuxControllerStateChanged)
+    // removed at v0.11 (UI Consolidation Sprint Phase 4) — feature
+    // decommissioned. See CHANGELOG.md.
 
     private void AppendLog(string category, string message, SenseState? state = null)
     {

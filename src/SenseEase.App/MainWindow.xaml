@@ -419,63 +419,9 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ── Display Comfort (Lux) ── -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                    <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="顯示器舒適 Display Comfort"
-                                       Style="{StaticResource SectionTitle}" Margin="0"/>
-                            <CheckBox Grid.Column="1" VerticalAlignment="Center"
-                                      Content="啟用 Enable"
-                                      IsChecked="{Binding LuxComfortEnabled, Mode=TwoWay}"/>
-                        </Grid>
-
-                        <TextBlock Margin="0,8,0,8"
-                                   Text="{Binding LuxStatusText}"
-                                   Style="{StaticResource CardLabel}"/>
-
-                        <Grid Margin="0,4,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="環境光 Ambient" Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding CurrentLux, StringFormat='{}{0:F0} lx'}"
-                                           Foreground="#024AD8" FontWeight="Bold" FontSize="18" Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Text="對比 Contrast" Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding TargetContrast, StringFormat='{}{0}%'}"
-                                           Foreground="#0A1F5C" FontWeight="Bold" FontSize="18" Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="亮度 Brightness" Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding TargetBrightness, StringFormat='{}{0}%'}"
-                                           Foreground="#0A1F5C" FontWeight="Bold" FontSize="18" Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="3">
-                                <TextBlock Text="銳利度 Sharpness" Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding TargetSharpness, StringFormat='{}{0}%'}"
-                                           Foreground="#0A1F5C" FontWeight="Bold" FontSize="18" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- Demo lx slider removed: webcam lux fallback covers
-                             devices without ALS (AppConfig.UseWebcamLuxFallback
-                             defaults true), so the manual override slider is
-                             no longer the only path to populating CurrentLux.
-                             Removed per user direction to declutter the dashboard. -->
-
-                    </StackPanel>
-                </Border>
+                <!-- Display Comfort (顯示器舒適) UI card removed at v0.11
+                     (UI Consolidation Sprint Phase 4) — feature decommissioned.
+                     See CHANGELOG.md v0.11 "Removed". -->
 
                 <!-- ── Event Log ── -->
                 <Border Style="{StaticResource Card}">

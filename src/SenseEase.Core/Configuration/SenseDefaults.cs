@@ -105,19 +105,7 @@ public static class SenseDefaults
     // when motion ends abruptly.
     public const double VimsTierFastReleaseGap = 1.5;
 
-    // ── Phase 4 — Ambient Light Comfort (lux → display VCP) ───────────────────
-    public const int    LuxPollIntervalMs   = 1000;  // ALS poll cadence
-    public const double LuxLogMin           = 0.0;   // log10(1 lx)     — dark-room floor
-    public const double LuxLogMax           = 4.0;   // log10(10000 lx) — bright-daylight ceiling
-    public const double LuxEmaAlpha         = 0.85;  // lux smoothing (anti-flicker)
-    public const int    LuxHysteresisDeadbandPercent = 3; // min target-% change before a DDC/CI write
-    public const int    BaselineRecoveryMaxAgeHours  = 24; // ignore a stale force-kill baseline older than this
-    // Comfort target ranges (normalized %, mapped onto each monitor's native VCP max).
-    // Conservative defaults — never drive a feature to 0 or 100. Tune against real hardware.
-    public const int ContrastMinPercent   = 45;
-    public const int ContrastMaxPercent   = 80;
-    public const int BrightnessMinPercent = 35;
-    public const int BrightnessMaxPercent = 85;
-    public const int SharpnessMinPercent  = 40;
-    public const int SharpnessMaxPercent  = 75;
+    // Display Comfort lux→VCP defaults removed at v0.11 (UI Consolidation Sprint
+    // Phase 4) — feature decommissioned along with the entire DDC/CI pipeline.
+    // See CHANGELOG.md v0.11 "Removed".
 }

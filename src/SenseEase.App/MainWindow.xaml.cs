@@ -195,29 +195,17 @@ public partial class MainWindow : Window
             }
         };
 
-        // TODO(lux-removal): user decision 2026-05-27 — ambient-light comfort
-        // pipeline disabled because RGB-camera-based lux estimation was proven
-        // unreliable in field testing. Code left in place (WireLuxComfort,
-        // LuxComfortController, WebcamLuxProvider, LightSensorProvider,
-        // MockAmbientLightProvider, LuxComfortMapper, IAmbientLightProvider)
-        // so a future sprint can revive with a real OS ALS provider; the
-        // entry point is gated here so no resources get spent at startup.
-        // To revive: uncomment the WireLuxComfort call below.
-        //
-        // SourceInitialized += (_, _) =>
-        // {
-        //     if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
-        //     {
-        //         IntPtr hwnd = new WindowInteropHelper(this).Handle;
-        //         vm.WireLuxComfort(hwnd);
-        //     }
-        // };
+        // Display Comfort decommissioned at v0.11 (UI Consolidation Sprint
+        // Phase 4). The historical TODO(lux-removal) revive seam is removed
+        // — the entire DDC/CI pipeline (WireLuxComfort, LuxComfortController,
+        // WebcamLuxProvider, LightSensorProvider, MockAmbientLightProvider,
+        // LuxComfortMapper, IAmbientLightProvider) is deleted. See
+        // CHANGELOG.md v0.11 "Removed".
         Closed += (_, _) =>
         {
             if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
             {
                 vm.DisposeServices();
-                vm.LuxController?.Shutdown();
             }
         };
         Closed += (_, _) => _overlay?.Close();

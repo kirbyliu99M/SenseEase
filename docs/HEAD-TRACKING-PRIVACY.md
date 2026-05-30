@@ -295,24 +295,26 @@ load-bearing for the prototype.
 
 The Settings UI annotates the HeadTracking checkbox with
 "需重新啟動 / Requires restart". This is intentional — the flag is
-read at two startup-bound code sites:
+read at a startup-bound code site:
 
 1. `MainViewModel.CreateHeadPoseReader()` — a static factory that
    instantiates either `DefaultHeadPoseReader` (flag off, returns
    null) or `SidecarHeadPoseReader` (flag on, spawns Python). The
    factory runs ONCE at MainViewModel construction; flipping the
    flag at runtime does not rebuild the reader.
-2. `MainViewModel.BuildAmbientLightProvider()` — `LightSensorProvider`
-   uses `SidecarLuxProvider` (luma from sidecar JSON) only when the
-   flag was true at startup, so that the lux reader and head-pose
-   reader share the same sidecar process. Toggling head-tracking at
-   runtime would leave the lux provider pointing at a stale or
-   non-existent sidecar.
 
-A future v1.0 iteration could rebuild both readers on flag flip
-(noted in `baseline/m8-pr-description.md` v1.0 backlog) but the
-prototype keeps the constraint simple: flip the flag, restart, get
-the new behaviour.
+A future v1.0 iteration could rebuild the reader on flag flip but
+the prototype keeps the constraint simple: flip the flag, restart,
+get the new behaviour.
+
+> **v0.11 note:** an earlier draft of this doc also referenced a
+> second startup-bound site, `MainViewModel.BuildAmbientLightProvider()`
+> / `SidecarLuxProvider`, which piggybacked the sidecar's luma JSON
+> field to drive Display Comfort without opening a second webcam.
+> That entire Display Comfort feature was decommissioned at v0.11
+> (see [CHANGELOG.md](../CHANGELOG.md) v0.11 "Removed"); the sidecar
+> still emits the `luma` field in its JSON protocol (algorithm core
+> is locked) but no C# consumer reads it.
 
 ---
 
