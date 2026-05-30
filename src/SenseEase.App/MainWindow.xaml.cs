@@ -45,6 +45,17 @@ public partial class MainWindow : Window
     // no longer the latest, so only the most recent ApplyPowerSave's
     // operation actually runs. Combined with the in-sidecar gate, this
     // gives both serialization AND order preservation.
+    //
+    // Phase 4 clarification (UVHS Playbook clause 5 follow-up): coalescing
+    // is BEST-EFFORT, not guaranteed. The window between Increment-of-epoch
+    // and the in-Task.Run Read is ~microseconds, but a task that loads its
+    // myEpoch BEFORE the next click's Increment will pass the short-circuit
+    // check and still execute Stop/Restart even though a newer click is
+    // already in flight. The in-sidecar _lifecycleGate then serialises the
+    // newer click's execution behind it, so final state still matches the
+    // user's last click — the coalescing just stops being free (an extra
+    // Stop/Restart round runs). This is acceptable: the lifecycle gate is
+    // the load-bearing correctness guarantee, the epoch is a perf hint.
     private long _powerSaveDispatchEpoch;
     // Pop-up sprint Task 1: BarStub for WGC mask validation. Spawned only when
     // env var SENSEEASE_WGC_BAR_VALIDATION=1 is set at app launch. See OnLoaded.

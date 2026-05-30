@@ -24,7 +24,16 @@ namespace SenseEase.Tests;
 /// </list>
 /// These are the M5 acceptance gates. STA-required tests reuse the same
 /// pattern as <see cref="NotificationCardWindowTests"/> (own STA thread +
-/// captured-exception relay).</summary>
+/// captured-exception relay).
+///
+/// <para><b>Baseline (UI Consolidation Sprint, 2026-05-30):</b> the M3
+/// invariant — flag-off → <see cref="DefaultHeadPoseReader"/> → center
+/// default (cx=0.5, cy=0.5, brush radius 0.85) — is pinned to the v0.9
+/// byte-equivalent baseline and SURVIVES the v0.10 → v0.11 transition.
+/// Display Comfort decommission is orthogonal to head tracking and does
+/// not perturb the invariant. The new sprint reference baseline for the
+/// overall app behaviour is v0.11; see CHANGELOG.md for the inventory of
+/// what changed.</para></summary>
 public class OverlayHeadPoseTests
 {
     // ── 1) Flag off: state update keeps HeadGaze at center ─────────────────

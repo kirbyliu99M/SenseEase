@@ -247,6 +247,55 @@ public class SidecarHeadPoseReaderTests
         reader.Dispose();
     }
 
+    // ── Phase 4 (UI Consolidation Sprint): DoStop diagnostic contract ───────
+    //
+    // The "Sidecar stopped (caller-initiated)" log line is the marker that
+    // distinguishes a clean lifecycle Stop/Restart/Dispose from an UNEXPECTED
+    // sidecar death (OnProcessExited's "Sidecar exited (code=...)" line).
+    // Phase 3's UVHS protocol depends on this distinction: during a healthy
+    // Power-Save round-trip, "caller-initiated" should appear once per Stop
+    // and "Sidecar exited" should appear ZERO times. Renaming or rewording
+    // this log line silently invalidates the entire UVHS audit semantic.
+    //
+    // These tests pin the exact format so a future refactor that "tidies up"
+    // the log message must consciously touch this contract.
+
+    [Fact]
+    public void FormatCallerInitiatedStopLog_KnownPid_ProducesExactDiagnosticFormat()
+    {
+        // Exact format pin. If this assertion changes, UVHS Playbook + Phase 3
+        // wgc_diag.txt grep expectations must change together with it.
+        Assert.Equal(
+            "[SidecarHeadPoseReader] Sidecar stopped (caller-initiated, pid=12345).",
+            SidecarHeadPoseReader.FormatCallerInitiatedStopLog(12345));
+    }
+
+    [Fact]
+    public void FormatCallerInitiatedStopLog_NoProcess_UsesNegativeOnePid()
+    {
+        // DoStop snapshots pid as -1 when the Process handle is null at
+        // tear-down (race: process died between _process read and pid access).
+        // The diagnostic still emits — pid=-1 communicates "we got into the
+        // caller-initiated stop path but the process was already gone".
+        Assert.Equal(
+            "[SidecarHeadPoseReader] Sidecar stopped (caller-initiated, pid=-1).",
+            SidecarHeadPoseReader.FormatCallerInitiatedStopLog(-1));
+    }
+
+    [Fact]
+    public void FormatCallerInitiatedStopLog_ContainsLoadBearingMarkers()
+    {
+        // Belt + suspenders on the format pin: if someone "fixes" the
+        // verbatim string above with rewording (e.g. "Sidecar stop") the
+        // marker substrings should still fail. The two load-bearing strings
+        // are "caller-initiated" (distinguishes from OnProcessExited) and
+        // "[SidecarHeadPoseReader]" (the source tag UVHS audits grep for).
+        string line = SidecarHeadPoseReader.FormatCallerInitiatedStopLog(99);
+        Assert.Contains("[SidecarHeadPoseReader]", line);
+        Assert.Contains("caller-initiated", line);
+        Assert.Contains("pid=99", line);
+    }
+
     [Fact]
     public void SidecarHeadPoseReader_BuildSidecarArgs_MirrorOnByDefault_OmitsFlag()
     {

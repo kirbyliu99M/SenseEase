@@ -369,7 +369,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             // OnProcessExited log line ("Sidecar exited (code=X). stderr
             // tail: ...") now means UNEXPECTED death — a strictly more
             // useful signal that should be ZERO during a clean UVHS run.
-            _log?.Invoke($"[SidecarHeadPoseReader] Sidecar stopped (caller-initiated, pid={pidForLog}).");
+            _log?.Invoke(FormatCallerInitiatedStopLog(pidForLog));
         }
 
         try { _readerTask?.Wait(TimeSpan.FromSeconds(3)); } catch { }
@@ -469,6 +469,21 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     }
 
     // ── Internals ──────────────────────────────────────────────────────────
+
+    /// <summary>Phase 4 (UI Consolidation Sprint, 2026-05-30): exact log
+    /// line emitted by <see cref="DoStop"/> when the caller (Stop / Restart
+    /// / Dispose) initiates the sidecar tear-down. Extracted so a CI unit
+    /// test can pin the diagnostic contract.
+    ///
+    /// <para>The phrase <c>"caller-initiated"</c> is load-bearing: it
+    /// distinguishes a clean Stop from the <see cref="OnProcessExited"/>
+    /// log line emitted on UNEXPECTED death (which should be ZERO during
+    /// a healthy UVHS run). Renaming or dropping that word breaks the
+    /// UVHS audit semantic used to validate Phase 3 Power-Save round-trip
+    /// integrity. See the comment at the call site in <see cref="DoStop"/>
+    /// for the full rationale.</para></summary>
+    internal static string FormatCallerInitiatedStopLog(int pid)
+        => $"[SidecarHeadPoseReader] Sidecar stopped (caller-initiated, pid={pid}).";
 
     /// <summary>Build the CLI argument string for the sidecar. Extracted so
     /// tests can verify argument shape without spawning a real process.</summary>
