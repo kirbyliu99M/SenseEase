@@ -92,13 +92,9 @@ public sealed class TrayIconService : IDisposable
         // throws BEFORE this log line means construction never reached this
         // file. Pairs with the end-of-ctor log from 99ec13d — the gap
         // between entry and exit logs localises where ctor breaks.
-        try
-        {
-            File.AppendAllText(
-                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                $"[{DateTime.UtcNow:O}] [TrayCtor] entry\n");
-        }
-        catch { /* fire-and-forget */ }
+        // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+        SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+            $"[{DateTime.UtcNow:O}] [TrayCtor] entry");
 
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _isBarVisible  = isBarVisible  ?? throw new ArgumentNullException(nameof(isBarVisible));
@@ -164,17 +160,12 @@ public sealed class TrayIconService : IDisposable
         // Visibility) so a user-reported "tray completely missing" can be
         // distinguished between (a) Win11 overflow hiding the icon,
         // (b) H.NotifyIcon silent registration failure, (c) TrayIconService
-        // never constructed at all — without re-running the app. Best-effort
-        // IO; a write failure here must NOT break tray init.
-        try
-        {
-            File.AppendAllText(
-                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                $"[{DateTime.UtcNow:O}] [Tray] TaskbarIcon initialized, " +
-                $"Icon.Handle=0x{_tray.Icon?.Handle:X}, " +
-                $"Visible={_tray.Visibility}\n");
-        }
-        catch { /* diag log is fire-and-forget */ }
+        // never constructed at all — without re-running the app.
+        // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+        SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+            $"[{DateTime.UtcNow:O}] [Tray] TaskbarIcon initialized, " +
+            $"Icon.Handle=0x{_tray.Icon?.Handle:X}, " +
+            $"Visible={_tray.Visibility}");
 
         // overlay-bar-redesign diag-4: visibility watchdog. Diag-3 confirmed
         // the ctor reaches its end with Visibility=Visible AND a valid
@@ -188,14 +179,10 @@ public sealed class TrayIconService : IDisposable
         _visibilityWatchdog = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _visibilityWatchdog.Tick += (_, _) =>
         {
-            try
-            {
-                File.AppendAllText(
-                    Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                    $"[{DateTime.UtcNow:O}] [TrayWatchdog] Visibility={_tray.Visibility}, " +
-                    $"IconHandle=0x{_tray.Icon?.Handle.ToInt64():X}\n");
-            }
-            catch { /* fire-and-forget */ }
+            // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [TrayWatchdog] Visibility={_tray.Visibility}, " +
+                $"IconHandle=0x{_tray.Icon?.Handle.ToInt64():X}");
         };
         _visibilityWatchdog.Start();
     }

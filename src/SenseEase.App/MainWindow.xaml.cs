@@ -563,20 +563,19 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>overlay-bar-redesign diag-2: best-effort append to
+    /// <summary>overlay-bar-redesign diag-2: best-effort write to
     /// %TEMP%/wgc_diag.txt. Used to instrument the Loaded handler chain
     /// + the tray-spawn path so a silent break is visible without
-    /// re-instrumenting. File IO is fire-and-forget; a log failure must
-    /// never break the spawn chain it's logging.</summary>
+    /// re-instrumenting.
+    ///
+    /// <para>Phase 4 (UVHS Playbook clause 5): routed through WgcDiagLog —
+    /// adds retry-on-IOException, monotonic [N=xxxxxxx] orthogonal-probe
+    /// sequence prefix, and independent loss sink at wgc_diag.lost.log.
+    /// Calls remain fire-and-forget from the caller's perspective.</para></summary>
     private static void SafeLog(string msg)
     {
-        try
-        {
-            File.AppendAllText(
-                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                $"[{DateTime.UtcNow:O}] {msg}\n");
-        }
-        catch { /* fire-and-forget */ }
+        SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+            $"[{DateTime.UtcNow:O}] {msg}");
     }
 
     private void StartTrayIcon()
@@ -1068,14 +1067,9 @@ public partial class MainWindow : Window
         string diagText = ValidationModeDiagnostics.BuildDiagnosticText(
             PopupSurfaceGate.ValidationEnvVar, snap);
         System.Diagnostics.Debug.WriteLine("[VALIDATION MODE]\n" + diagText);
-        try
-        {
-            string diagFile = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), "wgc_diag.txt");
-            System.IO.File.AppendAllText(diagFile,
-                "\n--- VALIDATION MODE WARNING ---\n" + diagText + "---\n");
-        }
-        catch { /* best-effort */ }
+        // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+        SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+            "\n--- VALIDATION MODE WARNING ---\n" + diagText + "---");
 
         _validationBanner = new ValidationModeBanner(diagText);
         _validationBanner.Closed += (_, _) => _validationBanner = null;

@@ -63,14 +63,15 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         new("dc8e63f3-d12b-4952-b47b-5e45026a862d");
 
     // ── Diagnostic log ───────────────────────────────────────────────────────────────────────
-    private static readonly string DiagFile =
-        Path.Combine(Path.GetTempPath(), "wgc_diag.txt");
+    // Phase 4 (UVHS Playbook clause 5): routed through WgcDiagLog for the
+    // retry-on-IOException + orthogonal-probe sequence prefix + independent
+    // loss sink. Path constant kept here for the OFI trace reset below.
+    private static readonly string DiagFile = WgcDiagLog.DiagFile;
 
     private static void WgcLog(string msg)
     {
-        string line = $"{DateTime.Now:HH:mm:ss.fff} {msg}";
         Debug.WriteLine($"[WGC] {msg}");
-        try { File.AppendAllText(DiagFile, line + Environment.NewLine); } catch { }
+        WgcDiagLog.Append($"{DateTime.Now:HH:mm:ss.fff} {msg}");
     }
 
     // Returns a raw AddRef'd interface pointer for the given IID; caller must Release.
@@ -295,7 +296,10 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     {
         if (_running) return;
 
-        try { File.WriteAllText(DiagFile, $"=== WGC Start {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}"); } catch { }
+        // Phase 4 (UVHS Playbook clause 5): no longer truncates DiagFile —
+        // WriteHeader appends a delimiter so the full WGC lifecycle history
+        // (across multiple Start/Stop rounds in a UVHS session) is preserved.
+        WgcDiagLog.WriteHeader($"WGC Start {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
 
         // Pop-up sprint Task 1: enable OFI trace log when SENSEEASE_WGC_BAR_VALIDATION=1.
         // Trace path is %TEMP%/wgc_ofi_trace.txt; header line written here, per-tick
@@ -307,9 +311,12 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         if (_ofiTraceEnabled)
         {
             _ofiTracePath = Path.Combine(Path.GetTempPath(), "wgc_ofi_trace.txt");
-            try { File.WriteAllText(_ofiTracePath,
+            // Phase 4: OFI trace IS a per-session file (truncation intentional),
+            // but goes through ResetSessionFile so a sharing violation no longer
+            // silently drops the header — failure is surfaced to wgc_diag.lost.log.
+            WgcDiagLog.ResetSessionFile(_ofiTracePath,
                 $"# wgc_ofi_trace start {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
-                "epoch_ms,smoothed_ofi,mask_left,mask_top,mask_w,mask_h\n"); } catch { }
+                "epoch_ms,smoothed_ofi,mask_left,mask_top,mask_w,mask_h\n");
         }
 
         if (!GraphicsCaptureSession.IsSupported())

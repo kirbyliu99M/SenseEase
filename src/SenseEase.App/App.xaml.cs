@@ -97,14 +97,10 @@ public partial class App : Application
             // If mutex creation fails (e.g. security policy), log + continue.
             // Worst case: pre-hotfix behaviour (duplicate-tray risk). Better
             // than refusing to launch at all.
-            try
-            {
-                File.AppendAllText(
-                    Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                    $"[{DateTime.UtcNow:O}] [App.SingleInstance] mutex create failed: " +
-                    $"{ex.GetType().Name}: {ex.Message} — continuing without guard\n");
-            }
-            catch { /* fire-and-forget */ }
+            // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.SingleInstance] mutex create failed: " +
+                $"{ex.GetType().Name}: {ex.Message} — continuing without guard");
         }
 
         // Path Z UX iter 5: detect autostart-from-Windows-login. The
@@ -147,15 +143,11 @@ public partial class App : Application
         // augments the log with AUMID assignment outcome so we can
         // distinguish "AUMID never set" from "AUMID set but shell cached
         // the prior testhost entry" in user-pasted diagnostics.
-        try
-        {
-            File.AppendAllText(
-                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                $"[{DateTime.UtcNow:O}] [App.OnStartup] entry, " +
-                $"build={typeof(App).Assembly.Location}, " +
-                $"AUMID='{AumidString}' {aumidStatus}\n");
-        }
-        catch { /* fire-and-forget */ }
+        // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+        SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+            $"[{DateTime.UtcNow:O}] [App.OnStartup] entry, " +
+            $"build={typeof(App).Assembly.Location}, " +
+            $"AUMID='{AumidString}' {aumidStatus}");
 
         base.OnStartup(e);
 
@@ -189,14 +181,10 @@ public partial class App : Application
             // guards against a surprise (e.g. disk error reading the file
             // for the first time). On failure the AppConfig defaults stand
             // (head-tracking OFF / Balanced / escape hatch on).
-            try
-            {
-                File.AppendAllText(
-                    Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                    $"[{DateTime.UtcNow:O}] [App.OnStartup] HeadTracking prefs hydrate FAILED: " +
-                    $"{ex.GetType().Name}: {ex.Message} — using AppConfig defaults\n");
-            }
-            catch { /* fire-and-forget */ }
+            // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.OnStartup] HeadTracking prefs hydrate FAILED: " +
+                $"{ex.GetType().Name}: {ex.Message} — using AppConfig defaults");
         }
 
         DispatcherUnhandledException += (_, args) =>

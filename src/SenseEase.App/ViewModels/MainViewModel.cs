@@ -388,13 +388,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// lifecycle (which itself runs from a Task.Run background thread).</summary>
     private static void SidecarLifecycleLog(string msg)
     {
-        try
-        {
-            File.AppendAllText(
-                Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
-                $"[{DateTime.UtcNow:O}] [SidecarHeadPose] {msg}\n");
-        }
-        catch { /* fire-and-forget */ }
+        // Phase 4: routed through WgcDiagLog for retry + orthogonal probe.
+        SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+            $"[{DateTime.UtcNow:O}] [SidecarHeadPose] {msg}");
     }
 
     /// <summary>M4: kick the sidecar process if head-tracking is enabled.
