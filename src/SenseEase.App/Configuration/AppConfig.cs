@@ -226,7 +226,7 @@ public static class AppConfig
     /// so this is exposed as a settable property for symmetry with the other
     /// runtime feature flags above. Default = false; flipping requires
     /// explicit opt-in either at startup or via a future settings UI.</para></summary>
-    public static bool HeadTrackingEnabled { get; set; } = true;
+    public static bool HeadTrackingEnabled { get; set; } = false;
 
     /// <summary>M5.1-B (head-tracking sprint, 2026-05-30): user-facing
     /// "how much should the mask follow head gaze" choice.
