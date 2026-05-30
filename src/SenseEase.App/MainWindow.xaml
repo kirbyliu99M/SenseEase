@@ -310,26 +310,37 @@
                                     Command="{Binding StartSetupDemoCommand}"
                                     ToolTip="Plays a 60 s vection clip, then suggests a personalised preset based on your reaction. Re-running adds to existing preferences."
                                     Margin="0,0,8,8"/>
+                            <!-- Quest 2 塊 A (UI Consolidation Sprint, 2026-05-30):
+                                 Stop Demo hidden via Visibility="Collapsed". Demos
+                                 already auto-end (video clip → OnDemoVideoFinished,
+                                 synthetic ramp → OFI=150). Mid-discomfort interrupt
+                                 path preserved via Reset State (which calls
+                                 if (IsRunning) StopDemo() before reset) AND via
+                                 closing the demo video window X (also triggers
+                                 OnDemoVideoFinished). Wellbeing: user retains
+                                 explicit interrupt for "I feel discomfort, stop now". -->
                             <Button Content="Stop Demo" Style="{StaticResource AlertBtn}"
                                     Command="{Binding StopDemoCommand}"
+                                    Visibility="Collapsed"
                                     Margin="0,0,8,8"/>
-                            <Button Content="Toggle Overlay" Style="{StaticResource GhostBtn}"
-                                    Command="{Binding ToggleOverlayCommand}"
-                                    Margin="0,0,8,8"/>
+                            <!-- Quest 2 塊 A: Toggle Overlay button removed —
+                                 the "保持遮罩開啟 / Keep overlay visible" checkbox
+                                 below is the discoverable primary control + has
+                                 bilingual explanation. Demo auto-enables overlay
+                                 anyway. ToggleOverlayCommand binding still exists
+                                 on MainViewModel for any programmatic invocations. -->
                             <Button Content="Reset State" Style="{StaticResource GhostBtn}"
                                     Command="{Binding ResetStateCommand}"
                                     Margin="0,0,8,8"/>
                             <Button Content="Switch Driver / Passenger" Style="{StaticResource GhostBtn}"
                                     Command="{Binding ToggleModeCommand}"
                                     Margin="0,0,8,8"/>
-                            <!-- Path Z UX iter 2: "Cycle Sensing Mode" button hidden.
-                                 Cursor mode is unused in production; Demo mode is
-                                 only entered via the Calibration flow. Binding kept
-                                 in case the button is revived for a debug build. -->
-                            <Button Content="Cycle Sensing Mode" Style="{StaticResource GhostBtn}"
-                                    Command="{Binding ToggleDemoModeCommand}"
-                                    Visibility="Collapsed"
-                                    Margin="0,0,8,8"/>
+                            <!-- Cycle Sensing Mode button removed (Quest 2 塊 A,
+                                 2026-05-30). Was already Visibility="Collapsed"
+                                 since Path Z UX iter 2; Cursor mode unused, Demo
+                                 mode only entered via Calibration flow. Binding
+                                 ToggleDemoModeCommand kept on MainViewModel for
+                                 any programmatic test invocations. -->
                         </WrapPanel>
 
                         <!-- Status strip -->
