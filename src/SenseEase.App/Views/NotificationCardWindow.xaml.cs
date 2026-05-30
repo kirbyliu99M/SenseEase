@@ -543,14 +543,18 @@ public partial class NotificationCardWindow : Window
 
     /// <summary>overlay-bar-redesign D3: opens the Settings window using the
     /// host-provided vestibular-diagnosis lookup (or a no-diagnosis fallback
-    /// when the host hasn't wired it). Modal-feeling — uses
-    /// <c>ShowDialog</c> with the card as owner so the settings stay on top
-    /// while open.</summary>
+    /// when the host hasn't wired it).
+    /// <para>UI Consolidation Sprint Phase 1.5 (2026-05-30, user feedback):
+    /// changed from modal <c>ShowDialog</c> to non-modal <c>Show</c> so the
+    /// user can keep interacting with the main console AND the Pop-up Card
+    /// while Settings is open. The card's idle-fade timer is suspended for
+    /// the lifetime of the SettingsWindow and restarted via its
+    /// <see cref="Window.Closed"/> event (instead of the synchronous
+    /// <c>finally</c> block that <c>ShowDialog</c> required).</para></summary>
     private void OnSettingsClicked(object sender, RoutedEventArgs e)
     {
-        // Path Z bug-fix 3: stop the card's idle-fade timer and cancel any
-        // in-progress fade so the card doesn't disappear behind the modal
-        // Settings dialog after 60 s of inactivity in Settings.
+        // Stop the card's idle-fade timer + cancel any in-progress fade so
+        // the card doesn't disappear behind the Settings window after 60s.
         _idleTimer.Stop();
         if (_activeFadeStoryboard is not null)
         {
@@ -559,23 +563,18 @@ public partial class NotificationCardWindow : Window
             Opacity = 1.0;
         }
 
-        try
-        {
-            var diagFn = HasVestibularDiagnosis ?? (() => false);
-            var win = new SettingsWindow(diagFn) { Owner = this };
-            // Path Z bug-fix 7: forward PreferencesChanged to the host so the
-            // bar/tray repaint immediately on Toggle B change — matching the
-            // tray-menu Settings path.
-            if (OnPreferencesChanged is not null)
-                win.PreferencesChanged += (_, _) => OnPreferencesChanged();
-            win.ShowDialog();
-        }
-        finally
-        {
-            // Restart the idle countdown when Settings closes so the card
-            // resumes its normal auto-collapse behaviour.
-            RestartIdleTimer();
-        }
+        var diagFn = HasVestibularDiagnosis ?? (() => false);
+        var win = new SettingsWindow(diagFn) { Owner = this };
+        // Path Z bug-fix 7: forward PreferencesChanged to the host so the
+        // bar/tray repaint immediately on Toggle B change — matching the
+        // tray-menu Settings path.
+        if (OnPreferencesChanged is not null)
+            win.PreferencesChanged += (_, _) => OnPreferencesChanged();
+        // Phase 1.5: non-modal handoff. Without ShowDialog's synchronous
+        // wait, we need an asynchronous restart of the idle timer keyed to
+        // Settings actually closing.
+        win.Closed += (_, _) => RestartIdleTimer();
+        win.Show();
     }
 
     /// <summary>Patch 9: primary action — surface the dashboard window. User

@@ -247,4 +247,41 @@ public class UserPreferencesTests : IDisposable
         var second = UserPreferences.Current;
         Assert.Same(first, second);
     }
+
+    // ── UI Consolidation Sprint M-Phase-1: Changed event ────────────────────
+    // Cross-instance UI sync mechanism — when one SettingsContent surface
+    // saves a preference change, the static Changed event re-hydrates peer
+    // surfaces (Settings tab ↔ SettingsWindow). These tests validate the
+    // event mechanism at the data layer; UI propagation is verified by
+    // user UVHS at G_final.
+
+    [Fact]
+    public void Save_RaisesChangedEvent_ForCrossSurfaceSync()
+    {
+        bool fired = false;
+        EventHandler handler = (_, _) => fired = true;
+        UserPreferences.Changed += handler;
+        try
+        {
+            new UserPreferences { AutoExpandNotifications = true }.Save();
+        }
+        finally { UserPreferences.Changed -= handler; }
+
+        Assert.True(fired, "Save() must raise Changed for Settings tab / SettingsWindow cross-instance sync.");
+    }
+
+    [Fact]
+    public void ResetToDefaults_RaisesChangedEvent_TransitivelyViaSave()
+    {
+        bool fired = false;
+        EventHandler handler = (_, _) => fired = true;
+        UserPreferences.Changed += handler;
+        try
+        {
+            UserPreferences.ResetToDefaults();
+        }
+        finally { UserPreferences.Changed -= handler; }
+
+        Assert.True(fired, "ResetToDefaults() must raise Changed (via Save()) so cross-surface UI re-hydrates after a chatbot-driven reset.");
+    }
 }

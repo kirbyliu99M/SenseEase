@@ -157,6 +157,19 @@ public sealed class UserPreferences
     private static UserPreferences? _current;
     private static readonly object _gate = new();
 
+    /// <summary>UI Consolidation Sprint M-Phase-1 (2026-05-30): raised after a
+    /// successful <see cref="Save"/> (or <see cref="ResetToDefaults"/>, which
+    /// calls Save). Lets multiple UI surfaces hosting the shared
+    /// <c>SettingsContent</c> UserControl re-hydrate from
+    /// <see cref="Current"/> when a peer surface saves a change, so the
+    /// Settings tab and SettingsWindow stay visually in sync without
+    /// per-instance plumbing.
+    /// <para>Fires on whatever thread called Save. All current callers are
+    /// UI event handlers (toggle Checked/Unchecked), so subscribers can
+    /// safely touch WPF state directly. A future background-thread caller
+    /// would need to marshal back to the dispatcher itself.</para></summary>
+    public static event EventHandler? Changed;
+
     /// <summary>The active preferences instance. First access loads from
     /// disk (falling back to defaults if missing/malformed). Thread-safe.</summary>
     public static UserPreferences Current
@@ -213,6 +226,7 @@ public sealed class UserPreferences
     public void Save()
     {
         AtomicJsonWriter.TryWrite(FilePath, this);
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Resets all preferences back to defaults and persists. The
