@@ -344,6 +344,18 @@ public partial class MainWindow : Window
             // other key being held). On the second clean Ctrl KeyDown
             // within the window, fire. Reset on any non-Ctrl KeyDown so
             // chord typing (Ctrl+C, Ctrl+S, etc.) doesn't poison the state.
+            //
+            // M8 escape × vestibular guard (defensive layer): even before
+            // we look at AppConfig.HeadTrackingEscapeHatchEnabled, no-op
+            // entirely for vestibular-diagnosed users. The OverlayWindow
+            // also checks via HasVestibularDiagnosis (set on construction)
+            // — this site is a belt-and-braces second check so a forced-on
+            // AppConfig + JSON edit can't bypass the protection.
+            if (_viewModel.HasVestibularDiagnosis())
+            {
+                _lastCtrlTapUtc = default;
+                return;
+            }
             bool isCtrl = e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl;
             if (isCtrl)
             {
@@ -495,21 +507,33 @@ public partial class MainWindow : Window
                 headGazeY: _displayedCy,
                 active:    active);
 
-            // Per-frame perf log (every 5 s, achieved render Hz + sidecar Hz).
-            _headPoseTickCount++;
-            if (_headPoseTickCountStartUtc == default)
-                _headPoseTickCountStartUtc = DateTime.UtcNow;
-            var elapsed = DateTime.UtcNow - _headPoseTickCountStartUtc;
-            if (elapsed.TotalSeconds >= 5.0)
+            // M8 head-tracking sprint: per-frame perf log gated behind
+            // AppConfig.HeadTrackingPerfLogEnabled (default false). The two
+            // counters proved their value at G6 perf decision but are dead
+            // weight in production (5-second log spam, no user value). Flag
+            // off → skip the entire 5-second block (no log emission, no
+            // sidecar reset). The Interlocked.Increment on _headPoseTickCount
+            // (one int add per frame) stays unconditional — it's negligible
+            // and lets the flag flip take effect on the next 5-second window
+            // when debugging. Mirror the AppConfig.HeadTrackingEnabled flip
+            // pattern (code edit + republish) when debugging a perf issue.
+            if (Configuration.AppConfig.HeadTrackingPerfLogEnabled)
             {
-                double achievedHz = _headPoseTickCount / elapsed.TotalSeconds;
-                int sidecarSamples = 0;
-                if (_viewModel.EffectiveHeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar)
-                    sidecarSamples = sidecar.ConsumeReceivedSampleCount();
-                double sidecarHz = sidecarSamples / elapsed.TotalSeconds;
-                SafeLog($"[HeadPoseRender] renders={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target=monitor refresh) sidecar_received={sidecarSamples} sidecarHz={sidecarHz:F2} (target 15.00)");
-                _headPoseTickCount = 0;
-                _headPoseTickCountStartUtc = DateTime.UtcNow;
+                _headPoseTickCount++;
+                if (_headPoseTickCountStartUtc == default)
+                    _headPoseTickCountStartUtc = DateTime.UtcNow;
+                var elapsed = DateTime.UtcNow - _headPoseTickCountStartUtc;
+                if (elapsed.TotalSeconds >= 5.0)
+                {
+                    double achievedHz = _headPoseTickCount / elapsed.TotalSeconds;
+                    int sidecarSamples = 0;
+                    if (_viewModel.EffectiveHeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar)
+                        sidecarSamples = sidecar.ConsumeReceivedSampleCount();
+                    double sidecarHz = sidecarSamples / elapsed.TotalSeconds;
+                    SafeLog($"[HeadPoseRender] renders={_headPoseTickCount} elapsed={elapsed.TotalSeconds:F2}s achievedHz={achievedHz:F2} (target=monitor refresh) sidecar_received={sidecarSamples} sidecarHz={sidecarHz:F2} (target 15.00)");
+                    _headPoseTickCount = 0;
+                    _headPoseTickCountStartUtc = DateTime.UtcNow;
+                }
             }
         }
         catch
@@ -1028,7 +1052,18 @@ public partial class MainWindow : Window
         {
             if (_overlay == null || !_overlay.IsLoaded)
             {
-                _overlay = new OverlayWindow();
+                _overlay = new OverlayWindow
+                {
+                    // M8 escape × vestibular guard: read-only consumer of
+                    // MainViewModel.HasVestibularDiagnosis. When the user's
+                    // calibration recorded a vestibular diagnosis,
+                    // OverlayWindow.TriggerEscapeHatch no-ops even if the
+                    // AppConfig flag is true. Settings UI also greys out
+                    // the toggle; this is the defensive second layer.
+                    // HabituationEngine + HabituationProfileSnapshot are
+                    // NOT modified — we only consume the existing API.
+                    HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis,
+                };
                 _overlay.Closed += OnOverlayClosed;   // B4: keep VM in sync
             }
 

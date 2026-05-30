@@ -53,11 +53,18 @@ public class UserPreferencesTests : IDisposable
         // feedback was that the colour-changing bar reads as disruptive
         // ambient noise. Default behaviour now is grey/neutral bar; user
         // opts in via Settings if they want the tier-colour signal.
+        // Head-tracking sprint M8: schema bumped to 2 (new head-tracking
+        // fields added). New file writes always use the current schema.
         var p = UserPreferences.Load();
         Assert.False(p.AutoExpandNotifications);  // Toggle A default OFF (user decision)
         Assert.False(p.BarTrayColorEnabled);       // Toggle B default OFF (v0.8 hotfix)
         Assert.False(p.VestibularWarningShown);    // never shown yet
-        Assert.Equal(1, p.SchemaVersion);
+        Assert.Equal(2, p.SchemaVersion);
+        // M8 new fields: opt-in privacy (head-tracking OFF), Balanced follow
+        // mode, escape hatch on.
+        Assert.False(p.HeadTrackingEnabled);
+        Assert.Equal("Balanced", p.HeadTrackingFollowMode);
+        Assert.True(p.HeadTrackingEscapeHatchEnabled);
     }
 
     // ── Round-trip ───────────────────────────────────────────────────────────
@@ -77,7 +84,7 @@ public class UserPreferencesTests : IDisposable
         Assert.True(read.AutoExpandNotifications);
         Assert.False(read.BarTrayColorEnabled);
         Assert.True(read.VestibularWarningShown);
-        Assert.Equal(1, read.SchemaVersion);
+        Assert.Equal(2, read.SchemaVersion);
     }
 
     [Fact]
@@ -145,7 +152,7 @@ public class UserPreferencesTests : IDisposable
 
         var p = UserPreferences.Load();
 
-        Assert.Equal(1, p.SchemaVersion);
+        Assert.Equal(2, p.SchemaVersion);
         Assert.False(p.AutoExpandNotifications);  // defaults, NOT the file's true
         Assert.False(p.BarTrayColorEnabled);       // defaults (v0.8 hotfix: OFF), NOT the file's value
     }
@@ -172,6 +179,59 @@ public class UserPreferencesTests : IDisposable
 
         Assert.False(p.AutoExpandNotifications);
         Assert.False(p.BarTrayColorEnabled);  // v0.8 hotfix: default OFF
+    }
+
+    // ── Head-tracking sprint M8: schema v1 → v2 roll-forward ────────────────
+
+    [Fact]
+    public void Load_SchemaV1File_PreservesExistingFields_AndDefaultsNewHeadTrackingFields()
+    {
+        // A user upgrading from a pre-M8 build has a v=1 prefs file with the
+        // original 6 fields (no head-tracking). Loader must:
+        //   • Preserve all v=1 fields verbatim (don't reset the user's prior
+        //     Toggle A / Toggle B / minimize-to-tray choices).
+        //   • Default the new head-tracking fields to the safe opt-in posture.
+        //   • Stamp the loaded instance with the current schema version so
+        //     the next Save persists as v=2.
+        Directory.CreateDirectory(Path.GetDirectoryName(UserPreferences.FilePath)!);
+        File.WriteAllText(UserPreferences.FilePath,
+            """{ "schema_version": 1, "auto_expand_notifications": true, "bar_tray_color_enabled": true, "vestibular_warning_shown": true, "minimize_to_tray_on_close": false, "run_at_windows_startup": true, "use_new_bar_overlay": true }""");
+
+        var p = UserPreferences.Load();
+
+        // Pre-existing fields preserved.
+        Assert.True(p.AutoExpandNotifications);
+        Assert.True(p.BarTrayColorEnabled);
+        Assert.True(p.VestibularWarningShown);
+        Assert.False(p.MinimizeToTrayOnClose);
+        Assert.True(p.RunAtWindowsStartup);
+        Assert.True(p.UseNewBarOverlay);
+
+        // New M8 fields default to safe-opt-in.
+        Assert.False(p.HeadTrackingEnabled);
+        Assert.Equal("Balanced", p.HeadTrackingFollowMode);
+        Assert.True(p.HeadTrackingEscapeHatchEnabled);
+
+        // Rolled forward to current schema.
+        Assert.Equal(2, p.SchemaVersion);
+    }
+
+    [Fact]
+    public void Save_HeadTrackingFields_WritesSnakeCaseJson_OnDisk()
+    {
+        var p = new UserPreferences
+        {
+            HeadTrackingEnabled            = true,
+            HeadTrackingFollowMode         = "FullFollow",
+            HeadTrackingEscapeHatchEnabled = false,
+        };
+        p.Save();
+
+        string json = File.ReadAllText(UserPreferences.FilePath);
+        Assert.Contains("head_tracking_enabled", json);
+        Assert.Contains("head_tracking_follow_mode", json);
+        Assert.Contains("head_tracking_escape_hatch_enabled", json);
+        Assert.Contains("FullFollow", json);
     }
 
     // ── Current singleton ────────────────────────────────────────────────────

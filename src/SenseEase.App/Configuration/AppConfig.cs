@@ -268,6 +268,27 @@ public static class AppConfig
     /// Orthogonal to the follow-mode choice — works in any mode.</summary>
     public static bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
 
+    /// <summary>M8 head-tracking sprint (2026-05-30): debug-only telemetry
+    /// flag gating the per-5-seconds <c>[HeadPoseRender]</c> log line in
+    /// <c>MainWindow.OnCompositionRendering</c>. The two underlying counters
+    /// (WPF render-frame count, sidecar received-sample count) were added
+    /// during M5.1-C PRECONDITION measurement to answer the advisor's
+    /// "is the dispatcher contention or the sidecar?" question — they
+    /// proved their value at G6 perf decision but are dead weight in
+    /// production (5-second log spam in wgc_diag.txt, no user value).
+    ///
+    /// <para>Default <c>false</c> — production builds emit no
+    /// <c>[HeadPoseRender]</c> lines. The counters still tick
+    /// (<c>Interlocked.Increment</c> is negligible) but the log emission
+    /// + <see cref="SenseEase.Infrastructure.Real.SidecarHeadPoseReader.ConsumeReceivedSampleCount"/>
+    /// reset are skipped.</para>
+    ///
+    /// <para>Flip to <c>true</c> in code (same pattern as
+    /// <see cref="HeadTrackingEnabled"/>) when debugging a head-tracking
+    /// perf regression. After flipping + republishing, the log lines
+    /// reappear every 5 seconds as before.</para></summary>
+    public static bool HeadTrackingPerfLogEnabled { get; set; } = false;
+
     // M4 (head-tracking sprint): paths to the Python sidecar's interpreter
     // and script. Resolved with the same "alongside the EXE, then walk up
     // looking for the repo's tools/ folder" probe used for ModelPath /

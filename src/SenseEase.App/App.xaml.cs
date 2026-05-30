@@ -158,6 +158,47 @@ public partial class App : Application
         catch { /* fire-and-forget */ }
 
         base.OnStartup(e);
+
+        // Head-tracking sprint M8: mirror persisted UserPreferences into
+        // AppConfig static props BEFORE any MainViewModel / MainWindow
+        // construction. AppConfig is the per-process source of truth read by
+        // MainViewModel.CreateHeadPoseReader (factory), LightSensorProvider
+        // factory, and OverlayWindow.ApplyHeadPoseToBrush / TriggerEscapeHatch
+        // (per-frame). HeadTrackingEnabled is startup-bound (factory pattern);
+        // FollowMode + EscapeHatchEnabled are runtime-changeable (overlay
+        // reads them per frame) but we still hydrate from prefs here so the
+        // first frame after launch already reflects the user's choice.
+        try
+        {
+            Configuration.AppConfig.HeadTrackingEnabled =
+                Configuration.UserPreferences.Current.HeadTrackingEnabled;
+            Configuration.AppConfig.HeadTrackingFollowMode =
+                string.Equals(
+                    Configuration.UserPreferences.Current.HeadTrackingFollowMode,
+                    "FullFollow",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? Configuration.HeadTrackingFollowModeKind.FullFollow
+                    : Configuration.HeadTrackingFollowModeKind.Balanced;
+            Configuration.AppConfig.HeadTrackingEscapeHatchEnabled =
+                Configuration.UserPreferences.Current.HeadTrackingEscapeHatchEnabled;
+        }
+        catch (Exception ex)
+        {
+            // Prefs load is best-effort; a malformed file or schema mismatch
+            // already falls back to defaults inside Load(). This catch only
+            // guards against a surprise (e.g. disk error reading the file
+            // for the first time). On failure the AppConfig defaults stand
+            // (head-tracking OFF / Balanced / escape hatch on).
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Path.GetTempPath(), "wgc_diag.txt"),
+                    $"[{DateTime.UtcNow:O}] [App.OnStartup] HeadTracking prefs hydrate FAILED: " +
+                    $"{ex.GetType().Name}: {ex.Message} — using AppConfig defaults\n");
+            }
+            catch { /* fire-and-forget */ }
+        }
+
         DispatcherUnhandledException += (_, args) =>
         {
             LogCrash(args.Exception, "DispatcherUnhandledException");

@@ -444,6 +444,25 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private bool _escapeHatchActive;
     private Storyboard? _escapeHatchStoryboard;
 
+    /// <summary>M8 head-tracking sprint: host-wired lookup of "does the user
+    /// have a vestibular diagnosis on file?". When set and returns true,
+    /// <see cref="TriggerEscapeHatch"/> is a no-op even if
+    /// <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
+    /// is true. The FOV mask IS the VIMS protection for vestibular-sensitive
+    /// users — opening a 3-second window of 30 % opacity could surface
+    /// symptoms during a high-motion moment. This is the defensive layer;
+    /// the Settings UI also greys out the checkbox at load time. Read-only
+    /// consumer of the existing MainViewModel.HasVestibularDiagnosis API
+    /// (the engine + snapshot types from SenseEase.Core are NOT modified
+    /// by the head-tracking sprint — verified via empty diff at M8 close).
+    /// Mirrors the same Func&lt;bool&gt; pattern used by NotificationCardWindow.HasVestibularDiagnosis.
+    /// Null defaults to "() =&gt; false" so an unwired test or future caller
+    /// keeps the old behaviour. Locked-file note: the lookup itself lives
+    /// on MainViewModel (read-only consumer of the calibration responses
+    /// on the habituation profile snapshot — engine + snapshot types are
+    /// not modified by the head-tracking sprint).</summary>
+    public Func<bool>? HasVestibularDiagnosis { get; set; }
+
     /// <summary>M5.1-B: temporarily fade the FOV mask to 30 % opacity for
     /// 3 seconds with a 250 ms fade-down + 500 ms fade-up. Triggered by
     /// double-tapping Ctrl when <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
@@ -451,10 +470,20 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// committing to FullFollow permanently. Orthogonal to the follow-mode
     /// choice — works whether head-tracking is on or off, in either mode.
     /// Safe to call repeatedly: a new call mid-animation resets the cycle
-    /// (the user gets a fresh 3 second window).</summary>
+    /// (the user gets a fresh 3 second window).
+    ///
+    /// <para>M8 escape × vestibular guard: returns early when
+    /// <see cref="HasVestibularDiagnosis"/> reports true. The FOV mask is
+    /// the VIMS protection for vestibular-sensitive users; we never lower
+    /// it. Defensive layer — the Settings UI ALSO disables the checkbox
+    /// at load time, but a user with a forced-on JSON edit (or a Ctrl tap
+    /// before the prefs are hydrated) still gets the protection here.</para></summary>
     public void TriggerEscapeHatch()
     {
         if (!Configuration.AppConfig.HeadTrackingEscapeHatchEnabled) return;
+        // M8: vestibular guard — read-only consumer of the host's lookup.
+        // Null fallback returns false (i.e. unwired = previous behaviour).
+        if (HasVestibularDiagnosis?.Invoke() == true) return;
 
         try { _escapeHatchStoryboard?.Stop(this); } catch { /* ignore */ }
 

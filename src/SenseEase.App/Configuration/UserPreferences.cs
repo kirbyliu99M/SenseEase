@@ -43,9 +43,19 @@ public sealed class UserPreferences
     // ── Schema versioning ───────────────────────────────────────────────────
     // Following the same pattern as habituation_profile.json — bump on
     // breaking changes; the loader treats unknown versions as "fall back to
-    // defaults + log". Start at 1 since this is the first prefs file.
+    // defaults + log".
+    //
+    // Schema history:
+    //   1 — initial (Pop-up sprint Task 5).
+    //   2 — head-tracking sprint M8 adds head_tracking_enabled,
+    //       head_tracking_follow_mode, head_tracking_escape_hatch_enabled.
+    //       Old v=1 files load cleanly (missing fields default to the
+    //       Roll forward strategy below).
     [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+    /// <summary>Current canonical schema version this build writes.</summary>
+    internal const int CurrentSchemaVersion = 2;
 
     /// <summary>Toggle A — auto-expand notification card on tier-up / spike.
     /// Default <c>false</c> per spec §4: passive signal first, active
@@ -100,6 +110,48 @@ public sealed class UserPreferences
     [JsonPropertyName("run_at_windows_startup")]
     public bool RunAtWindowsStartup { get; set; } = false;
 
+    // ── Head-tracking sprint M8 (2026-05-30) ────────────────────────────────
+    //
+    // Three fields surface the head-tracking feature in Settings UI. All read
+    // at app startup by App.OnStartup which mirrors them onto the static
+    // AppConfig.HeadTracking* props (AppConfig is the per-process source of
+    // truth read by MainViewModel / OverlayWindow at runtime). The
+    // HeadTrackingEnabled flag is "startup-bound" because the sidecar reader
+    // factory + LightSensorProvider bind once at MainViewModel construction;
+    // the FollowMode + EscapeHatchEnabled flags are runtime-changeable
+    // because OverlayWindow reads them per frame in ApplyHeadPoseToBrush /
+    // TriggerEscapeHatch.
+
+    /// <summary>M8: master opt-in for head-tracking. Default <c>false</c>
+    /// (privacy + stability — see docs/HEAD-TRACKING-PRIVACY.md §1). When
+    /// false the Python sidecar is never spawned and the FOV mask centre
+    /// stays at the v0.9 hardcoded (0.5, 0.5). Changes take effect at the
+    /// next app launch — the Settings UI annotates the checkbox with
+    /// "需重新啟動 / Requires restart" because the IHeadPoseReader and
+    /// LightSensorProvider factories run once at MainViewModel construction
+    /// and don't watch the flag at runtime.</summary>
+    [JsonPropertyName("head_tracking_enabled")]
+    public bool HeadTrackingEnabled { get; set; } = false;
+
+    /// <summary>M8: head-tracking follow-mode persistence. String-serialised
+    /// for forward-compat ("Balanced" / "FullFollow"). Default "Balanced"
+    /// matches AppConfig default (clinical VIMS-mitigation purpose — periphery
+    /// always partially dimmed). Unknown values fall back to "Balanced" on
+    /// load. Runtime-changeable: OverlayWindow.ApplyHeadPoseToBrush reads the
+    /// mode per frame.</summary>
+    [JsonPropertyName("head_tracking_follow_mode")]
+    public string HeadTrackingFollowMode { get; set; } = "Balanced";
+
+    /// <summary>M8: double-tap-Ctrl temporary-transparency escape hatch.
+    /// Default <c>true</c> matches AppConfig default. Runtime-changeable.
+    /// NOTE: even with this flag <c>true</c>, the escape hatch no-ops for
+    /// users whose habituation profile records a vestibular diagnosis (the
+    /// FOV mask is their VIMS protection; opening a 3-second window of 30 %
+    /// opacity could surface VIMS in high-motion content). See
+    /// OverlayWindow.TriggerEscapeHatch + docs/HEAD-TRACKING-PRIVACY.md §3.4.</summary>
+    [JsonPropertyName("head_tracking_escape_hatch_enabled")]
+    public bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
+
     // ── Static singleton + persistence ──────────────────────────────────────
 
     private static UserPreferences? _current;
@@ -129,17 +181,29 @@ public sealed class UserPreferences
     /// <summary>Loads preferences from <see cref="FilePath"/>. Returns a
     /// defaults-only instance if the file is missing OR if the loaded
     /// schema_version is unknown (forward-compat: an older app reading
-    /// a newer file falls back rather than misinterpreting).</summary>
+    /// a newer file falls back rather than misinterpreting).
+    ///
+    /// <para>Roll-forward strategy (M8): v=1 files load cleanly — the new
+    /// head-tracking fields default via property initialisers (false /
+    /// "Balanced" / true), so an old install upgrading does NOT lose existing
+    /// toggle state. On next Save the file is rewritten as v=2. Unknown
+    /// versions (e.g. v=3 from a future build) STILL fall back to defaults
+    /// to preserve the existing safe-on-mismatch posture.</para></summary>
     public static UserPreferences Load()
     {
         var loaded = AtomicJsonWriter.TryRead<UserPreferences>(FilePath);
         if (loaded is null) return new UserPreferences();
-        if (loaded.SchemaVersion != 1)
+        if (loaded.SchemaVersion != 1 && loaded.SchemaVersion != CurrentSchemaVersion)
         {
             System.Diagnostics.Debug.WriteLine(
                 $"[user-preferences] Unknown schema_version {loaded.SchemaVersion} at {FilePath}; using defaults.");
             return new UserPreferences();
         }
+        // Roll v=1 → current. Missing head-tracking fields already have
+        // safe defaults from property initialisers; just stamp the version
+        // so the next Save persists as the current schema.
+        if (loaded.SchemaVersion < CurrentSchemaVersion)
+            loaded.SchemaVersion = CurrentSchemaVersion;
         return loaded;
     }
 
