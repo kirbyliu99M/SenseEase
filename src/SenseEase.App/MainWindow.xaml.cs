@@ -739,6 +739,13 @@ public partial class MainWindow : Window
         // the previous band so we only fire on the CROSSING edge,
         // not every sample within the new band.
         var newBand = TierColorPalette.BandForTier(st.VimsTier);
+
+        // Mirror tier/pressure into an already-open Card so its title stays
+        // in lockstep with the bar; otherwise the Card holds the snapshot
+        // taken by ShowNotificationCardForCurrentTier at open time.
+        if (_cardWindow is { IsVisible: true })
+            _cardWindow.SetContent(newBand, st.VimsTier, st.Pressure);
+
         if (_lastBand == TierColorPalette.TierBand.Grey
             && newBand != TierColorPalette.TierBand.Grey
             && UserPreferences.Current.UseNewBarOverlay
