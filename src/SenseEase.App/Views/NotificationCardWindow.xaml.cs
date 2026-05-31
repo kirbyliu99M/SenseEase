@@ -364,6 +364,12 @@ public partial class NotificationCardWindow : Window
             if (ChatSendBtn is not null)  ChatSendBtn.IsEnabled = true;
             if (ChatInputBox is not null) ChatInputBox.IsEnabled = true;
 
+            // Per-Show hygiene: prior typing or status text shouldn't carry
+            // across Hide→Show. ProposalSafetyNoteText is intentionally left
+            // alone — its lifecycle is tied to the active-proposal flow.
+            if (ChatInputBox is not null)   ChatInputBox.Text = string.Empty;
+            if (ChatStatusText is not null) ChatStatusText.Text = string.Empty;
+
             RestartIdleTimer();
 
             if (_foregroundCheckTimer is null)
