@@ -649,17 +649,23 @@ public partial class MainWindow : Window
         _settingsWindow.Show();
     }
 
-    /// <summary>UI Consolidation Sprint M-Phase-1 (2026-05-30): bar + tray
-    /// repaint after any persisted Settings change, called by both the
-    /// tray-menu / Pop-up Card SettingsWindow path AND the main console's
-    /// 設定 tab path. Toggle B may have flipped — repaint immediately
-    /// rather than wait for the next StateChanged push. Tray's ApplyState
-    /// reads UserPreferences.Current on every state event; the bar takes
-    /// a SetTier so band recompute uses the new BarTrayColorEnabled.</summary>
+    /// <summary>UI Consolidation Sprint M-Phase-1 (2026-05-30): bar repaint
+    /// after any persisted Settings change, called by both the tray-menu /
+    /// Pop-up Card SettingsWindow path AND the main console's 設定 tab path.
+    /// Toggle B may have flipped — repaint immediately rather than wait for
+    /// the next StateChanged push. PersistentBarWindow does NOT self-
+    /// subscribe to UserPreferences.Changed, so SetTier is the bar's only
+    /// path to a Toggle-B repaint outside an engine StateChanged tick.
+    /// Phase 5 Step 3 (2026-05-31): the tray repaint that used to live here
+    /// is now driven by TrayIconService's own UserPreferences.Changed
+    /// subscription (TrayIconService.cs:164), which fires for ANY writer —
+    /// SettingsContent, ResetToDefaults, future chatbot intents — not just
+    /// the two host-wired paths. Do not re-add _trayIcon?.RefreshAppearance
+    /// here without first removing the self-subscription, or every Save()
+    /// will trigger two repaints.</summary>
     private void RefreshSettingsDependentSurfaces()
     {
         _persistentBar?.SetTier(_viewModel.VimsTier);
-        _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
     }
 
     private void StartPersistentBar()
@@ -854,13 +860,16 @@ public partial class MainWindow : Window
             };
             _cardWindow.PowerSaveToggled += (_, on) => ApplyPowerSave(on);
             // Path Z bug-fix 7: when the user opens Settings via the card's
-            // gear icon and changes a preference, repaint the bar/tray
-            // immediately so the colour toggle (and any future quick-toggle)
-            // feels instant — matching ShowSettingsWindow's tray-menu path.
+            // gear icon and changes a preference, repaint the bar immediately
+            // so the colour toggle (and any future quick-toggle) feels
+            // instant — matching ShowSettingsWindow's tray-menu path. The
+            // tray's repaint along this path is handled by TrayIconService's
+            // self-subscription to UserPreferences.Changed (Phase 5 Step 3,
+            // TrayIconService.cs:164); PersistentBarWindow has no equivalent
+            // self-subscription so its repaint must remain host-driven here.
             _cardWindow.OnPreferencesChanged = () =>
             {
                 _persistentBar?.SetTier(_viewModel.VimsTier);
-                _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
             };
             // v0.9.1 round-3: wire the in-card chatbot input through the
             // existing ChatbotViewModel pipeline. Same parser, same engine
@@ -962,6 +971,16 @@ public partial class MainWindow : Window
         }
 
         _trayIcon?.SetPowerSaveIndicator(enabled);
+
+        // Phase 5 Step 4 (2026-05-31): Power Save is session-only (no
+        // UserPreferences property, no Save() call) so the tray's Step-3
+        // self-subscription to UserPreferences.Changed (TrayIconService.cs
+        // :164) does NOT fire on this path. Explicit RefreshAppearance is
+        // required to close the 50–200 ms gap between WGC resume above
+        // (SetWgcPaused(false) at the top of this method) and the first
+        // post-resume StateChanged tick. Mirrors the icon-repaint cadence
+        // of the SetPowerSaveIndicator label-flip on the line above.
+        _trayIcon?.RefreshAppearance(_viewModel.CurrentState);
 
         // Card may be open and was the source of the toggle — re-render
         // its title/body to reflect the new state. Setting IsPowerSaveActive
