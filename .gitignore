@@ -9,6 +9,16 @@ publish/
 publish_out/
 TestResults/
 
+# Pre-Alpha packaging output (Strategy A: trimmed self-contained + bundled GGUF)
+# dist/ contains the publish target; zips are the distributable artifacts.
+# Both are large (~2.7 GB zip; ~2.9 GB unpacked) and per-machine ephemeral.
+dist/
+*.zip
+
+# Inno Setup output (compiled installer .exe). The .iss source IS committed
+# under installer/ — only the compiled binary is ignored.
+installer/*.exe
+
 # Local diagnostic / debugging output
 app.stderr.log
 app.stdout.log
