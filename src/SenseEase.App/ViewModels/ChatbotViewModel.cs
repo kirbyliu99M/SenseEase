@@ -714,7 +714,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         var sh = _engine.Current.Shader;
         var bl = _engine.BaselineShader;
         sb.Append("[SenseEaseState mode=").Append(_engine.Current.Mode)
-          .Append(" ofi=").Append(_engine.Current.OpticalFlowIndex.ToString("F1"))
+          .Append(" ofi=").Append(_engine.Current.RawOpticalFlowIndex.ToString("F1"))
           .Append(" pressure=").Append(_engine.Current.Pressure.ToString("F1"))
           .Append(" fov=").Append(_engine.Current.FovRadiusPercent)
           .Append(" mask=").Append(_engine.Current.MaskActive ? "on" : "off")

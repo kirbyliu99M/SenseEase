@@ -6,8 +6,22 @@ namespace SenseEase.Core.Models;
 /// </summary>
 public class SenseState
 {
-    /// <summary>Raw / fused optical-flow index. MVP: driven by the dashboard slider.</summary>
+    /// <summary>Post-attenuation effective OFI used internally by the engine and
+    /// overlay (Driver-mode 0.25× + mask-active 0.15–0.45× attenuation applied
+    /// inside <c>MockInferenceEngine.Update</c>). This is the value fed into the
+    /// leaky integrator and into <c>OverlayWindow</c>'s visual flowTerm. For
+    /// user-facing displays (Event Log, history chart, chatbot context) use
+    /// <see cref="RawOpticalFlowIndex"/> instead — it carries the raw sensor
+    /// reading without attenuation and matches what users see in the dashboard
+    /// live OFI indicator (which already binds to the sensor sample directly).</summary>
     public double OpticalFlowIndex { get; set; }
+
+    /// <summary>Raw sensor OFI as received by <c>MockInferenceEngine.Update</c>
+    /// before any Driver / mask attenuation. Surface this to all user-facing
+    /// OFI displays so the value matches the dashboard's live OFI card (which
+    /// binds to <c>MainViewModel.OpticalFlowIndex</c> = the raw sensor sample).
+    /// Default 0.0 — populated on every engine tick.</summary>
+    public double RawOpticalFlowIndex { get; set; }
 
     /// <summary>Accumulated visual-stimulus pressure from the Leaky Integrator.</summary>
     public double Pressure { get; set; }

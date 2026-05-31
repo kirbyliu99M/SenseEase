@@ -1362,7 +1362,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         VimsTier          = state.VimsTier;
 
         // ── Eye-Protection session metrics ───────────────────────────────────────
-        if (state.OpticalFlowIndex > SessionPeakOfi) SessionPeakOfi = state.OpticalFlowIndex;
+        if (state.RawOpticalFlowIndex > SessionPeakOfi) SessionPeakOfi = state.RawOpticalFlowIndex;
         if (state.Pressure > SessionPeakPressure) SessionPeakPressure = state.Pressure;
 
         // ── Demo-run stats (only meaningful while a video demo is active) ──
@@ -1391,7 +1391,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CumulativePressureLoad = Math.Min(CumulativePressureLoad + (state.Pressure / 60.0), 1_000_000.0);
 
         // History ring-buffer — O(1) append via RingHistory.
-        OfiHistory.Append(state.OpticalFlowIndex);
+        OfiHistory.Append(state.RawOpticalFlowIndex);
         PressureHistory.Append(state.Pressure);
 
         // ── M5: head-pose-driven FOV-mask centering ────────────────────────
@@ -1501,7 +1501,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             Category    = category,
             Message     = message,
-            Ofi         = state?.OpticalFlowIndex ?? 0,
+            Ofi         = state?.RawOpticalFlowIndex ?? 0,
             Pressure    = state?.Pressure ?? 0,
             FovRadius   = state?.FovRadiusPercent ?? 0,
             MaskSnapshot = state?.MaskActive == true ? "ON" : "off",

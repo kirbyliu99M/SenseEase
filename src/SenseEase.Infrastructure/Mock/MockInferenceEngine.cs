@@ -229,6 +229,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
             double pressure = _integrator.Step(effectiveOfi, weight, dt);
 
             Current.OpticalFlowIndex = effectiveOfi;
+            // Phase 5 follow-up (2026-05-31): also capture the raw sensor OFI
+            // (pre-attenuation) so user-facing displays show what the user
+            // intuitively means by "OFI" rather than the engine's internal
+            // working value. OverlayWindow + the leaky integrator continue to
+            // consume the effective OpticalFlowIndex above.
+            Current.RawOpticalFlowIndex = opticalFlowIndex;
             Current.Pressure = pressure;
             Current.Mode = mode;
             Current.FmsScore = (int)Math.Clamp(pressure / 10.0, 0, 20);
@@ -749,7 +755,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 Timestamp    = DateTime.UtcNow,
                 Category     = category,
                 Message      = message,
-                Ofi          = Current.OpticalFlowIndex,
+                Ofi          = Current.RawOpticalFlowIndex,
                 Pressure     = Current.Pressure,
                 FovRadius    = Current.FovRadiusPercent,
                 MaskSnapshot = Current.MaskActive ? "ON" : "off",
