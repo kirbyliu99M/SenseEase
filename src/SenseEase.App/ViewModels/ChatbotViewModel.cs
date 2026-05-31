@@ -42,6 +42,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private const int FakeStreamMaxMs = 1500;
     private const int FakeStreamStepMs = 30;
 
+    /// <summary>Bilingual welcome shown when the transcript is empty — on first
+    /// launch (constructor, when prior.Count == 0) and after Clear() so the
+    /// chat surface doesn't go blank mid-session. Not persisted; if Clear()
+    /// deleted the file, the constructor's empty-prior branch re-shows it on
+    /// the next launch.</summary>
+    private const string WelcomeMessage =
+        "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。\n" +
+        "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.";
+
     private bool _isGenerating;
     private string _inputText = string.Empty;
     private string _statusText = string.Empty;
@@ -248,10 +257,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
         else
         {
-            Messages.Add(new ChatMessageViewModel(
-                "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。\n" +
-                "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.",
-                ChatRole.Assistant));
+            Messages.Add(new ChatMessageViewModel(WelcomeMessage, ChatRole.Assistant));
         }
     }
 
@@ -868,6 +874,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         Messages.Clear();
         try { _streamCts.Cancel(); } catch { /* ignore */ }
         _historyStore.DeleteFile();
+        Messages.Add(new ChatMessageViewModel(WelcomeMessage, ChatRole.Assistant));
     }
 
     /// <summary>Raised after an NLU result mutates the shared engine, so the host can refresh rendering.</summary>
