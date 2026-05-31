@@ -212,9 +212,10 @@ public static class AppConfig
     // Auto Driver / Passenger mode (user feedback "自動 passenger & Driver mode 或可實裝").
     // Master switch for UserActivityModeDetector. When true (default), MainViewModel
     // subscribes to the detector at startup so MainViewModel.Mode automatically tracks
-    // OS-level input idleness via Win32 GetLastInputInfo. Manual ToggleModeCommand sets
-    // this back to false at runtime, surrendering automation in favour of explicit user
-    // control for the remainder of the session.
+    // OS-level input idleness via Win32 GetLastInputInfo. Phase 5 (v0.11, 2026-05-31)
+    // removed the manual Dashboard toggle; no code path flips this flag at runtime any
+    // longer — kept as a public static setter so config persistence, tests, or a future
+    // Settings UI can opt out of automation if needed.
     public static bool AutoDriverPassengerModeEnabled { get; set; } = true;
 
     /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven

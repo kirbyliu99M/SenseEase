@@ -570,27 +570,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
         ResetStateCommand = new RelayCommand(_ => ResetState());
         ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
-        ToggleModeCommand    = new RelayCommand(_ =>
-        {
-            string newMode = Mode == "Driver" ? "Passenger" : "Driver";
-            Mode = newMode;
-            // Manual toggle is a one-shot override, not a feature kill switch. Auto
-            // detection keeps polling; it will reassert its own decision the next time
-            // the idle counter crosses a threshold. Sync the detector's internal mode
-            // to the user's choice so its asymmetric debounce starts measuring from
-            // the manually-chosen state rather than its stale prior state.
-            if (AppConfig.AutoDriverPassengerModeEnabled)
-            {
-                _activityDetector.OverrideMode(newMode);
-                AppendLog("System",
-                    $"手動切換至 {newMode}（自動偵測持續中 / auto continues）",
-                    CurrentState);
-            }
-            else
-            {
-                AppendLog("System", $"手動切換至 {newMode}", CurrentState);
-            }
-        });
         ToggleDemoModeCommand = new RelayCommand(_ => ToggleDemoMode());
         AnalyzeFeedbackCommand = new RelayCommand(async _ => await SubmitFeedbackAsync(),
                                                   _ => !string.IsNullOrWhiteSpace(FeedbackText));
@@ -929,7 +908,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand StopDemoCommand { get; }
     public ICommand ResetStateCommand { get; }
     public ICommand ToggleOverlayCommand { get; }
-    public ICommand ToggleModeCommand { get; }
     public ICommand ToggleDemoModeCommand { get; }
     public ICommand AnalyzeFeedbackCommand { get; }
     public ICommand ToggleHabituationCommand { get; }

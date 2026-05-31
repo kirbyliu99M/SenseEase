@@ -332,9 +332,12 @@
                             <Button Content="Reset State" Style="{StaticResource AlertBtn}"
                                     Command="{Binding ResetStateCommand}"
                                     Margin="0,0,8,8"/>
-                            <Button Content="Switch Driver / Passenger" Style="{StaticResource GhostBtn}"
-                                    Command="{Binding ToggleModeCommand}"
-                                    Margin="0,0,8,8"/>
+                            <!-- Phase 5 Steps 5-6 (v0.11, 2026-05-31): manual
+                                 'Switch Driver / Passenger' button removed.
+                                 UserActivityModeDetector (Win32 GetLastInputInfo,
+                                 1 Hz, asymmetric hysteresis 2500/5000 ms) is the
+                                 sole mode source. Current mode visible in the
+                                 status row below via {Binding AutoModeText}. -->
                             <!-- Cycle Sensing Mode button removed (Quest 2 塊 A,
                                  2026-05-30). Was already Visibility="Collapsed"
                                  since Path Z UX iter 2; Cursor mode unused, Demo
