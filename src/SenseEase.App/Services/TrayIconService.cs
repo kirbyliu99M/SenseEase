@@ -155,6 +155,14 @@ public sealed class TrayIconService : IDisposable
         // StateChanged doesn't try to touch _statusItem before it's wired.
         _vm.StateChanged += OnStateChanged;
 
+        // Phase 5 Step 3: self-subscribe to UserPreferences.Changed so that
+        // ANY preference writer (SettingsContent toggles, UserPreferences
+        // .ResetToDefaults, future chatbot intents) repaints the tray icon —
+        // not just the SettingsContent path that the host wires explicitly
+        // via RefreshAppearance(). Static event ⇒ MUST -= in Dispose or the
+        // service is pinned for the process lifetime.
+        UserPreferences.Changed += OnPreferencesChanged;
+
         // overlay-bar-redesign diag: single-line marker confirming TaskbarIcon
         // construction reached completion AND surfacing key state (Icon.Handle,
         // Visibility) so a user-reported "tray completely missing" can be
@@ -199,6 +207,35 @@ public sealed class TrayIconService : IDisposable
         else
         {
             _tray.Dispatcher.BeginInvoke(new Action(() => ApplyState(state)));
+        }
+    }
+
+    // Phase 5 Step 3: handler for UserPreferences.Changed. The static event
+    // fires on whatever thread called Save() (per its XML doc) — today that's
+    // always the UI thread (toggle Checked/Unchecked), but ResetToDefaults
+    // and future chatbot intents may fire from a worker. Mirror the
+    // OnStateChanged marshal shape and read _vm.CurrentState fresh (the event
+    // carries no payload). Defensive try/catch: UserPreferences.Save raises
+    // Changed without try/catch, so an exception here would propagate into
+    // the toggle handler in SettingsContent and crash the settings flow.
+    private void OnPreferencesChanged(object? sender, EventArgs e)
+    {
+        if (_disposed) return;
+        try
+        {
+            if (_tray.Dispatcher.CheckAccess())
+            {
+                ApplyState(_vm.CurrentState);
+            }
+            else
+            {
+                _tray.Dispatcher.BeginInvoke(new Action(() => ApplyState(_vm.CurrentState)));
+            }
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [Tray] OnPreferencesChanged threw: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -296,6 +333,11 @@ public sealed class TrayIconService : IDisposable
         // closure don't pin the tray service after disposal.
         try { _visibilityWatchdog?.Stop(); } catch { }
         _vm.StateChanged -= OnStateChanged;
+        // Phase 5 Step 3: static event — MUST unsubscribe or the tray
+        // service (and its transitive graph: VM, TaskbarIcon, ContextMenu,
+        // MenuItems, watchdog timer, cached HICONs) is pinned for the
+        // process lifetime by the static invocation list.
+        UserPreferences.Changed -= OnPreferencesChanged;
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
         // Fix 3: release the cached HICONs. Bitmap.GetHicon() returned them
         // unmanaged; Icon.FromHandle() doesn't take ownership; without
