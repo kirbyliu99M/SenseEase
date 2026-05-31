@@ -5,7 +5,8 @@
 ; Generated: 2026-05-31
 ; Target:    Windows 10 build 19041 (May 2020) or later, x64-compatible
 ; Scope:     Per-user install (no UAC elevation prompt)
-; Payload:   ~2.9 GB dist tree (includes 2 GB GGUF model + LLamaSharp CUDA runtimes)
+; Payload:   ~3.0 GB dist tree (includes 2 GB GGUF model + Vulkan llama.cpp
+;            backend + PyInstaller-bundled head-tracker sidecar with MediaPipe)
 ;
 ; -----------------------------------------------------------------------------
 ; MAINTAINER NOTES
@@ -26,11 +27,11 @@
 ; =============================================================================
 
 #define MyAppName        "SenseEase"
-#define MyAppVersion     "0.11.0"
-#define MyAppVerName     "SenseEase 0.11"
+#define MyAppVersion     "0.11.1"
+#define MyAppVerName     "SenseEase 0.11.1"
 #define MyAppPublisher   "ATCC A02_SenseEase"
 #define MyAppExeName     "SenseEase.App.exe"
-#define MyOutputName     "SenseEase-Setup-v0.11"
+#define MyOutputName     "SenseEase-Setup-v0.11.1"
 
 ; Repo-relative paths -- the .iss file lives in <repo>\installer\, so go up one.
 #define RepoRoot         SourcePath + ".."
