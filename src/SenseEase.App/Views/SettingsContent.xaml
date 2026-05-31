@@ -37,6 +37,7 @@
                     <RowDefinition Height="Auto"/> <!-- 7: head-tracking enable -->
                     <RowDefinition Height="Auto"/> <!-- 8: follow mode group -->
                     <RowDefinition Height="Auto"/> <!-- 9: escape hatch -->
+                    <RowDefinition Height="Auto"/> <!-- 10: dev test hotkeys reference table -->
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0"
@@ -206,6 +207,74 @@
                                Foreground="#C2410C"
                                TextWrapping="Wrap"
                                Margin="22,4,0,0"/>
+                </StackPanel>
+
+                <!-- Phase 5 follow-up (v0.11, 2026-05-31): developer / QA test
+                     hotkey reference table. Per user request, labeled as "dev
+                     test usage" — this is not a normal-user feature. Lists the
+                     two window-scoped hotkeys the app currently registers so
+                     future testing has a single discoverable reference. TEMP
+                     UVHS scaffolds (F11 from Step 7, F12 from Step 3) are
+                     intentionally NOT listed — they were reverted before
+                     their respective commits.
+
+                     Hidden 2026-05-31 (same day): user reported that BOTH
+                     listed hotkeys (Ctrl+Shift+H mock head-pose sweep AND
+                     double-tap Ctrl overlay escape hatch) are non-functional
+                     in current builds. Showing this table would mislead
+                     testers about features that don't actually work. Beta
+                     follow-up: diagnose why the Key.H / double-Ctrl branches
+                     of MainWindow.PreviewKeyDown (around line 349) don't
+                     fire end-to-end — the F11 UVHS-P5-7 scaffold worked
+                     from the same lambda, so PreviewKeyDown wiring itself
+                     is fine; the issue is downstream (key detection state
+                     machine, ViewModel command invocation, or the target
+                     methods StartMockHeadPoseSweep / TriggerEscapeHatch
+                     themselves). Once fixed, flip Visibility="Collapsed"
+                     back to Visible to re-expose the reference table. -->
+                <StackPanel Grid.Row="10" Margin="0,24,0,0" Visibility="Collapsed">
+                    <TextBlock Text="開發者測試快捷鍵 / Developer Test Hotkeys"
+                               FontSize="14" FontWeight="Bold"
+                               Foreground="#0A1F5C"
+                               Margin="0,0,0,6"/>
+                    <TextBlock Text="以下快捷鍵為開發 / QA 測試用途，非一般使用流程的一部分。These are for development / QA testing only, not part of the normal user flow."
+                               FontSize="11"
+                               Foreground="#7B8DB0"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,10"/>
+                    <Border Background="#F8FAFF" BorderBrush="#E8EEFF" BorderThickness="1" CornerRadius="6" Padding="14,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="170"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/> <!-- header -->
+                                <RowDefinition Height="Auto"/> <!-- row 1: Ctrl+Shift+H -->
+                                <RowDefinition Height="Auto"/> <!-- row 2: double-tap Ctrl -->
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Hotkey / 快捷鍵"
+                                       FontWeight="SemiBold" FontSize="11" Foreground="#024AD8" Margin="0,0,0,6"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="Effect / 作用"
+                                       FontWeight="SemiBold" FontSize="11" Foreground="#024AD8" Margin="0,0,0,6"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + Shift + H"
+                                       FontFamily="Consolas" FontSize="12" Foreground="#0A1F5C" Margin="0,2,0,2"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1"
+                                       Text="觸發 20 秒模擬頭部姿勢掃描 (橫向→縱向→圓形→中心持住)。G4 head-tracking UVHS 用於無 webcam 機器驗證 wiring 端到端。Independent of AppConfig.HeadTrackingEnabled."
+                                       FontSize="11" Foreground="#0A1F5C" TextWrapping="Wrap" Margin="0,2,0,2"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="連點兩下 Ctrl"
+                                       FontFamily="Consolas" FontSize="12" Foreground="#0A1F5C" Margin="0,2,0,2"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1"
+                                       Text="(400 ms 內) 觸發 FOV 遮罩 3 秒透明度 30% 的「偷瞄」逃生口。受上方「開啟臨時透明度」開關控制；前庭敏感者強制停用。Same as the toggle above; listed here for hotkey discoverability."
+                                       FontSize="11" Foreground="#0A1F5C" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="提示：所有快捷鍵僅在主控台視窗有焦點時觸發 (PreviewKeyDown 範圍)。Note: all hotkeys fire only when the main console window has focus."
+                               FontSize="10" Foreground="#9AB6E0" FontStyle="Italic"
+                               TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </StackPanel>
             </Grid>
         </ScrollViewer>
