@@ -95,6 +95,15 @@ public partial class NotificationCardWindow : Window
     /// expired.</summary>
     public event EventHandler<ProfileOverrideProposal>? ProposalDeferred;
 
+    /// <summary>Phase 5 Step 7: raised when the in-card 15s expiry countdown
+    /// crosses <c>ExpiresAtUtc</c> with no user action. Host calls
+    /// <c>_viewModel.ExpireActiveProposal()</c> so the VM mirror clears
+    /// immediately instead of waiting for the VM-side 60s watchdog —
+    /// closes the race where the Card showed 已過期 while the VM still
+    /// held the proposal active for up to ~45s. Fires exactly once per
+    /// proposal (the countdown stops itself in the same branch).</summary>
+    public event EventHandler<ProfileOverrideProposal>? ProposalExpired;
+
     private ProfileOverrideProposal? _activeProposal;
     private DispatcherTimer? _expiryCountdownTimer;
 
@@ -181,13 +190,19 @@ public partial class NotificationCardWindow : Window
             UpdateExpiryText(_activeProposal);
             if (_activeProposal.ExpiresAtUtc <= DateTime.UtcNow)
             {
+                // Capture BEFORE any mutation so the event payload is stable
+                // even if a re-entrant handler touches ActiveProposal.
+                var p = _activeProposal;
                 StopExpiryCountdown();
-                // Host listens for null → expiry via ProposalExpiryText "expired"
-                // state; the cleaner path is for the host to track expiry too,
-                // but the card surfaces it inline so the user sees the state.
+                // Phase 5 Step 7: surface visible state THEN notify host so
+                // the VM mirror clears at 15s instead of waiting for the
+                // 60s backstop watchdog. Card's 已過期 text + disabled
+                // buttons remain as the user-facing tombstone until the
+                // user dismisses the card.
                 ProposalAcceptBtn.IsEnabled = false;
                 ProposalLaterBtn.IsEnabled = false;
                 ProposalExpiryText.Text = "已過期";
+                ProposalExpired?.Invoke(this, p);
             }
         };
         _expiryCountdownTimer.Start();

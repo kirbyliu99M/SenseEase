@@ -785,6 +785,7 @@ public partial class MainWindow : Window
         _cardWindow.ProposalAccepted += OnCardProposalAccepted;
         _cardWindow.ProposalDeclined += OnCardProposalDeclined;
         _cardWindow.ProposalDeferred += OnCardProposalDeferred;
+        _cardWindow.ProposalExpired  += OnCardProposalExpired;
         _cardProposalEventsWired = true;
     }
 
@@ -803,6 +804,11 @@ public partial class MainWindow : Window
     private void OnCardProposalDeferred(object? sender, ProfileOverrideProposal p)
     {
         _viewModel.DeferActiveProposal();
+    }
+
+    private void OnCardProposalExpired(object? sender, ProfileOverrideProposal p)
+    {
+        _viewModel.ExpireActiveProposal();
     }
 
     private void ShowNotificationCardForCurrentTier(bool userInitiated)

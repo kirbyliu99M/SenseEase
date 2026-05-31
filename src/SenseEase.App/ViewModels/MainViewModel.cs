@@ -170,6 +170,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // _activeProposal stays set; expiry timer keeps running.
     }
 
+    /// <summary>Phase 5 Step 7: host calls this when the Card's 15s expiry
+    /// countdown fires (<c>NotificationCardWindow.ProposalExpired</c>).
+    /// Mirrors the 60s VM watchdog body so Card-driven and timer-driven
+    /// expiry are a single clear path. The <c>is not { } p</c> guard makes
+    /// this idempotent against the dual-fire race with
+    /// <see cref="StartProposalExpiryWatchdog"/> — whichever path fires
+    /// first wins, the second is a no-op. Must be invoked on the UI
+    /// dispatcher thread (Card events already run on UI thread).</summary>
+    public void ExpireActiveProposal()
+    {
+        if (_activeProposal is not { } p) return;
+        _overrideApplicator.RecordExpired(p);
+        ClearActiveProposal();
+    }
+
     private void ClearActiveProposal()
     {
         _activeProposal = null;
@@ -270,6 +285,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Phase 5 Step 7 (v0.11, 2026-05-31): backstop for the primary
+    /// Card-driven expiry path (<c>NotificationCardWindow.ProposalExpired</c>
+    /// → <see cref="ExpireActiveProposal"/>). Card's 15s timer only exists
+    /// while the Card window is alive; this 1-minute VM-side timer guarantees
+    /// expiry clears in headless / Card-closed-early scenarios. Both paths
+    /// converge on <see cref="ClearActiveProposal"/>; ExpireActiveProposal's
+    /// <c>is not { } p</c> guard makes the dual-fire race a safe no-op
+    /// (whichever fires first wins).</summary>
     private void StartProposalExpiryWatchdog(ProfileOverrideProposal proposal)
     {
         try { _proposalExpiryTimer?.Stop(); } catch { /* ignore */ }
