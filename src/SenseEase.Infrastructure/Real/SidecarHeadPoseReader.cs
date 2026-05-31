@@ -54,8 +54,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// crashing (model stall, webcam frozen, etc.).</summary>
     public const int StalenessThresholdMs = 2000;
 
-    private readonly string _pythonExePath;
-    private readonly string _sidecarScriptPath;
+    // Pre-Alpha v0.11.1: replaces _pythonExePath + _sidecarScriptPath. The
+    // PyInstaller --onedir bundle is a single self-contained exe -- no
+    // separate interpreter to invoke.
+    private readonly string _sidecarExePath;
     private readonly Action<string>? _log;
     private readonly bool _mirror;
     private readonly int? _webcamIndex;
@@ -146,17 +148,15 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// sidecar also accepts a video file path via its --input arg, but the
     /// C# host only spawns webcam-input sidecars in production.</param>
     public SidecarHeadPoseReader(
-        string pythonExePath,
-        string sidecarScriptPath,
+        string sidecarExePath,
         Action<string>? log = null,
         bool mirror = true,
         int? webcamIndex = 0)
     {
-        _pythonExePath     = pythonExePath     ?? throw new ArgumentNullException(nameof(pythonExePath));
-        _sidecarScriptPath = sidecarScriptPath ?? throw new ArgumentNullException(nameof(sidecarScriptPath));
-        _log               = log;
-        _mirror            = mirror;
-        _webcamIndex       = webcamIndex;
+        _sidecarExePath = sidecarExePath ?? throw new ArgumentNullException(nameof(sidecarExePath));
+        _log            = log;
+        _mirror         = mirror;
+        _webcamIndex    = webcamIndex;
     }
 
     /// <summary>Spawn the sidecar process and start the background reader
@@ -193,23 +193,17 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
         try
         {
-            if (!File.Exists(_pythonExePath))
+            if (!File.Exists(_sidecarExePath))
             {
-                _log?.Invoke($"[SidecarHeadPoseReader] Python interpreter not found at '{_pythonExePath}'. Sidecar disabled; ReadLatest will return null.");
-                Interlocked.Exchange(ref _sidecarDead, 1);
-                return;
-            }
-            if (!File.Exists(_sidecarScriptPath))
-            {
-                _log?.Invoke($"[SidecarHeadPoseReader] Sidecar script not found at '{_sidecarScriptPath}'. Sidecar disabled; ReadLatest will return null.");
+                _log?.Invoke($"[SidecarHeadPoseReader] Frozen sidecar exe not found at '{_sidecarExePath}'. Sidecar disabled; ReadLatest will return null.");
                 Interlocked.Exchange(ref _sidecarDead, 1);
                 return;
             }
 
-            string args = BuildSidecarArgs(_sidecarScriptPath, _webcamIndex, _mirror);
+            string args = BuildSidecarArgs(_webcamIndex, _mirror);
             var psi = new ProcessStartInfo
             {
-                FileName               = _pythonExePath,
+                FileName               = _sidecarExePath,
                 Arguments              = args,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
@@ -217,9 +211,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 RedirectStandardOutput = true,
                 RedirectStandardError  = true,
                 // Run the sidecar in its own folder so relative model
-                // lookups (./face_landmarker.task) work even when the host
-                // EXE lives elsewhere (e.g. a published install).
-                WorkingDirectory       = Path.GetDirectoryName(_sidecarScriptPath) ?? string.Empty,
+                // lookups (./face_landmarker.task) and the runtime-hook's
+                // exe-adjacent probe both resolve correctly even when the
+                // host EXE lives elsewhere (e.g. a published install).
+                WorkingDirectory       = Path.GetDirectoryName(_sidecarExePath) ?? string.Empty,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding  = Encoding.UTF8,
             };
@@ -230,7 +225,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
             if (!proc.Start())
             {
-                _log?.Invoke($"[SidecarHeadPoseReader] Process.Start returned false for '{_pythonExePath} {args}'. Sidecar disabled.");
+                _log?.Invoke($"[SidecarHeadPoseReader] Process.Start returned false for '{_sidecarExePath} {args}'. Sidecar disabled.");
                 Interlocked.Exchange(ref _sidecarDead, 1);
                 return;
             }
@@ -250,7 +245,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
 
-            _log?.Invoke($"[SidecarHeadPoseReader] Started pid={proc.Id} '{_pythonExePath} {args}'");
+            _log?.Invoke($"[SidecarHeadPoseReader] Started pid={proc.Id} '{_sidecarExePath} {args}'");
         }
         catch (Exception ex)
         {
@@ -487,14 +482,15 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
     /// <summary>Build the CLI argument string for the sidecar. Extracted so
     /// tests can verify argument shape without spawning a real process.</summary>
-    internal static string BuildSidecarArgs(string scriptPath, int? webcamIndex, bool mirror)
+    internal static string BuildSidecarArgs(int? webcamIndex, bool mirror)
     {
-        // Mirror flag uses BooleanOptionalAction on the sidecar side (Q4):
-        // default ON, --no-mirror disables. Only emit the explicit flag when
-        // the C# host wants to override the default to avoid argument noise.
+        // Pre-Alpha v0.11.1: the frozen exe IS the entry point — no script
+        // arg needed. Mirror flag uses BooleanOptionalAction on the sidecar
+        // side (Q4): default ON, --no-mirror disables. Only emit the explicit
+        // flag when the C# host wants to override the default.
         string input = (webcamIndex ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
         string mirrorFlag = mirror ? string.Empty : " --no-mirror";
-        return $"\"{scriptPath}\" --input {input}{mirrorFlag}";
+        return $"--input {input}{mirrorFlag}";
     }
 
     private void ReaderLoop(Process proc, CancellationToken ct)

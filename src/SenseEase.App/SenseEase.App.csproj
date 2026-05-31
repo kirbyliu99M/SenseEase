@@ -61,20 +61,30 @@
     <Resource Include="Resources\AppIcon.ico" />
   </ItemGroup>
 
-  <!-- Side-load b9294 llama.cpp binaries (+ CUDA 13.x runtime) over the
-       LLamaSharp 0.27 NuGet defaults. The NuGet ships pre-b9294 binaries that
-       (a) lack llama-server.exe, the subprocess our chatbot drives, and
-       (b) crash on the gemma4 / mistral3 GDN architecture in Ministral 3B.
+  <!-- Side-load b9294 llama.cpp binaries (Vulkan backend) over the
+       LLamaSharp 0.27 NuGet defaults. The NuGet ships pre-b9294 binaries
+       that (a) lack llama-server.exe, the subprocess our chatbot drives,
+       and (b) crash on the gemma4 / mistral3 GDN architecture in Ministral 3B.
        Without this rule the binaries only land in bin\ when somebody manually
-       restores them from %TEMP%\llama-b9294-cuda — easy to lose on `dotnet
-       clean` or a fresh checkout. Pinned here so every build stages them
-       deterministically. Files live at <repo>\runtimes\ — gitignored
-       because the set totals ~700 MB and is hostile to git. Use the
-       `Always` copy mode so our b9294 binaries reliably override the
-       same-named NuGet files even when timestamps look "older". -->
+       extracts them — easy to lose on `dotnet clean` or a fresh checkout.
+       Pinned here so every build stages them deterministically.
+
+       Pre-Alpha v0.11.1 (packaging): swapped from cuda12 (NVIDIA-only,
+       702 MB) to vulkan (cross-vendor: NVIDIA, AMD, Intel iGPU, ~100 MB).
+       Vulkan auto-falls-back to bundled ggml-cpu-*.dll variants on
+       machines with no GPU at all. Net effect: chatbot runs on any
+       Windows 10 19041+ machine with a working GPU driver, with 10-30%
+       NVIDIA dGPU slowdown vs CUDA-native (acceptable for 256-token
+       chatbot replies).
+
+       Files live at <repo>\runtimes\ — gitignored because the binary set
+       totals ~100 MB and is hostile to git. Restore source for fresh
+       checkouts: extract llama-b9294-bin-win-vulkan-x64.zip from
+       https://github.com/ggml-org/llama.cpp/releases/tag/b9294 into
+       runtimes\win-x64\native\vulkan\. -->
   <ItemGroup>
-    <Content Include="..\..\runtimes\win-x64\native\cuda12\*.*">
-      <Link>runtimes\win-x64\native\cuda12\%(Filename)%(Extension)</Link>
+    <Content Include="..\..\runtimes\win-x64\native\vulkan\*.*">
+      <Link>runtimes\win-x64\native\vulkan\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>

@@ -11,13 +11,20 @@ TestResults/
 
 # Pre-Alpha packaging output (Strategy A: trimmed self-contained + bundled GGUF)
 # dist/ contains the publish target; zips are the distributable artifacts.
-# Both are large (~2.7 GB zip; ~2.9 GB unpacked) and per-machine ephemeral.
+# Both are large (~3 GB zip; ~3.5 GB unpacked) and per-machine ephemeral.
+# Pattern `dist/` matches both repo-root dist/v0.11-pre-alpha/ AND
+# tools/head-tracker-sidecar/dist/ (PyInstaller output, regenerable).
 dist/
 *.zip
+*.zip.sha256
 
 # Inno Setup output (compiled installer .exe). The .iss source IS committed
-# under installer/ — only the compiled binary is ignored.
+# under installer/ — only the compiled binary + its checksum are ignored.
 installer/*.exe
+installer/*.sha256
+
+# PyInstaller working directory for the head-tracker sidecar build (regenerable).
+tools/head-tracker-sidecar/build/
 
 # Local diagnostic / debugging output
 app.stderr.log
@@ -46,10 +53,13 @@ models/gemma-4-E4B-it-GGUF/
 # Demo video assets (>100 MB, hostile to git — distributed out-of-band)
 samples/*.mp4
 
-# llama.cpp b9294 native binaries (700+ MB, distributed out-of-band).
+# llama.cpp b9294 native binaries (Vulkan backend, ~100 MB extracted).
 # The csproj auto-stages these into bin\...\runtimes\ on every build.
-# Restore source: %TEMP%\llama-b9294-cuda + %TEMP%\cudart-b9294, or download
-# from https://github.com/ggml-org/llama.cpp/releases (tag b9294).
+# Pre-Alpha v0.11.1 swapped from cuda12 (NVIDIA-only, 702 MB) to vulkan
+# (cross-vendor, ~100 MB). Restore source: extract
+# llama-b9294-bin-win-vulkan-x64.zip from
+# https://github.com/ggml-org/llama.cpp/releases/tag/b9294 into
+# runtimes\win-x64\native\vulkan\
 runtimes/
 
 # Python sidecar (tools/head-tracker-sidecar/) — sprint decision:

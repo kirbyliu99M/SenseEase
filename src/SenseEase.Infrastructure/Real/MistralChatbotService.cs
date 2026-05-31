@@ -250,7 +250,7 @@ public sealed class MistralChatbotService : IChatbotService
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory
                                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string serverDir = Path.Combine(baseDir, "runtimes", "win-x64", "native", "cuda12");
+            string serverDir = Path.Combine(baseDir, "runtimes", "win-x64", "native", "vulkan");
             string serverExe = Path.Combine(serverDir, "llama-server.exe");
             if (!File.Exists(serverExe))
                 throw new FileNotFoundException($"llama-server.exe not found at: {serverExe}");

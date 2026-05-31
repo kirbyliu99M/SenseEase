@@ -276,30 +276,23 @@ public static class AppConfig
     /// reappear every 5 seconds as before.</para></summary>
     public static bool HeadTrackingPerfLogEnabled { get; set; } = false;
 
-    // M4 (head-tracking sprint): paths to the Python sidecar's interpreter
-    // and script. Resolved with the same "alongside the EXE, then walk up
-    // looking for the repo's tools/ folder" probe used for ModelPath /
-    // DemoVideoPath so both development and shipping installs work. Only
-    // consulted when HeadTrackingEnabled is true; the probe is cached at
-    // first access. Default sidecar layout (committed at the M2 tag):
-    //   tools/head-tracker-sidecar/.venv/Scripts/python.exe   (Windows)
-    //   tools/head-tracker-sidecar/head_tracker.py
-    private const string SidecarPythonRelative =
-        "tools/head-tracker-sidecar/.venv/Scripts/python.exe";
-    private const string SidecarScriptRelative =
-        "tools/head-tracker-sidecar/head_tracker.py";
+    // Pre-Alpha v0.11.1 (packaging): PyInstaller --onedir bundle replaces
+    // the venv + script pair. The frozen exe lives at
+    //   tools/head-tracker-sidecar/dist/head_tracker/head_tracker.exe
+    // alongside _internal/ (Python runtime + mediapipe + cv2) and the
+    // face_landmarker.task model. Same probe pattern: try the canonical
+    // EXE-adjacent path first, then walk up looking for the repo's tools/
+    // folder so both dev (run from repo) and shipping (installed) work.
+    // Soft-disable contract from M4 is preserved -- SidecarHeadPoseReader
+    // treats "file not found" as a no-op (ReadLatest returns null).
+    private const string SidecarExeRelative =
+        "tools/head-tracker-sidecar/dist/head_tracker/head_tracker.exe";
 
-    /// <summary>M4: resolved absolute path to the sidecar's Python
-    /// interpreter, or the canonical (alongside-EXE) candidate if not
-    /// found. SidecarHeadPoseReader treats "file not found" as a soft
-    /// disable (logs + ReadLatest returns null), so a missing venv on a
-    /// fresh install never crashes the host.</summary>
-    public static string SidecarPythonPath { get; } =
-        ResolveSidecarPath(SidecarPythonRelative);
-
-    /// <summary>M4: resolved absolute path to head_tracker.py.</summary>
-    public static string SidecarScriptPath { get; } =
-        ResolveSidecarPath(SidecarScriptRelative);
+    /// <summary>Pre-Alpha v0.11.1: resolved absolute path to the frozen
+    /// head_tracker.exe, or the canonical (alongside-EXE) candidate if not
+    /// found. Replaces SidecarPythonPath + SidecarScriptPath from M4.</summary>
+    public static string SidecarExePath { get; } =
+        ResolveSidecarPath(SidecarExeRelative);
 
     private static string ResolveSidecarPath(string relative)
     {

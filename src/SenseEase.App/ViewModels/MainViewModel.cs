@@ -405,11 +405,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!AppConfig.HeadTrackingEnabled)
             return new DefaultHeadPoseReader();
         return new SidecarHeadPoseReader(
-            pythonExePath:     AppConfig.SidecarPythonPath,
-            sidecarScriptPath: AppConfig.SidecarScriptPath,
-            log:               SidecarLifecycleLog,
-            mirror:            true,
-            webcamIndex:       0);
+            sidecarExePath: AppConfig.SidecarExePath,
+            log:            SidecarLifecycleLog,
+            mirror:         true,
+            webcamIndex:    0);
     }
 
     /// <summary>Phase 3 fix (2026-05-30): SidecarHeadPoseReader diagnostic

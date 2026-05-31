@@ -146,11 +146,10 @@ public class SidecarHeadPoseReaderTests
         // than taskkilling a real process — the seam mirrors the production
         // OnProcessExited path (Interlocked.Exchange ref _sidecarDead, 1).
         var reader = new SidecarHeadPoseReader(
-            pythonExePath:     @"C:\nonexistent\python.exe",
-            sidecarScriptPath: @"C:\nonexistent\head_tracker.py",
-            log:               null,
-            mirror:            true,
-            webcamIndex:       0);
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe",
+            log:            null,
+            mirror:         true,
+            webcamIndex:    0);
 
         // Seed a recent "latest sample" so the baseline state has data to
         // return. ReadLatest with no-exit yet → returns the sample.
@@ -189,8 +188,7 @@ public class SidecarHeadPoseReaderTests
         // accidentally reads before MainWindow.Loaded fires gets the safe
         // "use center default" signal rather than stale or uninitialized data.
         var reader = new SidecarHeadPoseReader(
-            pythonExePath:     @"C:\nonexistent\python.exe",
-            sidecarScriptPath: @"C:\nonexistent\head_tracker.py");
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
 
         Assert.Null(reader.ReadLatest());
         Assert.False(reader.TestHook_IsStarted());
@@ -206,8 +204,7 @@ public class SidecarHeadPoseReaderTests
         // still want ReadLatest to return null after 2 seconds so the
         // consumer doesn't get stuck on a frozen sample for 30+ seconds.
         var reader = new SidecarHeadPoseReader(
-            pythonExePath:     @"C:\nonexistent\python.exe",
-            sidecarScriptPath: @"C:\nonexistent\head_tracker.py");
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
 
         var sample = new HeadPoseSample(
             TimestampMs:  1, Cx: 0.5, Cy: 0.5, Luma: 0.2,
@@ -226,18 +223,18 @@ public class SidecarHeadPoseReaderTests
     }
 
     [Fact]
-    public void SidecarHeadPoseReader_StartWithMissingPython_SoftDisables_DoesNotThrow()
+    public void SidecarHeadPoseReader_StartWithMissingExe_SoftDisables_DoesNotThrow()
     {
-        // If the Python interpreter isn't installed (fresh dev machine, or
-        // user didn't run the sidecar setup), Start() must NOT throw — it
-        // logs and flips the dead flag so ReadLatest returns null and the
-        // consumer falls back to center default. App-level invariant: a
-        // missing sidecar must never crash the dashboard.
+        // If the frozen sidecar exe isn't present (fresh dev machine, or
+        // user didn't run the sidecar setup, or PyInstaller bundle wasn't
+        // staged into dist/), Start() must NOT throw — it logs and flips
+        // the dead flag so ReadLatest returns null and the consumer falls
+        // back to center default. App-level invariant: a missing sidecar
+        // must never crash the dashboard.
         string captured = string.Empty;
         var reader = new SidecarHeadPoseReader(
-            pythonExePath:     @"C:\definitely\not\a\real\path\python.exe",
-            sidecarScriptPath: @"C:\definitely\not\a\real\path\head_tracker.py",
-            log:               msg => captured += msg + "\n");
+            sidecarExePath: @"C:\definitely\not\a\real\path\head_tracker.exe",
+            log:            msg => captured += msg + "\n");
 
         var ex = Record.Exception(() => reader.Start());
         Assert.Null(ex);
@@ -302,11 +299,11 @@ public class SidecarHeadPoseReaderTests
         // Q4 advisor decision: sidecar's --mirror default is ON (BooleanOptionalAction).
         // To keep the spawned command-line minimal, the C# host omits the flag
         // when mirror=true and emits --no-mirror only when mirror=false.
-        string argsOn  = SidecarHeadPoseReader.BuildSidecarArgs(@"C:\tools\head_tracker.py", 0, mirror: true);
-        string argsOff = SidecarHeadPoseReader.BuildSidecarArgs(@"C:\tools\head_tracker.py", 0, mirror: false);
+        string argsOn  = SidecarHeadPoseReader.BuildSidecarArgs(0, mirror: true);
+        string argsOff = SidecarHeadPoseReader.BuildSidecarArgs(0, mirror: false);
 
-        Assert.Equal("\"C:\\tools\\head_tracker.py\" --input 0",             argsOn);
-        Assert.Equal("\"C:\\tools\\head_tracker.py\" --input 0 --no-mirror", argsOff);
+        Assert.Equal("--input 0",             argsOn);
+        Assert.Equal("--input 0 --no-mirror", argsOff);
     }
 
     [Fact]
@@ -315,9 +312,9 @@ public class SidecarHeadPoseReaderTests
         // Webcam-index pass-through: support index 0 (default), 1 (external
         // USB), etc. Sidecar's --input also accepts file paths but the host
         // only spawns webcam sidecars in production.
-        Assert.Contains("--input 1", SidecarHeadPoseReader.BuildSidecarArgs(@"C:\h.py", 1,    mirror: true));
-        Assert.Contains("--input 2", SidecarHeadPoseReader.BuildSidecarArgs(@"C:\h.py", 2,    mirror: true));
-        Assert.Contains("--input 0", SidecarHeadPoseReader.BuildSidecarArgs(@"C:\h.py", null, mirror: true));
+        Assert.Contains("--input 1", SidecarHeadPoseReader.BuildSidecarArgs(1,    mirror: true));
+        Assert.Contains("--input 2", SidecarHeadPoseReader.BuildSidecarArgs(2,    mirror: true));
+        Assert.Contains("--input 0", SidecarHeadPoseReader.BuildSidecarArgs(null, mirror: true));
     }
 
     // ── 5) M4 invariant: flag off → DefaultHeadPoseReader, no sidecar ───────
