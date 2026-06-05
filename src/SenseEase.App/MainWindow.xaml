@@ -65,7 +65,7 @@
         </ControlTemplate>
 
         <Style x:Key="PrimaryBtn" TargetType="Button">
-            <Setter Property="Background" Value="#024AD8"/>
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -82,7 +82,7 @@
 
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
             <Setter Property="Background" Value="#EEF3FF"/>
-            <Setter Property="Foreground" Value="#024AD8"/>
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
         </Style>
 
         <!-- ── Text styles ── -->
@@ -115,7 +115,7 @@
 
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Background" Value="#EEF3FF"/>
-            <Setter Property="Foreground" Value="#024AD8"/>
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -142,7 +142,7 @@
     <DockPanel>
 
         <!-- ══════════ HEADER ══════════ -->
-        <Border DockPanel.Dock="Top" Background="#024AD8" Padding="28,14">
+        <Border DockPanel.Dock="Top" Background="{StaticResource Accent}" Padding="28,14">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -178,7 +178,7 @@
         </Border>
 
         <!-- ══════════ TABS ══════════ -->
-        <TabControl x:Name="MainTabs" Background="#E2ECFF" BorderThickness="0" Padding="0">
+        <TabControl x:Name="MainTabs" Background="{StaticResource Surface}" BorderThickness="0" Padding="0">
             <TabControl.Resources>
                 <Style TargetType="TabItem">
                     <Setter Property="FontSize" Value="13"/>
@@ -187,9 +187,33 @@
                     <Setter Property="Padding" Value="20,10"/>
                     <Setter Property="Background" Value="Transparent"/>
                     <Setter Property="BorderThickness" Value="0"/>
+                    <!-- M5 (a11y): non-colour-only active-tab cue. The template adds a
+                         2px bottom underline that the IsSelected trigger paints Accent,
+                         so the selected tab is distinguishable without relying on the
+                         Foreground colour change alone. Header/Padding flow through the
+                         TemplateBinding unchanged — tab sizes/labels are untouched. -->
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border x:Name="TabBd" Background="{TemplateBinding Background}"
+                                        BorderBrush="Transparent" BorderThickness="0,0,0,2">
+                                    <ContentPresenter ContentSource="Header"
+                                                      Margin="{TemplateBinding Padding}"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="TabBd" Property="BorderBrush"
+                                                Value="{StaticResource Accent}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
                     <Style.Triggers>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Foreground" Value="#024AD8"/>
+                            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
                         </Trigger>
                     </Style.Triggers>
                 </Style>
@@ -329,7 +353,7 @@
                             <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding OpticalFlowIndex}" Maximum="150"
-                                         Height="4" Background="#EEF3FF" Foreground="#024AD8"
+                                         Height="4" Background="#EEF3FF" Foreground="{StaticResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="/ 150" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -355,7 +379,7 @@
                             <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding FovRadiusPercent, Mode=OneWay}" Maximum="100"
-                                         Height="4" Background="#EEF3FF" Foreground="#024AD8"
+                                         Height="4" Background="#EEF3FF" Foreground="{StaticResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="Clear zone" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -466,10 +490,10 @@
                         <Border Background="#F3F6FC" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding FmsScore}" Foreground="#024AD8"
+                                <TextBlock Text="{Binding FmsScore}" Foreground="{StaticResource Accent}"
                                            FontWeight="Bold" FontSize="12"/>
                                 <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Foreground="#024AD8" FontWeight="Bold" FontSize="12">
+                                <TextBlock Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="12">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Text" Value="Hidden"/>
@@ -521,7 +545,7 @@
                                     VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2"
                                        Text="{Binding PersistentOverlayBaselineTier, StringFormat='L{0}'}"
-                                       Foreground="#024AD8" FontWeight="Bold"
+                                       Foreground="{StaticResource Accent}" FontWeight="Bold"
                                        Width="36" TextAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Grid>
@@ -606,20 +630,20 @@
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Optical Flow" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="VIMS Pressure" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="#024AD8" FontWeight="Bold" FontSize="22"
+                                        <TextBlock Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
                                             <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 10"/>
                                         </TextBlock>
@@ -628,13 +652,13 @@
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="FOV Radius" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="#024AD8" FontWeight="Bold" FontSize="22"
+                                        <TextBlock Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
@@ -672,10 +696,12 @@
                                             </Ellipse.Style>
                                         </Ellipse>
                                         <TextBlock Text="{Binding ActivityStatus}" Style="{StaticResource CardLabel}"
-                                                   VerticalAlignment="Center"/>
+                                                   VerticalAlignment="Center"
+                                                   AutomationProperties.Name="OS-chrome activity suppression status"/>
                                     </StackPanel>
                                     <TextBlock Text="{Binding AutoModeText}" Style="{StaticResource CardLabel}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               AutomationProperties.Name="Auto driver / passenger mode"/>
                                 </UniformGrid>
                             </StackPanel>
                         </Border>
@@ -695,7 +721,7 @@
                                     <Ellipse Width="8" Height="8" Fill="{StaticResource TextTertiary}" VerticalAlignment="Center"/>
                                     <TextBlock Text="OFI" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
-                                    <Ellipse Width="8" Height="8" Fill="#024AD8" VerticalAlignment="Center"/>
+                                    <Ellipse Width="8" Height="8" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
                                     <TextBlock Text="VIMS Pressure" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
                                     <Rectangle Width="14" Height="2" Fill="{StaticResource ComfortHigh}" VerticalAlignment="Center"/>
@@ -712,35 +738,35 @@
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionFovIntercepts}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="FOV Intercepts" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakOfi, StringFormat='{}{0:F1}'}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Peak Optical Flow" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakPressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Peak VIMS Pressure" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionMaskActiveText}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Mask Active Time" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionUptimeText}"
-                                                   Foreground="#024AD8" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Session Uptime" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
@@ -819,7 +845,7 @@
                                                     Padding="12,8" Margin="0,0,60,0" HorizontalAlignment="Left">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Author}"
-                                                               FontSize="10" Foreground="#024AD8"
+                                                               FontSize="10" Foreground="{StaticResource Accent}"
                                                                FontWeight="SemiBold" Margin="0,0,0,4"/>
 
                                                     <!-- Animated typing-dots indicator (visible only when IsTyping=true).
@@ -996,7 +1022,8 @@
                                               ShadowDepth="1" Opacity="0.10"/>
                         </Border.Effect>
                         <TextBlock Text="{Binding StatusText}"
-                                   FontSize="11" Foreground="{StaticResource TextTertiary}" TextWrapping="Wrap"/>
+                                   FontSize="11" Foreground="{StaticResource TextTertiary}" TextWrapping="Wrap"
+                                   AutomationProperties.Name="AI assistant status"/>
                     </Border>
 
                     <!-- Input row -->

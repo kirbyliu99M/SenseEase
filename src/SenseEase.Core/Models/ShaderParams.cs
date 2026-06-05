@@ -14,6 +14,7 @@ public sealed class ShaderParams
 
     public double MaskDepth      { get; set; } = DefaultMaskDepth;
     public double GridVisibility { get; set; } = DefaultGridVisibility;
+    /// <summary>Edge feather amount, clamped to [0,1] by <see cref="Clamp"/>; default 0.50 (<see cref="DefaultFeatherWidth"/>).</summary>
     public double FeatherWidth   { get; set; } = DefaultFeatherWidth;
 
     /// <summary>A fresh instance at neutral baseline values.</summary>

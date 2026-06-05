@@ -37,27 +37,53 @@ namespace SenseEase.App.Views;
 /// </summary>
 public static class TierColorPalette
 {
+    // ── Tier hue RGB channels ────────────────────────────────────────────────
+    // The raw RGB triples behind GreyHue / AmberHue / RedHue, named so the
+    // hue table below reads as intent rather than a wall of magic numbers and
+    // so a channel can't be edited in one hue but forgotten in another. Values
+    // are the user-locked tier colours (decision 2026-05-26) — pinned
+    // byte-for-byte by TierColorPaletteTests.BrushForTier_MatchesSpecArgb, so
+    // these consts must stay numerically identical to the prior literals.
+    private const byte GreyChannel = 102;       // grey is a neutral R=G=B=102
+    private const byte AmberR = 230, AmberG = 140, AmberB = 40; // warm "rising" amber
+    private const byte RedR   = 220, RedG   =  50, RedB   = 40; // alert "high" red
+
     // Shared hue table — RGB only. Bar adds low alpha; tray icon renders at
     // full alpha. Changing a hue here changes every consuming surface in lock
     // step (the only way to avoid bar-amber-but-tray-still-grey drift bugs).
-    private static readonly Color GreyHue  = Color.FromRgb(102, 102, 102);
-    private static readonly Color AmberHue = Color.FromRgb(230, 140,  40);
-    private static readonly Color RedHue   = Color.FromRgb(220,  50,  40);
+    private static readonly Color GreyHue  = Color.FromRgb(GreyChannel, GreyChannel, GreyChannel);
+    private static readonly Color AmberHue = Color.FromRgb(AmberR, AmberG, AmberB);
+    private static readonly Color RedHue   = Color.FromRgb(RedR,   RedG,   RedB);
+
+    // ── Opacity ladder (alpha bytes) ─────────────────────────────────────────
+    // The bar deliberately under-renders the tier colour; the ladder climbs by
+    // band so a worse state is a touch more present without ever shouting. Two
+    // rungs per band: a resting ambient-overlay alpha and a near-opaque hover
+    // alpha (see HoverBrush block). Named so the 0.15→0.30→0.45 resting ladder
+    // and the hover bumps read as a deliberate progression rather than stray
+    // hex. Pinned by TierColorPaletteTests.BrushForTier_MatchesSpecArgb (resting
+    // rungs) — keep these alpha bytes byte-identical to the prior literals.
+    private const byte GreyAlpha  = 0x26; // 0.15 — calm/steady, barely-there
+    private const byte AmberAlpha = 0x4D; // 0.30 — rising, slightly more present
+    private const byte RedAlpha   = 0x73; // 0.45 — high strain, most present resting rung
+    private const byte GreyHoverAlpha  = 0xA6; // 0.65 — readable on hover, still soft
+    private const byte AmberHoverAlpha = 0xEB; // 0.92 — near-opaque on hover
+    private const byte RedHoverAlpha   = 0xFF; // 1.00 — fully opaque (critical-alert tier)
 
     // Bar brushes — ambient-overlay alpha. Frozen for cross-thread reuse +
     // zero allocation on the StateChanged hot path.
-    private static readonly SolidColorBrush GreyBrush  = MakeFrozen(GreyHue,  0x26); // 0.15
-    private static readonly SolidColorBrush AmberBrush = MakeFrozen(AmberHue, 0x4D); // 0.30
-    private static readonly SolidColorBrush RedBrush   = MakeFrozen(RedHue,   0x73); // 0.45
+    private static readonly SolidColorBrush GreyBrush  = MakeFrozen(GreyHue,  GreyAlpha);  // 0.15
+    private static readonly SolidColorBrush AmberBrush = MakeFrozen(AmberHue, AmberAlpha); // 0.30
+    private static readonly SolidColorBrush RedBrush   = MakeFrozen(RedHue,   RedAlpha);   // 0.45
 
     // Path Z UX iter 4 — hover variants bumped further per user feedback
     // ("still a bit disruptive, raise its opacity"). When the cursor
     // approaches the bar, swap to these near-opaque variants so the tier
     // colour reads cleanly without the user having to squint. Red goes
     // fully opaque since it's the critical-alert tier.
-    private static readonly SolidColorBrush GreyHoverBrush  = MakeFrozen(GreyHue,  0xA6); // 0.65
-    private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, 0xEB); // 0.92
-    private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   0xFF); // 1.00
+    private static readonly SolidColorBrush GreyHoverBrush  = MakeFrozen(GreyHue,  GreyHoverAlpha);  // 0.65
+    private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, AmberHoverAlpha); // 0.92
+    private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   RedHoverAlpha);   // 1.00
 
     // D3 liveness contract: the FAULTED bar fill. Muted clay (#B65C4E) at low
     // alpha — "needs attention," explicitly NEVER alarm red, per the locked
