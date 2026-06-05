@@ -323,6 +323,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             return; // no picker, no lexicon, no LLM — crisis response only
         }
 
+        // H6: sanitize the live user turn before it can reach the LLM prompt or
+        // the persisted history. The safety floor above already saw the ORIGINAL
+        // text, so crisis detection is never weakened. This folds newlines and
+        // strips the app's own context-block tokens so typed input can't forge a
+        // fake [habituation_state] / [RecentAdjustments] block (prompt injection).
+        text = SanitizeUserTurn(text);
+        if (string.IsNullOrEmpty(text)) { InputText = string.Empty; return; }
+
         // M3 7e+: short-circuit on profile-picker request. User typed
         // something like "我想換 profile" / "show me profiles" without
         // specifying which → push a chat bubble with 3 option cards and
@@ -791,6 +799,34 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     private static string Sanitize(string s)
         => string.IsNullOrEmpty(s) ? string.Empty : s.Replace('"', '\'').Replace("\r", " ").Replace("\n", " ");
+
+    // H6: tokens that, echoed verbatim into the prompt, let a user spoof the
+    // app's own structured context blocks (fake history / state injection).
+    private static readonly string[] PromptInjectionTokens =
+    {
+        "[RecentAdjustments]", "[RecentEvents]", "[SenseEaseState", "[habituation_state]",
+        "[/habituation_state]", "[INST]", "[/INST]", "<|", "|>",
+        "User:", "System:", "Assistant:",
+    };
+
+    private const int MaxUserTurnLength = 600;
+
+    /// <summary>H6: defang a live user turn before it reaches the LLM prompt /
+    /// chat history. Newlines→spaces (so a multi-line payload can't forge block
+    /// structure), strip the app's own context-block tokens, collapse whitespace,
+    /// cap length. Runs AFTER the safety floor so crisis detection always sees the
+    /// user's original words. Internal for unit coverage.</summary>
+    internal static string SanitizeUserTurn(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        string t = s.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+        foreach (var tok in PromptInjectionTokens)
+            t = t.Replace(tok, " ", StringComparison.OrdinalIgnoreCase);
+        t = System.Text.RegularExpressions.Regex.Replace(t, @"\s+", " ").Trim();
+        if (t.Length > MaxUserTurnLength)
+            t = t.Substring(0, MaxUserTurnLength).TrimEnd();
+        return t;
+    }
 
     /// <summary>
     /// Apply an NLU result to the engine, persist every adjustment for personalization,

@@ -123,7 +123,11 @@ public static class HabituationStateBlockBuilder
                                  .Take(MaxObservations);
             foreach (var obs in recent)
             {
-                sb.Append("  - ").Append(obs).Append('\n');
+                // H5 (defense-in-depth): even with write-time sanitization, encode
+                // structural chars on EMIT so any pre-existing on-disk payload can't
+                // break out of the list — brackets → parens, newlines → spaces.
+                string safe = obs.Replace('[', '(').Replace(']', ')').Replace('\r', ' ').Replace('\n', ' ');
+                sb.Append("  - ").Append(safe).Append('\n');
             }
         }
 

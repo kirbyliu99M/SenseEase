@@ -61,6 +61,14 @@ public sealed class LongitudinalObservationWriter
         if (trimmed.Length > MaxObservationLength)
             trimmed = trimmed.Substring(0, MaxObservationLength);
 
+        // H5: a chatbot OBSERVATION_ADD is model-controlled text persisted into the
+        // profile and re-injected into every future prompt — a stored prompt-
+        // injection vector. Strip block tokens + structural chars; drop entirely
+        // if it was mostly structure (a payload, not a real observation).
+        string? safe = SanitizeObservation(trimmed);
+        if (safe is null) return false;
+        trimmed = safe;
+
         var snapshot = _store.Load();
         if (snapshot is null) return false;
 
@@ -78,6 +86,32 @@ public sealed class LongitudinalObservationWriter
 
         _store.Save(snapshot);
         return true;
+    }
+
+    /// <summary>H5: neutralise stored prompt-injection in a chatbot observation.
+    /// Replaces the structural characters that let text break out of the
+    /// recent_observations list ('[' ']' '&lt;' '&gt;' '|' and any newline/tab) with
+    /// spaces — which also defangs the block tokens ([habituation_state], [INST],
+    /// &lt;|, |&gt; …) since they're built from those chars. If more than 30% of the
+    /// text was structural it's a payload, not an observation → drop it (null).
+    /// Internal for unit coverage (InternalsVisibleTo SenseEase.Tests).</summary>
+    internal static string? SanitizeObservation(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return null;
+        var chars = s.ToCharArray();
+        int suspicious = 0;
+        for (int i = 0; i < chars.Length; i++)
+        {
+            char c = chars[i];
+            if (c is '[' or ']' or '<' or '>' or '|' or '\r' or '\n' or '\t')
+            {
+                chars[i] = ' ';
+                suspicious++;
+            }
+        }
+        if ((double)suspicious / s.Length > 0.30) return null; // mostly structure → injection payload
+        string cleaned = System.Text.RegularExpressions.Regex.Replace(new string(chars), @"\s+", " ").Trim();
+        return cleaned.Length == 0 ? null : cleaned;
     }
 
     private static bool IsDuplicateOfRecent(string candidate, IList<string> existing)
