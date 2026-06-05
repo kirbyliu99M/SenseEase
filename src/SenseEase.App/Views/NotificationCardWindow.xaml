@@ -118,12 +118,21 @@
                         Margin="0,0,4,0"
                         Click="OnSettingsClicked"
                         ToolTip="設定 / Settings"/>
-                <TextBlock x:Name="TitleText"
-                           Text=""
-                           FontSize="14" FontWeight="Bold"
-                           Foreground="#1A1F2E"
-                           VerticalAlignment="Center"
-                           TextWrapping="Wrap"/>
+                <!-- BC-1: plain-language band title + demoted telemetry mono
+                     subline. The DockPanel's LastChild fills the remaining space. -->
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleText"
+                               Text=""
+                               FontSize="15" FontWeight="SemiBold"
+                               Foreground="#1A1F2E"
+                               TextWrapping="Wrap"/>
+                    <TextBlock x:Name="TelemetryText"
+                               Text=""
+                               FontFamily="Consolas, 'Cascadia Mono', monospace"
+                               FontSize="11"
+                               Foreground="#8A94A6"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
             </DockPanel>
 
             <!-- M3 7e: chatbot proposal section (Flow A, spec §4.3.5).

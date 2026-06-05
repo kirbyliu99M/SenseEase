@@ -464,6 +464,7 @@ public partial class NotificationCardWindow : Window
         if (_isPowerSaveActive)
         {
             TitleText.Text = "VIMS · 省電模式中";
+            TelemetryText.Text = string.Empty;
             BodyText.Text  = "感測已暫停，可點擊「省電」恢復。";
             return;
         }
@@ -482,16 +483,31 @@ public partial class NotificationCardWindow : Window
             // upper bound (real values can exceed 300 under sustained spikes)
             // so a "/100" suffix would mislead users into thinking the scale
             // caps at 100.
-            TitleText.Text = $"VIMS 視覺壓力　第 {_lastTier} 級 / 10　·　壓力指數 {Math.Round(_lastPressure)}";
+            // BC-1: plain-language, app-action title keyed off the band (what
+            // SenseEase is DOING), with the raw tier/pressure demoted to a small
+            // mono subline rather than headlining the card with telemetry.
+            TitleText.Text = HeadlineForBand(_lastBand);
+            TelemetryText.Text = $"第 {_lastTier} 級 / 10　·　壓力 {Math.Round(_lastPressure)}";
         }
         else
         {
             // No SetContent yet — keep the title empty (matches the v1
             // "shown but unpopulated" state).
             TitleText.Text = string.Empty;
+            TelemetryText.Text = string.Empty;
         }
         BodyText.Text = body;
     }
+
+    // BC-1: band → plain-language, app-action headline (same register as the Home
+    // hero — what SenseEase is doing, never a felt-state claim).
+    private static string HeadlineForBand(TierColorPalette.TierBand band) => band switch
+    {
+        TierColorPalette.TierBand.Grey  => "守護你的畫面",
+        TierColorPalette.TierBand.Amber => "正在緩和邊緣",
+        TierColorPalette.TierBand.Red   => "正在強力緩和",
+        _                                => "守護你的畫面",
+    };
 
     private static string DescriptionForBand(TierColorPalette.TierBand band) => band switch
     {
