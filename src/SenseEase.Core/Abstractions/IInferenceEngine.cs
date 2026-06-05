@@ -25,7 +25,14 @@ public interface IInferenceEngine
     /// Apply a user-feedback FOV offset (negative = shrink). Persists across Update() calls
     /// so chatbot discomfort reports accumulate until the session is reset.
     /// </summary>
-    void ApplyUserFeedback(int fovDelta);
+    /// <param name="isDeliberatePreference">
+    /// True when the negative delta is a standing user *preference* ("give me more
+    /// protection") rather than a discomfort recurrence. When true the FOV offset is
+    /// applied but the habituation engine is NOT notified — the earned _offset (Q4.5)
+    /// is preserved. Default false keeps the legacy discomfort-recurrence behavior.
+    /// Sensor-driven recurrence does NOT use this path (it lives in HabituationEngine.Step).
+    /// </param>
+    void ApplyUserFeedback(int fovDelta, bool isDeliberatePreference = false);
 
     /// <summary>
     /// Apply normalized shader-knob deltas (each typically [-0.3,0.3]) from chatbot

@@ -291,14 +291,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    public void ApplyUserFeedback(int fovDelta)
+    public void ApplyUserFeedback(int fovDelta, bool isDeliberatePreference = false)
     {
         lock (_gate)
         {
             _userFovOffset = Math.Clamp(_userFovOffset + fovDelta, -60, 0);
-            // A negative (tightening) chatbot feedback is a discomfort recurrence:
-            // back off habituation — severe reports zero it, mild reports nudge it down.
-            if (fovDelta < 0)
+            // D5: a negative (tightening) delta is a discomfort recurrence ONLY when it
+            // is NOT an explicit standing preference. A deliberate "more protection"
+            // request is NEUTRAL — it moves the FOV but must not erode the earned
+            // habituation _offset (Q4.5) or trip a pause. Sensor-driven recurrence is
+            // unaffected: it never reaches this method (see HabituationEngine.Step).
+            if (fovDelta < 0 && !isDeliberatePreference)
                 _habituation.NotifyDiscomfort(
                     Math.Abs(fovDelta) >= SenseDefaults.HabituationSevereFovThreshold,
                     _vimsTier);

@@ -1556,7 +1556,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (result.FovDelta != 0)
             {
                 int oldOffset = _engine.UserFovOffset;
-                _engine.ApplyUserFeedback(result.FovDelta);
+                // D5: see ChatbotViewModel — a non-complaint (preference) tightening is neutral.
+                _engine.ApplyUserFeedback(result.FovDelta, isDeliberatePreference: result.Intent != "ReportDiscomfort");
                 int newOffset = _engine.UserFovOffset;
                 if (newOffset != oldOffset)
                 {

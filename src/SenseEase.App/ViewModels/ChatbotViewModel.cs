@@ -869,7 +869,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         if (result.FovDelta != 0)
         {
             int oldOffset = _engine.UserFovOffset;
-            _engine.ApplyUserFeedback(result.FovDelta);
+            // D5: a tightening request that is NOT a "ReportDiscomfort" complaint is a
+            // standing preference — apply the FOV but don't charge the habituation ledger.
+            _engine.ApplyUserFeedback(result.FovDelta, isDeliberatePreference: result.Intent != "ReportDiscomfort");
             int newOffset = _engine.UserFovOffset;
             int appliedFov = newOffset - oldOffset;
             if (appliedFov != 0)

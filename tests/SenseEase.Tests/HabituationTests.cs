@@ -350,6 +350,40 @@ public class HabituationTests
         Assert.Equal(afterSingle, sustained.SevereStrikeCount);
     }
 
+    // ── D5: a deliberate "more protection" preference must NOT count as a
+    //         discomfort recurrence — Q4.5 offset preserved, no pause, FOV still moves ──
+
+    [Fact]
+    public void ApplyUserFeedback_DeliberatePreference_DoesNotErodeHabituationOrPause()
+    {
+        var engine = new MockInferenceEngine();
+        engine.SetHabituationPaused(false);
+        for (int i = 0; i < 600; i++) engine.Update(0.0, "Passenger"); // earn progress
+        int earned = engine.Current.HabituationLevel;
+        Assert.True(earned > 0, "precondition: must have earned habituation progress");
+
+        // Severe-magnitude tightening (|−22| ≥ 18), but flagged deliberate.
+        engine.ApplyUserFeedback(-22, isDeliberatePreference: true);
+
+        Assert.Equal(earned, engine.Current.HabituationLevel);     // Q4.5 offset preserved
+        Assert.False(engine.Current.HabituationPaused);            // no discomfort pause
+        Assert.True(engine.UserFovOffset < 0);                     // protection STILL applied
+    }
+
+    [Fact]
+    public void ApplyUserFeedback_DefaultPath_StillCountsAsDiscomfort()
+    {
+        var engine = new MockInferenceEngine();
+        engine.SetHabituationPaused(false);
+        for (int i = 0; i < 600; i++) engine.Update(0.0, "Passenger");
+        int earned = engine.Current.HabituationLevel;
+
+        engine.ApplyUserFeedback(-22); // default false → severe discomfort recurrence
+
+        Assert.True(engine.Current.HabituationLevel < earned, "default path must erode offset");
+        Assert.True(engine.Current.HabituationPaused, "default path must pause");
+    }
+
     // ── EM2: an engine profile-snapshot persist must not wipe the chatbot's
     //         longitudinal observations (owned by LongitudinalObservationWriter) ──
 
