@@ -776,13 +776,18 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                             if (dyMin < 0) dyMin = 0;
                             if (dxMax >= dstW) dxMax = dstW - 1;
                             if (dyMax >= dstH) dyMax = dstH - 1;
+                            // NE14: never mutate the shared EmptyFrameSentinel. When
+                            // _prevFrame aliases it (after a prior null-frame tick) the
+                            // sentinel is already all-zero, so skipping the write is
+                            // behaviour-preserving and protects the shared static.
+                            bool prevIsSentinel = ReferenceEquals(_prevFrame, EmptyFrameSentinel);
                             for (int dy = dyMin; dy <= dyMax; dy++)
                             {
                                 int row = dy * dstW;
                                 for (int dx = dxMin; dx <= dxMax; dx++)
                                 {
-                                    result[row + dx]      = 0;
-                                    _prevFrame[row + dx]  = 0;
+                                    result[row + dx] = 0;
+                                    if (!prevIsSentinel) _prevFrame[row + dx] = 0;
                                 }
                             }
                         }

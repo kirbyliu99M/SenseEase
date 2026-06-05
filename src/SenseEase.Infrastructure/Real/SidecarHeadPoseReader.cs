@@ -69,7 +69,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
     // Monotonic timestamp (UTC ticks) of when the latest sample was stored.
     // Used to enforce the staleness fallback. Read/written with Interlocked.
-    private long _latestStoredAtUtcTicks;
+    private long _latestStoredAtMs; // NE10: monotonic Environment.TickCount64 (immune to wall-clock / NTP / VM-resume jumps)
 
     // Volatile so OnProcessExited (ThreadPool process-monitor thread) and
     // ReaderLoop's terminal block read a fresh reference for the identity
@@ -222,11 +222,16 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             proc.Exited += OnProcessExited;
             proc.ErrorDataReceived += OnStderrLine;
+            // H37: publish _process BEFORE Start() so a fast-exit Exited event
+            // (which can fire as soon as the process starts) sees the handle and
+            // logs the exit correctly instead of against a null _process.
+            _process = proc;
 
             if (!proc.Start())
             {
                 _log?.Invoke($"[SidecarHeadPoseReader] Process.Start returned false for '{_sidecarExePath} {args}'. Sidecar disabled.");
                 Interlocked.Exchange(ref _sidecarDead, 1);
+                _process = null;
                 return;
             }
             proc.BeginErrorReadLine();
@@ -236,7 +241,6 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             // llama-server. Best-effort — failure here is non-fatal.
             try { ChildProcessReaper.Adopt(proc); } catch { }
 
-            _process = proc;
             _cts = new CancellationTokenSource();
             CancellationToken ct = _cts.Token;
             _readerTask = Task.Factory.StartNew(
@@ -275,9 +279,8 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         var sample = Volatile.Read(ref _latest);
         if (sample is null) return null;
 
-        long storedAt = Interlocked.Read(ref _latestStoredAtUtcTicks);
-        long nowTicks = DateTime.UtcNow.Ticks;
-        long ageMs    = (nowTicks - storedAt) / TimeSpan.TicksPerMillisecond;
+        long storedAtMs = Interlocked.Read(ref _latestStoredAtMs);
+        long ageMs      = Environment.TickCount64 - storedAtMs; // NE10: monotonic
         if (ageMs > StalenessThresholdMs) return null;
 
         return sample;
@@ -455,7 +458,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             Interlocked.Exchange(ref _started, 0);
             Interlocked.Exchange(ref _sidecarDead, 0);
             Volatile.Write(ref _latest, null);
-            Interlocked.Exchange(ref _latestStoredAtUtcTicks, 0);
+            Interlocked.Exchange(ref _latestStoredAtMs, 0);
             Interlocked.Exchange(ref _receivedSampleCount, 0);
 
             DoStart();
@@ -531,7 +534,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 if (TryParseSampleLine(line, out HeadPoseSample? sample) && sample is not null)
                 {
                     Volatile.Write(ref _latest, sample);
-                    Interlocked.Exchange(ref _latestStoredAtUtcTicks, DateTime.UtcNow.Ticks);
+                    Interlocked.Exchange(ref _latestStoredAtMs, Environment.TickCount64);
                     Interlocked.Increment(ref _receivedSampleCount); // M5.1-C
                 }
                 else
@@ -707,8 +710,13 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     internal void TestHook_StoreSample(HeadPoseSample sample, DateTime? storedAtUtc = null)
     {
         Volatile.Write(ref _latest, sample);
-        Interlocked.Exchange(ref _latestStoredAtUtcTicks,
-            (storedAtUtc ?? DateTime.UtcNow).Ticks);
+        // NE10: staleness now uses Environment.TickCount64 (monotonic). Preserve the
+        // test contract (inject a sample aged by the storedAtUtc delta) by converting
+        // that wall-clock age into a TickCount64 offset.
+        long storedMs = storedAtUtc is { } t
+            ? Environment.TickCount64 - (long)(DateTime.UtcNow - t).TotalMilliseconds
+            : Environment.TickCount64;
+        Interlocked.Exchange(ref _latestStoredAtMs, storedMs);
         // Sample stored implies the reader is logically alive for the test.
         Interlocked.Exchange(ref _started, 1);
         Interlocked.Exchange(ref _sidecarDead, 0);
