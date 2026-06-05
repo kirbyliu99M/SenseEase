@@ -1,0 +1,103 @@
+<!--
+  D0 — SenseEase Calm design tokens (M5 design adoption).
+  TOKEN NAMES ARE FROZEN once committed (no mid-wave renames).
+
+  CARDINAL RULE: this dictionary is merged VIEW-LOCALLY into each
+  Window.Resources / UserControl.Resources via:
+    <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+  It must NEVER be merged into App.Resources — MainWindowSmokeTests boots a bare
+  new Application() with no Application.Resources, so an App-level token fails it.
+
+  Calm palette only: NO #E54747 (alarm red), NO #024AD8 (royal blue), NO #7B8DB0.
+  High strain uses muted clay #B65C4E, never loud red.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- ═══ Colors ═══════════════════════════════════════════════════════════ -->
+    <SolidColorBrush x:Key="Canvas"        Color="#F6F7F9"/>
+    <SolidColorBrush x:Key="Surface"       Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SurfaceMuted"  Color="#F1F3F6"/>
+    <SolidColorBrush x:Key="Separator"     Color="#E2E5EA"/>
+    <SolidColorBrush x:Key="TextPrimary"   Color="#1A2230"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#525B6B"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#6E7787"/>
+    <SolidColorBrush x:Key="Accent"        Color="#3A6EA5"/>
+    <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFF"/>
+
+    <!-- Three comfort bands (base / weak fill / readable text-on-weak).
+         These mirror TierColorPalette's three tier bands; TierColorPalette stays
+         the single source for the BAND→colour mapping (converters read it). -->
+    <SolidColorBrush x:Key="ComfortSteady"     Color="#2F7D6E"/>
+    <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#E2F0EC"/>
+    <SolidColorBrush x:Key="ComfortSteadyText" Color="#1F5249"/>
+    <SolidColorBrush x:Key="ComfortRising"     Color="#9A6B22"/>
+    <SolidColorBrush x:Key="ComfortRisingWeak" Color="#F6ECD8"/>
+    <SolidColorBrush x:Key="ComfortRisingText" Color="#7A4E16"/>
+    <SolidColorBrush x:Key="ComfortHigh"       Color="#B65C4E"/>
+    <SolidColorBrush x:Key="ComfortHighWeak"   Color="#F6E2DE"/>
+    <SolidColorBrush x:Key="ComfortHighText"   Color="#8A3A2E"/>
+
+    <!-- ═══ Spacing / radius ═════════════════════════════════════════════════ -->
+    <sys:Double x:Key="Pad.Card">24</sys:Double>
+    <sys:Double x:Key="Gap.Stack">16</sys:Double>
+    <sys:Double x:Key="Gap.Tight">8</sys:Double>
+    <Thickness  x:Key="Pad.CardAll">24</Thickness>
+    <Thickness  x:Key="Gap.StackBottom">0,0,0,16</Thickness>
+    <CornerRadius x:Key="Radius.md">12</CornerRadius>
+    <CornerRadius x:Key="Radius.sm">8</CornerRadius>
+    <CornerRadius x:Key="Radius.pill">999</CornerRadius>
+
+    <!-- ═══ Elevation ════════════════════════════════════════════════════════ -->
+    <!-- Soft black shadow (NOT a blue glow). Op 0.08, straight down. -->
+    <DropShadowEffect x:Key="Elev.2" Color="#000000" Direction="270"
+                      ShadowDepth="2" BlurRadius="10" Opacity="0.08"/>
+    <DropShadowEffect x:Key="Elev.3" Color="#000000" Direction="270"
+                      ShadowDepth="4" BlurRadius="18" Opacity="0.10"/>
+
+    <!-- ═══ Typography ═══════════════════════════════════════════════════════
+         Font props only here; Foreground via DynamicResource so it resolves
+         across the merged scope regardless of dictionary order. Floor: 14 body,
+         12 caption — no 10/11px text anywhere. -->
+    <Style x:Key="Type.Display" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="28"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="LineHeight" Value="34"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+    </Style>
+    <Style x:Key="Type.Title" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="20"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="LineHeight" Value="28"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+    </Style>
+    <Style x:Key="Type.Heading" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="LineHeight" Value="22"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+    </Style>
+    <Style x:Key="Type.Body" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="LineHeight" Value="20"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+    </Style>
+    <Style x:Key="Type.Caption" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="LineHeight" Value="16"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+    </Style>
+    <Style x:Key="Type.Mono" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Consolas, 'Cascadia Mono', monospace"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="LineHeight" Value="18"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+    </Style>
+
+</ResourceDictionary>

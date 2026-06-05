@@ -10,6 +10,13 @@
         FontFamily="Segoe UI">
 
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- D0 design tokens, merged VIEW-LOCALLY (never App.Resources) so
+                     MainWindowSmokeTests' bare new Application() still resolves
+                     {StaticResource} at construction time. -->
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
 
         <!-- Standard bool -> Visibility converter for the first-run welcome
              banner. Lives in Window.Resources (not App.Resources) so the
@@ -106,6 +113,7 @@
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
 
+        </ResourceDictionary>
     </Window.Resources>
 
     <DockPanel>
