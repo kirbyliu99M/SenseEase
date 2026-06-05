@@ -776,6 +776,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _vimsTier;
     public int VimsTier { get => _vimsTier; private set => Set(ref _vimsTier, value); }
 
+    // P1 (personalization-visible): personalized display stress %, mirrored from
+    // SenseState so the Home hero can bind it. Two users at equal raw pressure but
+    // different effective triggers see different values — personalization made visible.
+    private int _displayStressPercent;
+    public int DisplayStressPercent { get => _displayStressPercent; private set => Set(ref _displayStressPercent, value); }
+
     // ── D3 liveness / trust contract ─────────────────────────────────────────
     // One liveness scalar, derived in ONE place from existing signals and fanned
     // out to bar/tray/card exactly as VimsTier is. Default Steady-watching keeps
@@ -1462,6 +1468,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HabituationLevel  = state.HabituationLevel;
         HabituationPaused = state.HabituationPaused;
         VimsTier          = state.VimsTier;
+        DisplayStressPercent = state.DisplayStressPercent; // P1
 
         // D3: MaskActive just updated above — refresh the liveness scalar so
         // Protecting/Steady-watching track the mask in lock-step with the tier.

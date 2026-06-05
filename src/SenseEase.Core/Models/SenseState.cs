@@ -26,6 +26,15 @@ public class SenseState
     /// <summary>Accumulated visual-stimulus pressure from the Leaky Integrator.</summary>
     public double Pressure { get; set; }
 
+    /// <summary>P1 (personalization-visible): user-facing stress as a percentage of
+    /// THIS user's effective trigger (Pressure / EffectiveTrigger × 100, clamped
+    /// 0..100). Because EffectiveTrigger is personalized — a SENSITIVE user has a
+    /// lower trigger than a RESILIENT one — two users at the SAME raw Pressure see
+    /// DIFFERENT DisplayStressPercent, so personalization is finally visible in the
+    /// hero metric WITHOUT changing the engine tier. Display-only; the engine never
+    /// reads it as input. Default 0; populated on every engine tick.</summary>
+    public int DisplayStressPercent { get; set; }
+
     /// <summary>Inner clear-zone radius of the Chang-Hain FOV mask, in percent.</summary>
     public int FovRadiusPercent { get; set; }
 

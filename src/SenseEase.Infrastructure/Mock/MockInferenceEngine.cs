@@ -238,6 +238,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // consume the effective OpticalFlowIndex above.
             Current.RawOpticalFlowIndex = opticalFlowIndex;
             Current.Pressure = pressure;
+            // P1: personalized display stress — pressure as a % of THIS user's
+            // effective trigger (lower trigger ⇒ higher % at equal pressure), so
+            // personalization shows up in the hero metric without touching the tier.
+            double effTrigger = _habituation.EffectiveTrigger;
+            Current.DisplayStressPercent = effTrigger > 0
+                ? (int)Math.Round(Math.Clamp(pressure / effTrigger * 100.0, 0, 100))
+                : 0;
             Current.Mode = mode;
             Current.FmsScore = (int)Math.Clamp(pressure / 10.0, 0, 20);
 
