@@ -183,14 +183,33 @@ public class HabituationOverrideApplicatorTests
     }
 
     [Fact]
-    public void ApplyAccepted_NoSnapshot_NoInterceptApplied()
+    public void ApplyAccepted_NoAdvisory_AppliesProposal()
     {
-        var (app, _, _, _, _) = Build(initialSnapshot: null);
+        // H15: a non-null snapshot with no advisory still applies (the no-advisory
+        // pass-through path). The null-snapshot case now fails CLOSED — see below.
+        var (app, _, _, _, _) = Build(initialSnapshot: MakeSnapshot(advisory: null));
         var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 1.1);
 
         var result = app.ApplyAccepted(proposal);
 
         Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public void ApplyAccepted_NullSnapshot_BlockedFailClosed_H15()
+    {
+        // H15: a corrupt / missing profile (SafeLoadSnapshot → null) must BLOCK the
+        // apply, not fail open. The block path never calls ApplyChatbotOverride, so
+        // the engine is not mutated; the Card sees the "please reload" reason.
+        var (app, _, _, _, actionLog) = Build(initialSnapshot: null);
+        var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 1.1);
+
+        var result = app.ApplyAccepted(proposal);
+
+        Assert.False(result.IsSuccess);
+        Assert.True(result.BlockedBySafety);
+        Assert.Contains("verify safety", result.Reason);
+        Assert.Equal(ChatbotActionKind.Intercepted, actionLog.Recent()[0].Kind);
     }
 
     // ── RecordDeclined / RecordExpired ───────────────────────────────────────
@@ -225,11 +244,13 @@ public class HabituationOverrideApplicatorTests
     // ── Static CheckSafetyIntercepts (Phase 7f predicate) ────────────────────
 
     [Fact]
-    public void CheckSafetyIntercepts_NullSnapshot_Passes()
+    public void CheckSafetyIntercepts_NullSnapshot_Blocks_H15()
     {
+        // H15: fail closed when safety state can't be verified.
         var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 1.1);
         var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, null);
-        Assert.False(result.Blocked);
+        Assert.True(result.Blocked);
+        Assert.Contains("verify safety", result.Reason);
     }
 
     [Fact]

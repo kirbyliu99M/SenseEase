@@ -26,6 +26,16 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     private const int SupportedSchemaVersion = 2;
     private const int LegacyV1SchemaVersion = 1;
 
+    // H14: schema-downgrade guard. Editing the file to {"schema_version":1,...}
+    // null-fills MedicalAdvisoryShown and bypasses the vestibular safety
+    // intercept. Once this profile has been written as v2 we drop a sibling flag;
+    // its presence (or a v1 file whose updated_at_iso is at/after the v2 ship date)
+    // marks a v1 load as a downgrade, which we refuse — falling back to RESILIENT
+    // defaults is safer than a null-filled advisory.
+    private readonly string _schemaFloorFlagPath;
+    private static readonly DateTime V2SchemaShipDateUtc =
+        new(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+
     /// <summary>Constructor with optional wipe-probe artifact path. When the
     /// profile JSON is missing but the artifact at this path exists, Load
     /// returns a wipe-recovery snapshot instead of null. Pass
@@ -36,6 +46,10 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     {
         _path = path;
         _wipeProbePath = wipeProbeArtifactPath;
+        // Sibling of the profile file (one profile per install) so the flag is
+        // co-located with the data it guards.
+        _schemaFloorFlagPath = Path.Combine(
+            Path.GetDirectoryName(path) ?? string.Empty, "schema_floor_v2.flag");
     }
 
     /// <summary>The probe path the loader consults for wipe-detection. Null if
@@ -92,6 +106,13 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
                     // transformation logic, just null-fill at deserialise time.
                     // Renaming this method to "Migrate*" would mislead future
                     // readers into expecting per-field translation rules.
+                    if (IsSchemaDowngrade(snap))
+                    {
+                        Debug.WriteLine(
+                            $"[HabituationProfile] refusing v1 downgrade of {_path} " +
+                            "(schema_floor_v2 flag present or updated_at_iso post-dates v2).");
+                        return null;
+                    }
                     return LoadLegacyV1AsV2InMemory(snap);
 
                 default:
@@ -119,6 +140,21 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
         return snap;
     }
 
+    /// <summary>H14: a v1 file is a downgrade attack if this install has already
+    /// written a v2 file (flag present) OR the v1 file claims an updated_at_iso at
+    /// or after the v2 schema ship date (no genuine v1 file is written after v2
+    /// started shipping).</summary>
+    private bool IsSchemaDowngrade(HabituationProfileSnapshot v1Snap)
+    {
+        try { if (File.Exists(_schemaFloorFlagPath)) return true; } catch { }
+        if (DateTime.TryParse(v1Snap.UpdatedAtIso,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out DateTime updated)
+            && updated.ToUniversalTime() >= V2SchemaShipDateUtc)
+            return true;
+        return false;
+    }
+
     public void Save(HabituationProfileSnapshot snapshot)
     {
         lock (_gate)
@@ -135,7 +171,24 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
             // fallback. Returns false on failure but we never surface that
             // to the caller — persistence must not crash the app, and the
             // next write attempt will retry.
-            AtomicJsonWriter.TryWrite(_path, snapshot);
+            if (AtomicJsonWriter.TryWrite(_path, snapshot))
+            {
+                // H14: record that this profile has been written as v2 so a later
+                // hand-edited schema_version:1 file is refused on load.
+                TryWriteSchemaFloorFlag();
+            }
         }
+    }
+
+    private void TryWriteSchemaFloorFlag()
+    {
+        try
+        {
+            if (File.Exists(_schemaFloorFlagPath)) return;
+            string? dir = Path.GetDirectoryName(_schemaFloorFlagPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(_schemaFloorFlagPath, "v2");
+        }
+        catch { /* best-effort defense-in-depth guard */ }
     }
 }

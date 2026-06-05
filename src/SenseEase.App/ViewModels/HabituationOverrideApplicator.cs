@@ -144,7 +144,14 @@ public sealed class HabituationOverrideApplicator
         ProfileOverrideProposal proposal,
         HabituationProfileSnapshot? snapshot)
     {
-        if (snapshot is null) return SafetyInterceptResult.Passed;
+        // H15: fail CLOSED, not open. A null snapshot means the profile could not
+        // be loaded (missing, truncated, or corrupt). Returning Passed here would
+        // silently bypass the vestibular / high-risk intercepts at apply-time, so a
+        // vestibular user with a corrupted file could one-click a relaxation. Block
+        // instead — the engine is never mutated when safety state can't be verified;
+        // ApplyAccepted surfaces this reason to the Card so the user can reload.
+        if (snapshot is null)
+            return SafetyInterceptResult.Block("snapshot unavailable; cannot verify safety state — please reload");
 
         // Rule 1 (most specific first): strike limit was hard-set to 1 by
         // vestibular calibration → chatbot cannot override (vestibular hard

@@ -373,6 +373,34 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.Contains("\"was_recovered_from_wipe\"", raw);
     }
 
+    // ── H14: schema-downgrade guard ──────────────────────────────────────────
+
+    [Fact]
+    public void Load_V1Downgrade_AfterV2FlagSet_Refused()
+    {
+        var store = new FileHabituationProfileStore(_path);
+        store.Save(MakeSnapshot());                  // v2 write drops the schema-floor flag
+        Assert.True(File.Exists(Path.Combine(_tempDir, "schema_floor_v2.flag")));
+        Assert.NotNull(store.Load());                // v2 still loads
+
+        // Attacker hand-edits the file back to schema_version:1.
+        File.WriteAllText(_path, LegacyV1Json);
+        Assert.Null(store.Load());                   // H14: refused (flag present) → defaults
+    }
+
+    [Fact]
+    public void Load_V1WithPostV2ShipDate_Refused()
+    {
+        // No prior v2 write (no flag), but the v1 file claims a date after v2
+        // shipped — impossible for a genuine v1 file, so it's a downgrade.
+        string futureV1 = LegacyV1Json.Replace(
+            "2026-05-24T12:34:56.0000000Z", "2026-07-01T00:00:00.0000000Z");
+        File.WriteAllText(_path, futureV1);
+
+        var store = new FileHabituationProfileStore(_path);
+        Assert.Null(store.Load());
+    }
+
     // ── Stage 6c: app-data-wipe edge case ────────────────────────────────────
     // When habituation_profile.json is missing but habituation.json (or any
     // other configured "prior usage" artifact) exists, the loader returns a
