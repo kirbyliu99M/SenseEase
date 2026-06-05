@@ -87,7 +87,7 @@
 
         <!-- ── Text styles ── -->
         <Style x:Key="CardLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#7B8DB0"/>
+            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
 
@@ -183,7 +183,7 @@
                 <Style TargetType="TabItem">
                     <Setter Property="FontSize" Value="13"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
-                    <Setter Property="Foreground" Value="#7B8DB0"/>
+                    <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
                     <Setter Property="Padding" Value="20,10"/>
                     <Setter Property="Background" Value="Transparent"/>
                     <Setter Property="BorderThickness" Value="0"/>
@@ -692,7 +692,7 @@
                                 </Border>
                                 <!-- Legend -->
                                 <StackPanel Orientation="Horizontal" Margin="2,10,0,0">
-                                    <Ellipse Width="8" Height="8" Fill="#7B8DB0" VerticalAlignment="Center"/>
+                                    <Ellipse Width="8" Height="8" Fill="{StaticResource TextTertiary}" VerticalAlignment="Center"/>
                                     <TextBlock Text="OFI" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
                                     <Ellipse Width="8" Height="8" Fill="#024AD8" VerticalAlignment="Center"/>
@@ -807,7 +807,7 @@
                                                                FontSize="13" Foreground="#0A1F5C"
                                                                TextWrapping="Wrap"/>
                                                     <TextBlock Text="{Binding Timestamp}"
-                                                               FontSize="10" Foreground="#7B8DB0"
+                                                               FontSize="10" Foreground="{StaticResource TextTertiary}"
                                                                HorizontalAlignment="Right" Margin="0,4,0,0"/>
                                                 </StackPanel>
                                             </Border>
@@ -851,11 +851,11 @@
                                                             </EventTrigger>
                                                         </StackPanel.Triggers>
                                                         <Ellipse x:Name="Dot1" Width="6" Height="6"
-                                                                 Fill="#7B8DB0" Opacity="0.2" Margin="0,0,3,0"/>
+                                                                 Fill="{StaticResource TextTertiary}" Opacity="0.2" Margin="0,0,3,0"/>
                                                         <Ellipse x:Name="Dot2" Width="6" Height="6"
-                                                                 Fill="#7B8DB0" Opacity="0.2" Margin="0,0,3,0"/>
+                                                                 Fill="{StaticResource TextTertiary}" Opacity="0.2" Margin="0,0,3,0"/>
                                                         <Ellipse x:Name="Dot3" Width="6" Height="6"
-                                                                 Fill="#7B8DB0" Opacity="0.2"/>
+                                                                 Fill="{StaticResource TextTertiary}" Opacity="0.2"/>
                                                     </StackPanel>
 
                                                     <!-- Real reply text: rendered as inline runs by MarkdownInlines
@@ -928,7 +928,7 @@
                                                     </ItemsControl>
 
                                                     <TextBlock Text="{Binding Timestamp}"
-                                                               FontSize="10" Foreground="#7B8DB0"
+                                                               FontSize="10" Foreground="{StaticResource TextTertiary}"
                                                                Margin="0,4,0,0"/>
                                                 </StackPanel>
                                             </Border>
@@ -996,7 +996,7 @@
                                               ShadowDepth="1" Opacity="0.10"/>
                         </Border.Effect>
                         <TextBlock Text="{Binding StatusText}"
-                                   FontSize="11" Foreground="#7B8DB0" TextWrapping="Wrap"/>
+                                   FontSize="11" Foreground="{StaticResource TextTertiary}" TextWrapping="Wrap"/>
                     </Border>
 
                     <!-- Input row -->

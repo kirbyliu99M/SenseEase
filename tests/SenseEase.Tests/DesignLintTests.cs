@@ -13,9 +13,10 @@ namespace SenseEase.Tests;
 public class DesignLintTests
 {
     // Inline hex colours in App XAML OUTSIDE Theme/ (the token source is exempt).
-    // Ratchet: 247 (post D0/D1/D2) → 238 after the audit H1 alarm-red (#E54747)
-    // retirement. Lower this each time a surface migrates to tokens.
-    private const int OrphanHexBaseline = 238;
+    // Ratchet: 247 (post D0/D1/D2) → 238 after audit H1 alarm-red (#E54747)
+    // retirement → 229 after audit C3 retired all 9 #7B8DB0 (banned token) to
+    // the TextTertiary token. Lower this each time a surface migrates to tokens.
+    private const int OrphanHexBaseline = 229;
 
     private static readonly Regex HexColor =
         new(@"#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})", RegexOptions.Compiled);

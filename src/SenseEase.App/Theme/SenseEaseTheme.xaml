@@ -21,8 +21,10 @@
     <SolidColorBrush x:Key="SurfaceMuted"  Color="#F1F3F6"/>
     <SolidColorBrush x:Key="Separator"     Color="#E2E5EA"/>
     <SolidColorBrush x:Key="TextPrimary"   Color="#1A2230"/>
-    <SolidColorBrush x:Key="TextSecondary" Color="#525B6B"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#6E7787"/>
+    <!-- C3 (audit): darkened to clear WCAG AA 4.5:1 on white AND SurfaceMuted.
+         #525B6B→#4A5B6E (secondary), #6E7787→#5A6B7A (tertiary). -->
+    <SolidColorBrush x:Key="TextSecondary" Color="#4A5B6E"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#5A6B7A"/>
     <SolidColorBrush x:Key="Accent"        Color="#3A6EA5"/>
     <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFF"/>
 
