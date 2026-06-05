@@ -509,11 +509,13 @@ public partial class NotificationCardWindow : Window
         _                                => "守護你的畫面",
     };
 
+    // D4: calm, app-action body copy — what SenseEase is doing, no detective
+    // "偵測到…" register, no urgent imperatives (retires the banned phrases).
     private static string DescriptionForBand(TierColorPalette.TierBand band) => band switch
     {
-        TierColorPalette.TierBand.Grey  => "目前視覺壓力低。",
-        TierColorPalette.TierBand.Amber => "偵測到中度視覺壓力。建議短暫休息或暗化螢幕。",
-        TierColorPalette.TierBand.Red   => "偵測到高度視覺壓力。建議立即啟動保護或暫停當前活動。",
+        TierColorPalette.TierBand.Grey  => "畫面平穩，一切安好。",
+        TierColorPalette.TierBand.Amber => "畫面開始活躍，正在輕輕緩和邊緣。需要的話可以短暫休息。",
+        TierColorPalette.TierBand.Red   => "畫面變化較大，正在加強緩和。可以的話稍微休息一下。",
         _                                => string.Empty,
     };
 

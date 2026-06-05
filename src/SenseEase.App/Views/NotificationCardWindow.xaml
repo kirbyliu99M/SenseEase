@@ -14,6 +14,11 @@
         WindowStartupLocation="Manual"
         ShowActivated="False">
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- D0 design tokens, merged view-locally (never App.Resources). -->
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
         <!-- overlay-bar-redesign D4: light-theme primary action button.
              Replaces the dark-theme PrimaryHpBlueButtonStyle. Deep blue fill
              with a darker hover/pressed state matches the new white card
@@ -65,6 +70,7 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        </ResourceDictionary>
     </Window.Resources>
     <!-- overlay-bar-redesign D1: light card theme.
          White surface, light grey border, soft drop shadow. The previous
@@ -263,10 +269,9 @@
                         x:Name="QuickDiscomfort1Btn"
                         Tag="1"
                         Click="OnQuickDiscomfortClicked"
-                        Background="#E5F0F8"
-                        Foreground="#1E5BB0"
-                        BorderBrush="#B7CFE3"
-                        BorderThickness="1"
+                        Background="{StaticResource ComfortSteadyWeak}"
+                        Foreground="{StaticResource ComfortSteadyText}"
+                        BorderThickness="0"
                         Padding="4,8"
                         FontSize="12"
                         FontWeight="SemiBold"
@@ -277,10 +282,9 @@
                         x:Name="QuickDiscomfort2Btn"
                         Tag="2"
                         Click="OnQuickDiscomfortClicked"
-                        Background="#FFF1D6"
-                        Foreground="#7A5310"
-                        BorderBrush="#E5C98E"
-                        BorderThickness="1"
+                        Background="{StaticResource ComfortRisingWeak}"
+                        Foreground="{StaticResource ComfortRisingText}"
+                        BorderThickness="0"
                         Padding="4,8"
                         FontSize="12"
                         FontWeight="SemiBold"
@@ -291,10 +295,9 @@
                         x:Name="QuickDiscomfort3Btn"
                         Tag="3"
                         Click="OnQuickDiscomfortClicked"
-                        Background="#FFE0CC"
-                        Foreground="#9B4F1A"
-                        BorderBrush="#E5B388"
-                        BorderThickness="1"
+                        Background="{StaticResource ComfortHighWeak}"
+                        Foreground="{StaticResource ComfortHighText}"
+                        BorderThickness="0"
                         Padding="4,8"
                         FontSize="12"
                         FontWeight="SemiBold"
@@ -305,10 +308,9 @@
                         x:Name="QuickDiscomfort4Btn"
                         Tag="4"
                         Click="OnQuickDiscomfortClicked"
-                        Background="#FBD0CB"
-                        Foreground="#8C2F23"
-                        BorderBrush="#E5928B"
-                        BorderThickness="1"
+                        Background="{StaticResource ComfortHigh}"
+                        Foreground="{StaticResource TextOnComfort}"
+                        BorderThickness="0"
                         Padding="4,8"
                         FontSize="12"
                         FontWeight="SemiBold"
@@ -356,10 +358,10 @@
                             Content="開啟主視窗"
                             Margin="0,0,8,0"/>
                     <Button x:Name="EngageBtn"
-                            Content="啟動保護"
+                            Content="緩和畫面"
                             Click="OnEngageClicked"
-                            Background="#FF9B6B"
-                            Foreground="#101418"
+                            Background="{StaticResource Accent}"
+                            Foreground="White"
                             BorderThickness="0"
                             Padding="12,6"
                             Margin="0,0,8,0"
