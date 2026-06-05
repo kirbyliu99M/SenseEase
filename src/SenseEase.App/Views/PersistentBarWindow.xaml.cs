@@ -210,7 +210,12 @@ public partial class PersistentBarWindow : Window
         // place. Without this guard the engine's StateChanged stream
         // overwrites the paused fill within ~300 ms of EnterSleepMode and
         // ExitSleepMode then restores the stale pre-sleep brush.
-        if (_preSleepBackground is not null)
+        // Fault outranks sleep outranks the live fill: while either special mode
+        // is active, update its restore snapshot instead of the live fill so the
+        // engine's StateChanged stream can't overwrite the clay / faint treatment.
+        if (_preFaultBackground is not null)
+            _preFaultBackground = brush;
+        else if (_preSleepBackground is not null)
             _preSleepBackground = brush;
         else
             BarFill.Background = brush;
@@ -244,6 +249,38 @@ public partial class PersistentBarWindow : Window
         BarFill.Background = _preSleepBackground;
         _preSleepBackground = null;
         SleepOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    // D3 liveness contract: snapshot of the bar's pre-FAULT fill. Non-null while
+    // EnterFaultedMode is active; both calls idempotent. Mirrors the sleep-mode
+    // snapshot pattern. Fault and sleep are mutually exclusive at the liveness
+    // layer (a user pause outranks a fault), so the host fan-out only ever has
+    // one of the two active at a time.
+    private Brush? _preFaultBackground;
+
+    /// <summary>D3: drop the bar into the "sensing faulted" state — a static
+    /// low-alpha clay fill plus a SOLID clay outline (the <c>FaultOutline</c>
+    /// rectangle). Deliberately, visibly different from BOTH a healthy bar (grey)
+    /// and the dashed Paused outline, so a dead pipeline can't masquerade as a
+    /// calm one. No animation — it is static-but-present. Idempotent; restored by
+    /// <see cref="ExitFaultedMode"/>.</summary>
+    public void EnterFaultedMode()
+    {
+        if (_preFaultBackground is not null) return; // already faulted
+        _preFaultBackground = BarFill.Background;
+        BarFill.Background = TierColorPalette.FaultedBarBrush;
+        FaultOutline.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>D3: restore the bar's pre-fault fill and hide the fault outline.
+    /// Idempotent — calling without a prior <see cref="EnterFaultedMode"/> is a
+    /// no-op.</summary>
+    public void ExitFaultedMode()
+    {
+        if (_preFaultBackground is null) return; // not faulted
+        BarFill.Background = _preFaultBackground;
+        _preFaultBackground = null;
+        FaultOutline.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>Monitor-coords physical-pixel rect for the WGC exclude mask.

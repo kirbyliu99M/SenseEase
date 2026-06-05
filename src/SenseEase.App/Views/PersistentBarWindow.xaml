@@ -36,5 +36,16 @@
                    StrokeDashArray="4 2"
                    RadiusX="2" RadiusY="2"
                    IsHitTestVisible="False"/>
+        <!-- D3 liveness contract: FaultOutline is the "sensing faulted" token.
+             SOLID 1px clay (not dashed — dashed is Paused's identity, and the
+             two must never be confusable). Collapsed by default so the healthy
+             bar is byte-identical to before; EnterFaultedMode shows it + swaps
+             BarFill to the low-alpha clay FaultedBarBrush. No animation. -->
+        <Rectangle x:Name="FaultOutline"
+                   Visibility="Collapsed"
+                   Stroke="#B65C4E"
+                   StrokeThickness="1"
+                   RadiusX="2" RadiusY="2"
+                   IsHitTestVisible="False"/>
     </Grid>
 </Window>

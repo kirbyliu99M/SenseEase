@@ -102,6 +102,7 @@ public partial class MainWindow : Window
 
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
         _viewModel.StateChanged             += OnStateChanged;
+        _viewModel.LivenessChanged          += OnLivenessChanged; // D3: fan Faulted out to bar + tray
 
         if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
         {
@@ -353,6 +354,23 @@ public partial class MainWindow : Window
                 (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
             {
                 _viewModel.StartMockHeadPoseSweep();
+                e.Handled = true;
+                return;
+            }
+
+            // D3 dev/QA visual-verification surface: Ctrl+Shift+F toggles a
+            // FORCED liveness fault so the Faulted bar/tray treatment can be
+            // eyeballed without crashing the GPU. Mirrors the Ctrl+Shift+H mock
+            // sweep — dev-only, independent of the real pipeline (the provider
+            // only raises health on its OWN transitions, so a healthy live
+            // provider won't override this forced state until it's toggled back).
+            if (e.Key == Key.F &&
+                (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
+                (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
+            {
+                _devFaultForced = !_devFaultForced;
+                _viewModel.TestHook_RaiseSensingHealth(!_devFaultForced);
+                SafeLog($"[DevHotkey] Ctrl+Shift+F → forced liveness fault = {_devFaultForced}");
                 e.Handled = true;
                 return;
             }
@@ -786,6 +804,37 @@ public partial class MainWindow : Window
             ShowNotificationCardForCurrentTier(userInitiated: false);
         }
         _lastBand = newBand;
+    }
+
+    // D3 dev/QA: true while Ctrl+Shift+F has forced a liveness fault.
+    private bool _devFaultForced;
+
+    /// <summary>D3 liveness fan-out: the SINGLE place the Faulted treatment is
+    /// applied to the ambient surfaces, mirroring how OnViewModelStateChanged
+    /// fans VimsTier out. Faulted → bar EnterFaultedMode + tray fault verdict;
+    /// any healthy/paused state → clear it. The Paused (sleep) treatment stays
+    /// owned by ApplyPowerSave — this handler manages only the orthogonal fault
+    /// layer. LivenessChanged is raised on the UI thread (the provider posts via
+    /// the captured context), but marshal defensively like OnStateChanged in case
+    /// a future caller raises it off-thread.</summary>
+    private void OnLivenessChanged(object? sender, LivenessState liveness)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => OnLivenessChanged(sender, liveness));
+            return;
+        }
+
+        if (liveness == LivenessState.Faulted)
+        {
+            _persistentBar?.EnterFaultedMode();
+            _trayIcon?.SetFaultIndicator(true);
+        }
+        else
+        {
+            _persistentBar?.ExitFaultedMode();
+            _trayIcon?.SetFaultIndicator(false);
+        }
     }
 
     /// <summary>Pop-up sprint Task 4: shows the notification card for the

@@ -325,6 +325,35 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
+    // D3 liveness contract: snapshot of the pre-fault status label so clearing
+    // the fault restores the exact tier-band string the menu was showing. Non-null
+    // only while the fault indicator is ON; independent of the power-save snapshot.
+    private string? _preFaultStatusText;
+
+    /// <summary>D3: tray-side Faulted indicator, mirroring
+    /// <see cref="SetPowerSaveIndicator"/>. When set, the status header + OS
+    /// tooltip become the reassuring "暫時無法偵測畫面 · 點一下重試 / Sensing
+    /// paused — tap to retry" verdict (calm, never "ERROR"/red) and the prior
+    /// label is stashed. When cleared, the prior label is restored; the next
+    /// <see cref="ApplyState"/> tick (frames resume on recovery) repaints the live
+    /// tooltip. Icon stays grey — never an alarm colour. Idempotent across
+    /// repeated true / repeated false.</summary>
+    public void SetFaultIndicator(bool faulted)
+    {
+        if (_statusItem is null) return;
+        if (faulted)
+        {
+            _preFaultStatusText ??= _statusItem.Header as string;
+            _statusItem.Header = "暫時無法偵測畫面 · 點一下重試 / Sensing paused — tap to retry";
+            _tray.ToolTipText  = "SenseEase — 暫時無法偵測 · 點一下重試 / tap to retry";
+        }
+        else if (_preFaultStatusText != null)
+        {
+            _statusItem.Header = _preFaultStatusText;
+            _preFaultStatusText = null;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

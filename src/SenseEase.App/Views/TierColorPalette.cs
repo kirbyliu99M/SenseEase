@@ -59,6 +59,14 @@ public static class TierColorPalette
     private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, 0xEB); // 0.92
     private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   0xFF); // 1.00
 
+    // D3 liveness contract: the FAULTED bar fill. Muted clay (#B65C4E) at low
+    // alpha — "needs attention," explicitly NEVER alarm red, per the locked
+    // palette's "muted clay for high strain, never alarm red." A single frozen
+    // source so the Faulted bar can't drift into a raw XAML hex literal; it is
+    // intentionally OUTSIDE the tier band table (liveness is orthogonal to tier).
+    private static readonly Color ClayHue = Color.FromRgb(0xB6, 0x5C, 0x4E);
+    public static readonly SolidColorBrush FaultedBarBrush = MakeFrozen(ClayHue, 0x40); // ~0.25
+
     // Tray icons — full-alpha 32×32 rendered once, frozen, cached by tier band.
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
 

@@ -121,4 +121,83 @@ public class PersistentBarWindowTests
         if (captured != null)
             throw new Xunit.Sdk.XunitException("STA test threw: " + captured);
     }
+
+    /// <summary>D3 liveness contract §5.1 — THE anti-freeze test. A faulted bar
+    /// must NOT equal a healthy bar on the bound surface; that non-identity is
+    /// the entire point of the contract (a frozen healthy bar and a faulted bar
+    /// were previously pixel-identical). EnterFaultedMode swaps BarFill to the
+    /// clay FaultedBarBrush + shows the solid FaultOutline; ExitFaultedMode
+    /// restores the exact pre-fault instance.</summary>
+    [Fact]
+    public void PersistentBarWindow_EnterFaultedMode_IsDistinctFromHealthy_AndRestores()
+    {
+        RunSta(() =>
+        {
+            var w = new PersistentBarWindow();
+            w.ApplyTemplate();
+            // NB: deliberately NOT calling SetTier — it reads the shared
+            // UserPreferences file and races UserPreferencesTests under xUnit
+            // parallelism. The XAML-default fill is a fine "healthy" baseline.
+            Brush healthy = w.BarFill.Background;
+
+            w.EnterFaultedMode();
+            Assert.NotSame(healthy, w.BarFill.Background);                       // fault ≠ healthy
+            Assert.Same(TierColorPalette.FaultedBarBrush, w.BarFill.Background); // the clay token
+            Assert.Equal(System.Windows.Visibility.Visible, w.FaultOutline.Visibility);
+
+            w.ExitFaultedMode();
+            Assert.Same(healthy, w.BarFill.Background);
+            Assert.Equal(System.Windows.Visibility.Collapsed, w.FaultOutline.Visibility);
+        });
+    }
+
+    /// <summary>D3 liveness contract §5.2 — Paused ≠ Faulted. Calm-by-choice
+    /// (dashed SleepOverlay) and calm-by-accident (solid FaultOutline + clay
+    /// fill) must produce distinct, non-overlapping visual states so the two can
+    /// never be confused.</summary>
+    [Fact]
+    public void PersistentBarWindow_PausedAndFaulted_AreDistinctTokens()
+    {
+        RunSta(() =>
+        {
+            // No SetTier (avoids the shared-UserPreferences race); EnterSleepMode
+            // and EnterFaultedMode both apply their own fills regardless of tier.
+            var paused = new PersistentBarWindow();
+            paused.ApplyTemplate();
+            paused.EnterSleepMode();
+
+            var faulted = new PersistentBarWindow();
+            faulted.ApplyTemplate();
+            faulted.EnterFaultedMode();
+
+            // Outline tokens are mutually exclusive: dashed for paused, solid for faulted.
+            Assert.Equal(System.Windows.Visibility.Visible,   paused.SleepOverlay.Visibility);
+            Assert.Equal(System.Windows.Visibility.Collapsed, paused.FaultOutline.Visibility);
+            Assert.Equal(System.Windows.Visibility.Collapsed, faulted.SleepOverlay.Visibility);
+            Assert.Equal(System.Windows.Visibility.Visible,   faulted.FaultOutline.Visibility);
+
+            // And the fills differ: faint grey (paused) vs clay (faulted).
+            var pausedFill  = (SolidColorBrush)paused.BarFill.Background;
+            var faultedFill = (SolidColorBrush)faulted.BarFill.Background;
+            Assert.NotEqual(pausedFill.Color, faultedFill.Color);
+        });
+    }
+
+    private static void RunSta(Action body)
+    {
+        Exception? captured = null;
+        var done = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            try { body(); }
+            catch (Exception ex) { captured = ex; }
+            finally { done.Set(); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+        Assert.True(done.Wait(TimeSpan.FromSeconds(15)), "STA test timed out");
+        if (captured != null)
+            throw new Xunit.Sdk.XunitException("STA test threw: " + captured);
+    }
 }
