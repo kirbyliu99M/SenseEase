@@ -290,6 +290,14 @@ public sealed class HabituationEngine
         // ~15x/sec during ordinary video playback in Passenger mode, storming the
         // strike counter, the event log, and the profile-snapshot disk writes,
         // and shredding _offset via the repeated back-off.
+        // B5 — No separate SevereDebounceMs constant by design: severe strikes are
+        // de-facto debounced by _pauseCooldown. RegisterSevereStrike -> EnterPause
+        // sets _pauseCooldown (a finite post-spike pause, or infinite while awaiting
+        // user confirm), and the guard at the top of Step (the _pauseCooldown > 0.0
+        // branch) returns early on every subsequent tick until that cooldown elapses,
+        // so no further strike can fire inside the pause window. Do NOT add a
+        // redundant debounce timer here — it would double-suppress strikes and skew
+        // the post-spike pause length.
         if (atRecurrence && !_pressureWasAtRecurrence)
         {
             _pressureWasAtRecurrence = true;

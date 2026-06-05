@@ -15,6 +15,11 @@ public sealed class FileChatHistoryStore
     private readonly object _gate = new();
     private static readonly JsonSerializerOptions _opts = new() { WriteIndented = false };
 
+    // Huge-line DoS guard: a single line longer than this is skipped rather than
+    // buffered/parsed. A well-formed ChatMessage is far smaller; an oversized line
+    // is corruption or an attempt to exhaust memory.
+    private const int MaxLineChars = 64 * 1024;
+
     public FileChatHistoryStore(string path)
     {
         _path = path;
@@ -31,25 +36,35 @@ public sealed class FileChatHistoryStore
     /// Lines that fail to parse are skipped silently.</summary>
     public IReadOnlyList<ChatMessage> Load()
     {
-        var result = new List<ChatMessage>();
         lock (_gate)
         {
-            try
-            {
-                if (!File.Exists(_path)) return result;
-                foreach (string line in File.ReadAllLines(_path))
-                {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    try
-                    {
-                        var m = JsonSerializer.Deserialize<ChatMessage>(line, _opts);
-                        if (m is not null) result.Add(m);
-                    }
-                    catch { /* skip malformed line */ }
-                }
-            }
-            catch { /* best-effort */ }
+            return ReadAllLocked();
         }
+    }
+
+    /// <summary>Streams the transcript off disk and parses each line. Caller must
+    /// hold <see cref="_gate"/>. Uses File.ReadLines (lazy, one line at a time) so
+    /// the whole file is never buffered into an array, and skips any single line
+    /// longer than <see cref="MaxLineChars"/> as a huge-line DoS guard.</summary>
+    private List<ChatMessage> ReadAllLocked()
+    {
+        var result = new List<ChatMessage>();
+        try
+        {
+            if (!File.Exists(_path)) return result;
+            foreach (string line in File.ReadLines(_path))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                if (line.Length > MaxLineChars) continue; // skip oversized line
+                try
+                {
+                    var m = JsonSerializer.Deserialize<ChatMessage>(line, _opts);
+                    if (m is not null) result.Add(m);
+                }
+                catch { /* skip malformed line */ }
+            }
+        }
+        catch { /* best-effort */ }
         return result;
     }
 
@@ -79,7 +94,7 @@ public sealed class FileChatHistoryStore
             try
             {
                 if (!File.Exists(_path)) return;
-                var all = Load();
+                var all = ReadAllLocked();
                 if (all.Count <= maxKeep) return;
 
                 var keep = all.Skip(all.Count - maxKeep).ToList();

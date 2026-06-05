@@ -970,14 +970,32 @@ public partial class MainWindow : Window
                 // (≤6 s) for the assistant reply to land. If it doesn't
                 // arrive (LLM down, etc.) the caller surfaces "Applied."
                 // since deltas may have applied via lexicon fallback.
+                //
+                // NE28: a single turn appends MULTIPLE assistant bubbles in
+                // order — the reply, then optionally a system-adjustment
+                // summary ("已調整…") — and in lexicon mode the reply bubble
+                // is added EMPTY and filled incrementally by the fake-stream.
+                // Reading Messages[Count-1] therefore risks surfacing the
+                // adjustment summary, or a half-streamed fragment, as if it
+                // were the reply. Instead wait until the turn fully settles
+                // (IsGenerating == false AND the fake-stream has populated the
+                // bubble), then return the FIRST assistant bubble added after
+                // the user echo: that is the reply, never the trailing summary.
                 for (int i = 0; i < 60; i++)
                 {
                     await Task.Delay(100).ConfigureAwait(true);
-                    if (vm.Messages.Count > beforeCount + 1)
+                    if (vm.IsGenerating) continue;
+                    // Scan the bubbles appended this turn. Index beforeCount is
+                    // the user echo; the reply is the first assistant bubble
+                    // after it that has actually rendered (not the typing
+                    // placeholder, not a still-empty fake-stream bubble).
+                    for (int j = beforeCount; j < vm.Messages.Count; j++)
                     {
-                        var last = vm.Messages[vm.Messages.Count - 1];
-                        if (last.Role == ChatRole.Assistant)
-                            return last.Content;
+                        var msg = vm.Messages[j];
+                        if (msg.Role != ChatRole.Assistant) continue;
+                        if (msg.IsTyping) continue;
+                        if (string.IsNullOrWhiteSpace(msg.Content)) continue;
+                        return msg.Content;
                     }
                 }
                 return null;

@@ -131,7 +131,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // card, not the LLM banner that assumes a baseline exists.
             // Stage 7f: ApplyCalibrationResult bumps from this seed value;
             // BuildProfileSnapshot persists the bumped value back.
-            _loadedCalibrationCount = savedSnapshot.CalibrationCount;
+            // H44 (anti-tamper): the on-disk count is user-editable JSON. A
+            // hand-edited high value would fake a veteran calibrator and skip
+            // first-run onboarding. Clamp to a sane range, then treat a positive
+            // count with NO last_calibration_at_iso as a tamper signal (a genuine
+            // non-zero count is always written alongside its timestamp by
+            // BuildProfileSnapshot) and reset it to 0.
+            int loadedCount = Math.Clamp(savedSnapshot.CalibrationCount, 0, 1000);
+            if (loadedCount > 0 && string.IsNullOrEmpty(savedSnapshot.LastCalibrationAtIso))
+                loadedCount = 0;
+            _loadedCalibrationCount = loadedCount;
             // M3 Phase 7d: restore the persisted scale so a chatbot
             // AdjustSensitivity arriving early in the session has the right
             // baseline. Clamp defensively in case the on-disk value was
