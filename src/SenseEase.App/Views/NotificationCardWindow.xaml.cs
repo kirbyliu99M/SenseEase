@@ -378,9 +378,18 @@ public partial class NotificationCardWindow : Window
             BeginAnimation(OpacityProperty, null);
             _activeFadeStoryboard?.Stop(this);
             _activeFadeStoryboard = null;
-            Opacity = 0;
-            var fadeIn = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)));
-            BeginAnimation(OpacityProperty, fadeIn);
+            // C1 (a11y): Reduce Motion → appear instantly (no 220 ms fade). The card
+            // pops for a user who may already feel unwell; respect their setting.
+            if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+            {
+                Opacity = 1;
+            }
+            else
+            {
+                Opacity = 0;
+                var fadeIn = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)));
+                BeginAnimation(OpacityProperty, fadeIn);
+            }
 
             // Recover from a stuck in-flight chat send. If the previous
             // SendChatMessage callback threw before the finally block could

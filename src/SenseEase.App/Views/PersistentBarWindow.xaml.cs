@@ -348,9 +348,21 @@ public partial class PersistentBarWindow : Window
     {
         double targetHeight = toHovered ? HoveredHeightDip : BaseHeightDip;
         double targetOpacity = toHovered ? Math.Min(1.0, _baseOpacity + HoverOpacityBoost) : _baseOpacity;
-        var dur = new Duration(TimeSpan.FromMilliseconds(100));
-        BeginAnimation(HeightProperty,  new DoubleAnimation(targetHeight,  dur));
-        BeginAnimation(OpacityProperty, new DoubleAnimation(targetOpacity, dur));
+        // C1 (a11y): honor Reduce Motion — snap to the target instead of the 100 ms
+        // grow/brighten. This is decorative chrome, not the clinical mask.
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            BeginAnimation(HeightProperty, null);
+            BeginAnimation(OpacityProperty, null);
+            Height = targetHeight;
+            Opacity = targetOpacity;
+        }
+        else
+        {
+            var dur = new Duration(TimeSpan.FromMilliseconds(100));
+            BeginAnimation(HeightProperty,  new DoubleAnimation(targetHeight,  dur));
+            BeginAnimation(OpacityProperty, new DoubleAnimation(targetOpacity, dur));
+        }
 
         // Path Z UX iter 3: swap to the higher-alpha hover brush so the
         // tier colour reads clearly on cursor approach. Skip while in
