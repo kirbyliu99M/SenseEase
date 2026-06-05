@@ -28,4 +28,10 @@
   case), without counting as discomfort or eroding habituation. Decide the exact
   delta and whether to keep the sensing-mode switch / overlay-ensure as a secondary
   effect during the audit.
-- **Status:** OPEN — deferred to end-of-alpha advising audit per product owner.
+- **Status:** RESOLVED 2026-06-06. `MainViewModel.EaseView()` routes the button
+  through the D5 deliberate-preference path (`ApplyUserFeedback(-12,
+  isDeliberatePreference: true)`) + refresh, so each press visibly tightens the FOV
+  a notch without counting as discomfort / eroding the offset; the EngageClicked
+  handler calls it after ensuring WGC + overlay. `EaseViewTests` locks the visible
+  tightening. The exact delta (−12) + whether to keep the sensing-mode/overlay
+  side-effects remain open for the end-of-alpha advising audit.

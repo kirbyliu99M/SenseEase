@@ -924,13 +924,14 @@ public partial class MainWindow : Window
             };
             _cardWindow.EngageClicked += (_, _) =>
             {
-                // Path Z UX iter 2: 啟動保護 = enforce protective intervention.
-                // (1) ensure sensing is on the real-measurement provider (WGC),
-                // (2) surface the comfort overlay so the user gets immediate
-                // visual mitigation. Card already closes itself on click via
-                // its own Hide().
+                // AF-1: "緩和畫面" must actually, visibly ease the view. Ensure the
+                // overlay is showing real WGC-driven protection, THEN apply a
+                // deliberate comfort preference that tightens the FOV a notch (D5 —
+                // does NOT count as discomfort or erode the earned habituation
+                // offset). Card already closes itself on click via its own Hide().
                 _viewModel.SetSensingModeToWgc();
                 _viewModel.OverlayVisible = true;
+                _viewModel.EaseView();
             };
             _cardWindow.MuteClicked += (_, _) =>
             {

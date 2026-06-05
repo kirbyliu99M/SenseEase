@@ -78,6 +78,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SetSensingMode(SensingMode.Wgc, "啟動保護");
     }
 
+    /// <summary>Per-press FOV tightening for the card's "緩和畫面" control (AF-1).
+    /// Negative = shrink the clear zone (more dimming). Accumulates toward the
+    /// engine's −60 clamp, so repeated presses ease further.</summary>
+    private const int EaseViewFovStep = -12;
+
+    /// <summary>AF-1: the card's "緩和畫面" action — a deliberate user PREFERENCE to
+    /// ease the view a notch. Routes through the D5 deliberate-preference path so
+    /// it tightens the FOV (visible immediately) WITHOUT counting as a discomfort
+    /// recurrence or eroding the earned habituation offset (Q4.5). Refreshes state
+    /// so the overlay re-renders the tighter field at once.</summary>
+    public void EaseView()
+    {
+        _engine.ApplyUserFeedback(EaseViewFovStep, isDeliberatePreference: true);
+        UpdateFromState(_engine.Current);
+    }
+
     /// <summary>Pop-up sprint Task 5: true iff the user's most recent
     /// calibration recorded a vestibular diagnosis (Q5 risk factor).
     /// Drives the SettingsWindow safety warning when the user tries to
