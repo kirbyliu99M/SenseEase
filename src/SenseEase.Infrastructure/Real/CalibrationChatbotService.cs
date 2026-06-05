@@ -161,6 +161,10 @@ public sealed class CalibrationChatbotService : IDisposable
                 ? "[系統提示] 用戶已對話 8 輪，請收斂並產出最終 [CALIBRATION_DELTA]，is_complete 設為 true。"
                 : "[SYSTEM REMINDER] User has talked for 8 turns — converge now and emit a final [CALIBRATION_DELTA] with is_complete=true.";
             _history.Add(new ChatMessage { Role = ChatRole.User, Content = convergence });
+            // NE8: persist the injected reminder too, so calibration_history.jsonl
+            // stays a faithful replay of exactly what the model saw (this pseudo-user
+            // turn influences the model's final turn, so it must appear in the log).
+            AppendTranscriptLine(ChatRole.User, convergence);
         }
 
         await _lock.WaitAsync().ConfigureAwait(false);

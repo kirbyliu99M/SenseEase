@@ -725,12 +725,39 @@ public sealed class MistralChatbotService : IChatbotService
         };
     }
 
-    private static string ExtractJson(string raw)
+    internal static string ExtractJson(string raw) // internal for EM6 unit coverage (InternalsVisibleTo SenseEase.Tests)
     {
         int start = raw.IndexOf('{');
-        int end = raw.LastIndexOf('}');
-        if (start < 0 || end <= start) return string.Empty;
-        return raw[start..(end + 1)];
+        if (start < 0) return string.Empty;
+        // EM6: scan brace depth from the first '{' and stop at its MATCHING close,
+        // so a trailing [PROFILE_OVERRIDE]{…} block (or any content after the
+        // envelope object) is not swallowed. The old LastIndexOf('}') spanned BOTH
+        // objects plus the marker text between them, so Deserialize<ModelDecision>
+        // threw on the trailing content and every proposal turn silently fell back
+        // to a generic lexicon reply. String-aware so a brace inside a JSON string
+        // value (e.g. a rationale containing '}') doesn't break the depth count.
+        int depth = 0;
+        bool inString = false, escaped = false;
+        for (int i = start; i < raw.Length; i++)
+        {
+            char c = raw[i];
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            switch (c)
+            {
+                case '"': inString = true; break;
+                case '{': depth++; break;
+                case '}':
+                    if (--depth == 0) return raw[start..(i + 1)];
+                    break;
+            }
+        }
+        return string.Empty; // unbalanced — no complete object
     }
 
     private static string ExtractUserText(string input)

@@ -149,7 +149,11 @@ internal static class FeedbackLexicon
         if (ContainsAny(t, ResetKeywords)) return (0, 0, 0, true);
 
         double md = 0, gv = 0, fw = 0;
-        if (ContainsAny(t, DarkerKeywords))  md -= 0.15;
+        // NE4: "darker / too bright" must DEEPEN the mask (positive md); "lighter
+        // / too dark" must LIGHTEN it (negative md). Both were -= 0.15, so "darker"
+        // actually lightened the screen and the two opposite intents were
+        // indistinguishable. Positive deepens, per the shader-delta convention.
+        if (ContainsAny(t, DarkerKeywords))  md += 0.15;
         if (ContainsAny(t, LighterKeywords)) md -= 0.15;
         if (ContainsAny(t, GridLessKeywords)) gv -= 0.15;
         if (ContainsAny(t, GridMoreKeywords)) gv += 0.15;
