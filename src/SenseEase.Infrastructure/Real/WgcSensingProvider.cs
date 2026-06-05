@@ -107,6 +107,19 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private readonly object _lifecycleLock = new();
     private volatile bool _faulted;
     private const int WgcFaultRecoveryDelayMs = 500;
+
+    // D3 liveness contract: continuous sensing-liveness state. _unhealthy is the
+    // edge-trigger latch so SensingHealthChanged fires only on TRANSITIONS, not
+    // every frame. The liveness watchdog (OnLivenessWatchdog) rearms forever —
+    // unlike the one-shot Resume watchdog — so a SILENT stall during normal
+    // running (monitor sleep, lock-screen, RDP, a GPU TDR that doesn't throw) is
+    // caught: self-heal silently at the stall threshold, surface Faulted only if
+    // the self-heal hasn't restored frames by the (larger) faulted threshold.
+    private readonly Timer _livenessTimer;
+    private volatile bool _unhealthy;
+    private const int SensingStalledThresholdMs = 3000; // silent self-heal trigger
+    private const int SensingFaultedThresholdMs = 6000; // surface Faulted if still stale
+    private const int LivenessWatchdogIntervalMs = 1000;
     private byte[]? _prevFrame;
     private double  _smoothedOfi;
     private readonly double[] _ofiHistory = new double[SenseDefaults.VimsMedianTaps];
@@ -182,6 +195,15 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
 
     public event EventHandler<OpticalFlowSample>? OpticalFlowSampled;
 
+    /// <summary>D3 liveness contract: raised (edge-triggered) when sensing health
+    /// flips. <c>false</c> = the pipeline died unexpectedly (OnTick threw, or the
+    /// liveness watchdog saw no real frame past the faulted threshold);
+    /// <c>true</c> = a fresh real frame restored sensing after a fault. Marshalled
+    /// onto the captured SynchronizationContext (UI thread) like OpticalFlowSampled,
+    /// so subscribers can touch UI state directly. Never fires on an intentional
+    /// Stop()/Pause() — only on UNEXPECTED loss.</summary>
+    public event Action<bool>? SensingHealthChanged;
+
     // overlay-bar-redesign D3: Pause/Resume support. _paused is volatile so
     // the OnTick thread observes UI-thread writes without a lock. _resumedAt
     // and _watchdogScheduled drive a one-shot watchdog that re-inits the
@@ -219,6 +241,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     {
         _ctx          = SynchronizationContext.Current;
         _timer        = new Timer(OnTick, null, Timeout.Infinite, Timeout.Infinite);
+        _livenessTimer = new Timer(OnLivenessWatchdog, null, Timeout.Infinite, Timeout.Infinite); // D3
         _pendingSample = new OpticalFlowSample();
         // Fix #7: cache the callback once so OnTick never allocates a closure.
         _raiseSampleCallback = _ => OpticalFlowSampled?.Invoke(this, _pendingSample);
@@ -327,6 +350,66 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             }
             finally { _faulted = false; }
         });
+    }
+
+    /// <summary>D3 liveness watchdog: rearming staleness check. Distinct from the
+    /// one-shot Resume watchdog. Heal-first / surface-second so transient hiccups
+    /// (monitor wake, brief TDR) never reach the user: at the stall threshold it
+    /// triggers the same silent Stop()+Start() self-heal the fault path uses; only
+    /// if frames are STILL absent at the (larger) faulted threshold does it surface
+    /// a fault. Suppressed while paused, warming up, or before the first frame.
+    /// Never throws.</summary>
+    private void OnLivenessWatchdog(object? _)
+    {
+        try
+        {
+            if (!_running || _paused) return;                 // not actively sensing
+            if (DateTime.UtcNow < _warmupUntilUtc) return;    // pipeline still settling
+            if (_lastFrameProcessedAt == default) return;     // no frame yet (Start in progress)
+
+            double ageMs = (DateTime.UtcNow - _lastFrameProcessedAt).TotalMilliseconds;
+            if (ageMs > SensingFaultedThresholdMs)
+            {
+                WgcLog($"Liveness watchdog: no real frame for {ageMs:F0} ms (> {SensingFaultedThresholdMs}) → surfacing Faulted.");
+                MarkUnhealthy();
+                ScheduleFaultRecovery();  // keep attempting recovery (coalesced by _faulted)
+            }
+            else if (ageMs > SensingStalledThresholdMs)
+            {
+                WgcLog($"Liveness watchdog: no real frame for {ageMs:F0} ms (> {SensingStalledThresholdMs}) → silent self-heal.");
+                ScheduleFaultRecovery();  // heal first, do NOT surface yet
+            }
+        }
+        catch { /* a watchdog must never throw */ }
+    }
+
+    /// <summary>D3: edge-triggered transition to unhealthy. Posts SensingHealthChanged(false)
+    /// once on the captured context; further calls while already unhealthy are no-ops.</summary>
+    private void MarkUnhealthy()
+    {
+        if (_unhealthy) return;
+        _unhealthy = true;
+        PostHealth(false);
+    }
+
+    /// <summary>D3: edge-triggered transition back to healthy. Posts SensingHealthChanged(true)
+    /// once on recovery; no-op if not currently unhealthy.</summary>
+    private void MarkHealthy()
+    {
+        if (!_unhealthy) return;
+        _unhealthy = false;
+        PostHealth(true);
+    }
+
+    /// <summary>Marshal the health event onto the captured SynchronizationContext
+    /// (UI thread in production) like OpticalFlowSampled, so subscribers touch UI
+    /// state safely. Faults are rare → the per-event closure alloc is negligible.</summary>
+    private void PostHealth(bool healthy)
+    {
+        var handler = SensingHealthChanged;
+        if (handler is null) return;
+        if (_ctx != null) _ctx.Post(_ => handler(healthy), null);
+        else handler(healthy);
     }
 
     public void Start()
@@ -486,6 +569,8 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         _warmupUntilUtc = DateTime.UtcNow.AddSeconds(WarmupDurationSec);
         WgcLog($"Start complete — timer running. Warmup until {_warmupUntilUtc:HH:mm:ss.fff}");
         _timer.Change(SenseDefaults.WgcCaptureIntervalMs, SenseDefaults.WgcCaptureIntervalMs);
+        // D3: arm the continuous liveness watchdog alongside the capture timer.
+        _livenessTimer.Change(LivenessWatchdogIntervalMs, LivenessWatchdogIntervalMs);
     }
 
     public void Stop()
@@ -499,6 +584,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         {
             _running = false;
             try { _timer.Change(Timeout.Infinite, Timeout.Infinite); } catch { /* may be disposed */ }
+            try { _livenessTimer.Change(Timeout.Infinite, Timeout.Infinite); } catch { /* may be disposed */ } // D3
 
             // Release cached raw pointers first.
             SafeRelease(ref _ctxPtr);
@@ -530,6 +616,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     {
         Stop();
         try { _timer.Dispose(); } catch { }
+        try { _livenessTimer.Dispose(); } catch { } // D3 (NE11-style: dispose the watchdog timer too)
     }
 
     private void OnTick(object? state)
@@ -579,7 +666,11 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             // produced. Stamping on every tick (including the null-frame
             // fallback that returns _prevFrame or EmptyFrameSentinel) means
             // a stuck capture session never trips the watchdog.
-            if (realFrame) _lastFrameProcessedAt = DateTime.UtcNow;
+            if (realFrame)
+            {
+                _lastFrameProcessedAt = DateTime.UtcNow;
+                MarkHealthy(); // D3: a fresh real frame clears any prior fault (edge-triggered)
+            }
 
             double rawOfi = 0;
             if (_prevFrame != null && current.Length == _prevFrame.Length)
@@ -640,6 +731,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             // reconnect) must NOT permanently disable sensing. Recover via a
             // race-free Stop()+Start() re-init instead of a terminal Stop().
             WgcLog($"OnTick FATAL ({ex.GetType().Name}): {ex.Message}\n{ex.StackTrace}");
+            MarkUnhealthy();          // D3: a thrown OnTick is never transient-silent — surface immediately (the highest-value line)
             ScheduleFaultRecovery();
         }
         } // close EM3 lock (_lifecycleLock)

@@ -47,6 +47,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (paused) _wgcSensing.Pause();
         else        _wgcSensing.Resume();
+        // D3: power-save is the highest-priority liveness signal (an intentional
+        // pause must never read as a fault). Recompute on every toggle.
+        RecomputeLiveness();
     }
 
     /// <summary>M2 (Phase 6c): host-injected lookup for Power Save state.
@@ -629,6 +632,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         });
 
         _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
+        // D3 liveness contract: subscribe once to the concrete WGC provider's
+        // health event. _wgcSensing is a stable instance independent of the routed
+        // _sensing mode and only fires while WGC is actually running; the event is
+        // already marshalled to this (UI) thread by the provider.
+        _wgcSensing.SensingHealthChanged += OnSensingHealthChanged;
         _sensing.Start();
 
         // Auto Driver/Passenger mode wiring. The detector polls OS-level input idleness
@@ -767,6 +775,76 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // switch). Bind to this property instead.
     private int _vimsTier;
     public int VimsTier { get => _vimsTier; private set => Set(ref _vimsTier, value); }
+
+    // ── D3 liveness / trust contract ─────────────────────────────────────────
+    // One liveness scalar, derived in ONE place from existing signals and fanned
+    // out to bar/tray/card exactly as VimsTier is. Default Steady-watching keeps
+    // the bare new Application() smoke path on a healthy, no-new-visual state.
+    private LivenessState _livenessState = LivenessState.SteadyWatching;
+    public LivenessState LivenessState
+    {
+        get => _livenessState;
+        private set
+        {
+            if (_livenessState == value) return;
+            _livenessState = value;
+            OnPropertyChanged(nameof(LivenessState));
+            LivenessChanged?.Invoke(this, value);
+        }
+    }
+
+    /// <summary>D3: fires whenever the liveness scalar transitions. MainWindow
+    /// fans this out to the bar (Enter/ExitFaultedMode), tray (SetFaultIndicator),
+    /// and card self-check — the single fan-out point, mirroring StateChanged.</summary>
+    public event EventHandler<LivenessState>? LivenessChanged;
+
+    // Cached sensing-health flag, updated by the WGC provider's SensingHealthChanged.
+    private bool _sensingHealthy = true;
+
+    /// <summary>D3: the single liveness derivation. Priority: a user-chosen pause
+    /// is intentional and outranks everything (so a paused-then-stale pipeline
+    /// reads "paused," never "faulted"); an unexpected sensing death is next;
+    /// otherwise the healthy split is Protecting (mask dimming) vs Steady-watching
+    /// (calm baseline). Pure + static so it unit-tests in isolation.</summary>
+    internal static LivenessState DeriveLiveness(bool sensingHealthy, bool pausedByUser, bool maskActive)
+    {
+        if (pausedByUser)    return LivenessState.PausedByUser;
+        if (!sensingHealthy) return LivenessState.Faulted;
+        return maskActive ? LivenessState.Protecting : LivenessState.SteadyWatching;
+    }
+
+    /// <summary>D3: recompute + publish the liveness scalar from the current
+    /// signals. Called from the three places a signal can change: every engine
+    /// tick (UpdateFromState → MaskActive), the Power-Save toggle (SetWgcPaused),
+    /// and the provider health event (OnSensingHealthChanged).</summary>
+    private void RecomputeLiveness()
+    {
+        bool paused = _powerSaveActiveLookup?.Invoke() ?? false;
+        LivenessState = DeriveLiveness(_sensingHealthy, paused, MaskActive);
+    }
+
+    /// <summary>D3: WGC provider health transition (edge-triggered, already
+    /// marshalled to this thread by the provider). Logs the transition, then
+    /// updates the cached flag and recomputes.</summary>
+    private void OnSensingHealthChanged(bool healthy)
+    {
+        AppendLog(healthy ? "System" : "Error",
+            healthy ? "感測已恢復 / Sensing recovered."
+                    : "感測中斷 / Sensing fault — attempting recovery.",
+            CurrentState);
+        SetSensingHealthy(healthy);
+    }
+
+    private void SetSensingHealthy(bool healthy)
+    {
+        _sensingHealthy = healthy;
+        RecomputeLiveness();
+    }
+
+    /// <summary>D3 test seam: drive the health transition without a live WGC
+    /// pipeline (skips the event-log marshal). Internal +
+    /// InternalsVisibleTo("SenseEase.Tests").</summary>
+    internal void TestHook_RaiseSensingHealth(bool healthy) => SetSensingHealthy(healthy);
 
     // LuxSourceLabel removed at v0.11 — Display Comfort decommissioned.
 
@@ -1384,6 +1462,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HabituationLevel  = state.HabituationLevel;
         HabituationPaused = state.HabituationPaused;
         VimsTier          = state.VimsTier;
+
+        // D3: MaskActive just updated above — refresh the liveness scalar so
+        // Protecting/Steady-watching track the mask in lock-step with the tier.
+        RecomputeLiveness();
 
         // ── Eye-Protection session metrics ───────────────────────────────────────
         if (state.RawOpticalFlowIndex > SessionPeakOfi) SessionPeakOfi = state.RawOpticalFlowIndex;
