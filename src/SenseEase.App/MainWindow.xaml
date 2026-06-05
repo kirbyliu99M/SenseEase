@@ -275,8 +275,11 @@
                             </Border>
                         </StackPanel>
 
-                        <!-- ComfortMeter: fill ← VIMS tier (1-10), colour by band. -->
-                        <ProgressBar Value="{Binding VimsTier, Mode=OneWay}" Maximum="10"
+                        <!-- ComfortMeter: fill ← DisplayStressPercent (0-100, P1
+                             personalized = pressure as a % of THIS user's trigger).
+                             EMPTY at rest (no "always-on protection" illusion); fills
+                             only as real strain rises. Colour keys off the tier band. -->
+                        <ProgressBar Value="{Binding DisplayStressPercent, Mode=OneWay}" Maximum="100"
                                      Height="6" Margin="0,16,0,0" BorderThickness="0"
                                      Background="{StaticResource SurfaceMuted}"
                                      AutomationProperties.Name="Comfort level">
