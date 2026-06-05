@@ -356,7 +356,10 @@ public partial class PersistentBarWindow : Window
         // tier colour reads clearly on cursor approach. Skip while in
         // sleep mode — the faint paused fill should stay paused-looking
         // regardless of cursor position.
-        if (_preSleepBackground is null)
+        // Review fix: ALSO skip while faulted — the hover repaint must not clobber
+        // the clay FaultedBarBrush, or a dead pipeline would look healthy again on
+        // cursor approach (the same precedence SetTier already enforces).
+        if (_preSleepBackground is null && _preFaultBackground is null)
             BarFill.Background = PickBrushForCurrentState(_currentTier);
     }
 }

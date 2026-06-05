@@ -329,7 +329,17 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // strips the app's own context-block tokens so typed input can't forge a
         // fake [habituation_state] / [RecentAdjustments] block (prompt injection).
         text = SanitizeUserTurn(text);
-        if (string.IsNullOrEmpty(text)) { InputText = string.Empty; return; }
+        if (string.IsNullOrEmpty(text))
+        {
+            // Review (low): don't let an all-tokens / all-structure message vanish
+            // silently — every other early-return path surfaces a bubble, so this
+            // one should too rather than clearing the box into the void.
+            InputText = string.Empty;
+            _dispatcher.Invoke(() => Messages.Add(new ChatMessageViewModel(
+                "我無法處理這則訊息，請重新輸入。/ I couldn't process that message — please try rephrasing.",
+                ChatRole.Assistant)));
+            return;
+        }
 
         // M3 7e+: short-circuit on profile-picker request. User typed
         // something like "我想換 profile" / "show me profiles" without
@@ -819,7 +829,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     internal static string SanitizeUserTurn(string s)
     {
         if (string.IsNullOrEmpty(s)) return string.Empty;
-        string t = s.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+        // Review (H6 hardening): NFKC-fold first so fullwidth / confusable variants
+        // of the block tokens (e.g. ［habituation_state］ U+FF3B/U+FF3D) collapse to
+        // their ASCII forms and are caught by the strip list below. Mirrors the
+        // SafetyFloor's own NFKC normalization.
+        string t = s.Normalize(System.Text.NormalizationForm.FormKC)
+                     .Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
         foreach (var tok in PromptInjectionTokens)
             t = t.Replace(tok, " ", StringComparison.OrdinalIgnoreCase);
         t = System.Text.RegularExpressions.Regex.Replace(t, @"\s+", " ").Trim();

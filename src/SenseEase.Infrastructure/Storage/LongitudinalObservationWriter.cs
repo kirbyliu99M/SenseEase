@@ -98,6 +98,7 @@ public sealed class LongitudinalObservationWriter
     internal static string? SanitizeObservation(string s)
     {
         if (string.IsNullOrEmpty(s)) return null;
+        s = s.Normalize(System.Text.NormalizationForm.FormKC); // fold fullwidth brackets/pipes to ASCII first (review)
         var chars = s.ToCharArray();
         int suspicious = 0;
         for (int i = 0; i < chars.Length; i++)

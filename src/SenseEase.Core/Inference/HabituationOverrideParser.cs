@@ -197,6 +197,7 @@ public static class HabituationOverrideParser
     internal static string SanitizeRationale(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        raw = raw.Normalize(System.Text.NormalizationForm.FormKC); // fold fullwidth tag brackets to ASCII (review)
 
         var kept = new List<string>();
         foreach (var line in raw.Replace("\r\n", "\n").Split('\n'))
