@@ -94,6 +94,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     // because a stale Stop wins the race against the new Start.
     // SemaphoreSlim(1,1) gives a simple non-reentrant mutex.
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    // H38: bound the lifecycle-gate waits so a wedged Start/Stop/Restart can't hang
+    // the caller (and shutdown) forever; shorter bound on the Dispose path.
+    private const int GateWaitTimeoutMs        = 10_000;
+    private const int GateWaitTimeoutDisposeMs = 2_000;
 
     // Small ring of stderr tail for diagnostics when the sidecar exits.
     private readonly object _stderrLock = new();
@@ -173,7 +177,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     public void Start()
     {
         if (Volatile.Read(ref _disposed) == 1) return;
-        _lifecycleGate.Wait();
+        if (!_lifecycleGate.Wait(GateWaitTimeoutMs)) { _log?.Invoke("[SidecarHeadPoseReader] lifecycle-gate wait timed out — aborting Start."); return; } // H38
         try
         {
             if (Volatile.Read(ref _disposed) == 1) return;
@@ -306,7 +310,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     public void Stop()
     {
         if (Volatile.Read(ref _disposed) == 1) return;
-        _lifecycleGate.Wait();
+        if (!_lifecycleGate.Wait(GateWaitTimeoutMs)) { _log?.Invoke("[SidecarHeadPoseReader] lifecycle-gate wait timed out — aborting Stop."); return; } // H38
         try
         {
             if (Volatile.Read(ref _disposed) == 1) return;
@@ -383,17 +387,26 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         // inside the gate). Finally dispose the gate AFTER releasing it.
         try
         {
-            _lifecycleGate.Wait();
-            try
+            // H38: bound the gate wait (2 s on the Dispose path) so a wedged
+            // Start/Stop can't hang shutdown forever; on timeout, force on to
+            // disposing the gate below without DoStop.
+            if (_lifecycleGate.Wait(GateWaitTimeoutDisposeMs))
             {
-                DoStop();
-                try { _process?.Dispose(); } catch { }
-                try { _cts?.Dispose(); }     catch { }
-                _process    = null;
-                _readerTask = null;
-                _cts        = null;
+                try
+                {
+                    DoStop();
+                    try { _process?.Dispose(); } catch { }
+                    try { _cts?.Dispose(); }     catch { }
+                    _process    = null;
+                    _readerTask = null;
+                    _cts        = null;
+                }
+                finally { _lifecycleGate.Release(); }
             }
-            finally { _lifecycleGate.Release(); }
+            else
+            {
+                _log?.Invoke("[SidecarHeadPoseReader] lifecycle-gate wait timed out (2s) — forcing Dispose without DoStop.");
+            }
         }
         catch { /* never throw from Dispose */ }
 
@@ -437,7 +450,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     public void Restart()
     {
         if (Volatile.Read(ref _disposed) == 1) return;
-        _lifecycleGate.Wait();
+        if (!_lifecycleGate.Wait(GateWaitTimeoutMs)) { _log?.Invoke("[SidecarHeadPoseReader] lifecycle-gate wait timed out — aborting Restart."); return; } // H38
         try
         {
             if (Volatile.Read(ref _disposed) == 1) return;

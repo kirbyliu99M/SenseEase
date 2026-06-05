@@ -167,7 +167,11 @@ public sealed class UserActivityModeDetector : IDisposable
         // force "Driver" regardless of the static DetectMode policy. We keep
         // DetectMode pure so it remains unit-testable in isolation.
         bool isTypingNow = false;
-        try { isTypingNow = WindowsActivityFilter.Instance.SuppressionReason == "typing"; }
+        // NE12: use the dedicated IsTypingActive flag, not SuppressionReason. The
+        // latter returns only the single DOMINANT reason, so a concurrent
+        // higher-priority chrome event (window-switch / toast / drag) would mask
+        // active typing and the "typing forces Driver" override would silently miss.
+        try { isTypingNow = WindowsActivityFilter.Instance.IsTypingActive; }
         catch { /* filter unavailable — fall back to GetLastInputInfo-only behaviour */ }
 
         string previous;

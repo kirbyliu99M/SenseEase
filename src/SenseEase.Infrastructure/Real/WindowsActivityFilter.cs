@@ -345,6 +345,14 @@ public sealed class WindowsActivityFilter
         }
     }
 
+    /// <summary>NE12: typing-active flag INDEPENDENT of the <see cref="SuppressionReason"/>
+    /// ranking. SuppressionReason returns only the single dominant reason, so a
+    /// higher-priority chrome event (window-switch / toast / drag) masks concurrent
+    /// typing — which made <c>UserActivityModeDetector</c> miss "the user is typing
+    /// right now". This exposes the raw typing window directly. Lock-free.</summary>
+    public bool IsTypingActive
+        => WithinWindow(DateTime.UtcNow.Ticks, Interlocked.Read(ref _lastKeyDownTicks), TypingSuppressionMs);
+
     private static bool WithinWindow(long nowTicks, long lastTicks, int windowMs)
     {
         if (lastTicks == 0) return false; // never fired — clearly not within window
