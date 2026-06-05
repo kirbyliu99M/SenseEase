@@ -1,5 +1,6 @@
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
+using SenseEase.Core.Safety;
 using SenseEase.Infrastructure.Nlp;
 
 namespace SenseEase.Infrastructure.Real;
@@ -32,6 +33,14 @@ public sealed class ChatbotNluService : INluService, IDisposable
         }
         catch
         {
+            // Alpha-1 W1 (NE7): if the LLM path threw, the deterministic fallback
+            // must still honour the safety floor before keyword classification
+            // (the try-path SendAsync already runs it; this covers the catch).
+            if (SafetyFloor.Trips(text, out string crisis))
+            {
+                return new NluResult { Intent = "Unknown", FovDelta = 0, Response = crisis };
+            }
+
             var (intent, fovDelta) = FeedbackLexicon.Classify(text);
             return new NluResult
             {

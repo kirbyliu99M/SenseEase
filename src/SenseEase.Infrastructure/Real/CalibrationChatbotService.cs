@@ -5,6 +5,7 @@ using System.Text.Json;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
+using SenseEase.Core.Safety;
 
 namespace SenseEase.Infrastructure.Real;
 
@@ -127,10 +128,11 @@ public sealed class CalibrationChatbotService : IDisposable
         userText = (userText ?? string.Empty).Trim();
         if (userText.Length == 0) return;
 
-        // ── Stage 4e (added later commit): self-harm safety floor — short-circuit
-        // BEFORE any LLM call. Stub here so the skeleton compiles; the real check
-        // arrives in the safety-floor commit.
-        if (TripsSafetyFloor(userText, out string safetyResponse))
+        // Clinical self-harm safety floor (Alpha-1 W1 / H1, H8) — short-circuit
+        // BEFORE any LLM call OR transcript persist. Calls the shared
+        // SenseEase.Core.Safety.SafetyFloor (single source of truth; C3 — the
+        // vocabulary cannot drift from MistralChatbotService anymore).
+        if (SafetyFloor.Trips(userText, out string safetyResponse))
         {
             SafetyFloorTriggered?.Invoke(safetyResponse);
             EndSession();
@@ -288,64 +290,11 @@ public sealed class CalibrationChatbotService : IDisposable
     // real distress signal is.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Strict self-harm / severe-distress phrases. Whole-substring
-    /// match against the user text (case-insensitive for English; Han chars are
-    /// identity for ToLowerInvariant). Each entry is a whole phrase, NOT a
-    /// keyword — "不想活" matches, but "暈到不想活動" does NOT because we check
-    /// for a word boundary on either side OR an explicit phrase like "不想活了".</summary>
-    internal static readonly string[] SafetyFloorPhrasesZh =
-    {
-        "自殘", "自殺", "結束生命", "跳下去", "跳樓",
-        "不想活了", "不想活下去", "不想再活",
-        "想死了", "想去死", "我想死",
-    };
-
-    internal static readonly string[] SafetyFloorPhrasesEn =
-    {
-        "suicide", "self-harm", "self harm", "selfharm",
-        "kill myself", "end it all", "end my life",
-        "not want to live", "do not want to live", "don't want to live",
-        "want to die", "wanna die",
-    };
-
-    /// <summary>Detects self-harm phrases. Returns true and the localized
-    /// crisis-line response when triggered. Uses CJK detection on the user
-    /// text to pick the zh vs en response — independent of the LLM's
-    /// system-prompt language, because the user's CURRENT message language
-    /// is what matters for the crisis-line content.</summary>
-    internal static bool TripsSafetyFloor(string userText, out string response)
-    {
-        response = string.Empty;
-        if (string.IsNullOrWhiteSpace(userText)) return false;
-
-        bool zh = IsHan(userText);
-        string lower = userText.ToLowerInvariant();
-
-        if (zh)
-        {
-            foreach (string p in SafetyFloorPhrasesZh)
-            {
-                if (userText.Contains(p, StringComparison.Ordinal))
-                {
-                    response = "聽起來你現在很辛苦。SenseEase 不是醫療裝置，無法處理這種狀況。請立即聯繫專業協助：台灣 - 衛福部安心專線 1925；國際 - findahelpline.com。";
-                    return true;
-                }
-            }
-        }
-
-        foreach (string p in SafetyFloorPhrasesEn)
-        {
-            if (lower.Contains(p, StringComparison.Ordinal))
-            {
-                response = zh
-                    ? "聽起來你現在很辛苦。SenseEase 不是醫療裝置，無法處理這種狀況。請立即聯繫專業協助：台灣 - 衛福部安心專線 1925；國際 - findahelpline.com。"
-                    : "It sounds like you're going through something really hard right now. SenseEase isn't a medical device and can't help with this. Please reach out to a crisis line immediately: US - 988; International - findahelpline.com.";
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // Safety-floor vocabulary + Trips() extracted to
+    // SenseEase.Core.Safety.SafetyFloor (Alpha-1 W1 / H1, H3, H8, C3) — single
+    // source of truth shared with MistralChatbotService and ChatbotViewModel.
+    // Called as SafetyFloor.Trips(...) at the top of SendUserMessageAsync above.
+    // IsHan() below is retained — still used for system-prompt language pick.
 
     // ─────────────────────────────────────────────────────────────────────────
     // Q3 confidence fallback (Stage 4f). Caller treats the parameterless event

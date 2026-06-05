@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading.Tasks;
+using SenseEase.Core.Safety;
 using SenseEase.Infrastructure.Real;
 using Xunit;
 
@@ -35,7 +36,7 @@ public class MistralChatbotServiceSafetyFloorTests
     [InlineData("我要跳樓")]
     public void TripsSafetyFloor_ZhPhrase_ReturnsTrueAndCrisisResponse(string text)
     {
-        bool tripped = MistralChatbotService.TripsSafetyFloor(text, out string response);
+        bool tripped = SafetyFloor.Trips(text, out string response);
         Assert.True(tripped);
         Assert.Contains("1925", response);              // TW crisis line
         Assert.Contains("findahelpline", response);     // international
@@ -50,7 +51,7 @@ public class MistralChatbotServiceSafetyFloorTests
     [InlineData("self-harm has been on my mind")]
     public void TripsSafetyFloor_EnPhrase_ReturnsTrueAndCrisisResponse(string text)
     {
-        bool tripped = MistralChatbotService.TripsSafetyFloor(text, out string response);
+        bool tripped = SafetyFloor.Trips(text, out string response);
         Assert.True(tripped);
         Assert.Contains("988", response);               // US crisis line
         Assert.Contains("findahelpline", response);
@@ -67,7 +68,7 @@ public class MistralChatbotServiceSafetyFloorTests
     [InlineData(null!)]
     public void TripsSafetyFloor_NonSafetyText_ReturnsFalse(string? text)
     {
-        bool tripped = MistralChatbotService.TripsSafetyFloor(text ?? string.Empty, out string response);
+        bool tripped = SafetyFloor.Trips(text ?? string.Empty, out string response);
         Assert.False(tripped);
         Assert.Empty(response);
     }
@@ -78,7 +79,7 @@ public class MistralChatbotServiceSafetyFloorTests
         // Mixed-language input: an English self-harm phrase with surrounding
         // Han chars triggers the en branch (lower.Contains matches), but
         // the response is the zh crisis text because IsHan(userText) is true.
-        bool tripped = MistralChatbotService.TripsSafetyFloor(
+        bool tripped = SafetyFloor.Trips(
             "今天真的 want to die 了", out string response);
         Assert.True(tripped);
         Assert.Contains("1925", response);       // zh response (TW)

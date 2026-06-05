@@ -6,6 +6,7 @@ using System.Text.Json;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Models;
+using SenseEase.Core.Safety;
 using SenseEase.Infrastructure.Nlp;
 
 namespace SenseEase.Infrastructure.Real;
@@ -347,17 +348,14 @@ public sealed class MistralChatbotService : IChatbotService
         string historyPrefix = ExtractOrBuildHistoryPrefix(input);
         _history.Add(new ChatMessage { Role = ChatRole.User, Content = pureUserText });
 
-        // M0 (v0.8.1 follow-up): self-harm safety floor. Short-circuits the
-        // LLM call entirely when the user's message matches a strict self-
-        // harm / severe-distress phrase. The LLM is NEVER given this text;
-        // a hardcoded crisis-line response is returned and recorded in
-        // history so the user sees the resource directory rather than a
-        // generic chatbot reply. Pattern copied from
-        // CalibrationChatbotService.TripsSafetyFloor — kept duplicated
-        // rather than extracted to a shared utility so each service is
-        // independently auditable and there's no risk of one service
-        // losing the guard via shared-helper refactor.
-        if (TripsSafetyFloor(pureUserText, out string crisisResponse))
+        // Clinical self-harm safety floor (Alpha-1 W1 / H1, H8). Short-circuits
+        // the LLM call entirely when the user's message matches a strict self-
+        // harm / severe-distress phrase. The LLM is NEVER given this text; a
+        // fixed crisis-line response is returned and recorded in history. This is
+        // defense-in-depth: ChatbotViewModel.SendAsync also runs the floor as its
+        // line-1 intercept. Both call the single SenseEase.Core.Safety.SafetyFloor
+        // so the vocabulary cannot drift between call sites (C3 / H3).
+        if (SafetyFloor.Trips(pureUserText, out string crisisResponse))
         {
             _history.Add(new ChatMessage { Role = ChatRole.Assistant, Content = crisisResponse });
             while (_history.Count > 20) _history.RemoveAt(0);
@@ -855,69 +853,10 @@ public sealed class MistralChatbotService : IChatbotService
     // safety-first spec). Whole-phrase substring match, not keyword.
     // ─────────────────────────────────────────────────────────────────────────
 
-    internal static readonly string[] SafetyFloorPhrasesZh =
-    {
-        "自殘", "自殺", "結束生命", "跳下去", "跳樓",
-        "不想活了", "不想活下去", "不想再活",
-        "想死了", "想去死", "我想死",
-    };
-
-    internal static readonly string[] SafetyFloorPhrasesEn =
-    {
-        "suicide", "self-harm", "self harm", "selfharm",
-        "kill myself", "end it all", "end my life",
-        "not want to live", "do not want to live", "don't want to live",
-        "want to die", "wanna die",
-    };
-
-    /// <summary>Detects self-harm phrases. Returns true and the localized
-    /// crisis-line response when triggered. Uses CJK detection on the user
-    /// text to pick the zh vs en response — independent of any LLM state,
-    /// because the user's CURRENT message language is what matters for the
-    /// crisis-line content.</summary>
-    internal static bool TripsSafetyFloor(string userText, out string response)
-    {
-        response = string.Empty;
-        if (string.IsNullOrWhiteSpace(userText)) return false;
-
-        bool zh = IsHan(userText);
-        string lower = userText.ToLowerInvariant();
-
-        if (zh)
-        {
-            foreach (string p in SafetyFloorPhrasesZh)
-            {
-                if (userText.Contains(p, StringComparison.Ordinal))
-                {
-                    response = "聽起來你現在很辛苦。SenseEase 不是醫療裝置，無法處理這種狀況。請立即聯繫專業協助:台灣 - 衛福部安心專線 1925；國際 - findahelpline.com。";
-                    return true;
-                }
-            }
-        }
-
-        foreach (string p in SafetyFloorPhrasesEn)
-        {
-            if (lower.Contains(p, StringComparison.Ordinal))
-            {
-                response = zh
-                    ? "聽起來你現在很辛苦。SenseEase 不是醫療裝置，無法處理這種狀況。請立即聯繫專業協助:台灣 - 衛福部安心專線 1925；國際 - findahelpline.com。"
-                    : "It sounds like you're going through something really hard right now. SenseEase isn't a medical device and can't help with this. Please reach out to a crisis line immediately: US - 988; International - findahelpline.com.";
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>Any U+4E00..U+9FFF Han character → treat as zh input.
-    /// Matches CalibrationChatbotService.IsHan exactly.</summary>
-    internal static bool IsHan(string s)
-    {
-        if (string.IsNullOrEmpty(s)) return false;
-        foreach (char c in s)
-            if (c >= 0x4E00 && c <= 0x9FFF) return true;
-        return false;
-    }
+    // Safety-floor vocabulary + Trips() + IsHan() extracted to
+    // SenseEase.Core.Safety.SafetyFloor (Alpha-1 W1 / H1, H3, H8, C3) — single
+    // source of truth shared with CalibrationChatbotService and ChatbotViewModel.
+    // Called as SafetyFloor.Trips(...) from SendAsync above.
 
     public void Dispose()
     {

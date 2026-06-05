@@ -14,6 +14,7 @@ using SenseEase.App.Configuration;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
+using SenseEase.Core.Safety;
 using SenseEase.Infrastructure.Real;
 using SenseEase.Infrastructure.Storage;
 
@@ -301,6 +302,26 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     {
         string text = InputText.Trim();
         if (string.IsNullOrEmpty(text)) return;
+
+        // Alpha-1 W1 (H1/H2/H4): clinical self-harm safety floor — the FIRST
+        // thing SendAsync does, before the profile-picker short-circuit, the
+        // lexicon fallback, and any LLM dispatch. A user in crisis can never be
+        // routed to the profile-picker UI or a profile-switch Card. The trigger
+        // phrase is NEVER persisted: chat_history gets a redacted placeholder
+        // (H2), not the raw text. The bubble still shows the user's own words in
+        // the live session; only the on-disk record is redacted.
+        if (SafetyFloor.Trips(text, out string crisisResponse))
+        {
+            InputText = string.Empty;
+            _dispatcher.Invoke(() =>
+            {
+                Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
+                PersistMessage(ChatRole.User, SafetyFloor.RedactedPlaceholder);
+                Messages.Add(new ChatMessageViewModel(crisisResponse, ChatRole.Assistant));
+                PersistMessage(ChatRole.Assistant, crisisResponse);
+            });
+            return; // no picker, no lexicon, no LLM — crisis response only
+        }
 
         // M3 7e+: short-circuit on profile-picker request. User typed
         // something like "我想換 profile" / "show me profiles" without
