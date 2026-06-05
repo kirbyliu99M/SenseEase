@@ -112,7 +112,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public  ChatbotViewModel ChatbotVm { get; }
 
     // ── M3 Phase 7d/7e/7f/7g: chatbot write-side infrastructure ────────────
-    private readonly InMemoryChatbotActionLog _chatbotActionLog = new();
+    // H17: durable JSONL action log (survives restarts so the rule-5 cooldown +
+    // forensic trail persist). Replaces InMemoryChatbotActionLog.
+    private readonly IChatbotActionLog _chatbotActionLog = new FileChatbotActionLog(AppConfig.AuditLogDir);
     private readonly LongitudinalObservationWriter _observationWriter;
     private readonly HabituationOverrideApplicator _overrideApplicator;
 
@@ -308,7 +310,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         };
         _proposalExpiryTimer.Start();
     }
-    private readonly IEventLogStore _log = new InMemoryEventLogStore();
+    // H17: durable JSONL event log (forensic categories persisted to a daily file,
+    // 7-day retention, 1 MB/day cap). The in-memory window + Appended event behave
+    // identically to InMemoryEventLogStore, so the dashboard mirror is unchanged.
+    private readonly IEventLogStore _log = new FileEventLogStore(AppConfig.AuditLogDir);
 
     // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
     // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
@@ -486,6 +491,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     EventLog.RemoveAt(EventLog.Count - 1);
             });
         };
+
+        // H17: log the session baseline at boot so a field report ("my profile
+        // flipped overnight") has a durable anchor for what state the session
+        // started in. State.PersistedStateLoaded is a forensic category, so
+        // FileEventLogStore persists it; the subscription above mirrors it to the
+        // dashboard too.
+        var bootSnap = _habituationProfileStore.Load();
+        if (bootSnap is not null)
+        {
+            _log.Append(new EventLogEntry
+            {
+                Category = "State.PersistedStateLoaded",
+                Message  = $"profile={bootSnap.Profile} source={bootSnap.ProfileSource} " +
+                           $"offset_pp={bootSnap.HabituationOffsetPp:F1} " +
+                           $"calibrations={bootSnap.CalibrationCount} " +
+                           $"advisory={bootSnap.MedicalAdvisoryShown?.ToString() ?? "none"}",
+            });
+        }
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
 

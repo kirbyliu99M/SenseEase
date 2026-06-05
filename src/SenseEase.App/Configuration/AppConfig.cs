@@ -149,6 +149,12 @@ public static class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "adjustments.jsonl");
 
+    // H17: directory for the durable, daily-rolled JSONL audit logs (event log +
+    // chatbot-action log) — the forensic trail that survives restarts.
+    public static string AuditLogDir { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "logs");
+
     // Habituation profile snapshot (Phase 4). Independent of habituation.json
     // (which continues to store offset only). See docs/HABITUATION-PROFILE.md
     // §5 for the schema + write-trigger semantics. Writes via tmp + File.Replace
