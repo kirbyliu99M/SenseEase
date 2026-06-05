@@ -576,6 +576,21 @@ public partial class NotificationCardWindow : Window
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Hide();
 
+    /// <summary>C2 (audit): keyboard escape route. Pressing Escape while the
+    /// card has focus dismisses it — the same gentle <see cref="Window.Hide"/>
+    /// as the × button (never quits the app). Apple HIG / WCAG both require a
+    /// cancel/back affordance on every transient surface; the card is one.</summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Hide();
+            return;
+        }
+        base.OnKeyDown(e);
+    }
+
     private void OnEngageClicked(object sender, RoutedEventArgs e)
     {
         EngageClicked?.Invoke(this, EventArgs.Empty);

@@ -41,6 +41,7 @@
             <Setter Property="Padding"         Value="14,8"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -69,6 +70,21 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- C2 (audit): shared keyboard-focus ring. These implicit styles give
+             every focusable control in the card the Accent focus ring; buttons
+             that carry an explicit Style (PrimaryDeepBlueButtonStyle) get it via
+             that style's own FocusVisualStyle setter, since an implicit style
+             never reaches a control that already has an explicit Style. -->
+        <Style TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
         </Style>
         </ResourceDictionary>
     </Window.Resources>

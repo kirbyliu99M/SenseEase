@@ -100,4 +100,27 @@
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
     </Style>
 
+    <!-- ═══ Focus ring (C2 a11y) ═════════════════════════════════════════════
+         Shared keyboard-focus visual. WPF renders FocusVisualStyle ONLY after
+         keyboard navigation (Tab/arrow) and never on a mouse click — exactly
+         the calm, Apple-grade behaviour we want: no ring while clicking, a
+         clear ring while tabbing. A 2px Accent ring, rounded, offset slightly
+         outward so it never overlaps the control's own fill. Applied via
+         per-window implicit Button/CheckBox/TextBox styles plus the explicit
+         button styles' own FocusVisualStyle setter (implicit styles don't reach
+         a control that already has an explicit Style). -->
+    <Style x:Key="FocusVisible">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Rectangle Margin="-3"
+                               StrokeThickness="2"
+                               Stroke="{DynamicResource Accent}"
+                               RadiusX="6" RadiusY="6"
+                               SnapsToDevicePixels="True"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

@@ -72,6 +72,7 @@
             <Setter Property="Padding" Value="22,10"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
             <Setter Property="Template" Value="{StaticResource RoundBtn}"/>
         </Style>
 
@@ -118,6 +119,21 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <!-- C2 (audit): shared keyboard-focus ring. Implicit styles reach every
+             unstyled focusable control; the explicit button styles carry it via
+             PrimaryBtn's own FocusVisualStyle setter (Alert/Ghost inherit it via
+             BasedOn). Only the FocusVisualStyle property is set, so the default
+             control templates and all other styling are untouched. -->
+        <Style TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
         </Style>
 
         </ResourceDictionary>

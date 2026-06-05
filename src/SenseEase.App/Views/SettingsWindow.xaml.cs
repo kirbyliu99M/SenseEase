@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Input;
 
 namespace SenseEase.App.Views;
 
@@ -38,4 +39,18 @@ public partial class SettingsWindow : Window
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>C2 (audit): Escape closes the settings dialog — the standard
+    /// cancel/back affordance Apple HIG and WCAG require on a modal surface,
+    /// mirroring the "關閉 / Close" button.</summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+            return;
+        }
+        base.OnKeyDown(e);
+    }
 }
