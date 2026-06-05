@@ -13,8 +13,9 @@ namespace SenseEase.Tests;
 public class DesignLintTests
 {
     // Inline hex colours in App XAML OUTSIDE Theme/ (the token source is exempt).
-    // Baseline captured 2026-06-06 after D0/D1/D2 + the AF-1 fix.
-    private const int OrphanHexBaseline = 247;
+    // Ratchet: 247 (post D0/D1/D2) → 238 after the audit H1 alarm-red (#E54747)
+    // retirement. Lower this each time a surface migrates to tokens.
+    private const int OrphanHexBaseline = 238;
 
     private static readonly Regex HexColor =
         new(@"#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})", RegexOptions.Compiled);

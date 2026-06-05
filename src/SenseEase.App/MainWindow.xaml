@@ -76,7 +76,7 @@
         </Style>
 
         <Style x:Key="AlertBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
-            <Setter Property="Background" Value="#E54747"/>
+            <Setter Property="Background" Value="{StaticResource ComfortHigh}"/>
         </Style>
 
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
@@ -326,7 +326,7 @@
                             <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding Pressure, Mode=OneWay}" Maximum="200"
-                                         Height="4" Background="#FFEAEA" Foreground="#E54747"
+                                         Height="4" Background="{StaticResource ComfortHighWeak}" Foreground="{StaticResource ComfortHigh}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="Leaky Integrator" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -357,7 +357,7 @@
                                             <Setter Property="Fill" Value="#B0BFD8"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding MaskActive}" Value="True">
-                                                    <Setter Property="Fill" Value="#E54747"/>
+                                                    <Setter Property="Fill" Value="{StaticResource ComfortHigh}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -370,7 +370,7 @@
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding MaskActive}" Value="True">
                                                     <Setter Property="Text" Value="Mask ACTIVE"/>
-                                                    <Setter Property="Foreground" Value="#E54747"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -626,7 +626,7 @@
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding MaskActive}" Value="True">
                                                             <Setter Property="Text" Value="ACTIVE"/>
-                                                            <Setter Property="Foreground" Value="#E54747"/>
+                                                            <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -682,7 +682,7 @@
                                     <Ellipse Width="8" Height="8" Fill="#024AD8" VerticalAlignment="Center"/>
                                     <TextBlock Text="VIMS Pressure" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
-                                    <Rectangle Width="14" Height="2" Fill="#E54747" VerticalAlignment="Center"/>
+                                    <Rectangle Width="14" Height="2" Fill="{StaticResource ComfortHigh}" VerticalAlignment="Center"/>
                                     <TextBlock Text="Trigger threshold (85)" Margin="6,0,0,0"
                                                Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
                                 </StackPanel>
