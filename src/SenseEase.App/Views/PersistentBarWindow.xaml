@@ -43,7 +43,7 @@
              BarFill to the low-alpha clay FaultedBarBrush. No animation. -->
         <Rectangle x:Name="FaultOutline"
                    Visibility="Collapsed"
-                   Stroke="#B65C4E"
+                   Stroke="#80B65C4E"
                    StrokeThickness="1"
                    RadiusX="2" RadiusY="2"
                    IsHitTestVisible="False"/>

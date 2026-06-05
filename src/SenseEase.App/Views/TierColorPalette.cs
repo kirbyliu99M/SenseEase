@@ -65,7 +65,10 @@ public static class TierColorPalette
     // source so the Faulted bar can't drift into a raw XAML hex literal; it is
     // intentionally OUTSIDE the tier band table (liveness is orthogonal to tier).
     private static readonly Color ClayHue = Color.FromRgb(0xB6, 0x5C, 0x4E);
-    public static readonly SolidColorBrush FaultedBarBrush = MakeFrozen(ClayHue, 0x40); // ~0.25
+    // 0x66 (~0.40): on a 4-dip bar the FILL must carry the calm clay tone so the
+    // bar reads "warm / needs attention," not an alarm-red outline. Paired with a
+    // softened outline (#80B65C4E in XAML) so the frame defines without shouting.
+    public static readonly SolidColorBrush FaultedBarBrush = MakeFrozen(ClayHue, 0x66); // ~0.40
 
     // Tray icons — full-alpha 32×32 rendered once, frozen, cached by tier band.
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
