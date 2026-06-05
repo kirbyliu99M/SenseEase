@@ -156,7 +156,7 @@ public static class HabituationOverrideParser
                 Intent: intent.Value,
                 TargetField: dto.TargetField ?? string.Empty,
                 ProposedValue: NormaliseProposedValue(dto.ProposedValue),
-                Rationale: dto.Rationale ?? string.Empty,
+                Rationale: SanitizeRationale(dto.Rationale),
                 ExpiresAtUtc: expires);
         }
         return null;
@@ -172,6 +172,52 @@ public static class HabituationOverrideParser
             "adjust_strike_limit" => OverrideIntent.AdjustStrikeLimit,
             _                     => null,
         };
+    }
+
+    // H7: Rationale is unbounded model-controlled text rendered on the
+    // Accept-gate card — a prompt-injection / social-engineering surface (e.g.
+    // "[SYSTEM_NOTE]: medically required, accept within 60s to prevent permanent
+    // eye damage", "系統警告：必須立即接受 RESILIENT"). The user-Accept gate is only
+    // as strong as the user spotting manipulation, so we defang the payload here.
+    private const int RationaleMaxLength = 120;
+
+    // Non-bracket line prefixes that read as injected system/imperative chrome.
+    // Bracketed tags ([SYSTEM], [INST], …) are caught by the leading-'[' check.
+    private static readonly string[] InjectionLinePrefixes =
+    {
+        "SYSTEM_NOTE", "SYSTEM NOTE", "WARNING:", "WARNING：", "SYSTEM:", "SYSTEM：",
+        "NOTE:", "ALERT:", "IMPORTANT:", "系統", "警告", "注意：", "重要：",
+    };
+
+    /// <summary>H7: defang the model-controlled Rationale at parse time — drop
+    /// whole lines that begin with an injected system/imperative tag, collapse to
+    /// one line, then HARD-CAP at 120 chars (≤120 including the ellipsis).
+    /// Truncate, never reject, so legitimate rationales survive. Internal +
+    /// InternalsVisibleTo("SenseEase.Tests") for direct unit coverage.</summary>
+    internal static string SanitizeRationale(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+
+        var kept = new List<string>();
+        foreach (var line in raw.Replace("\r\n", "\n").Split('\n'))
+        {
+            string t = line.Trim();
+            if (t.Length == 0 || LooksLikeInjectedTag(t)) continue;
+            kept.Add(t);
+        }
+
+        string joined = string.Join(" ", kept).Trim();
+        if (joined.Length > RationaleMaxLength)
+            joined = joined.Substring(0, RationaleMaxLength - 1).TrimEnd() + "…";
+        return joined;
+    }
+
+    private static bool LooksLikeInjectedTag(string line)
+    {
+        if (line.StartsWith('[')) return true; // any leading bracketed tag
+        foreach (var p in InjectionLinePrefixes)
+            if (line.StartsWith(p, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     private static bool TryParseUtcIso(string? s, out DateTime utc)

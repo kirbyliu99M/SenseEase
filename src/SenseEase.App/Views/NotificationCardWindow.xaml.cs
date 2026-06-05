@@ -105,6 +105,13 @@ public partial class NotificationCardWindow : Window
     public event EventHandler<ProfileOverrideProposal>? ProposalExpired;
 
     private ProfileOverrideProposal? _activeProposal;
+
+    // EM5: the foreground-auto-close (click-outside-to-hide) must apply ONLY to
+    // cards the user has actually engaged with — otherwise an AUTO-surfaced card
+    // (a tier-up spike while the user is in another app — the headline scenario)
+    // is hidden by the very first 500 ms foreground poll, before the user ever
+    // sees it. Set on first mouse-move over the card; reset on every Show.
+    private bool _userHasInteracted;
     private DispatcherTimer? _expiryCountdownTimer;
 
     /// <summary>The chatbot's currently-surfaced proposal, or null. Setting
@@ -156,9 +163,13 @@ public partial class NotificationCardWindow : Window
     private void ApplyProposalToUi(ProfileOverrideProposal proposal)
     {
         ProposalSummaryText.Text = FormatProposalSummary(proposal);
+        // H7: always lead with a non-empty "AI suggests" attribution so the user
+        // can't mistake model-generated rationale for app/system chrome. The text
+        // itself is already injection-stripped + length-capped at parse time
+        // (HabituationOverrideParser.SanitizeRationale).
         ProposalRationaleText.Text = string.IsNullOrWhiteSpace(proposal.Rationale)
-            ? string.Empty
-            : $"理由：{proposal.Rationale}";
+            ? "AI 建議 / AI suggests: —"
+            : $"AI 建議 / AI suggests: {proposal.Rationale}";
         ProposalSafetyNoteText.Text = string.Empty;
         ProposalSafetyNoteText.Visibility = Visibility.Collapsed;
         ProposalAcceptBtn.IsEnabled = true;
@@ -201,6 +212,7 @@ public partial class NotificationCardWindow : Window
                 // user dismisses the card.
                 ProposalAcceptBtn.IsEnabled = false;
                 ProposalLaterBtn.IsEnabled = false;
+                ProposalDeclineBtn.IsEnabled = false; // NE27: the tombstone is fully non-interactive (Decline was left clickable)
                 ProposalExpiryText.Text = "已過期";
                 ProposalExpired?.Invoke(this, p);
             }
@@ -385,6 +397,9 @@ public partial class NotificationCardWindow : Window
             if (ChatInputBox is not null)   ChatInputBox.Text = string.Empty;
             if (ChatStatusText is not null) ChatStatusText.Text = string.Empty;
 
+            // EM5: a freshly (re)shown card has not been engaged yet — require a
+            // new interaction before the foreground poll may auto-close it.
+            _userHasInteracted = false;
             RestartIdleTimer();
 
             if (_foregroundCheckTimer is null)
@@ -415,11 +430,14 @@ public partial class NotificationCardWindow : Window
         if (pid == 0) return; // GetWindowThreadProcessId failed; don't act
         if (pid != OurProcessId)
         {
-            // Foreground belongs to another app → user has switched focus.
-            // Hide the card. Idle timer + fade storyboard already handle
-            // their own teardown via IsVisibleChanged-driven _foregroundCheckTimer
-            // stop above + Closed handlers below.
-            Hide();
+            // EM5: only auto-close a card the user has actually engaged with, and
+            // never while a proposal is pending decision (it has its own 15s/60s
+            // expiry). An auto-surfaced, not-yet-touched card MUST survive the
+            // poll so the user sees the spike notification they're in another app
+            // and about to miss — that is the whole point of an ambient monitor.
+            // The 60 s idle → 5 s reversible fade still dismisses untouched cards.
+            if (_userHasInteracted && _activeProposal is null)
+                Hide();
         }
     }
 
@@ -486,6 +504,7 @@ public partial class NotificationCardWindow : Window
     private void OnCardMouseMove(object sender, MouseEventArgs e)
     {
         // Any movement inside the CardBorder counts as user interaction.
+        _userHasInteracted = true; // EM5: now the foreground poll may auto-close this card
         // Reset both the idle timer AND cancel any in-progress fade (the
         // "last-chance pull-back" path).
         if (_activeFadeStoryboard is not null)

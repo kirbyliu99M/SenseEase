@@ -227,6 +227,14 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double h = ActualHeight;
         if (w <= 0 || h <= 0) return;
 
+        // NE30: attach the radial feather mask up-front so a DrawGrid triggered by
+        // a SizeChanged / DPI-monitor change with no immediately-following
+        // ApplyState can never paint full-strength grid lines across the whole
+        // screen. The brush defaults to the centred at-rest feather; ApplyState
+        // updates its centre/radius when head-tracking moves the transparency hole.
+        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridOpacityMaskBrush))
+            GridCanvas.OpacityMask = _gridOpacityMaskBrush;
+
         // Scale grid spacing and line thickness proportionally from the 1920×1080 baseline.
         double dpiX = PresentationSource.FromVisual(this)?.CompositionTarget.TransformToDevice.M11 ?? 1.0;
         double physicalWidth = SystemParameters.PrimaryScreenWidth * dpiX;

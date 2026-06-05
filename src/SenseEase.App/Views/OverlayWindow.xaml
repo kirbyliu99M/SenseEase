@@ -11,8 +11,11 @@
         WindowState="Maximized"
         IsHitTestVisible="False">
     <Grid>
-        <!-- Static anchor grid -->
-        <Canvas x:Name="GridCanvas" />
+        <!-- Static anchor grid. NE30: Opacity starts at 0 so a DrawGrid fired by
+             a SizeChanged / DPI-monitor change before the first ApplyState can
+             never flash full-strength grid lines across the whole screen; the
+             intensity is ramped up only when the mask actually engages. -->
+        <Canvas x:Name="GridCanvas" Opacity="0" />
         <!-- Chang-Hain three-zone radial FOV mask -->
         <Rectangle x:Name="FovMask" IsHitTestVisible="False" />
     </Grid>

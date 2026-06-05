@@ -154,9 +154,13 @@
                                Foreground="#1A1F2E"
                                TextWrapping="Wrap"
                                Margin="0,0,0,4"/>
+                    <!-- H7: distinct treatment for model-controlled rationale —
+                         italic + muted colour + the always-present "AI suggests"
+                         attribution (set in code) so it can't read as app chrome. -->
                     <TextBlock x:Name="ProposalRationaleText"
                                Text=""
                                FontSize="11"
+                               FontStyle="Italic"
                                Foreground="#5A6478"
                                TextWrapping="Wrap"
                                Margin="0,0,0,8"/>

@@ -132,11 +132,24 @@ public static class MarkdownInlines
                 }
             }
 
-            // Italic: *…* or _…_
+            // Italic: *…* (any position) or _…_ (word boundaries only).
+            // NE26: `_` emphasis must be flanked by non-word chars (or string
+            // edges) on BOTH delimiters, so identifiers the chatbot routinely
+            // emits — personal_pressure_scale, severe_strike_limit,
+            // expires_at_iso, [OBSERVATION_ADD] — stay literal instead of being
+            // italicised with their underscores swallowed. `*` keeps intraword
+            // emphasis (CommonMark allows it and identifiers don't use `*`).
             if (c == '*' || c == '_')
             {
                 int end = line.IndexOf(c, i + 1);
-                if (end > i + 1 && !ContainsNewline(line, i + 1, end))
+                bool valid = end > i + 1 && !ContainsNewline(line, i + 1, end);
+                if (valid && c == '_')
+                {
+                    bool openBoundary  = i == 0 || !IsWordChar(line[i - 1]);
+                    bool closeBoundary = end == line.Length - 1 || !IsWordChar(line[end + 1]);
+                    valid = openBoundary && closeBoundary;
+                }
+                if (valid)
                 {
                     if (buf.Length > 0) yield return FlushBuf();
                     yield return new Italic(new Run(line[(i + 1)..end]));
@@ -151,6 +164,12 @@ public static class MarkdownInlines
 
         if (buf.Length > 0) yield return FlushBuf();
     }
+
+    /// <summary>NE26: a "word" char for underscore-emphasis boundary detection —
+    /// letters, digits, and `_` itself (so runs of underscores in identifiers
+    /// don't open emphasis). Deliberately ASCII-and-Unicode-letter aware via
+    /// char.IsLetterOrDigit so 繁中 identifiers behave too.</summary>
+    private static bool IsWordChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
 
     private static bool ContainsNewline(string s, int start, int endExclusive)
     {
