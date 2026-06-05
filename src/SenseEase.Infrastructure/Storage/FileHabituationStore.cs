@@ -42,16 +42,14 @@ public sealed class FileHabituationStore : IHabituationStore
 
     public void Save(HabituationState state)
     {
+        // H16 / NE15: route through AtomicJsonWriter so the progress file gets the
+        // crash-safe tmp -> flush-to-disk -> File.Replace path instead of the old
+        // inline File.Move (which could leave a truncated file on a kill mid-write
+        // and zero the user's earned offset). _opts is passed so the on-disk JSON
+        // shape stays byte-identical to existing habituation.json files.
         lock (_gate)
         {
-            try
-            {
-                string json = JsonSerializer.Serialize(state, _opts);
-                string tmp = _path + ".tmp";
-                File.WriteAllText(tmp, json);
-                File.Move(tmp, _path, overwrite: true);
-            }
-            catch { /* persistence must never crash the app */ }
+            AtomicJsonWriter.TryWrite(_path, state, _opts);
         }
     }
 }

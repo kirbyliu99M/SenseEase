@@ -62,6 +62,7 @@ public sealed class HabituationEngine
     private bool   _awaitingUserConfirm; // tier ≥ 8 spike — engine refuses to auto-resume
     private double _severeStrikeCount;   // weighted; sensor=1.0, chatbot=0.5 (Q4)
     private DateTime? _lastSpikeAtUtc;   // populated by RegisterSevereStrike; surfaced in persistence snapshot
+    private bool _pressureWasAtRecurrence; // EM1: was pressure >= recurrence threshold on the previous tick? (edge-detect)
     // _lastSeenTier defaults to 1 (most conservative). This is INTENTIONAL,
     // not a placeholder. Callers using the no-tier NotifyDiscomfort(bool)
     // overload effectively get tier-1 behaviour — appropriate for legacy
@@ -268,19 +269,34 @@ public sealed class HabituationEngine
         // OS default or a calibration-derived per-user number — that's the
         // wrapper's concern.
         double trigger = EffectiveTrigger;
+        bool atRecurrence = pressure >= trigger * SenseDefaults.HabituationRecurrencePressureFraction;
 
-        // Pressure-spike recurrence: sensor-derived severe event (weight 1.0).
-        if (pressure >= trigger * SenseDefaults.HabituationRecurrencePressureFraction)
-        {
-            RegisterSevereStrike(weight: 1.0, vimsTier);
-            return;
-        }
-
+        // While paused / cooling down, the pause IS the active safety state: do
+        // not accrue strikes or stability. (EM1: this guard now precedes the
+        // recurrence check, so an active pause genuinely suppresses re-strikes —
+        // the behaviour the whitepaper already claims.) Keep the edge tracker
+        // current so the pause lifting on still-high pressure is not mistaken for
+        // a fresh rising edge.
         if (_externallyPaused || _pauseCooldown > 0.0 || _awaitingUserConfirm)
         {
             _phase = HabituationPhase.Paused;
+            _pressureWasAtRecurrence = atRecurrence;
             return;
         }
+
+        // Pressure-spike recurrence: sensor-derived severe event (weight 1.0).
+        // EM1 — EDGE-triggered: fire only on the rising crossing of the recurrence
+        // threshold, NOT every tick the level stays high. Level-triggering fired
+        // ~15x/sec during ordinary video playback in Passenger mode, storming the
+        // strike counter, the event log, and the profile-snapshot disk writes,
+        // and shredding _offset via the repeated back-off.
+        if (atRecurrence && !_pressureWasAtRecurrence)
+        {
+            _pressureWasAtRecurrence = true;
+            RegisterSevereStrike(weight: 1.0, vimsTier);
+            return;
+        }
+        _pressureWasAtRecurrence = atRecurrence;
 
         // Stability accounting. Calm credit accrues only while genuinely calm AND the
         // protective mask is not engaged; otherwise the accumulated credit decays
@@ -427,22 +443,41 @@ public sealed class HabituationEngine
         SavedAtUtc = DateTime.UtcNow,
     };
 
-    /// <summary>Reset all habituation state to a fresh, neutral baseline.
-    /// Does NOT reset the active profile — call <see cref="SetProfile"/> if you
-    /// also want to clear the profile back to RESILIENT.</summary>
-    public void Reset()
+    /// <summary>Clear transient session state — the stability/step accumulators,
+    /// the severe-strike count, any pause, the phase, and the effective windows —
+    /// while PRESERVING <c>_offset</c>. This is the reset a shader / personalization
+    /// reset uses (e.g. the chatbot "/reset shader" path via
+    /// <see cref="SenseEase.Infrastructure.Mock.MockInferenceEngine.ResetPersonalization"/>):
+    /// the user's earned long-term habituation progress (weeks of <c>_offset</c>)
+    /// MUST survive it — locked decision Q4.5. Every field cleared here is
+    /// session-scoped; <c>_offset</c> is the only long-term value and is left
+    /// untouched.</summary>
+    public void ResetTransientState()
     {
         _stableElapsed = 0.0;
         _stepAccumulator = 0.0;
-        _offset = 0.0;
         _pauseCooldown = 0.0;
         _externallyPaused = false;
         _awaitingUserConfirm = false;
         _severeStrikeCount = 0.0;
         _lastSeenTier = 1;
         _phase = HabituationPhase.Observing;
+        _pressureWasAtRecurrence = false;
         _effectiveWindow       = _params.StableWindowSeconds;
         _effectiveStepInterval = _params.StepIntervalSeconds;
+        // _offset is deliberately NOT cleared (Q4.5).
+    }
+
+    /// <summary>Full re-baseline to a fresh, neutral state, INCLUDING zeroing
+    /// <c>_offset</c>. Only legitimate after a deliberate re-calibration that
+    /// re-derives the profile from scratch — never from a shader / personalization
+    /// reset (use <see cref="ResetTransientState"/> for that). Does NOT reset the
+    /// active profile — call <see cref="SetProfile"/> too if you also want to
+    /// clear the profile back to RESILIENT.</summary>
+    public void ResetPostCalibration()
+    {
+        ResetTransientState();
+        _offset = 0.0;
     }
 
     /// <summary>Enter the post-spike pause. Tier &le; 5 → PostSpikePauseLow,

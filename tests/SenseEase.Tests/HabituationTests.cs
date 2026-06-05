@@ -4,6 +4,7 @@ using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
+using SenseEase.Infrastructure.Storage;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -34,6 +35,15 @@ public class HabituationTests
         private HabituationState? _stored;
         public HabituationState? Load() => _stored;
         public void Save(HabituationState state) => _stored = state;
+    }
+
+    /// <summary>In-memory IHabituationProfileStore round-trip (EM2 tests).</summary>
+    private sealed class InMemoryProfileStore : IHabituationProfileStore
+    {
+        public HabituationProfileSnapshot? Stored;
+        public int SaveCount;
+        public HabituationProfileSnapshot? Load() => Stored;
+        public void Save(HabituationProfileSnapshot snapshot) { Stored = snapshot; SaveCount++; }
     }
 
     // ── Unit tests ────────────────────────────────────────────────────────────
@@ -252,17 +262,103 @@ public class HabituationTests
     }
 
     [Fact]
-    public void Reset_ClearsAllState()
+    public void ResetPostCalibration_ClearsAllState()
     {
         var engine = new HabituationEngine();
         Calm(engine, 420);
 
-        engine.Reset();
+        engine.ResetPostCalibration();
 
         Assert.Equal(0, engine.HabituationOffset);
         Assert.Equal(0, engine.HabituationLevel);
         Assert.False(engine.IsPaused);
         Assert.Equal(HabituationPhase.Observing, engine.Phase);
+    }
+
+    // ── C5 / Q4.5: a shader / personalization reset must preserve _offset ──────
+
+    [Fact]
+    public void ResetTransientState_PreservesOffset()
+    {
+        var engine = new HabituationEngine();
+        engine.Restore(new HabituationState { Offset = 18 });
+        Assert.Equal(18, engine.HabituationOffset);   // precondition
+
+        engine.ResetTransientState();
+
+        Assert.Equal(18, engine.HabituationOffset);   // Q4.5: long-term progress preserved
+        Assert.False(engine.IsPaused);
+        Assert.Equal(HabituationPhase.Observing, engine.Phase);
+    }
+
+    [Fact]
+    public void ResetPostCalibration_ZeroesOffset()
+    {
+        var engine = new HabituationEngine();
+        engine.Restore(new HabituationState { Offset = 18 });
+
+        engine.ResetPostCalibration();
+
+        Assert.Equal(0, engine.HabituationOffset);
+    }
+
+    [Fact]
+    public void ResetPersonalization_PreservesHabituationOffset_Q45()
+    {
+        // Seed a non-zero earned offset into a fresh engine via its store, then run
+        // the chatbot-style personalization reset and assert the PERSISTED offset
+        // survived. The old _habituation.Reset() zeroed it — this is the C5 pin.
+        var store = new InMemoryHabituationStore();
+        store.Save(new HabituationState { Offset = 18 });
+        var engine = new MockInferenceEngine(habituationStore: store);
+
+        engine.ResetPersonalization();
+
+        Assert.Equal(18.0, store.Load()!.Offset, 3);
+    }
+
+    // ── EM1: severe-strike registration is edge-triggered, not level-triggered ──
+
+    [Fact]
+    public void Step_SustainedHighPressure_DoesNotStormStrikes_EdgeNotLevel()
+    {
+        double high = new HabituationEngine().EffectiveTrigger * 0.7; // above the 0.60 recurrence fraction
+
+        var single = new HabituationEngine();
+        single.Step(high, maskActive: true, vimsTier: 3, 1.0);
+        Assert.NotNull(single.LastSpikeAtUtc);                 // a strike fired on the rising edge
+        double afterSingle = single.SevereStrikeCount;
+
+        var sustained = new HabituationEngine();
+        for (int i = 0; i < 100; i++)
+            sustained.Step(high, maskActive: true, vimsTier: 3, 1.0);
+
+        // 100 ticks at a sustained high LEVEL must register the SAME strikes as a
+        // single rising EDGE — not 100x. (Old code called RegisterSevereStrike every tick.)
+        Assert.Equal(afterSingle, sustained.SevereStrikeCount);
+    }
+
+    // ── EM2: an engine profile-snapshot persist must not wipe the chatbot's
+    //         longitudinal observations (owned by LongitudinalObservationWriter) ──
+
+    [Fact]
+    public void EnginePersist_PreservesLongitudinalObservations_EM2()
+    {
+        var store = new InMemoryProfileStore();
+        store.Save(new HabituationProfileSnapshot { Profile = "RESILIENT" });
+
+        var writer = new LongitudinalObservationWriter(store);
+        Assert.True(writer.Append("user reports symptoms worsen on Mondays"));
+        Assert.Single(store.Load()!.LongitudinalObservations);   // precondition
+
+        var engine = new MockInferenceEngine(profileStore: store);
+        engine.SetHabituationProfile(HabituationProfile.Sensitive, "calibration_demo"); // triggers a profile-snapshot Save
+
+        // EM2: BuildProfileSnapshot read-modify-writes, so the observation survives.
+        var after = store.Load()!;
+        Assert.Single(after.LongitudinalObservations);
+        Assert.Contains("Mondays", after.LongitudinalObservations[0]);
+        Assert.Equal("SENSITIVE", after.Profile);                // the engine's change also landed
     }
 
     [Fact]

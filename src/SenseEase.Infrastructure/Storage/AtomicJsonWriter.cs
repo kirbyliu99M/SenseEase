@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -16,10 +17,10 @@ namespace SenseEase.Infrastructure.Storage;
 /// observes "did not write" as the failure mode and the next attempt will
 /// retry.
 ///
-/// Extracted from the FileHabituationStore.Save pattern in Phase 4. The
-/// existing FileHabituationStore still uses inline File.Move and is NOT
-/// migrated to this helper — it predates the strict atomicity requirement
-/// and changing it is out of scope for the habituation-profile work.
+/// Extracted from the FileHabituationStore.Save pattern in Phase 4;
+/// FileHabituationStore.Save now routes through this helper (Alpha-1 W2 / H16,
+/// NE15) so the habituation-progress file gets the same crash-safe,
+/// flushed-to-disk atomic replace.
 /// </summary>
 public static class AtomicJsonWriter
 {
@@ -52,7 +53,17 @@ public static class AtomicJsonWriter
             string json = JsonSerializer.Serialize(value, opts);
 
             string tmp = path + ".tmp";
-            File.WriteAllText(tmp, json);
+            // NE16: durably flush the tmp to disk BEFORE the rename. File.WriteAllText
+            // can return before the OS persists the bytes, so a crash just after
+            // File.Replace could leave a renamed-but-not-yet-persisted file.
+            // WriteThrough + Flush(flushToDisk:true) forces the data down first.
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write,
+                                           FileShare.None, bufferSize: 4096, FileOptions.WriteThrough))
+            {
+                fs.Write(bytes, 0, bytes.Length);
+                fs.Flush(flushToDisk: true);
+            }
 
             if (File.Exists(path))
             {
@@ -66,16 +77,18 @@ public static class AtomicJsonWriter
             else
             {
                 // First-write path: File.Replace can't see a destination.
-                // File.Move on the same volume is also atomic.
-                File.Move(tmp, path, overwrite: false);
+                // File.Move on the same volume is also atomic. overwrite:true
+                // (NE23/H46) so a process that races to create the destination
+                // doesn't turn a benign first-write into an IOException + lost write.
+                File.Move(tmp, path, overwrite: true);
             }
             return true;
         }
         catch
         {
-            // Best-effort: leave the previous file (if any) untouched.
-            // Tmp file may be left behind on disk; the next successful
-            // write replaces it. Tmp leaks are acceptable failure mode.
+            // Best-effort: leave the previous file (if any) untouched. Clean up the
+            // tmp so repeated failures don't leak a growing pile of *.tmp (NE23/H46).
+            try { if (File.Exists(path + ".tmp")) File.Delete(path + ".tmp"); } catch { }
             return false;
         }
     }

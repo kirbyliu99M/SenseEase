@@ -327,8 +327,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             _userFovOffset = 0;
             _shader.ResetToDefault();
-            _habituation.Reset();
-            Current.HabituationLevel  = 0;
+            // Q4.5: a shader / personalization reset clears transient session state
+            // but MUST preserve the earned habituation offset (weeks of progress).
+            // Use ResetTransientState, NOT the full ResetPostCalibration; the
+            // displayed level therefore reflects the PRESERVED offset, not 0.
+            _habituation.ResetTransientState();
+            Current.HabituationLevel  = _habituation.HabituationLevel;
             Current.HabituationPaused = false;
             PersistHabituation(force: true);
             _vimsTier = 1;
@@ -767,6 +771,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private HabituationProfileSnapshot BuildProfileSnapshot()
     {
         var p = _habituation.CurrentParams;
+        // EM2: read-modify-write. This builds a FRESH snapshot from in-memory
+        // engine state, but several fields are owned by OTHER writers of the SAME
+        // habituation_profile.json (the chatbot's LongitudinalObservationWriter and
+        // the calibration applicator). Re-read the current on-disk snapshot and
+        // carry those fields forward so an engine persist no longer silently wipes
+        // them (the chatbot's longitudinal memory + the calibration_* enums).
+        var existing = _profileStore?.Load();
         return new HabituationProfileSnapshot
         {
             // SchemaVersion intentionally omitted — the property's default
@@ -804,6 +815,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 StepIntervalMs  = p.StepIntervalMs,
                 StepMagnitudePp = p.StepMagnitudePp,
             },
+            // EM2 — fields owned by OTHER writers of this file; preserved from the
+            // existing on-disk snapshot so the engine's persist does not wipe them.
+            LongitudinalObservations = existing?.LongitudinalObservations ?? new(),
+            CalibrationCompleteness  = existing?.CalibrationCompleteness,
+            CalibrationPath          = existing?.CalibrationPath,
+            CalibrationResponses     = existing?.CalibrationResponses,
+            SymptomDominancePrimary  = existing?.SymptomDominancePrimary,
+            MedicalAdvisoryShown     = existing?.MedicalAdvisoryShown,
+            CalibrationConfidence    = existing?.CalibrationConfidence,
         };
     }
 
