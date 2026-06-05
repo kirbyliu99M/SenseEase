@@ -446,26 +446,52 @@ public partial class MainWindow : Window
         // Cost: ~10 µs × 165 Hz = 1.65 ms/sec ≈ 0.17% of one core.
         Loaded += (_, _) =>
         {
-            SafeLog("[Loaded#5] HeadPoseRendering subscribe");
+            // NE25: only run the per-frame head-pose pump when head-tracking is
+            // enabled. Default is OFF, in which case ReadLatest() is always null
+            // and the per-frame lerp is a pure no-op — yet it would still fire at
+            // monitor refresh (~165 Hz) for the whole app lifetime. The mask is
+            // still held centered on every engine tick via the state-driven
+            // ApplyFovMask path (OverlayWindow active=false → center 0.5,0.5), so
+            // skipping the pump changes nothing visible when head-tracking is off.
+            if (AppConfig.HeadTrackingEnabled)
+            {
+                SafeLog("[Loaded#5] HeadPoseRendering subscribe (head-tracking on)");
+                SetHeadPoseRenderingSubscribed(true);
+            }
+            else
+            {
+                SafeLog("[Loaded#5] HeadPoseRendering skipped — head-tracking off (NE25)");
+            }
+        };
+        Unloaded += (_, _) => SetHeadPoseRenderingSubscribed(false);
+    }
+
+    /// <summary>NE25: idempotently subscribe/unsubscribe the per-frame
+    /// CompositionTarget.Rendering head-pose pump. Subscribed only while
+    /// head-tracking is enabled AND the sidecar is live; parked during Power
+    /// Save in lock-step with the sidecar Stop/Restart in ApplyPowerSave, so a
+    /// stopped sidecar produces no idle per-frame work. Must run on the UI
+    /// thread (CompositionTarget.Rendering is dispatcher-affined).</summary>
+    private void SetHeadPoseRenderingSubscribed(bool on)
+    {
+        if (on == _renderingSubscribed) return;
+        if (on)
+        {
             try
             {
                 System.Windows.Media.CompositionTarget.Rendering += OnCompositionRendering;
                 _renderingSubscribed = true;
-                SafeLog("[Loaded#5] HeadPoseRendering subscribe exit OK");
             }
             catch (Exception ex)
             {
-                SafeLog($"[Loaded#5] HeadPoseRendering subscribe EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                SafeLog($"[NE25] HeadPoseRendering subscribe EXCEPTION: {ex.GetType().Name}: {ex.Message}");
             }
-        };
-        Unloaded += (_, _) =>
+        }
+        else
         {
-            if (_renderingSubscribed)
-            {
-                try { System.Windows.Media.CompositionTarget.Rendering -= OnCompositionRendering; } catch { /* ignore */ }
-                _renderingSubscribed = false;
-            }
-        };
+            try { System.Windows.Media.CompositionTarget.Rendering -= OnCompositionRendering; } catch { /* ignore */ }
+            _renderingSubscribed = false;
+        }
     }
 
     private bool _renderingSubscribed;
@@ -995,6 +1021,15 @@ public partial class MainWindow : Window
         {
             _cardWindow.IsPowerSaveActive = enabled;
         }
+
+        // NE25: park/restore the per-frame head-pose pump in lock-step with the
+        // sidecar lifecycle below. Entering Power Save stops the sidecar (no
+        // fresh poses to pump → no reason to wake at refresh rate); resuming
+        // re-subscribes only when head-tracking is enabled. Runs inline on the
+        // UI thread (this method is dispatcher-bound), unlike the sidecar
+        // Stop/Restart which is offloaded to Task.Run.
+        if (AppConfig.HeadTrackingEnabled)
+            SetHeadPoseRenderingSubscribed(!enabled);
 
         // UI Consolidation Sprint Phase 3 (2026-05-30, D-B locked): Power
         // Save also kills the head-tracking sidecar to release the webcam
