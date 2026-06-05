@@ -1,4 +1,5 @@
 using System;
+using SenseEase.Core.Configuration;
 using SenseEase.Core.Models;
 
 namespace SenseEase.Core.Inference;
@@ -49,9 +50,11 @@ public static class HabituationOverrideProcessor
     public const int ExpiresAtMaxFutureDays = 7;
 
     /// <summary>Valid range for personal_pressure_scale when intent =
-    /// AdjustSensitivity. Matches CalibrationProcessor.PersonalPressureScale[Min|Max].</summary>
-    public const double PersonalPressureScaleMin = 0.7;
-    public const double PersonalPressureScaleMax = 1.5;
+    /// AdjustSensitivity. Single source of truth is
+    /// SenseDefaults.PersonalPressureScale[Min|Max]; CalibrationProcessor mirrors
+    /// the same pair.</summary>
+    public const double PersonalPressureScaleMin = SenseDefaults.PersonalPressureScaleMin;
+    public const double PersonalPressureScaleMax = SenseDefaults.PersonalPressureScaleMax;
 
     /// <summary>Valid range for severe_strike_limit when intent =
     /// AdjustStrikeLimit. Below 1 = engine pauses immediately on any spike

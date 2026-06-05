@@ -6,7 +6,8 @@ namespace SenseEase.Infrastructure.Real;
 
 /// <summary>
 /// Phase 4 WGC fix (UVHS Playbook clause 5): shared diagnostic-log sink for
-/// <c>%TEMP%/wgc_diag.txt</c> with three guarantees the original inline
+/// <c>%LOCALAPPDATA%\SenseEase\diag\wgc_diag.txt</c> (H51: moved out of
+/// <c>%TEMP%</c>) with three guarantees the original inline
 /// <c>try { AppendAllText } catch { }</c> pattern did not provide:
 ///
 /// <list type="number">
@@ -20,7 +21,8 @@ namespace SenseEase.Infrastructure.Real;
 ///         "orthogonal probe" mandated by UVHS Playbook clause 5: the
 ///         verification mechanism is not the same shared mutable log it
 ///         verifies.</item>
-///   <item><b>Independent loss sink</b> <c>%TEMP%/wgc_diag.lost.log</c>.
+///   <item><b>Independent loss sink</b>
+///         <c>%LOCALAPPDATA%\SenseEase\diag\wgc_diag.lost.log</c>.
 ///         When all retries fail, the failure event itself is recorded to a
 ///         separate file with relaxed concurrency expectations (only this
 ///         class writes there). Provides a second orthogonal probe surface
@@ -39,14 +41,77 @@ namespace SenseEase.Infrastructure.Real;
 /// </summary>
 internal static class WgcDiagLog
 {
+    /// <summary>H51: diag files live under
+    /// <c>%LOCALAPPDATA%\SenseEase\diag\</c> (moved out of <c>%TEMP%</c> so the
+    /// usage-time fingerprint is cleaned by H25 uninstall instead of leaking
+    /// across runs until 30-day %TEMP% auto-cleanup). Falls back to
+    /// <c>%TEMP%</c> if LocalApplicationData cannot be resolved.</summary>
+    private static readonly string DiagDir = ResolveDiagDir();
+
     public static readonly string DiagFile =
-        Path.Combine(Path.GetTempPath(), "wgc_diag.txt");
+        Path.Combine(DiagDir, "wgc_diag.txt");
 
     public static readonly string LossLog =
-        Path.Combine(Path.GetTempPath(), "wgc_diag.lost.log");
+        Path.Combine(DiagDir, "wgc_diag.lost.log");
+
+    /// <summary>H51/H36: when <see cref="DiagFile"/> reaches this size the
+    /// current file is rotated to <c>wgc_diag.prev.txt</c> (single generation)
+    /// before the next append, bounding unbounded growth from a wedged sidecar
+    /// emitting malformed lines at 15 Hz.</summary>
+    private const long RotateThresholdBytes = 5L * 1024 * 1024;
+
+    private static readonly string PrevFile =
+        Path.Combine(DiagDir, "wgc_diag.prev.txt");
 
     private static long _seq;
     private static long _silentLoss;
+
+    /// <summary>Resolve the diag directory and best-effort create it. On any
+    /// failure (LocalApplicationData empty, ACL denial) falls back to
+    /// <c>%TEMP%</c> so logging never throws at type-init.</summary>
+    private static string ResolveDiagDir()
+    {
+        try
+        {
+            string local = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrEmpty(local))
+            {
+                string dir = Path.Combine(local, "SenseEase", "diag");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
+        catch
+        {
+            // Fall through to %TEMP%.
+        }
+        return Path.GetTempPath();
+    }
+
+    /// <summary>H51/H36: rotate <see cref="DiagFile"/> to
+    /// <see cref="PrevFile"/> when it crosses <see cref="RotateThresholdBytes"/>.
+    /// Single generation — the previous .prev is overwritten. Best-effort: any
+    /// IO failure leaves the current file in place and the append proceeds.</summary>
+    private static void RotateIfNeeded()
+    {
+        try
+        {
+            var fi = new FileInfo(DiagFile);
+            if (!fi.Exists || fi.Length < RotateThresholdBytes)
+                return;
+
+            // File.Move does not overwrite; delete the stale .prev first.
+            if (File.Exists(PrevFile))
+                File.Delete(PrevFile);
+            File.Move(DiagFile, PrevFile);
+        }
+        catch
+        {
+            // Concurrent writer / sharing violation / ACL — leave as-is and
+            // let the file keep growing rather than drop the append.
+        }
+    }
 
     /// <summary>Process-local count of <see cref="Append"/> calls whose
     /// retries all failed (the diagnostic line was silently lost from
@@ -66,6 +131,8 @@ internal static class WgcDiagLog
         string line = $"[N={n:D7}] {msg}";
         if (!line.EndsWith("\n", StringComparison.Ordinal))
             line += Environment.NewLine;
+
+        RotateIfNeeded();
 
         for (int attempt = 0; attempt < 3; attempt++)
         {

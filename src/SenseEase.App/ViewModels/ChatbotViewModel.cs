@@ -36,8 +36,23 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private const int HistoryWindow = 6;
 
     /// <summary>How many most-recent transcript bubbles to keep on disk. Older lines
-    /// are dropped on startup so the file can't grow without bound.</summary>
+    /// are dropped on startup (and opportunistically mid-session) so the file can't
+    /// grow without bound.</summary>
     private const int PersistedHistoryMax = 100;
+
+    /// <summary>NE18: how far the on-disk line count may overshoot
+    /// <see cref="PersistedHistoryMax"/> before an in-session trim fires. A slack
+    /// margin means we don't pay a rewrite on every append once the cap is reached —
+    /// we let the tail grow by this many lines, then drop back to the cap in one pass.</summary>
+    private const int PersistedHistoryTrimSlack = 40;
+
+    /// <summary>NE18: running count of how many lines we believe are on disk, seeded
+    /// from the startup <see cref="FileChatHistoryStore.Load"/> and bumped by each
+    /// <see cref="PersistMessage"/>. Lets us decide when to trim without re-reading
+    /// the file on every append; the startup load is the "already-loaded list" the
+    /// counter reuses. Only ever touched while persisting, which is serialized onto
+    /// the dispatcher thread.</summary>
+    private int _persistedLineCount;
 
     /// <summary>Total cap on fake-stream animation duration, regardless of reply length.</summary>
     private const int FakeStreamMaxMs = 1500;
@@ -250,6 +265,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             _historyStore.Trim(PersistedHistoryMax);
             prior = _historyStore.Load();
         }
+        // NE18: seed the in-session line counter from what we just loaded so the
+        // opportunistic trim in PersistMessage can fire without re-reading the file.
+        _persistedLineCount = prior.Count;
 
         if (prior.Count > 0)
         {
@@ -273,6 +291,18 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             Content = content,
             Timestamp = DateTime.Now,
         });
+
+        // NE18: trim opportunistically once the file overshoots the cap by the slack
+        // margin, so a long single session can't grow the transcript without bound
+        // (the startup-only trim used to leave in-session appends unbounded). We track
+        // the on-disk count in _persistedLineCount rather than re-reading after every
+        // append; only the periodic Trim re-reads. After a trim the file holds at most
+        // PersistedHistoryMax lines, so we snap the counter back to that cap.
+        if (++_persistedLineCount > PersistedHistoryMax + PersistedHistoryTrimSlack)
+        {
+            _historyStore.Trim(PersistedHistoryMax);
+            _persistedLineCount = PersistedHistoryMax;
+        }
     }
 
     private async Task InitModelAsync()
@@ -948,6 +978,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         Messages.Clear();
         try { _streamCts.Cancel(); } catch { /* ignore */ }
         _historyStore.DeleteFile();
+        // NE18: the file is gone, so reset the in-session line counter — the welcome
+        // bubble re-added below is never persisted, so disk is now empty.
+        _persistedLineCount = 0;
         Messages.Add(new ChatMessageViewModel(WelcomeMessage, ChatRole.Assistant));
     }
 

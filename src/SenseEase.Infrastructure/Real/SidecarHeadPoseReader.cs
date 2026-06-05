@@ -164,9 +164,9 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// <see cref="Start"/> for that. Separating construction from startup
     /// keeps the flag-off path zero-cost: if HeadTrackingEnabled is false,
     /// nothing instantiates this class at all.</summary>
-    /// <param name="pythonExePath">Absolute path to the Python interpreter
-    /// (typically the sidecar's venv python.exe).</param>
-    /// <param name="sidecarScriptPath">Absolute path to head_tracker.py.</param>
+    /// <param name="sidecarExePath">Absolute path to the frozen sidecar exe
+    /// (the PyInstaller --onedir bundle's self-contained entry point — no
+    /// separate Python interpreter or script). See <see cref="_sidecarExePath"/>.</param>
     /// <param name="log">Optional callback invoked with diagnostic messages
     /// (sidecar startup, exit, parse warnings). Always called from a
     /// background thread — callers must marshal if they touch UI.</param>

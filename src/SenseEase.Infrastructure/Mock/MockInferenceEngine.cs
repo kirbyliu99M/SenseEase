@@ -216,7 +216,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             bool isDriverMode = string.Equals(mode, "Driver", StringComparison.OrdinalIgnoreCase);
 
             // Driver mode attenuates passive-flow impact (does not hard-zero).
-            double effectiveOfi = isDriverMode ? (opticalFlowIndex * 0.25) : opticalFlowIndex;
+            double effectiveOfi = isDriverMode ? (opticalFlowIndex * SenseDefaults.DriverFlowAttenuation) : opticalFlowIndex;
 
             // After mask activation, attenuate OFI to reduce ping-pong oscillation.
             if (!isDriverMode && Current.MaskActive)

@@ -23,6 +23,18 @@ public static class SenseDefaults
     public const int CooldownMs = 8000;
     public const int EventLogMaxCount = 20;
 
+    // Driver-mode passive-flow attenuation: in Driver mode the optical-flow index
+    // is multiplied by this factor (does not hard-zero). Single source of truth for
+    // the MockInferenceEngine driver-attenuation site. See SenseState.cs remarks.
+    public const double DriverFlowAttenuation = 0.25;
+
+    // ── Personal-pressure-scale bounds (calibration §7) ───────────────────────
+    // Canonical [min, max] clamp for personal_pressure_scale. Mirrored by the
+    // public CalibrationProcessor / HabituationOverrideProcessor constants, which
+    // now reference these so there is one source of truth.
+    public const double PersonalPressureScaleMin = 0.7;
+    public const double PersonalPressureScaleMax = 1.5;
+
     // Phase 2.1 — cursor-velocity OFI normalization
     // 80 px/s-per-OFI-unit: full-screen sweep in 1s (~2000 px/s) ≈ OFI 25; fast gaming swipe ≈ OFI 80.
     // Higher factor => lower OFI per cursor speed (less sensitive).

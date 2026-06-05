@@ -1,3 +1,5 @@
+using SenseEase.Core.Configuration;
+
 namespace SenseEase.Core.Inference;
 
 /// <summary>
@@ -22,9 +24,14 @@ namespace SenseEase.Core.Inference;
 /// </summary>
 public static class CalibrationProcessor
 {
-    public const double PersonalPressureScaleMin = 0.7;
-    public const double PersonalPressureScaleMax = 1.5;
+    public const double PersonalPressureScaleMin = SenseDefaults.PersonalPressureScaleMin;
+    public const double PersonalPressureScaleMax = SenseDefaults.PersonalPressureScaleMax;
     public const double VestibularPersonalPressureScaleCap = 1.0;
+
+    /// <summary>Direct trigger-pressure override set by the vestibular-diagnosed
+    /// branch (spec §5 step 2). Bypasses the scale path; the wrapper uses this
+    /// verbatim as the engine's EffectiveTrigger.</summary>
+    public const int VestibularTriggerPressureOverride = 50;
 
     public static CalibrationResult Process(
         CalibrationResponses responses,
@@ -71,7 +78,7 @@ public static class CalibrationProcessor
         {
             // Spec §5 step 2 first branch: vestibular hard-locks.
             profile = HabituationProfile.Sensitive;
-            triggerOverride     = 50;
+            triggerOverride     = VestibularTriggerPressureOverride;
             strikeLimitOverride = 1;
             medicalAdvisory     = "vestibular";
         }
