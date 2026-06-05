@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -282,6 +283,18 @@ public partial class App : Application
         catch { /* never crash on shutdown */ }
     }
 
+    // H19: runtime PII guard for crash.log. The Directory.Build.props PathMap
+    // normalizes compiler-embedded source paths at build time, but stack
+    // traces can still surface absolute paths captured at runtime (e.g. from
+    // third-party/precompiled assemblies whose PDBs we don't control, or from
+    // exception messages that interpolate a file path under the user profile).
+    // Any "...\Users\<name>\..." segment leaks the OS account name, so we
+    // redact the <name> component to a placeholder before writing. Case-
+    // insensitive; the captured group preserves the trailing separator.
+    private static readonly Regex UserPathRedaction = new(
+        @"\\Users\\[^\\/]+(\\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>Appends one timestamped record per crash. Best-effort: any IO failure
     /// here is silently swallowed — we are already in a crash path.</summary>
     private static void LogCrash(Exception? ex, string source)
@@ -289,10 +302,13 @@ public partial class App : Application
         if (ex == null) return;
         try
         {
+            // H19: redact any "\Users\<name>\" segment before persisting so the
+            // OS account name never lands in the shipped crash.log.
+            string redacted = UserPathRedaction.Replace(ex.ToString(), @"\Users\<redacted>$1");
             Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
             File.AppendAllText(CrashLogPath,
                 $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{source}] =====" + Environment.NewLine
-                + ex.ToString() + Environment.NewLine + Environment.NewLine);
+                + redacted + Environment.NewLine + Environment.NewLine);
         }
         catch { /* never crash inside the crash handler */ }
     }

@@ -1,0 +1,20 @@
+<Project>
+
+  <!-- H19: stop leaking the build-engineer username via PDB-embedded source
+       paths in the shipped crash.log. Without these, the Roslyn-emitted PDB
+       and any embedded source/file paths bake in the absolute build path
+       (e.g. C:\Users\<build-engineer>\…), which then surfaces verbatim in
+       stack traces written to crash.log on customer machines.
+
+       - Deterministic: makes the build output reproducible (a precondition
+         for source-path normalization to take effect).
+       - DeterministicSourcePaths: normalizes source file paths in the PDB.
+       - PathMap: rewrites this repo's absolute root to the neutral "/_/"
+         prefix in compiler-embedded paths, so no username leaks. -->
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+  </PropertyGroup>
+
+</Project>

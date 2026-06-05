@@ -802,6 +802,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    # H12: force UTF-8 on stdout regardless of the inherited environment. The
+    # C# host strips PYTHONIOENCODING / PYTHONUTF8 / PYTHONLEGACYWINDOWSSTDIO
+    # from the child env so they can't redirect or break our JSON stream, but
+    # reconfigure here as belt-and-suspenders for non-host launches (manual
+    # runs, soak harness) where those vars may still be set. Best-effort:
+    # reconfigure() is unavailable if stdout was replaced with a non-TextIO
+    # stream, in which case we leave the existing encoding untouched.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
     args = build_arg_parser().parse_args(argv)
     return run(
         input_spec=args.input,

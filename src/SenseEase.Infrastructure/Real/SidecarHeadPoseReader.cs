@@ -136,6 +136,30 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         return Interlocked.Exchange(ref _receivedSampleCount, 0);
     }
 
+    // H35: upper bound on a single stdout line. The bounded reader gives up and
+    // drops the partial once this many chars accumulate without a newline, so a
+    // hostile/wedged sidecar emitting one unbounded line can't OOM the host.
+    // Legit lines are ~150 bytes, so 64 KB is a >400x safety margin.
+    private const int MaxLineChars = 64 * 1024;
+
+    // H36: rate-limit the malformed-line diagnostic with exponential backoff so
+    // a wedged sidecar emitting bad lines at frame rate can't flood the diag
+    // log. We log the 1st malformed line, then the 2nd, 4th, 8th ... up to a
+    // cap of one-per-MalformedLogMaxInterval. The counter resets on the next
+    // successful parse. All of this state lives on the single reader Task, so
+    // no synchronization is needed beyond the Interlocked total counter.
+    private const int MalformedLogMaxInterval = 256; // log at most 1 / 256 bad lines once saturated
+    private int _malformedTotal;                      // total malformed lines (diagnostics, Interlocked)
+
+    /// <summary>H36: atomically read + reset the count of malformed sidecar
+    /// lines dropped since the last call (or since reader start). Lets a
+    /// diagnostics consumer surface a flood that the rate-limited log
+    /// intentionally suppresses. Safe to call from any thread.</summary>
+    public int ConsumeDroppedMalformedCount()
+    {
+        return Interlocked.Exchange(ref _malformedTotal, 0);
+    }
+
     /// <summary>Construct the reader. Does NOT spawn the sidecar — call
     /// <see cref="Start"/> for that. Separating construction from startup
     /// keeps the flag-off path zero-cost: if HeadTrackingEnabled is false,
@@ -222,6 +246,17 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding  = Encoding.UTF8,
             };
+
+            // H12: strip inherited env vars that could hijack the model load or
+            // corrupt the JSON stdout stream. A non-privileged HKCU\Environment
+            // / setx can set SENSEEASE_FACE_LANDMARKER_MODEL to redirect the
+            // sidecar's model load to an attacker path; the PYTHON* vars can
+            // change stdout encoding/buffering and break line framing. Remove()
+            // is a no-op when the var is absent, so this is always safe.
+            psi.EnvironmentVariables.Remove("SENSEEASE_FACE_LANDMARKER_MODEL");
+            psi.EnvironmentVariables.Remove("PYTHONIOENCODING");
+            psi.EnvironmentVariables.Remove("PYTHONUTF8");
+            psi.EnvironmentVariables.Remove("PYTHONLEGACYWINDOWSSTDIO");
 
             var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             proc.Exited += OnProcessExited;
@@ -512,6 +547,20 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     private void ReaderLoop(Process proc, CancellationToken ct)
     {
         StreamReader stdout = proc.StandardOutput;
+
+        // H35: hand-rolled bounded line accumulator (replaces StreamReader.
+        // ReadLine, which has no length cap). Reused across iterations so we
+        // don't reallocate per frame.
+        var lineBuf = new StringBuilder(256);
+
+        // H36: per-loop exponential-backoff state for the malformed-line diag.
+        // Local (not field) so each ReaderLoop generation starts fresh. We log
+        // the 1st bad line, then back off doubling the gap (1, 2, 4, ...) up to
+        // a once-per-MalformedLogMaxInterval ceiling. Reset on a good parse.
+        long malformedRun     = 0;   // consecutive malformed lines since last good parse
+        long nextMalformedLog = 1;   // log when malformedRun reaches this threshold
+        long logInterval      = 1;   // current backoff gap (doubles each emitted log)
+
         try
         {
             while (!ct.IsCancellationRequested)
@@ -531,33 +580,55 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 // sneaking through first.
                 if (!ReferenceEquals(proc, _process)) break;
 
-                string? line;
+                int outcome;
+                string line;
                 try
                 {
-                    line = stdout.ReadLine();
+                    outcome = ReadBoundedLine(stdout, lineBuf, out line);
                 }
                 catch (Exception ex)
                 {
-                    _log?.Invoke($"[SidecarHeadPoseReader] stdout ReadLine threw {ex.GetType().Name}: {ex.Message}. Reader exiting.");
+                    _log?.Invoke($"[SidecarHeadPoseReader] stdout read threw {ex.GetType().Name}: {ex.Message}. Reader exiting.");
                     break;
                 }
-                if (line is null) break;          // EOF — sidecar closed stdout.
-                if (line.Length == 0) continue;   // skip empty lines defensively.
+
+                if (outcome == ReadLineEof) break;        // EOF — sidecar closed stdout.
+                if (outcome == ReadLineOverflow)
+                {
+                    // H35: a single line exceeded MaxLineChars without a newline.
+                    // The partial was dropped (and the rest of the line is being
+                    // discarded by ReadBoundedLine up to the next newline/EOF).
+                    // Treat as a malformed line for rate-limit accounting so a
+                    // flood of giant lines can't slip past the H36 throttle.
+                    if (NoteMalformedLine(ref malformedRun, ref nextMalformedLog, ref logInterval))
+                        _log?.Invoke($"[SidecarHeadPoseReader] Dropped over-length line (>{MaxLineChars} chars, malformed run={malformedRun}).");
+                    continue;
+                }
+                if (line.Length == 0) continue;           // skip empty lines defensively.
 
                 if (TryParseSampleLine(line, out HeadPoseSample? sample) && sample is not null)
                 {
                     Volatile.Write(ref _latest, sample);
                     Interlocked.Exchange(ref _latestStoredAtMs, Environment.TickCount64);
                     Interlocked.Increment(ref _receivedSampleCount); // M5.1-C
+                    // H36: a good parse resets the malformed backoff so the next
+                    // bad line is logged immediately again.
+                    malformedRun     = 0;
+                    nextMalformedLog = 1;
+                    logInterval      = 1;
                 }
                 else
                 {
-                    // Malformed line: log at debug level and continue. Keep
-                    // the previous _latest so a single bad line doesn't trip
-                    // the staleness fallback. This is the "fuzz-resilient"
-                    // behavior asserted by SidecarHeadPoseReader_Parses
-                    // MalformedLine_DoesNotThrow.
-                    _log?.Invoke($"[SidecarHeadPoseReader] Skipped malformed line (len={line.Length}).");
+                    // Malformed line: keep the previous _latest so a single bad
+                    // line doesn't trip the staleness fallback. This is the
+                    // "fuzz-resilient" behavior asserted by SidecarHeadPoseReader
+                    // _ParsesMalformedLine_DoesNotThrow.
+                    //
+                    // H36: rate-limit the diagnostic with exponential backoff so
+                    // a wedged sidecar emitting bad lines at frame rate can't
+                    // flood the diag log / saturate the reader on disk I/O.
+                    if (NoteMalformedLine(ref malformedRun, ref nextMalformedLog, ref logInterval))
+                        _log?.Invoke($"[SidecarHeadPoseReader] Skipped malformed line (len={line.Length}, malformed run={malformedRun}).");
                 }
             }
         }
@@ -577,6 +648,90 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         // head-tracking. Mirror the OnProcessExited defense.
         if (ReferenceEquals(proc, _process))
             Interlocked.Exchange(ref _sidecarDead, 1);
+    }
+
+    // H35: bounded-line read outcomes. A successful read returns the char
+    // count of the line (>= 0) via the `line` out-param length; these two
+    // sentinels distinguish EOF and over-length-drop from a normal read.
+    private const int ReadLineEof      = -1;
+    private const int ReadLineOk       = 0;
+    private const int ReadLineOverflow = 1;
+
+    /// <summary>H35: read one newline-terminated line from <paramref name="reader"/>
+    /// with a hard <see cref="MaxLineChars"/> cap, so a hostile/wedged sidecar
+    /// emitting one unbounded line can't OOM the host.
+    ///
+    /// <para>Reads a char at a time into <paramref name="buf"/> (cleared on
+    /// entry). On '\n' the accumulated text (sans the trailing CR/LF) is
+    /// returned via <paramref name="line"/> with outcome <see cref="ReadLineOk"/>.
+    /// On EOF before any newline the partial is discarded and
+    /// <see cref="ReadLineEof"/> is returned. If the buffer reaches
+    /// <see cref="MaxLineChars"/> without a newline, the partial is dropped and
+    /// the rest of the over-length line is consumed up to the next newline (or
+    /// EOF) so the following line re-syncs; outcome is <see cref="ReadLineOverflow"/>.</para>
+    ///
+    /// <para>Char-at-a-time Read() is fine here: StreamReader buffers the
+    /// underlying pipe internally, so each call is a cheap buffer index, not a
+    /// syscall. The legit path is ~150 chars/line at 15 Hz.</para></summary>
+    internal static int ReadBoundedLine(StreamReader reader, StringBuilder buf, out string line)
+    {
+        buf.Clear();
+        while (true)
+        {
+            int c = reader.Read();
+            if (c < 0)
+            {
+                // EOF. A trailing partial (no final newline) is dropped — the
+                // production sidecar always terminates lines with '\n'.
+                line = string.Empty;
+                return ReadLineEof;
+            }
+            if (c == '\n')
+            {
+                // Strip a trailing CR so CRLF streams parse identically.
+                if (buf.Length > 0 && buf[buf.Length - 1] == '\r')
+                    buf.Length--;
+                line = buf.ToString();
+                return ReadLineOk;
+            }
+            if (buf.Length >= MaxLineChars)
+            {
+                // Over-length line with no newline yet: drop the partial and
+                // swallow the remainder up to the next newline/EOF so the
+                // stream re-syncs to a line boundary instead of mis-framing
+                // the next legit line onto this giant one's tail.
+                buf.Clear();
+                while (true)
+                {
+                    int d = reader.Read();
+                    if (d < 0 || d == '\n') break;
+                }
+                line = string.Empty;
+                return ReadLineOverflow;
+            }
+            buf.Append((char)c);
+        }
+    }
+
+    /// <summary>H36: advance the exponential-backoff state for a malformed
+    /// (or over-length) line and report whether THIS occurrence should be
+    /// logged. Increments the diagnostics total counter unconditionally.
+    /// Logs the 1st bad line in a run, then the 2nd, 4th, 8th ... doubling the
+    /// gap each time it emits, capped at one per <see cref="MalformedLogMaxInterval"/>.
+    /// All backoff state is caller-owned (reader-Task-local) so no locking is
+    /// needed; only the cross-thread total uses Interlocked.</summary>
+    private bool NoteMalformedLine(ref long run, ref long nextLog, ref long interval)
+    {
+        Interlocked.Increment(ref _malformedTotal);
+        run++;
+        if (run < nextLog) return false;
+
+        // Time to log. Schedule the next threshold by doubling the gap up to
+        // the ceiling, so a sustained flood settles at 1 log / MalformedLog
+        // MaxInterval lines.
+        interval = Math.Min(interval * 2, MalformedLogMaxInterval);
+        nextLog  = run + interval;
+        return true;
     }
 
     private void OnProcessExited(object? sender, EventArgs e)
@@ -643,6 +798,9 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         PropertyNameCaseInsensitive = true,
         AllowTrailingCommas         = true,
         ReadCommentHandling         = JsonCommentHandling.Skip,
+        // H35: the sidecar schema is flat (depth 1 is the legit max). Cap depth
+        // so a hostile/wedged sidecar can't drive the parser into deep nesting.
+        MaxDepth                    = 8,
     };
 
     /// <summary>Internal DTO mirroring the sidecar's JSON schema with explicit

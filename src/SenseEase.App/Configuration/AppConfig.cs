@@ -83,7 +83,12 @@ public static class AppConfig
         probes.Add(inBin);
         if (File.Exists(inBin)) { ModelPathProbes = probes; return inBin; }
 
+#if DEBUG
         // 2) Walk up to 8 levels looking for a sibling models/ folder.
+        //    H40: dev-only convenience. The walk-up can resolve to a path
+        //    OUTSIDE the install directory (a sibling repo checkout, a parent
+        //    folder), which is fine during development but is a path-confusion
+        //    hazard in a shipped build — so it is gated behind #if DEBUG.
         var info = new DirectoryInfo(baseDir);
         for (int i = 0; i < 8 && info is not null; i++)
         {
@@ -97,6 +102,7 @@ public static class AppConfig
                 return candidate;
             }
         }
+#endif
 
         ModelPathProbes = probes;
         return inBin; // canonical-install path for the "not found" diagnostic
@@ -130,6 +136,10 @@ public static class AppConfig
         probes.Add(inBin);
         if (File.Exists(inBin)) { DemoVideoProbes = probes; return inBin; }
 
+#if DEBUG
+        // H40: dev-only walk-up (see ResolveModelPath). A shipped build must
+        // resolve only to the install-adjacent path; the walk-up that can
+        // escape BaseDirectory is gated behind #if DEBUG.
         var info = new DirectoryInfo(baseDir);
         for (int i = 0; i < 8 && info is not null; i++)
         {
@@ -139,6 +149,7 @@ public static class AppConfig
             probes.Add(candidate);
             if (File.Exists(candidate)) { DemoVideoProbes = probes; return candidate; }
         }
+#endif
 
         DemoVideoProbes = probes;
         return string.Empty;
@@ -309,6 +320,10 @@ public static class AppConfig
         string inBin = Path.Combine(baseDir, rel);
         if (File.Exists(inBin)) return inBin;
 
+#if DEBUG
+        // H40: dev-only walk-up (see ResolveModelPath). Gated behind #if DEBUG
+        // so a shipped build never launches a sidecar EXE resolved from a path
+        // outside the install directory.
         var info = new DirectoryInfo(baseDir);
         for (int i = 0; i < 8 && info is not null; i++)
         {
@@ -317,6 +332,8 @@ public static class AppConfig
             string candidate = Path.Combine(info.FullName, rel);
             if (File.Exists(candidate)) return candidate;
         }
+#endif
+
         return inBin; // canonical-install path for the "not found" diagnostic
     }
 }
