@@ -624,8 +624,84 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24,20,24,24">
 
-                        <!-- Sticky-style live metrics strip -->
-                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                        <!-- H4 (audit): D1 comfort hero — leads the Eye-Protection
+                             tab with the same calm, plain-language status as the
+                             Dashboard instead of a raw-telemetry dump. Same
+                             read-only converters + Comfort* tokens. -->
+                        <Border Background="{StaticResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                                Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
+                                Margin="0,0,0,16"
+                                AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Type.Display}"
+                                           Text="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}"/>
+                                <TextBlock Style="{StaticResource Type.Caption}" Margin="0,6,0,0"
+                                           Text="{Binding VimsTier, Converter={StaticResource TierToSubline}, Mode=OneWay}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{StaticResource ComfortSteadyWeak}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
+                                                        <Setter Property="Background" Value="{StaticResource ComfortRisingWeak}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
+                                                        <Setter Property="Background" Value="{StaticResource ComfortHighWeak}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding VimsTier, Converter={StaticResource TierToComfortLabel}, Mode=OneWay}"
+                                                   FontSize="12" FontWeight="SemiBold"
+                                                   AutomationProperties.Name="Comfort band">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{StaticResource ComfortSteadyText}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
+                                                            <Setter Property="Foreground" Value="{StaticResource ComfortRisingText}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
+                                                            <Setter Property="Foreground" Value="{StaticResource ComfortHighText}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5"
+                                            Background="{StaticResource SurfaceMuted}">
+                                        <TextBlock Text="{Binding Mode}" FontSize="12"
+                                                   Foreground="{StaticResource TextSecondary}"/>
+                                    </Border>
+                                </StackPanel>
+                                <ProgressBar Value="{Binding DisplayStressPercent, Mode=OneWay}" Maximum="100"
+                                             Height="6" Margin="0,16,0,0" BorderThickness="0"
+                                             Background="{StaticResource SurfaceMuted}"
+                                             AutomationProperties.Name="Comfort level">
+                                    <ProgressBar.Style>
+                                        <Style TargetType="ProgressBar">
+                                            <Setter Property="Foreground" Value="{StaticResource ComfortSteady}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
+                                                    <Setter Property="Foreground" Value="{StaticResource ComfortRising}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
+                                                    <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ProgressBar.Style>
+                                </ProgressBar>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- H4 (audit): the raw 5-column live metrics demoted into a
+                             collapsed Advanced expander — the hero above carries the
+                             calm at-a-glance status. Bindings byte-identical. -->
+                        <Expander Header="進階即時數據 / Advanced — live metrics" IsExpanded="False" Margin="0,0,0,16">
+                        <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center">
@@ -705,6 +781,7 @@
                                 </UniformGrid>
                             </StackPanel>
                         </Border>
+                        </Expander>
 
                         <!-- VIMS Interception Monitor (live chart) -->
                         <Border Style="{StaticResource Card}" Margin="0,0,0,16">
