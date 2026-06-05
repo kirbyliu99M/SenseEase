@@ -389,16 +389,19 @@ public class HabituationProfileStoreTests : IDisposable
     }
 
     [Fact]
-    public void Load_V1WithPostV2ShipDate_Refused()
+    public void Load_V1WithRecentDate_NoFlag_StillLoads()
     {
-        // No prior v2 write (no flag), but the v1 file claims a date after v2
-        // shipped — impossible for a genuine v1 file, so it's a downgrade.
-        string futureV1 = LegacyV1Json.Replace(
+        // review #4/#5: the lossy/​bypassable date arm was removed. A genuine pre-v2
+        // file (no flag) must load regardless of its updated_at_iso — even a recent
+        // date that the old date-guard would have wrongly rejected as a downgrade.
+        string recentV1 = LegacyV1Json.Replace(
             "2026-05-24T12:34:56.0000000Z", "2026-07-01T00:00:00.0000000Z");
-        File.WriteAllText(_path, futureV1);
+        File.WriteAllText(_path, recentV1);
 
         var store = new FileHabituationProfileStore(_path);
-        Assert.Null(store.Load());
+        var loaded = store.Load();
+        Assert.NotNull(loaded);
+        Assert.Equal("TYPICAL", loaded!.Profile);
     }
 
     // ── Stage 6c: app-data-wipe edge case ────────────────────────────────────

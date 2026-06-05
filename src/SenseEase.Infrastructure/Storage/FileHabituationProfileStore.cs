@@ -27,14 +27,12 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     private const int LegacyV1SchemaVersion = 1;
 
     // H14: schema-downgrade guard. Editing the file to {"schema_version":1,...}
-    // null-fills MedicalAdvisoryShown and bypasses the vestibular safety
-    // intercept. Once this profile has been written as v2 we drop a sibling flag;
-    // its presence (or a v1 file whose updated_at_iso is at/after the v2 ship date)
+    // null-fills MedicalAdvisoryShown and bypasses the vestibular safety intercept.
+    // Once this profile has been written as v2 we drop a sibling flag; its presence
     // marks a v1 load as a downgrade, which we refuse — falling back to RESILIENT
-    // defaults is safer than a null-filled advisory.
+    // defaults is safer than a null-filled advisory. (A date-based second arm was
+    // removed per review #4/#5: lossy on genuine old files + timezone-bypassable.)
     private readonly string _schemaFloorFlagPath;
-    private static readonly DateTime V2SchemaShipDateUtc =
-        new(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
 
     /// <summary>Constructor with optional wipe-probe artifact path. When the
     /// profile JSON is missing but the artifact at this path exists, Load
@@ -106,7 +104,7 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
                     // transformation logic, just null-fill at deserialise time.
                     // Renaming this method to "Migrate*" would mislead future
                     // readers into expecting per-field translation rules.
-                    if (IsSchemaDowngrade(snap))
+                    if (IsSchemaDowngrade())
                     {
                         Debug.WriteLine(
                             $"[HabituationProfile] refusing v1 downgrade of {_path} " +
@@ -144,15 +142,13 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     /// written a v2 file (flag present) OR the v1 file claims an updated_at_iso at
     /// or after the v2 schema ship date (no genuine v1 file is written after v2
     /// started shipping).</summary>
-    private bool IsSchemaDowngrade(HabituationProfileSnapshot v1Snap)
+    private bool IsSchemaDowngrade()
     {
-        try { if (File.Exists(_schemaFloorFlagPath)) return true; } catch { }
-        if (DateTime.TryParse(v1Snap.UpdatedAtIso,
-                System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.RoundtripKind, out DateTime updated)
-            && updated.ToUniversalTime() >= V2SchemaShipDateUtc)
-            return true;
-        return false;
+        // review #4/#5: the date-based arm was both lossy (rejected genuine pre-v2
+        // files dated after the constant) and bypassable (Unspecified-kind / blank
+        // timestamps). The schema_floor_v2 flag is the robust signal — present iff
+        // THIS install has already written v2, so a later v1 file is a downgrade.
+        try { return File.Exists(_schemaFloorFlagPath); } catch { return false; }
     }
 
     public void Save(HabituationProfileSnapshot snapshot)

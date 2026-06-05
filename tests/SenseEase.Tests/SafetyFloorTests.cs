@@ -36,7 +36,6 @@ public class SafetyFloorTests
     [InlineData("I might kill myself")]
     // youth shorthand (H3)
     [InlineData("honestly kys")]
-    [InlineData("kms tbh")]
     [InlineData("i want to unalive")]
     [InlineData("might off myself")]
     [InlineData("no reason to live anymore")]
@@ -56,6 +55,9 @@ public class SafetyFloorTests
     [InlineData("我有點頭暈")]
     [InlineData("the screen is killing me")]   // idiom, not in the phrase list
     [InlineData("好多了，謝謝")]
+    [InlineData("I walked 5 kms today and felt dizzy")]   // review #6 — km abbreviation
+    [InlineData("想死你了，好久不見")]                       // review #7 — affectionate greeting
+    [InlineData("百貨公司跳樓大拍賣")]                        // review #7 — fire-sale idiom
     [InlineData("")]
     [InlineData("   ")]
     [InlineData(null)]
@@ -63,6 +65,14 @@ public class SafetyFloorTests
     {
         Assert.False(SafetyFloor.Trips(text, out string r));
         Assert.Empty(r);
+    }
+
+    [Fact]
+    public void Trips_CurlyApostropheSelfHarm_StillTrips()
+    {
+        // review #1: U+2019 curly apostrophe (phone/desktop autocorrect of "don't").
+        Assert.True(SafetyFloor.Trips("I don’t want to live anymore", out string r));
+        Assert.Equal(SafetyFloor.CrisisResponseEn, r);
     }
 
     [Fact]

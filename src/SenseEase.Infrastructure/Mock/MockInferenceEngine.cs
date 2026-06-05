@@ -24,6 +24,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private readonly IHabituationProfileStore? _profileStore;
     private double _personalizationAccumulator;
     private int _lastSavedOffset;
+    private readonly bool _profileExistedAtLoad; // #2 (EM2 hardening): did a profile snapshot exist at boot?
     private int      _vimsTier = 1;
     private int      _pendingTierCandidate = 1;
     private DateTime _pendingTierSinceUtc  = DateTime.MinValue;
@@ -113,6 +114,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             _habituation.Restore(savedOffset);
 
         HabituationProfileSnapshot? savedSnapshot = profileStore?.Load();
+        _profileExistedAtLoad = savedSnapshot is not null;
         if (savedSnapshot is not null)
         {
             if (Enum.TryParse<HabituationProfile>(savedSnapshot.Profile, ignoreCase: true,
@@ -684,7 +686,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         if (_profileStore is not null)
         {
             var snap = BuildProfileSnapshot();
-            _profileStore.Save(snap);
+            if (snap is not null) _profileStore.Save(snap); // #2: null = transient read failure; don't clobber
         }
 
         _lastSavedLevel         = level;
@@ -768,7 +770,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         catch { /* best-effort; event-log writes must never crash the engine */ }
     }
 
-    private HabituationProfileSnapshot BuildProfileSnapshot()
+    private HabituationProfileSnapshot? BuildProfileSnapshot()
     {
         var p = _habituation.CurrentParams;
         // EM2: read-modify-write. This builds a FRESH snapshot from in-memory
@@ -778,6 +780,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // carry those fields forward so an engine persist no longer silently wipes
         // them (the chatbot's longitudinal memory + the calibration_* enums).
         var existing = _profileStore?.Load();
+        // #2 (EM2 hardening, review): if a profile EXISTED at boot but Load now
+        // returns null, that is a transient read failure (file briefly locked /
+        // corrupt), NOT a first run. Rebuilding-and-overwriting here would null-fill
+        // MedicalAdvisoryShown + the calibration_* fields and wipe the vestibular
+        // safety advisory. Signal "skip this persist" by returning null.
+        if (existing is null && _profileExistedAtLoad) return null;
         return new HabituationProfileSnapshot
         {
             // SchemaVersion intentionally omitted — the property's default

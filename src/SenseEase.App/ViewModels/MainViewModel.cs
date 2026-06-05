@@ -10,6 +10,7 @@ using SenseEase.App.Configuration;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
+using SenseEase.Core.Safety;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Real;
@@ -1498,7 +1499,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         UpdateFromState(_engine.Current);
         NluResponse = result.Response;
         OnPropertyChanged(nameof(NluResponseVisible));
-        AppendLog("Feedback", $"\"{utterance}\" -> {result.Intent}", CurrentState);
+        // review #3: the Feedback box is a second self-harm entry point — when the
+        // safety floor trips, persist the redacted placeholder, never the raw text
+        // (the event log is now durable on disk; mirrors the chatbot path's H2).
+        string loggedUtterance = SafetyFloor.Trips(utterance, out _)
+            ? SafetyFloor.RedactedPlaceholder
+            : utterance;
+        AppendLog("Feedback", $"\"{loggedUtterance}\" -> {result.Intent}", CurrentState);
     }
 
     private void AppendAdjustment(string parameter, double delta, double oldValue, double newValue, string utterance)

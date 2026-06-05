@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace SenseEase.Core.Safety;
@@ -49,8 +50,9 @@ public static class SafetyFloor
         "想死了", "想去死", "我想死",
         // Simplified equivalents (H3)
         "自残", "自杀", "结束生命", "跳楼",
-        // bare 想死 (H3) — same code points in both scripts
-        "想死",
+        // (review #7) bare "想死" REMOVED — it matched the affectionate idiom
+        // "想死你了" (I missed you). The specific forms above (想死了/我想死/想去死)
+        // keep real-intent coverage without the greeting false-positive.
     };
 
     /// <summary>English + youth shorthand. Matched against the NFKC-lowered text (H3).</summary>
@@ -60,11 +62,25 @@ public static class SafetyFloor
         "kill myself", "end it all", "end my life",
         "not want to live", "do not want to live", "don't want to live",
         "want to die", "wanna die",
-        // youth shorthand (H3)
-        "kys", "kms", "unalive", "unaliving",
+        // youth shorthand (H3). (review #6) "kms" REMOVED — it collides with the
+        // kilometre abbreviation ("I walked 5 kms today"), a plausible input for a
+        // motion-app user. "kys" is kept but matched on WORD BOUNDARIES (see
+        // WordBoundaryRequiredEn) so "whiskys" etc. don't trip.
+        "kys", "unalive", "unaliving",
         "end myself", "off myself", "no reason to live",
         "don't want to be here", "better off dead", "wish i was dead",
     };
+
+    /// <summary>English tokens short enough to collide as substrings; matched only
+    /// as whole words (review #6).</summary>
+    private static readonly HashSet<string> WordBoundaryRequiredEn =
+        new(StringComparer.Ordinal) { "kys" };
+
+    /// <summary>Sale/idiom markers (Traditional + Simplified). When the ONLY Han
+    /// trigger is "跳樓"/"跳楼" and one of these is present, treat it as the
+    /// "跳樓大拍賣" fire-sale idiom, not self-harm (review #7).</summary>
+    private static readonly string[] SaleIdiomMarkers =
+        { "拍賣", "拍卖", "特賣", "特卖", "促銷", "促销", "清倉", "清仓", "跳樓價", "跳楼价", "大特價", "大特价", "折扣" };
 
     /// <summary>Detects self-harm / severe-distress phrases. Returns <c>true</c>
     /// and the localised crisis-line response when triggered. The user's CURRENT
@@ -75,30 +91,60 @@ public static class SafetyFloor
         response = string.Empty;
         if (string.IsNullOrWhiteSpace(userText)) return false;
 
-        // NFKC folds full-width Latin → ASCII; ToLowerInvariant handles case.
-        // Han phrases are unaffected by either, so a single normalised string
-        // serves both vocabularies.
-        string normalized = userText.Normalize(NormalizationForm.FormKC).ToLowerInvariant();
+        // NFKC folds full-width Latin → ASCII; ToLowerInvariant handles case. NFKC
+        // does NOT fold the curly apostrophe, so phone/desktop autocorrect of
+        // "don't" (U+2019) would silently bypass the floor — fold the apostrophe
+        // variants to ASCII first (review #1).
+        string normalized = userText.Normalize(NormalizationForm.FormKC).ToLowerInvariant()
+            .Replace('’', '\'').Replace('‘', '\'').Replace('ʼ', '\'');
         bool zh = IsHan(userText);
 
         foreach (string p in PhrasesHan)
         {
-            if (normalized.Contains(p, StringComparison.Ordinal))
-            {
-                response = CrisisResponseZh;
-                return true;
-            }
+            if (!normalized.Contains(p, StringComparison.Ordinal)) continue;
+            // review #7: "跳樓/跳楼" alone is also the ubiquitous fire-sale idiom.
+            // If a sale marker is present, skip THIS phrase and keep checking the
+            // rest (so "我要跳樓" still trips, but "跳樓大拍賣" alone does not).
+            if ((p == "跳樓" || p == "跳楼") && IsBenignSaleIdiom(normalized)) continue;
+            response = CrisisResponseZh;
+            return true;
         }
 
         foreach (string p in PhrasesEn)
         {
-            if (normalized.Contains(p, StringComparison.Ordinal))
+            bool hit = WordBoundaryRequiredEn.Contains(p)
+                ? ContainsWord(normalized, p)                               // review #6
+                : normalized.Contains(p, StringComparison.Ordinal);
+            if (hit)
             {
                 response = zh ? CrisisResponseZh : CrisisResponseEn;
                 return true;
             }
         }
 
+        return false;
+    }
+
+    private static bool IsBenignSaleIdiom(string normalized)
+    {
+        foreach (string m in SaleIdiomMarkers)
+            if (normalized.Contains(m, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    /// <summary>True if <paramref name="word"/> occurs in <paramref name="text"/>
+    /// bounded by non-alphanumeric characters (or the string ends).</summary>
+    private static bool ContainsWord(string text, string word)
+    {
+        int idx = 0;
+        while ((idx = text.IndexOf(word, idx, StringComparison.Ordinal)) >= 0)
+        {
+            bool leftOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
+            int end = idx + word.Length;
+            bool rightOk = end == text.Length || !char.IsLetterOrDigit(text[end]);
+            if (leftOk && rightOk) return true;
+            idx = end;
+        }
         return false;
     }
 

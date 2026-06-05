@@ -46,6 +46,18 @@ public class HabituationTests
         public void Save(HabituationProfileSnapshot snapshot) { Stored = snapshot; SaveCount++; }
     }
 
+    /// <summary>Profile store that succeeds at construction then simulates a
+    /// transient read failure (returns null) — for the #2 EM2-hardening test.</summary>
+    private sealed class TransientFailProfileStore : IHabituationProfileStore
+    {
+        public bool FailLoads;
+        public int SaveCount;
+        public HabituationProfileSnapshot? Stored;
+        public TransientFailProfileStore(HabituationProfileSnapshot seed) { Stored = seed; }
+        public HabituationProfileSnapshot? Load() => FailLoads ? null : Stored;
+        public void Save(HabituationProfileSnapshot snapshot) { SaveCount++; Stored = snapshot; }
+    }
+
     // ── Unit tests ────────────────────────────────────────────────────────────
 
     [Fact]
@@ -359,6 +371,27 @@ public class HabituationTests
         Assert.Single(after.LongitudinalObservations);
         Assert.Contains("Mondays", after.LongitudinalObservations[0]);
         Assert.Equal("SENSITIVE", after.Profile);                // the engine's change also landed
+    }
+
+    [Fact]
+    public void EnginePersist_TransientLoadFailure_DoesNotClobberAdvisory_EM2Hardening()
+    {
+        // #2: if the profile existed at boot but a later Load() fails transiently,
+        // the engine must SKIP the persist rather than null-fill + overwrite the
+        // vestibular advisory.
+        var seed = new HabituationProfileSnapshot
+        {
+            Profile = "SENSITIVE",
+            MedicalAdvisoryShown = MedicalAdvisory.Vestibular,
+        };
+        var store = new TransientFailProfileStore(seed);
+        var engine = new MockInferenceEngine(profileStore: store); // ctor Load succeeds -> existed-at-boot
+        store.FailLoads = true;                                     // now every Load returns null
+
+        engine.SetHabituationProfile(HabituationProfile.Typical, "force"); // triggers a persist attempt
+
+        Assert.Equal(0, store.SaveCount);                          // persist skipped
+        Assert.Equal(MedicalAdvisory.Vestibular, store.Stored!.MedicalAdvisoryShown); // advisory survived
     }
 
     [Fact]
