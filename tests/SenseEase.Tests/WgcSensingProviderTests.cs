@@ -47,4 +47,22 @@ public class WgcSensingProviderTests
         provider.Resume();
         Assert.False(provider.IsPaused);
     }
+
+    /// <summary>Alpha-1 W3 (EM3 / NE11): Stop() and Dispose() are idempotent and safe
+    /// to call without a prior Start() and again after Dispose, so the teardown paths
+    /// (Power-Save toggle / mode swap / Reset) and the EM4 fault-recovery re-init can't
+    /// throw. The COM use-after-free RACE and the EM4 recovery itself need a live WGC
+    /// session + GPU and are verified at runtime (see the W3 user-test requirements).</summary>
+    [Fact]
+    public void StopAndDispose_AreIdempotent_WithoutStart()
+    {
+        var provider = new WgcSensingProvider();
+
+        provider.Stop();      // teardown without a session — every release is null-guarded
+        provider.Stop();      // idempotent
+        provider.Dispose();   // Stop() + timer.Dispose()
+        provider.Dispose();   // Stop() after the timer is disposed must not throw (guarded Change)
+
+        Assert.False(provider.IsPaused);
+    }
 }

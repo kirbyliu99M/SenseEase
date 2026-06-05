@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
 using Windows.Graphics.Capture;
@@ -100,6 +101,12 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private readonly SynchronizationContext? _ctx;
     private readonly Timer _timer;
     private bool   _running;
+    // EM3: serialises Stop()'s COM teardown against an in-flight OnTick so the
+    // capture never dereferences freed pointers. EM4: _faulted coalesces the
+    // single-shot fault-recovery re-init.
+    private readonly object _lifecycleLock = new();
+    private volatile bool _faulted;
+    private const int WgcFaultRecoveryDelayMs = 500;
     private byte[]? _prevFrame;
     private double  _smoothedOfi;
     private readonly double[] _ofiHistory = new double[SenseDefaults.VimsMedianTaps];
@@ -292,6 +299,36 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         _ = watchdog;
     }
 
+    /// <summary>EM4: recover from a transient OnTick fault. Disarms the timer and
+    /// schedules a single race-free Stop()+Start() re-init after a short delay, so a
+    /// GPU TDR / display-mode change / RDP reconnect no longer leaves WGC sensing
+    /// (and the FOV mask) permanently dead. Re-entrant faults during the delay are
+    /// coalesced by <c>_faulted</c>.</summary>
+    private void ScheduleFaultRecovery()
+    {
+        if (_faulted) return;
+        _faulted = true;
+        try { _timer.Change(Timeout.Infinite, Timeout.Infinite); } catch { }
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(WgcFaultRecoveryDelayMs).ConfigureAwait(false);
+                if (!_paused)
+                {
+                    WgcLog("OnTick fault → scheduled Stop/Start re-init (EM4).");
+                    Stop();
+                    Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                WgcLog($"Fault-recovery re-init failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally { _faulted = false; }
+        });
+    }
+
     public void Start()
     {
         if (_running) return;
@@ -453,34 +490,47 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
 
     public void Stop()
     {
-        _running = false;
-        _timer.Change(Timeout.Infinite, Timeout.Infinite);
+        // EM3: hold the lifecycle lock so we never free COM/D3D pointers while an
+        // OnTick is mid-capture (OnTick takes the same lock). Idempotent — every
+        // release below is null-guarded, so a second Stop() (or a Stop after a fault
+        // recovery / Dispose) is a safe no-op. The timer.Change is try-guarded
+        // because Dispose() may already have disposed the timer.
+        lock (_lifecycleLock)
+        {
+            _running = false;
+            try { _timer.Change(Timeout.Infinite, Timeout.Infinite); } catch { /* may be disposed */ }
 
-        // Release cached raw pointers first.
-        SafeRelease(ref _ctxPtr);
-        SafeRelease(ref _stagingResPtr);
+            // Release cached raw pointers first.
+            SafeRelease(ref _ctxPtr);
+            SafeRelease(ref _stagingResPtr);
 
-        // Dispose WinRT objects.
-        try { _captureSession?.Dispose(); } catch { }
-        try { _framePool?.Dispose();      } catch { }
-        try { _winrtDevice?.Dispose();    } catch { }
+            // Dispose WinRT objects.
+            try { _captureSession?.Dispose(); } catch { }
+            try { _framePool?.Dispose();      } catch { }
+            try { _winrtDevice?.Dispose();    } catch { }
 
-        // Release CsWin32 COM objects (only if proper RCW).
-        try { if (_stagingTexture != null && Marshal.IsComObject(_stagingTexture)) Marshal.ReleaseComObject(_stagingTexture); } catch { }
-        try { if (_d3dContext     != null && Marshal.IsComObject(_d3dContext))     Marshal.ReleaseComObject(_d3dContext);     } catch { }
-        try { if (_d3dDevice      != null && Marshal.IsComObject(_d3dDevice))      Marshal.ReleaseComObject(_d3dDevice);     } catch { }
+            // Release CsWin32 COM objects (only if proper RCW).
+            try { if (_stagingTexture != null && Marshal.IsComObject(_stagingTexture)) Marshal.ReleaseComObject(_stagingTexture); } catch { }
+            try { if (_d3dContext     != null && Marshal.IsComObject(_d3dContext))     Marshal.ReleaseComObject(_d3dContext);     } catch { }
+            try { if (_d3dDevice      != null && Marshal.IsComObject(_d3dDevice))      Marshal.ReleaseComObject(_d3dDevice);     } catch { }
 
-        _captureSession = null;
-        _framePool      = null;
-        _winrtDevice    = null;
-        _captureItem    = null;
-        _stagingTexture = null;
-        _d3dContext     = null;
-        _d3dDevice      = null;
+            _captureSession = null;
+            _framePool      = null;
+            _winrtDevice    = null;
+            _captureItem    = null;
+            _stagingTexture = null;
+            _d3dContext     = null;
+            _d3dDevice      = null;
+        }
     }
 
-    /// <summary>Releases all D3D11/WGC resources. Safe to call multiple times.</summary>
-    public void Dispose() => Stop();
+    /// <summary>Releases all D3D11/WGC resources + the capture timer. Safe to call
+    /// multiple times (NE11: the timer was previously never disposed → leak).</summary>
+    public void Dispose()
+    {
+        Stop();
+        try { _timer.Dispose(); } catch { }
+    }
 
     private void OnTick(object? state)
     {
@@ -514,6 +564,14 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             return;
         }
 
+        // EM3: serialise the capture (which dereferences the cached COM/D3D
+        // pointers) against Stop()'s teardown. Stop() takes the same lock before
+        // SafeRelease, so a tick either runs to completion before the pointers are
+        // freed (Stop waits) or sees _running==false after Stop and bails — no
+        // use-after-free on a Power-Save toggle / mode swap / Reset / watchdog.
+        lock (_lifecycleLock)
+        {
+        if (!_running || _paused) return; // re-check after acquiring (Stop may have run)
         try
         {
             byte[] current = CaptureAndDownsample(out bool realFrame);
@@ -578,9 +636,13 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         }
         catch (Exception ex)
         {
+            // EM4: a transient OnTick fault (GPU TDR, display-mode change, RDP
+            // reconnect) must NOT permanently disable sensing. Recover via a
+            // race-free Stop()+Start() re-init instead of a terminal Stop().
             WgcLog($"OnTick FATAL ({ex.GetType().Name}): {ex.Message}\n{ex.StackTrace}");
-            Stop();
+            ScheduleFaultRecovery();
         }
+        } // close EM3 lock (_lifecycleLock)
     }
 
     private byte[] CaptureAndDownsample(out bool realFrame)
