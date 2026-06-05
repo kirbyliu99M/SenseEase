@@ -19,6 +19,8 @@ public class MarkdownInlinesTests
     [InlineData("set personal_pressure_scale now")]
     [InlineData("severe_strike_limit and expires_at_iso today")]
     [InlineData("emit the [OBSERVATION_ADD] token")]
+    [InlineData("rename foo_bar_baz before save")]      // generic mid-token underscores
+    [InlineData("the a_b and c_d tokens persist")]      // multiple short technical tokens
     public void IntrawordUnderscores_AreNotItalicised(string text)
     {
         RunSta(() =>

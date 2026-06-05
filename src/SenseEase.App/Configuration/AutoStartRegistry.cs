@@ -32,20 +32,58 @@ public static class AutoStartRegistry
     public const string MinimizedArg = "--minimized";
 
     /// <summary>Reads the current registry state. Returns true iff a value
-    /// is set for SenseEase under the Run key. Does NOT verify the path
-    /// matches the current EXE — a stale value (e.g. after a build path
-    /// change) still reports enabled.</summary>
+    /// is set for SenseEase under the Run key. Self-healing: when a value is
+    /// present but no longer matches the current EXE (e.g. after an in-place
+    /// update to a versioned folder, a reinstall, or a portable move), the
+    /// Run-key value is rewritten to the correct path so autostart keeps
+    /// launching the live EXE. A rewrite failure does not change the reported
+    /// state — a stale-but-present value still reports enabled.</summary>
     public static bool IsEnabled()
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
-            return key?.GetValue(ValueName) is not null;
+            if (key?.GetValue(ValueName) is not string current) return false;
+
+            string? expected = BuildRunValue();
+            if (expected is not null &&
+                !string.Equals(current, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                Heal(expected);
+            }
+            return true;
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[AutoStartRegistry] IsEnabled read failed: {ex.GetType().Name}: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>Builds the canonical Run-key value (quoted current EXE path
+    /// plus the <see cref="MinimizedArg"/> flag), or null when the EXE path is
+    /// unavailable.</summary>
+    private static string? BuildRunValue()
+    {
+        string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
+        return string.IsNullOrEmpty(exePath) ? null : $"\"{exePath}\" {MinimizedArg}";
+    }
+
+    /// <summary>Rewrites the Run-key value to <paramref name="value"/>. Used by
+    /// <see cref="IsEnabled"/> to correct a stale path. Failures are swallowed
+    /// (logged only) so a read can never throw from a heal attempt.</summary>
+    private static void Heal(string value)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            if (key is null) return;
+            key.SetValue(ValueName, value, RegistryValueKind.String);
+            Debug.WriteLine("[AutoStartRegistry] healed stale Run-key path to current EXE.");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AutoStartRegistry] heal failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -63,13 +101,13 @@ public static class AutoStartRegistry
 
             if (enabled)
             {
-                string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
-                if (string.IsNullOrEmpty(exePath))
+                string? value = BuildRunValue();
+                if (value is null)
                 {
                     Debug.WriteLine("[AutoStartRegistry] EXE path unavailable; cannot enable autostart.");
                     return false;
                 }
-                key.SetValue(ValueName, $"\"{exePath}\" {MinimizedArg}", RegistryValueKind.String);
+                key.SetValue(ValueName, value, RegistryValueKind.String);
             }
             else
             {

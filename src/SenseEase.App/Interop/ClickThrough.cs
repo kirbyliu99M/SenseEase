@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -15,11 +16,29 @@ public static class ClickThrough
     private const int WS_EX_TRANSPARENT = 0x00000020;
     private const int WS_EX_LAYERED = 0x00080000;
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    // On x64 the window-long APIs traffic in pointer-sized values, so use the
+    // *Ptr variants (nint) rather than the 32-bit GetWindowLong/SetWindowLong,
+    // which truncate on 64-bit. On 32-bit Windows the *Ptr exports are absent,
+    // so fall back to the 32-bit entry points there.
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern nint GetWindowLongPtr64(IntPtr hWnd, int nIndex);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern nint SetWindowLongPtr64(IntPtr hWnd, int nIndex, nint dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+    private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+    private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    private static nint GetWindowLongPtr(IntPtr hWnd, int nIndex)
+        => IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : GetWindowLong32(hWnd, nIndex);
+
+    private static nint SetWindowLongPtr(IntPtr hWnd, int nIndex, nint dwNewLong)
+        => IntPtr.Size == 8
+            ? SetWindowLongPtr64(hWnd, nIndex, dwNewLong)
+            : SetWindowLong32(hWnd, nIndex, (int)dwNewLong);
 
     /// <summary>
     /// Make the given window click-through. Call after the HWND exists
@@ -28,7 +47,22 @@ public static class ClickThrough
     public static void Enable(Window window)
     {
         IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
-        int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED);
+
+        Marshal.SetLastSystemError(0);
+        nint exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        if (exStyle == 0 && Marshal.GetLastWin32Error() != 0)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(),
+                "GetWindowLongPtr(GWL_EXSTYLE) failed.");
+        }
+
+        nint newStyle = exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED;
+        Marshal.SetLastSystemError(0);
+        nint previous = SetWindowLongPtr(hwnd, GWL_EXSTYLE, newStyle);
+        if (previous == 0 && Marshal.GetLastWin32Error() != 0)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(),
+                "SetWindowLongPtr(GWL_EXSTYLE) failed.");
+        }
     }
 }

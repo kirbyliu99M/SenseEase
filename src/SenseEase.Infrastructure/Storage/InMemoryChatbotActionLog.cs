@@ -15,12 +15,15 @@ namespace SenseEase.Infrastructure.Storage;
 /// the chatbot ever needs to "remember it proposed X yesterday" across
 /// restarts.
 ///
-/// Thread-safe via a single gate lock. The list grows unbounded today —
-/// a soft cap (e.g. 500 entries with FIFO eviction) would be trivial to
-/// add if it becomes a memory concern in long sessions.
+/// Thread-safe via a single gate lock. NE19: a FIFO soft cap
+/// (<see cref="SoftCap"/> entries) evicts the oldest on insert so a long
+/// session can't grow the log unbounded.
 /// </summary>
 public sealed class InMemoryChatbotActionLog : IChatbotActionLog
 {
+    /// <summary>NE19: max retained entries before the oldest is evicted (FIFO).</summary>
+    private const int SoftCap = 500;
+
     private readonly object _gate = new();
     private readonly List<ChatbotActionEntry> _entries = new();
 
@@ -34,7 +37,13 @@ public sealed class InMemoryChatbotActionLog : IChatbotActionLog
             ProposedValue: proposal.ProposedValue,
             Rationale: proposal.Rationale,
             Reason: reason);
-        lock (_gate) { _entries.Add(entry); }
+        lock (_gate)
+        {
+            _entries.Add(entry);
+            // NE19: evict oldest-first once over the soft cap (typically 0-1 removals per insert).
+            if (_entries.Count > SoftCap)
+                _entries.RemoveRange(0, _entries.Count - SoftCap);
+        }
     }
 
     public DateTime? MostRecentDeclineFor(OverrideIntent intent)

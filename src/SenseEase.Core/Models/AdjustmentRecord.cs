@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SenseEase.Core.Models;
 
 /// <summary>
@@ -18,6 +20,13 @@ public sealed class AdjustmentRecord
     /// <summary>"user" (chatbot feedback) | "system" (auto) | "reset".</summary>
     public string Source { get; set; } = "user";
 
-    /// <summary>The user utterance that triggered this adjustment, if any.</summary>
+    /// <summary>
+    /// EM7 (PII posture): the user utterance that triggered this adjustment, if any.
+    /// In-memory only — used to build the LLM context-prefix during a session.
+    /// Deliberately <see cref="JsonIgnoreAttribute"/>'d so raw user text is NEVER
+    /// persisted to the adjustment log on disk. Older logs that still carry an
+    /// "Utterance" field deserialise tolerantly: the legacy field is simply ignored.
+    /// </summary>
+    [JsonIgnore]
     public string Utterance { get; set; } = string.Empty;
 }

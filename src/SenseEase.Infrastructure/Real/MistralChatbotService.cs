@@ -29,9 +29,20 @@ public sealed class MistralChatbotService : IChatbotService
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private Process? _serverProcess;
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
+    // H34: cap the response buffer (512 KiB — chat completions are <<256 tokens)
+    // and drop the per-call timeout to 60 s so a wedged server can't hang the
+    // chat turn for minutes. The /health poll during startup is well under 60 s.
+    private readonly HttpClient _http = new()
+    {
+        Timeout = TimeSpan.FromSeconds(60),
+        MaxResponseContentBufferSize = 512 * 1024,
+    };
     private const int ServerPort = 8181;
     private string ServerUrl => $"http://127.0.0.1:{ServerPort}";
+
+    // H34: bound JSON parse recursion so a malformed deeply-nested 200 body
+    // can't blow the stack; the OpenAI envelope is only a few levels deep.
+    private static readonly JsonDocumentOptions _jsonDocOpts = new() { MaxDepth = 16 };
 
     // Optional history sources used as a fallback when the caller did not already
     // embed [RecentAdjustments] / [RecentEvents] blocks in the contextual input.
@@ -346,7 +357,6 @@ public sealed class MistralChatbotService : IChatbotService
         string pureUserText = ExtractUserText(input);
         string stateSummary = ExtractStateSummary(input);
         string historyPrefix = ExtractOrBuildHistoryPrefix(input);
-        _history.Add(new ChatMessage { Role = ChatRole.User, Content = pureUserText });
 
         // Clinical self-harm safety floor (Alpha-1 W1 / H1, H8). Short-circuits
         // the LLM call entirely when the user's message matches a strict self-
@@ -357,6 +367,10 @@ public sealed class MistralChatbotService : IChatbotService
         // so the vocabulary cannot drift between call sites (C3 / H3).
         if (SafetyFloor.Trips(pureUserText, out string crisisResponse))
         {
+            // EM5-10: record the user turn only once the floor has decided. The
+            // user text + fixed crisis reply are paired in history; the LLM is
+            // never given the text (see class header).
+            _history.Add(new ChatMessage { Role = ChatRole.User, Content = pureUserText });
             _history.Add(new ChatMessage { Role = ChatRole.Assistant, Content = crisisResponse });
             while (_history.Count > 20) _history.RemoveAt(0);
             return new NluResult
@@ -369,6 +383,10 @@ public sealed class MistralChatbotService : IChatbotService
                 Response            = crisisResponse,
             };
         }
+
+        // EM5-10: floor passed — now it is safe to add the user turn to history
+        // ahead of the model/lexicon path below.
+        _history.Add(new ChatMessage { Role = ChatRole.User, Content = pureUserText });
 
         if (!IsModelLoaded && IsModelAvailable)
         {
@@ -479,20 +497,36 @@ public sealed class MistralChatbotService : IChatbotService
                 stop        = new[] { "[INST]", "User:" },
             };
 
-            using var resp = await _http.PostAsJsonAsync(
-                $"{ServerUrl}/v1/chat/completions", requestBody, ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
-
-            string respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(respBody);
-            if (doc.RootElement.TryGetProperty("choices", out var choices)
-                && choices.GetArrayLength() > 0
-                && choices[0].TryGetProperty("message", out var msg)
-                && msg.TryGetProperty("content", out var content))
+            // NE3: never let a network error or a malformed-200 body throw past
+            // here — any failure returns null so SendAsync routes to the existing
+            // lexicon fallback. Cancellation is re-thrown so the caller's ct still
+            // works. The lock is released in the outer finally regardless.
+            try
             {
-                return content.GetString();
+                using var resp = await _http.PostAsJsonAsync(
+                    $"{ServerUrl}/v1/chat/completions", requestBody, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return null;
+
+                string respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(respBody, _jsonDocOpts);
+                if (doc.RootElement.TryGetProperty("choices", out var choices)
+                    && choices.GetArrayLength() > 0
+                    && choices[0].TryGetProperty("message", out var msg)
+                    && msg.TryGetProperty("content", out var content))
+                {
+                    return content.GetString();
+                }
+                return null;
             }
-            return null;
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // Network failure, timeout, or malformed JSON — fall back to lexicon.
+                return null;
+            }
         }
         finally
         {

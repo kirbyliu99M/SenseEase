@@ -214,6 +214,12 @@ public partial class NotificationCardWindow : Window
                 ProposalLaterBtn.IsEnabled = false;
                 ProposalDeclineBtn.IsEnabled = false; // NE27: the tombstone is fully non-interactive (Decline was left clickable)
                 ProposalExpiryText.Text = "已過期";
+                // NE27: clear the logical active proposal so no stale reference
+                // survives the expiry. Assign the backing field directly (NOT the
+                // ActiveProposal setter) so the visible 已過期 tombstone — disabled
+                // buttons + expiry text — stays on screen until the user dismisses
+                // the card; the setter would collapse the panel immediately.
+                _activeProposal = null;
                 ProposalExpired?.Invoke(this, p);
             }
         };
@@ -282,6 +288,12 @@ public partial class NotificationCardWindow : Window
 
     private readonly DispatcherTimer _idleTimer;
     private Storyboard? _activeFadeStoryboard;
+
+    // NE24: single-instance guard for the gear-icon Settings window. Holds the
+    // currently-open SettingsWindow (if any) so repeated gear clicks reuse +
+    // re-activate the existing window instead of stacking duplicate instances.
+    // Cleared on that window's Closed event.
+    private SettingsWindow? _openSettingsWindow;
 
     // v0.8 hotfix: click-outside-auto-close. User reported the card was
     // staying open after they clicked another app — they want it to
@@ -645,8 +657,19 @@ public partial class NotificationCardWindow : Window
             Opacity = 1.0;
         }
 
+        // NE24: single-instance guard. If a Settings window opened from this gear
+        // is already up, just re-surface it rather than stacking a duplicate.
+        if (_openSettingsWindow is not null)
+        {
+            if (_openSettingsWindow.WindowState == WindowState.Minimized)
+                _openSettingsWindow.WindowState = WindowState.Normal;
+            _openSettingsWindow.Activate();
+            return;
+        }
+
         var diagFn = HasVestibularDiagnosis ?? (() => false);
         var win = new SettingsWindow(diagFn) { Owner = this };
+        _openSettingsWindow = win;
         // Path Z bug-fix 7: forward PreferencesChanged to the host so the
         // bar/tray repaint immediately on Toggle B change — matching the
         // tray-menu Settings path.
@@ -654,8 +677,13 @@ public partial class NotificationCardWindow : Window
             win.PreferencesChanged += (_, _) => OnPreferencesChanged();
         // Phase 1.5: non-modal handoff. Without ShowDialog's synchronous
         // wait, we need an asynchronous restart of the idle timer keyed to
-        // Settings actually closing.
-        win.Closed += (_, _) => RestartIdleTimer();
+        // Settings actually closing. NE24: also drop the single-instance
+        // reference so the next gear click opens a fresh window.
+        win.Closed += (_, _) =>
+        {
+            _openSettingsWindow = null;
+            RestartIdleTimer();
+        };
         win.Show();
     }
 

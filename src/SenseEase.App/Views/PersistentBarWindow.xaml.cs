@@ -204,6 +204,7 @@ public partial class PersistentBarWindow : Window
     public void SetTier(int tier)
     {
         _currentTier = tier;
+        UpdateAutomationName(tier);
         var brush = PickBrushForCurrentState(tier);
         // Path Z bug-fix 5: while in sleep mode, update the snapshot for
         // ExitSleepMode to restore — but leave the live faint-grey fill in
@@ -219,6 +220,31 @@ public partial class PersistentBarWindow : Window
             _preSleepBackground = brush;
         else
             BarFill.Background = brush;
+    }
+
+    // L4 (a11y): the static portion of the bar's accessible name, kept byte-
+    // identical to the XAML AutomationProperties.Name so the value is stable
+    // whether or not SetTier has run yet. UpdateAutomationName appends the
+    // live tier so a screen reader announces the current comfort level.
+    private const string AutomationNameBase = "Comfort Level Indicator / 舒適度指示";
+
+    /// <summary>L4 (a11y): refresh the window's accessible name with the live
+    /// VIMS tier so assistive tech announces the current comfort level (the
+    /// bar is otherwise a 4 dip colour-only affordance with no text). Additive
+    /// to the static XAML name. Reuses <see cref="TierColorPalette.BandForTier"/>
+    /// as the single source of truth for the 1–10 → band mapping so the spoken
+    /// level can't drift from the colour the user sees.</summary>
+    private void UpdateAutomationName(int tier)
+    {
+        string tierText = TierColorPalette.BandForTier(tier) switch
+        {
+            TierColorPalette.TierBand.Grey  => "calm / 平靜",
+            TierColorPalette.TierBand.Amber => "elevated / 偏高",
+            TierColorPalette.TierBand.Red   => "high / 高",
+            _                               => "calm / 平靜",
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            this, $"{AutomationNameBase}: {tierText}");
     }
 
     // overlay-bar-redesign D3: snapshot of the bar's pre-sleep visual state.

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
@@ -37,7 +38,24 @@ public sealed class FileAdjustmentLog : IAdjustmentLog
             try
             {
                 var r = JsonSerializer.Deserialize<AdjustmentRecord>(line, _opts);
-                if (r is not null) _records.Add(r);
+                if (r is null) continue;
+
+                // H43: per-record sanity gate. MockInferenceEngine clamps the
+                // SUM of deltas but not any single record, so a tampered log of
+                // out-of-range deltas could pin the FOV at its tightest setting.
+                // A legitimate single adjustment is a small nudge; |Delta| > 100
+                // is non-physical, so drop the record. The diagnostic carries
+                // only the parameter name and the numeric delta — never raw user
+                // text (EM7 PII posture).
+                if (Math.Abs(r.Delta) > 100)
+                {
+                    Debug.WriteLine(
+                        $"[Storage.AdjustmentLogRejected] {r.Parameter} delta {r.Delta:0.##} " +
+                        "out of range (|Delta| > 100); record skipped.");
+                    continue;
+                }
+
+                _records.Add(r);
             }
             catch { /* skip malformed line */ }
         }

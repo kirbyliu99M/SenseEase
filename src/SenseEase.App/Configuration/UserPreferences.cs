@@ -196,25 +196,30 @@ public sealed class UserPreferences
     /// schema_version is unknown (forward-compat: an older app reading
     /// a newer file falls back rather than misinterpreting).
     ///
-    /// <para>Roll-forward strategy (M8): v=1 files load cleanly — the new
-    /// head-tracking fields default via property initialisers (false /
-    /// "Balanced" / true), so an old install upgrading does NOT lose existing
-    /// toggle state. On next Save the file is rewritten as v=2. Unknown
-    /// versions (e.g. v=3 from a future build) STILL fall back to defaults
-    /// to preserve the existing safe-on-mismatch posture.</para></summary>
+    /// <para>Roll-forward strategy (NE17): ANY stored version in the inclusive
+    /// range [1, <see cref="CurrentSchemaVersion"/>] loads cleanly and is
+    /// migrated forward — new fields from later schema revisions default via
+    /// their property initialisers, so an old install upgrading does NOT lose
+    /// existing toggle state. On next Save the file is rewritten at the current
+    /// schema. Defaults are reserved ONLY for a version newer than this build
+    /// can understand (> Current), a version below the first schema (&lt; 1),
+    /// or a malformed/absent version (deserialises to 0, i.e. &lt; 1) — this
+    /// preserves the safe-on-mismatch posture for genuinely unknown files
+    /// without rejecting valid intermediate versions.</para></summary>
     public static UserPreferences Load()
     {
         var loaded = AtomicJsonWriter.TryRead<UserPreferences>(FilePath);
         if (loaded is null) return new UserPreferences();
-        if (loaded.SchemaVersion != 1 && loaded.SchemaVersion != CurrentSchemaVersion)
+        if (loaded.SchemaVersion < 1 || loaded.SchemaVersion > CurrentSchemaVersion)
         {
             System.Diagnostics.Debug.WriteLine(
                 $"[user-preferences] Unknown schema_version {loaded.SchemaVersion} at {FilePath}; using defaults.");
             return new UserPreferences();
         }
-        // Roll v=1 → current. Missing head-tracking fields already have
-        // safe defaults from property initialisers; just stamp the version
-        // so the next Save persists as the current schema.
+        // Roll any in-range older version → current. Fields introduced by later
+        // schema revisions already have safe defaults from property
+        // initialisers; just stamp the version so the next Save persists as the
+        // current schema.
         if (loaded.SchemaVersion < CurrentSchemaVersion)
             loaded.SchemaVersion = CurrentSchemaVersion;
         return loaded;

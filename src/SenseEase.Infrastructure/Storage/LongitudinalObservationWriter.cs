@@ -72,11 +72,14 @@ public sealed class LongitudinalObservationWriter
         var snapshot = _store.Load();
         if (snapshot is null) return false;
 
-        string stamped = $"{DateTime.UtcNow:yyyy-MM-dd}: {trimmed}";
-
-        if (IsDuplicateOfRecent(stamped, snapshot.LongitudinalObservations))
+        // NE20: dedup on the trimmed body, not the stamped string. The date
+        // prefix is constant within a day and would otherwise inflate Jaccard
+        // overlap (and mask same-day repeats); strip the stamp off existing
+        // entries before comparing so the body is matched against the body.
+        if (IsDuplicateOfRecent(trimmed, snapshot.LongitudinalObservations))
             return false;
 
+        string stamped = $"{DateTime.UtcNow:yyyy-MM-dd}: {trimmed}";
         snapshot.LongitudinalObservations.Add(stamped);
 
         // FIFO eviction past the cap. Loop to handle malformed snapshots
@@ -115,16 +118,35 @@ public sealed class LongitudinalObservationWriter
         return cleaned.Length == 0 ? null : cleaned;
     }
 
+    /// <summary>NE20: <paramref name="candidate"/> is the bare trimmed body (no
+    /// date stamp). Existing entries are stamped, so strip their date prefix
+    /// before comparing body-to-body.</summary>
     private static bool IsDuplicateOfRecent(string candidate, IList<string> existing)
     {
         if (existing.Count == 0) return false;
         int from = Math.Max(0, existing.Count - DedupCompareCount);
         for (int i = existing.Count - 1; i >= from; i--)
         {
-            if (JaccardSimilarity(candidate, existing[i]) >= DedupSimilarityThreshold)
+            if (JaccardSimilarity(candidate, StripDateStamp(existing[i])) >= DedupSimilarityThreshold)
                 return true;
         }
         return false;
+    }
+
+    /// <summary>Strip the "yyyy-MM-dd: " prefix written by <see cref="Append"/>
+    /// so dedup compares observation bodies, not date stamps. Returns the input
+    /// unchanged if it doesn't carry the expected stamp.</summary>
+    private static string StripDateStamp(string entry)
+    {
+        // Stamp is exactly "yyyy-MM-dd: " → 10 date chars + ": " (12 total).
+        const int stampLength = 12;
+        if (entry.Length >= stampLength
+            && entry[4] == '-' && entry[7] == '-'
+            && entry[10] == ':' && entry[11] == ' ')
+        {
+            return entry.Substring(stampLength);
+        }
+        return entry;
     }
 
     /// <summary>Token-level Jaccard similarity. Splits on whitespace +

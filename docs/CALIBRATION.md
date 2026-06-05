@@ -346,9 +346,24 @@ means trading away the LLM dialog's value entirely.
 ### 4.3 — Why `personal_pressure_scale` divides trigger (not multiplies pressure)
 
 `effectiveTrigger = defaultTrigger / scale`, applied at the engine
-boundary in `MockInferenceEngine.ApplyCalibrationResult`. The engine
+boundary in `MockInferenceEngine.ApplyCalibrationResult`. Here
+`defaultTrigger` is `SenseDefaults.TriggerPressure` (= 85), so an
+unscaled user (`scale == 1.0`) keeps `EffectiveTrigger = 85`. The engine
 itself stays ignorant of `personal_pressure_scale` — `HabituationEngine`
 sees only the resulting `EffectiveTrigger` number.
+
+**Scope of `EffectiveTrigger` (load-bearing).** This number does NOT
+re-shape the whole sensor pipeline — it is consumed by exactly two sites,
+both inside `HabituationEngine`: the spike-recurrence check and the
+calm-pressure-fraction check. Everything else still reads the raw
+`SenseDefaults.TriggerPressure` (85): `MockInferenceEngine`'s mask
+hysteresis, the FOV-radius projection (`ComputeFovRadiusPercent`), and
+the VIMS tier projection (`UpdateVimsTier`). Tier ownership is therefore
+raw-pressure: a user with `scale != 1.0` sees a personalised spike
+threshold but an unchanged mask / FOV / tier response. (`DisplayStressPercent`
+divides live pressure by `EffectiveTrigger` purely as a display metric and
+deliberately does not feed the tier.) See `docs/TECHNICAL_WHITEPAPER.md`
+§6.5 for the same scope qualifier on the engine side.
 
 This direction (scale on the threshold, not the pressure reading) keeps
 sensor readings pristine in their raw form. Two downstream consumers

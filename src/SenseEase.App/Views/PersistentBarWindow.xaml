@@ -11,7 +11,8 @@
         SizeToContent="Manual"
         Width="80" Height="4"
         WindowStartupLocation="Manual"
-        Focusable="False">
+        Focusable="False"
+        AutomationProperties.Name="Comfort Level Indicator / 舒適度指示">
     <!-- Pop-up sprint Task 2: persistent ambient bar.
          4 dip × 80 dip top-centre, rounded corners. NO animation. NO interaction
          in Task 2 (IsHitTestVisible=false makes it pass-through for clicks; hover

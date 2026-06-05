@@ -48,6 +48,13 @@ public sealed class CalibrationChatbotService : IDisposable
     /// regardless of the model's <c>is_complete</c> flag.</summary>
     public const int MaxLlmCallsPerSession = 9;
 
+    /// <summary>H23: most-recent transcript lines kept on disk. Each session
+    /// appends ~18 lines (9 turns × user+assistant, plus the convergence
+    /// reminder), so 200 retains roughly the last ten sessions. Trimmed once
+    /// per <see cref="StartAsync"/> so calibration_history.jsonl can't grow
+    /// without bound.</summary>
+    public const int CalibrationPersistedMax = 200;
+
     private readonly ICalibrationLlmClient _llm;
     private readonly string _transcriptPath;
     private readonly List<ChatMessage> _history = new();
@@ -109,6 +116,10 @@ public sealed class CalibrationChatbotService : IDisposable
         TurnCount = 0;
         _mergedSoFar = null;
         _lastConfidence = null;
+
+        // H23: bound the on-disk transcript once per session so
+        // calibration_history.jsonl can't grow forever across repeat runs.
+        TrimTranscript(CalibrationPersistedMax);
 
         // Stash the context so the system prompt can be rendered once the
         // user's language is known on the first send.
@@ -367,6 +378,31 @@ public sealed class CalibrationChatbotService : IDisposable
                 content,
             });
             File.AppendAllText(_transcriptPath, line + Environment.NewLine);
+        }
+        catch { /* best-effort */ }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // H23: keep only the most-recent maxKeep JSON Lines so the transcript can't
+    // grow unbounded across repeat calibration sessions. Operates on the raw
+    // lines (each is one serialized turn record) rather than re-parsing them.
+    // Atomic via the temp-file-then-move pattern, mirroring
+    // FileChatHistoryStore.Trim; best-effort like AppendTranscriptLine above.
+    // ─────────────────────────────────────────────────────────────────────────
+    private void TrimTranscript(int maxKeep)
+    {
+        if (maxKeep < 0) maxKeep = 0;
+        try
+        {
+            if (!File.Exists(_transcriptPath)) return;
+            string[] all = File.ReadAllLines(_transcriptPath);
+            if (all.Length <= maxKeep) return;
+
+            var keep = all.Skip(all.Length - maxKeep);
+            string tmp = _transcriptPath + ".tmp";
+            File.WriteAllLines(tmp, keep);
+            // File.Move with overwrite is atomic on the same volume on .NET 8.
+            File.Move(tmp, _transcriptPath, overwrite: true);
         }
         catch { /* best-effort */ }
     }
