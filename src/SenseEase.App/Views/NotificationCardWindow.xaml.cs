@@ -572,6 +572,8 @@ public partial class NotificationCardWindow : Window
             // takes effect.
             BeginAnimation(OpacityProperty, null);
             SlideTransform?.BeginAnimation(TranslateTransform.YProperty, null);
+            PopScale?.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            PopScale?.BeginAnimation(ScaleTransform.ScaleYProperty, null);
             _activeFadeStoryboard?.Stop(this);
             _activeFadeStoryboard = null;
 
@@ -612,6 +614,7 @@ public partial class NotificationCardWindow : Window
             {
                 Opacity = 1;
                 if (SlideTransform is not null) SlideTransform.Y = 0;
+                if (PopScale is not null) { PopScale.ScaleX = 1; PopScale.ScaleY = 1; }
             }
             else
             {
@@ -620,25 +623,36 @@ public partial class NotificationCardWindow : Window
         }
     }
 
-    /// <summary>Top-center revision: ~180 ms slide-from-top entrance — the card
-    /// eases down from -12 dip while fading 0→1 (QuadraticEase EaseOut). Runs only
-    /// when Reduce Motion is off; the a11y path in <see cref="OnIsVisibleChanged"/>
-    /// snaps straight to the resting state instead.</summary>
+    /// <summary>Top-center revision: ~200 ms slide-from-top entrance — the card eases
+    /// down from -10 dip while fading 0→1 AND popping in from 0.96→1.0 scale (CubicEase
+    /// EaseOut, centre origin) for a softer, more fluent appearance than a bare slide.
+    /// Runs only when Reduce Motion is off; the a11y path in
+    /// <see cref="OnIsVisibleChanged"/> snaps straight to the resting state instead.</summary>
     private void BeginSlideIn()
     {
         Opacity = 0;
-        if (SlideTransform is not null) SlideTransform.Y = -12;
+        if (SlideTransform is not null) SlideTransform.Y = -10;
 
-        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-        var dur = new Duration(TimeSpan.FromMilliseconds(180));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = new Duration(TimeSpan.FromMilliseconds(200));
 
         var opacityIn = new DoubleAnimation(0, 1, dur) { EasingFunction = ease };
         BeginAnimation(OpacityProperty, opacityIn);
 
         if (SlideTransform is not null)
         {
-            var slideIn = new DoubleAnimation(-12, 0, dur) { EasingFunction = ease };
+            var slideIn = new DoubleAnimation(-10, 0, dur) { EasingFunction = ease };
             SlideTransform.BeginAnimation(TranslateTransform.YProperty, slideIn);
+        }
+
+        // Subtle scale "pop" 96% → 100% from the centre, so the card grows in rather
+        // than only sliding. Base ScaleX/Y stay 1.0 (set in XAML) so clearing the
+        // animation reverts to full size — we only animate the From value here.
+        if (PopScale is not null)
+        {
+            var scaleIn = new DoubleAnimation(0.96, 1.0, dur) { EasingFunction = ease };
+            PopScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleIn);
+            PopScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleIn);
         }
     }
 

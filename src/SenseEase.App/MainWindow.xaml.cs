@@ -504,6 +504,31 @@ public partial class MainWindow : Window
         Unloaded += (_, _) => SetHeadPoseRenderingSubscribed(false);
     }
 
+    /// <summary>Tab transition: cross-fade the selected tab content on switch so
+    /// changing tabs reads as a smooth fade rather than a hard cut. Respects Reduce
+    /// Motion (skips the fade) and ignores SelectionChanged bubbled up from inner
+    /// selectors (a ListBox / ComboBox / nested TabControl inside a tab) — only
+    /// MainTabs' OWN selection animates. PART_SelectedContentHost is the default
+    /// TabControl template's content presenter; the cast is null on the very first
+    /// pass before the template is applied, which simply skips the fade that once.</summary>
+    private void MainTabs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (e.OriginalSource is not System.Windows.Controls.TabControl tc || !ReferenceEquals(tc, MainTabs)) return;
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) return;
+
+        if (MainTabs.Template?.FindName("PART_SelectedContentHost", MainTabs)
+                is System.Windows.Controls.ContentPresenter host)
+        {
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(0.0, 1.0,
+                new Duration(TimeSpan.FromMilliseconds(190)))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut },
+            };
+            host.BeginAnimation(System.Windows.UIElement.OpacityProperty, fade);
+        }
+    }
+
     /// <summary>NE25: idempotently subscribe/unsubscribe the per-frame
     /// CompositionTarget.Rendering head-pose pump. Subscribed only while
     /// head-tracking is enabled AND the sidecar is live; parked during Power

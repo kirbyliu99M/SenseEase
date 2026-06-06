@@ -209,7 +209,8 @@
         </Border>
 
         <!-- ══════════ TABS ══════════ -->
-        <TabControl x:Name="MainTabs" Background="{DynamicResource Surface}" BorderThickness="0" Padding="0">
+        <TabControl x:Name="MainTabs" Background="{DynamicResource Surface}" BorderThickness="0" Padding="0"
+                    SelectionChanged="MainTabs_SelectionChanged">
             <TabControl.Resources>
                 <Style TargetType="TabItem">
                     <Setter Property="FontSize" Value="13"/>

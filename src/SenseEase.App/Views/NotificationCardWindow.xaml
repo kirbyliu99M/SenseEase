@@ -8,8 +8,9 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        SizeToContent="Height"
-        Width="380"
+        SizeToContent="WidthAndHeight"
+        MinWidth="360"
+        MaxWidth="560"
         WindowStartupLocation="Manual"
         ShowActivated="False"
         FontFamily="{DynamicResource Font.UI}">
@@ -149,9 +150,13 @@
             BorderBrush="{DynamicResource CardBorder}"
             BorderThickness="1"
             MouseMove="OnCardMouseMove"
-            MouseLeftButtonDown="OnCardDragStart">
+            MouseLeftButtonDown="OnCardDragStart"
+            RenderTransformOrigin="0.5,0.5">
         <Border.RenderTransform>
-            <TranslateTransform x:Name="SlideTransform"/>
+            <TransformGroup>
+                <ScaleTransform x:Name="PopScale" ScaleX="1" ScaleY="1"/>
+                <TranslateTransform x:Name="SlideTransform"/>
+            </TransformGroup>
         </Border.RenderTransform>
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="18"
