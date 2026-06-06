@@ -713,18 +713,18 @@ public partial class NotificationCardWindow : Window
         BodyText.Text = body;
     }
 
-    // BC-1: band → plain-language, app-action headline (same register as the Home
-    // hero — what SenseEase is doing, never a felt-state claim). 5級 動態感
-    // collapse: VeryHigh & High → old Grey/calm copy; Medium → old Amber copy;
-    // Low & VeryLow → old Red copy (reuses the existing 3 strings, no new wording).
+    // The HUD's primary label is the SCREEN'S PLAIN COMFORT STATUS — the SAME
+    // vocabulary as the Dashboard hero (TierToComfortLabel) and the tray, so all
+    // three always agree. The 5級 bands collapse onto the 3 comfort tokens:
+    // VeryHigh|High → 平穩 (Steady), Medium → 上升 (Rising), Low|VeryLow → 較高 (High).
     private static string HeadlineForBand(TierColorPalette.TierBand band) => band switch
     {
-        TierColorPalette.TierBand.VeryHigh => "守護你的畫面",
-        TierColorPalette.TierBand.High     => "守護你的畫面",
-        TierColorPalette.TierBand.Medium   => "正在緩和邊緣",
-        TierColorPalette.TierBand.Low      => "正在強力緩和",
-        TierColorPalette.TierBand.VeryLow  => "正在強力緩和",
-        _                                  => "守護你的畫面",
+        TierColorPalette.TierBand.VeryHigh => "平穩",
+        TierColorPalette.TierBand.High     => "平穩",
+        TierColorPalette.TierBand.Medium   => "上升",
+        TierColorPalette.TierBand.Low      => "較高",
+        TierColorPalette.TierBand.VeryLow  => "較高",
+        _                                  => "平穩",
     };
 
     // D4: calm, app-action body copy — what SenseEase is doing, no detective

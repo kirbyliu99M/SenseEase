@@ -245,8 +245,16 @@ public partial class App : Application
         string aumidStatus;
         try
         {
-            SetCurrentProcessExplicitAppUserModelID(AumidString);
-            aumidStatus = "set OK";
+            // Taskbar-icon fix (Kirby — dead across every icon change): an explicit
+            // AUMID with NO installed shortcut registering an icon for it leaves the
+            // taskbar button BLANK, while Window.Icon still paints the correct
+            // title-bar / Alt-Tab icon (exactly the observed symptom). Dropping the
+            // explicit AUMID lets the taskbar use the EXE's default identity + embedded
+            // ApplicationIcon, which renders. The tray icon is set explicitly
+            // (TrayIconService) so it is unaffected; the only thing the AUMID bought was
+            // a cosmetic shell identity under `dotnet test` (testhost) no end user sees.
+            // (Disabled) SetCurrentProcessExplicitAppUserModelID(AumidString);
+            aumidStatus = "not set (taskbar-icon fix)";
         }
         catch (Exception ex)
         {

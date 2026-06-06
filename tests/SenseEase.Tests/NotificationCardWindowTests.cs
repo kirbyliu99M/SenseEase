@@ -35,10 +35,9 @@ public class NotificationCardWindowTests
             // Force template instantiation so TitleText is non-null.
             w.ApplyTemplate();
             w.SetContent(TierColorPalette.TierBand.Medium, 3, 27.4);
-            // BC-1 (D2): the title is now plain-language app-action keyed off the
-            // band; the raw tier/pressure is demoted to a mono subline. 5級 remap:
-            // old Amber → Medium, which collapses to the same "正在緩和邊緣" copy.
-            Assert.Equal("正在緩和邊緣", w.TitleText.Text);
+            // The HUD title is the plain comfort STATUS (aligned with the Dashboard
+            // hero + tray): Medium collapses to the Rising comfort token → "上升".
+            Assert.Equal("上升", w.TitleText.Text);
             Assert.Equal("第 3 級 / 12　·　壓力 27", w.TelemetryText.Text);
         });
     }

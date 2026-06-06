@@ -1280,11 +1280,28 @@
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}"
                                 Padding="2" Margin="0,0,8,0"
-                                BorderBrush="{DynamicResource Separator}" BorderThickness="1"
+                                BorderThickness="1"
                                 Effect="{StaticResource Elev.2}">
+                            <!-- Focus ring: when the chat input has keyboard focus, the
+                                 box border turns indigo so it is obvious the chatbox is
+                                 selected (the blinking caret alone is easy to miss, esp.
+                                 in dark mode). Inline BorderBrush is moved into the Style
+                                 so the focus Trigger can override it (a local value would
+                                 otherwise outrank a Trigger setter). -->
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <TextBox Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
                                      Padding="10,8" BorderThickness="0" Background="Transparent"
                                      FontSize="14" Foreground="{DynamicResource TextPrimary}"
+                                     CaretBrush="{DynamicResource Accent}"
                                      AcceptsReturn="False" VerticalContentAlignment="Center">
                                 <TextBox.InputBindings>
                                     <KeyBinding Key="Return" Command="{Binding SendCommand}"/>
