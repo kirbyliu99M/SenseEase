@@ -2,6 +2,13 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
     <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): shared settings UI
          hosted by BOTH the main console's "設定" tab and the topmost
          SettingsWindow opened from the tray menu / Pop-up Card gear. State
@@ -255,9 +262,9 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Hotkey / 快捷鍵"
-                                       FontWeight="SemiBold" FontSize="11" Foreground="#024AD8" Margin="0,0,0,6"/>
+                                       FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource Accent}" Margin="0,0,0,6"/>
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="Effect / 作用"
-                                       FontWeight="SemiBold" FontSize="11" Foreground="#024AD8" Margin="0,0,0,6"/>
+                                       FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource Accent}" Margin="0,0,0,6"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + Shift + H"
                                        FontFamily="Consolas" FontSize="12" Foreground="#0A1F5C" Margin="0,2,0,2"/>

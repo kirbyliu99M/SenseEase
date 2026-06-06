@@ -34,7 +34,7 @@
              vocabulary; the ContentPresenter uses TemplateBinding so the
              vertical-stacked label inside OpenDashboardBtn keeps centering. -->
         <Style x:Key="PrimaryDeepBlueButtonStyle" TargetType="Button">
-            <Setter Property="Background"      Value="#1E5BB0"/>
+            <Setter Property="Background"      Value="{StaticResource Accent}"/>
             <Setter Property="Foreground"      Value="White"/>
             <Setter Property="FontSize"        Value="12"/>
             <Setter Property="FontWeight"      Value="SemiBold"/>
@@ -58,10 +58,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#174A92"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#103770"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5"/>
@@ -147,15 +147,15 @@
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock x:Name="TitleText"
                                Text=""
-                               FontSize="15" FontWeight="SemiBold"
-                               Foreground="#1A1F2E"
+                               FontSize="16" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimary}"
                                TextWrapping="Wrap"
                                AutomationProperties.HelpText="通知標題 / Notification title"/>
                     <TextBlock x:Name="TelemetryText"
                                Text=""
                                FontFamily="Consolas, 'Cascadia Mono', monospace"
                                FontSize="11"
-                               Foreground="#8A94A6"
+                               Foreground="{StaticResource TextSecondary}"
                                Margin="0,2,0,0"
                                AutomationProperties.HelpText="感測讀數 / Sensing readout"/>
                 </StackPanel>
@@ -180,7 +180,7 @@
                                Text="SenseEase 建議"
                                FontSize="12"
                                FontWeight="SemiBold"
-                               Foreground="#1E5BB0"
+                               Foreground="{StaticResource Accent}"
                                Margin="0,0,0,6"/>
                     <TextBlock x:Name="ProposalSummaryText"
                                Text=""
@@ -216,7 +216,7 @@
                             <Button x:Name="ProposalAcceptBtn"
                                     Content="接受"
                                     Click="OnProposalAcceptClicked"
-                                    Background="#1E5BB0"
+                                    Background="{StaticResource Accent}"
                                     Foreground="White"
                                     BorderThickness="0"
                                     Padding="14,6"

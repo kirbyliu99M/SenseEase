@@ -230,8 +230,9 @@
                      %LocalAppData%\SenseEase\). Either button dismisses it: Run
                      Setup launches the calibration video demo; Skip just marks
                      the flag so we don't pester next launch. -->
-                <Border CornerRadius="10" Padding="20,14" Margin="0,0,0,16"
-                        Background="#0E1320" BorderBrush="#3D5AFE" BorderThickness="1"
+                <Border CornerRadius="{StaticResource Radius.md}" Padding="20,14" Margin="0,0,0,16"
+                        Background="{StaticResource Surface}" BorderBrush="{StaticResource Separator}" BorderThickness="1"
+                        Effect="{StaticResource Elev.2}"
                         Visibility="{Binding ShowFirstRunBanner, Converter={StaticResource BoolToVis}}">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -240,22 +241,24 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                             <TextBlock Text="● 歡迎使用 SenseEase / Welcome to SenseEase"
-                                       Foreground="#FF9B6B" FontSize="12" FontWeight="Bold"/>
+                                       Foreground="{StaticResource TextPrimary}" FontSize="12" FontWeight="Bold"/>
                             <TextBlock Text="先跑 60 秒的 setup demo，系統會依您的反應建議個人化預設值 / Run the 60 s setup demo so SenseEase can suggest personalised defaults based on your reaction."
-                                       Foreground="#F0F4FA" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                       Foreground="{StaticResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
                             <Button Content="Skip"
                                     Command="{Binding SkipSetupCommand}"
-                                    Background="Transparent" Foreground="#9AB6E0"
-                                    BorderBrush="#2C3A55" BorderThickness="1"
+                                    Background="{StaticResource SurfaceMuted}" Foreground="{StaticResource TextSecondary}"
+                                    BorderThickness="0"
                                     Padding="14,6" FontSize="12" Cursor="Hand"
+                                    Template="{StaticResource RoundBtn}"
                                     Margin="0,0,8,0"/>
                             <Button Content="Run Setup Demo"
                                     Command="{Binding StartSetupDemoCommand}"
-                                    Background="#3D5AFE" Foreground="White"
+                                    Background="{StaticResource Accent}" Foreground="White"
                                     BorderThickness="0"
-                                    Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                                    Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
+                                    Template="{StaticResource RoundBtn}"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -1108,8 +1111,9 @@
                          30 s or on either button click. Two actions: Start
                          (opens the LLM dialog) or Skip (silent dismiss). -->
                     <Border Grid.Row="2" Margin="24,0,24,8"
-                            CornerRadius="10" Padding="20,14"
-                            Background="#0E1320" BorderBrush="#3D5AFE" BorderThickness="1"
+                            CornerRadius="{StaticResource Radius.md}" Padding="20,14"
+                            Background="{StaticResource Surface}" BorderBrush="{StaticResource Separator}" BorderThickness="1"
+                            Effect="{StaticResource Elev.2}"
                             Visibility="{Binding ShowCalibrationInvitationBanner, Converter={StaticResource BoolToVis}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -1118,25 +1122,27 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <TextBlock Text="想更新你的設定嗎？跟系統聊聊剛才的感覺。"
-                                           Foreground="#F0F4FA" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
                                            TextWrapping="Wrap"/>
                                 <TextBlock Text="Want to refresh your settings? Chat about what you just felt."
-                                           Foreground="#9AB6E0" FontSize="11"
+                                           Foreground="{StaticResource TextSecondary}" FontSize="11"
                                            TextWrapping="Wrap" Margin="0,4,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal"
                                         VerticalAlignment="Center" Margin="16,0,0,0">
                                 <Button Content="跳過 / Skip"
                                         Command="{Binding SkipCalibrationInvitationCommand}"
-                                        Background="Transparent" Foreground="#9AB6E0"
-                                        BorderBrush="#2C3A55" BorderThickness="1"
+                                        Background="{StaticResource SurfaceMuted}" Foreground="{StaticResource TextSecondary}"
+                                        BorderThickness="0"
                                         Padding="14,6" FontSize="12" Cursor="Hand"
+                                        Template="{StaticResource RoundBtn}"
                                         Margin="0,0,8,0"/>
                                 <Button Content="開始 calibration / Start calibration"
                                         Command="{Binding StartInvitedCalibrationCommand}"
-                                        Background="#3D5AFE" Foreground="White"
+                                        Background="{StaticResource Accent}" Foreground="White"
                                         BorderThickness="0"
-                                        Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                                        Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
+                                        Template="{StaticResource RoundBtn}"/>
                             </StackPanel>
                         </Grid>
                     </Border>

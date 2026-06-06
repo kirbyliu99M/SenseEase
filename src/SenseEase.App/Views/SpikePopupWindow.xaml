@@ -10,18 +10,26 @@
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
         WindowStartupLocation="Manual">
-    <Border Background="#CC1A1A1A" CornerRadius="14" Padding="14"
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- D0 design tokens, merged view-locally (never App.Resources). -->
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Border Background="{StaticResource Surface}" CornerRadius="14" Padding="14"
             Margin="14" MaxWidth="360"
-            BorderBrush="#33FFFFFF" BorderThickness="1">
+            BorderBrush="{StaticResource Separator}" BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="12"
-                              ShadowDepth="2" Opacity="0.4"/>
+            <DropShadowEffect Color="Black" BlurRadius="14"
+                              ShadowDepth="3" Opacity="0.18"/>
         </Border.Effect>
         <StackPanel>
             <DockPanel LastChildFill="False" Margin="0,0,0,10">
                 <TextBlock DockPanel.Dock="Left"
                            Text="● VIMS spike"
-                           Foreground="#FF9B6B"
+                           Foreground="{StaticResource ComfortHighText}"
                            FontWeight="Bold" FontSize="12"/>
                 <Button DockPanel.Dock="Right"
                         x:Name="CloseBtn"
@@ -29,14 +37,14 @@
                         Width="22" Height="22"
                         Padding="0" BorderThickness="0"
                         Background="Transparent"
-                        Foreground="#9AB6E0"
+                        Foreground="{StaticResource TextSecondary}"
                         FontSize="16" FontWeight="Bold"
                         Cursor="Hand"
                         Click="OnClose"/>
             </DockPanel>
             <TextBlock x:Name="QuestionText"
                        FontSize="14" FontWeight="SemiBold"
-                       Foreground="#F0F4FA" TextWrapping="Wrap"
+                       Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap"
                        Margin="0,0,0,12"/>
             <ItemsControl x:Name="OptionList">
                 <ItemsControl.ItemsPanel>
@@ -48,8 +56,8 @@
                     <DataTemplate>
                         <Button Content="{Binding}"
                                 Click="OnOptionClicked"
-                                Background="#22FFFFFF"
-                                Foreground="#F0F4FA"
+                                Background="{StaticResource SurfaceMuted}"
+                                Foreground="{StaticResource TextPrimary}"
                                 BorderThickness="0"
                                 Padding="14,8"
                                 Margin="0,0,8,8"
@@ -57,11 +65,12 @@
                                 Cursor="Hand">
                             <Button.Style>
                                 <Style TargetType="Button">
-                                    <Setter Property="Background" Value="#22FFFFFF"/>
-                                    <Setter Property="Foreground" Value="#F0F4FA"/>
+                                    <Setter Property="Background" Value="{StaticResource SurfaceMuted}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
                                     <Setter Property="BorderThickness" Value="0"/>
                                     <Setter Property="Padding" Value="14,8"/>
                                     <Setter Property="Cursor" Value="Hand"/>
+                                    <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                                     <Setter Property="Template">
                                         <Setter.Value>
                                             <ControlTemplate TargetType="Button">
@@ -74,7 +83,7 @@
                                                 </Border>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="Bd" Property="Background" Value="#3DFFFFFF"/>
+                                                        <Setter TargetName="Bd" Property="Background" Value="{StaticResource Separator}"/>
                                                     </Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate>
@@ -87,7 +96,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
             <TextBlock Text="點選選項後將自動寫入聊天助理 / Selected answer is sent to AI Assistant."
-                       FontSize="10" Foreground="#9AB6E0"
+                       FontSize="10" Foreground="{StaticResource TextSecondary}"
                        TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>
     </Border>

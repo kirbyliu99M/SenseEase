@@ -17,11 +17,11 @@ public class DesignLintTests
     // retirement → 229 after audit C3 retired all 9 #7B8DB0 (banned token) to
     // TextTertiary → 206 after audit H1 retired all 22 MainWindow #024AD8 (the
     // banned royal-blue) to the Accent token → 204 after the HP-grade "Crisp
-    // Cool" refresh retired the MainWindow #E2ECFF canvas + #8ABAFF header
-    // subtitle to tokens. Lower this each time a surface migrates to tokens.
-    // (Still present: #024AD8 in SettingsContent / CalibrationCardView, which
-    // don't yet merge the theme — next migration.)
-    private const int OrphanHexBaseline = 204;
+    // Cool" refresh → 151 after the palette-consistency sweep migrated the card
+    // (#1E5BB0), SpikePopup (dark theme), first-run/calibration banners, Settings
+    // and CalibrationCardView (#024AD8) to theme tokens. Lower this each time a
+    // surface migrates to tokens.
+    private const int OrphanHexBaseline = 151;
 
     private static readonly Regex HexColor =
         new(@"#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})", RegexOptions.Compiled);
