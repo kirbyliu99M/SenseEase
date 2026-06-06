@@ -54,17 +54,20 @@ public class UserPreferencesTests : IDisposable
         // ambient noise. Default behaviour now is grey/neutral bar; user
         // opts in via Settings if they want the tier-colour signal.
         // Head-tracking sprint M8: schema bumped to 2 (new head-tracking
-        // fields added). New file writes always use the current schema.
+        // fields added). Appearance setting (2026-06-07): schema bumped to 3
+        // (new theme_mode field). New file writes always use the current schema.
         var p = UserPreferences.Load();
         Assert.False(p.AutoExpandNotifications);  // Toggle A default OFF (user decision)
         Assert.False(p.BarTrayColorEnabled);       // Toggle B default OFF (v0.8 hotfix)
         Assert.False(p.VestibularWarningShown);    // never shown yet
-        Assert.Equal(2, p.SchemaVersion);
+        Assert.Equal(3, p.SchemaVersion);
         // M8 new fields: opt-in privacy (head-tracking OFF), Balanced follow
         // mode, escape hatch on.
         Assert.False(p.HeadTrackingEnabled);
         Assert.Equal("Balanced", p.HeadTrackingFollowMode);
         Assert.True(p.HeadTrackingEscapeHatchEnabled);
+        // Appearance default: Auto (follow the Windows system theme).
+        Assert.Equal(AppThemeMode.Auto, p.ThemeMode);
     }
 
     // ── Round-trip ───────────────────────────────────────────────────────────
@@ -77,6 +80,7 @@ public class UserPreferencesTests : IDisposable
             AutoExpandNotifications = true,
             BarTrayColorEnabled     = false,
             VestibularWarningShown  = true,
+            ThemeMode               = AppThemeMode.Dark,
         };
         written.Save();
 
@@ -84,7 +88,8 @@ public class UserPreferencesTests : IDisposable
         Assert.True(read.AutoExpandNotifications);
         Assert.False(read.BarTrayColorEnabled);
         Assert.True(read.VestibularWarningShown);
-        Assert.Equal(2, read.SchemaVersion);
+        Assert.Equal(AppThemeMode.Dark, read.ThemeMode);
+        Assert.Equal(3, read.SchemaVersion);
     }
 
     [Fact]
@@ -144,7 +149,7 @@ public class UserPreferencesTests : IDisposable
     [Fact]
     public void Load_UnknownSchemaVersion_FallsBackToDefaults()
     {
-        // Hand-write a v99 prefs file. Loader sees schema_version != 1
+        // Hand-write a v99 prefs file. Loader sees schema_version > Current
         // and returns a defaults-only instance instead of misinterpreting.
         Directory.CreateDirectory(Path.GetDirectoryName(UserPreferences.FilePath)!);
         File.WriteAllText(UserPreferences.FilePath,
@@ -152,7 +157,7 @@ public class UserPreferencesTests : IDisposable
 
         var p = UserPreferences.Load();
 
-        Assert.Equal(2, p.SchemaVersion);
+        Assert.Equal(3, p.SchemaVersion);
         Assert.False(p.AutoExpandNotifications);  // defaults, NOT the file's true
         Assert.False(p.BarTrayColorEnabled);       // defaults (v0.8 hotfix: OFF), NOT the file's value
     }
@@ -212,8 +217,11 @@ public class UserPreferencesTests : IDisposable
         Assert.Equal("Balanced", p.HeadTrackingFollowMode);
         Assert.True(p.HeadTrackingEscapeHatchEnabled);
 
+        // Appearance setting field (absent in v=1) defaults to Auto.
+        Assert.Equal(AppThemeMode.Auto, p.ThemeMode);
+
         // Rolled forward to current schema.
-        Assert.Equal(2, p.SchemaVersion);
+        Assert.Equal(3, p.SchemaVersion);
     }
 
     [Fact]
@@ -232,6 +240,46 @@ public class UserPreferencesTests : IDisposable
         Assert.Contains("head_tracking_follow_mode", json);
         Assert.Contains("head_tracking_escape_hatch_enabled", json);
         Assert.Contains("FullFollow", json);
+    }
+
+    // ── Appearance setting (2026-06-07): theme_mode ─────────────────────────
+
+    [Fact]
+    public void Save_ThemeMode_WritesSnakeCaseKey_AndEnumName_OnDisk()
+    {
+        var p = new UserPreferences { ThemeMode = AppThemeMode.Dark };
+        p.Save();
+
+        string json = File.ReadAllText(UserPreferences.FilePath);
+        Assert.Contains("theme_mode", json);   // snake_case JSON key
+        Assert.Contains("Dark", json);          // canonical enum name as value
+    }
+
+    [Fact]
+    public void Load_UnknownThemeModeString_FallsBackToAuto_WithoutWipingOtherFields()
+    {
+        // A hand-edited / future-build file with an unrecognised theme_mode
+        // must degrade that ONE field to Auto — not throw inside deserialisation
+        // and reset every other preference. The plain-string ThemeModeRaw +
+        // tolerant typed ThemeMode getter guarantees this.
+        Directory.CreateDirectory(Path.GetDirectoryName(UserPreferences.FilePath)!);
+        File.WriteAllText(UserPreferences.FilePath,
+            """{ "schema_version": 3, "auto_expand_notifications": true, "theme_mode": "Sepia" }""");
+
+        var p = UserPreferences.Load();
+
+        Assert.Equal(AppThemeMode.Auto, p.ThemeMode);  // unknown → Auto
+        Assert.True(p.AutoExpandNotifications);          // other fields intact
+    }
+
+    [Fact]
+    public void Load_ThemeModeString_IsCaseInsensitive()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(UserPreferences.FilePath)!);
+        File.WriteAllText(UserPreferences.FilePath,
+            """{ "schema_version": 3, "theme_mode": "light" }""");
+
+        Assert.Equal(AppThemeMode.Light, UserPreferences.Load().ThemeMode);
     }
 
     // ── Current singleton ────────────────────────────────────────────────────

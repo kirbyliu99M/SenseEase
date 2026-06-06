@@ -254,19 +254,22 @@ public sealed class TrayIconService : IDisposable
 
     private void ApplyState(SenseState state)
     {
-        // Toggle B (user pref): when colour-on is OFF, force the grey band
-        // regardless of tier (per spec §1 — bar/tray "永遠維持灰色透明").
-        // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT
-        // the broken ImageSource path (TaskbarIcon.IconSource). See
+        // Toggle B (user pref): when colour-on is OFF, force the calm/VeryHigh
+        // band regardless of tier (per spec §1 — bar/tray stays in its quiet
+        // resting state). With the Alpha-1 indigo-lens icon this only changes
+        // the small accent dot; the indigo tile + white lens are constant, so
+        // the toggle never blanks the icon's identity.
+        // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT the
+        // broken ImageSource path (TaskbarIcon.IconSource). See
         // BuildDistinctTrayIcon below for HICON lifecycle details.
         //
-        // M12 (TrayDistinct): the grey↔amber icons were only ~35% colour
-        // distance and blurred at the 16 px shell size. We now draw the icon
-        // locally (BuildDistinctTrayIcon) so the amber/elevated band is set
-        // apart from grey by SHAPE (a diagonal hatch), not hue alone —
-        // colour-blind-safe — and the amber hue itself is bumped to a more
-        // saturated tone. The contract of this method is unchanged: resolve
-        // the effective band, assign _tray.Icon, refresh the labels.
+        // Alpha-1 (TrayBrand): the icon is now a CONSISTENT brand mark — a fixed
+        // indigo (#4B6EF5) tile + white lens — with the tier conveyed SUBTLY by
+        // a small bottom-right accent dot (BuildDistinctTrayIcon → PaintBand).
+        // The whole tile is never darkened/recoloured, so the 16 px tray slot
+        // always reads as "the SenseEase indigo lens". The contract of this
+        // method is unchanged: resolve the effective band, assign _tray.Icon,
+        // refresh the labels.
         int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? state.VimsTier : 1;
         _tray.Icon = BuildDistinctTrayIcon(TierColorPalette.BandForTier(effectiveTier));
         RefreshLabels(state);
@@ -370,46 +373,46 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
-    // ── M12 (TrayDistinct): code-drawn, colour-blind-safe tray icons ─────────
+    // ── Alpha-1 (TrayBrand): one consistent indigo "SenseEase lens" icon ─────
     //
-    // The previous tray icon (TierColorPalette.IconForTier_Win) painted each
-    // band as a flat rounded square that differed by HUE only. The grey
-    // (102,102,102) → amber (230,140,40) step was ~35% perceptual distance and
-    // collapsed to near-identical greys for a deuteranope / protanope, and
-    // blurred together once the Win11 shell downscales 32 px → 16 px.
+    // The previous tray icon painted the WHOLE tile in the band hue (grey /
+    // amber / clay) and layered a hatch / wedge on top. At the 16 px tray slot
+    // the calm/VeryHigh band's dark grey tile read as a broken dark square, and
+    // the icon's identity changed band-to-band — it never settled into a
+    // recognizable "this is SenseEase" mark.
     //
-    // Fix: render NATIVE frames at {16,24,32,48} px and pack them into one
-    // multi-size ICO (BuildMultiSizeIco — uncompressed 32-bit BGRA DIB frames;
-    // GDI+ has no ICO encoder so we hand-write the container). The old path
-    // shipped ONE 32 px PNG frame and let the Win11 shell down-scale it to the
-    // 16 px tray slot, which blurred/blanked the icon — the same PNG-at-16px bug
-    // the app icon hit. Per-size frames let the shell pick the exact-size frame.
-    // Each band still differs by SHAPE as well as hue so they are
-    // distinguishable without relying on colour:
-    //   • Grey  (calm)     — plain filled rounded square.
-    //   • Amber (elevated) — saturated amber + a diagonal HATCH overlay. The
-    //                        texture reads as "different" even in greyscale.
-    //   • Red   (high)     — muted CLAY (never alarm red) + a filled-corner
-    //                        wedge, a third distinct silhouette.
-    // Calm-audience: no alarm red — the high band uses the same muted clay
-    // (#B65C4E) the faulted bar uses. Reduced motion is N/A here: tray icons
-    // are static (spec §1 "never animates"), so AccessibilityHelper.ReducedMotion
-    // doesn't gate anything in this path.
+    // Fix: the tile is now ALWAYS the brand indigo (#4B6EF5) with a white lens
+    // centred on it — the exact, consistent shape of the indigo app icon. The
+    // band/tier is conveyed SUBTLY by a small accent dot in the bottom-right
+    // corner (calm bands = cool/quiet, elevated = warm) — never by darkening or
+    // recolouring the whole tile. So at any size the primary read is "the
+    // SenseEase indigo lens", and the dot is a secondary, glanceable status cue.
+    //
+    // The multi-size ICO machinery is unchanged: render NATIVE frames at
+    // {16,24,32,48} px and pack them into one ICO (BuildMultiSizeIco —
+    // uncompressed 32-bit BGRA DIB frames; GDI+ has no ICO encoder so we
+    // hand-write the container) so the Win11 shell picks the exact-size frame
+    // instead of down-scaling a single 32 px one. Reduced motion is N/A: tray
+    // icons are static (spec §1 "never animates").
 
-    // Band hues. Amber bumped from the old (230,140,40) to a more saturated
-    // #E67E1E so the colour step off grey is larger even before the hatch.
-    private static readonly System.Drawing.Color TrayGreyFill  = System.Drawing.Color.FromArgb(255, 102, 102, 102); // calm grey, RGB 102
-    private static readonly System.Drawing.Color TrayAmberFill = System.Drawing.Color.FromArgb(255, 0xE6, 0x7E, 0x1E); // #E67E1E saturated amber
-    private static readonly System.Drawing.Color TrayClayFill  = System.Drawing.Color.FromArgb(255, 0xB6, 0x5C, 0x4E); // #B65C4E muted clay — NEVER alarm red
+    // Brand indigo — the FIXED tile background at every band, matching the app
+    // icon (#4B6EF5). The band hue is NEVER applied to the tile; only the small
+    // accent dot below varies, so the indigo lens identity is constant.
+    private static readonly System.Drawing.Color TrayIndigoFill = System.Drawing.Color.FromArgb(255, 0x4B, 0x6E, 0xF5); // #4B6EF5 brand indigo
 
-    // Shape-cue ink: a darker shade of each band's own hue so the hatch / wedge
-    // reads as a textured carve-out rather than a second colour the user has to
-    // decode. Kept fully opaque so it survives the 16 px downscale.
-    private static readonly System.Drawing.Color TrayAmberHatchInk = System.Drawing.Color.FromArgb(255, 0x8A, 0x47, 0x0C); // deep amber for the hatch strokes
-    private static readonly System.Drawing.Color TrayClayWedgeInk  = System.Drawing.Color.FromArgb(255, 0x7A, 0x35, 0x2A); // deep clay for the corner wedge
+    // Per-band accent-dot hues. These tint ONLY the small bottom-right status
+    // dot, not the tile. Cool/quiet for the calm bands, warming gently toward
+    // the most-stabilized band — calm-audience safe (no alarm red). Fully
+    // opaque so the dot survives the 16 px downscale.
+    private static readonly System.Drawing.Color TrayDotVeryHigh = System.Drawing.Color.FromArgb(255, 0xCF, 0xDD, 0xFA); // 極高 — airy near-white blue (most natural)
+    private static readonly System.Drawing.Color TrayDotHigh     = System.Drawing.Color.FromArgb(255, 0x8F, 0xB0, 0xF2); // 高   — light indigo-blue
+    private static readonly System.Drawing.Color TrayDotMedium   = System.Drawing.Color.FromArgb(255, 0xF2, 0xC9, 0x6B); // 中   — soft warm amber
+    private static readonly System.Drawing.Color TrayDotLow      = System.Drawing.Color.FromArgb(255, 0xE8, 0xA9, 0x77); // 低   — muted warm clay-amber
+    private static readonly System.Drawing.Color TrayDotVeryLow  = System.Drawing.Color.FromArgb(255, 0xD8, 0x8C, 0x7A); // 極低 — muted clay (never alarm red)
 
-    /// <summary>M12: returns the colour-blind-safe, shape-cued tray icon for a
-    /// band, cached so repeated same-band ticks reuse one <see
+    /// <summary>Alpha-1 (TrayBrand): returns the consistent indigo-lens tray icon
+    /// for a band (fixed indigo tile + white lens + a subtle per-band accent
+    /// dot), cached so repeated same-band ticks reuse one <see
     /// cref="System.Drawing.Icon"/> (and HICON). Released in <see
     /// cref="Dispose"/>. The icon is a multi-size ICO (16/24/32/48 px frames via
     /// <see cref="BuildMultiSizeIco"/>) so the Win11 shell renders a native
@@ -475,61 +478,58 @@ public sealed class TrayIconService : IDisposable
     internal static byte[] GetBandIcoBytesForTesting(TierColorPalette.TierBand band)
         => BuildBandIco(band);
 
-    /// <summary>Paints one tray frame: the rounded band-tinted "app tile", its
-    /// colour-blind-safe shape cue (diagonal hatch for Medium, corner wedge for
-    /// VeryLow), and the SenseEase brand lens — all scaled to <paramref
-    /// name="body"/>. The lens DETAIL scales with size: at ≥24 px the full lens
-    /// (translucent disc + ring + top-left highlight) is drawn; at 16–20 px the
-    /// thin 1.6 px ring and the 3.4 px highlight both collapse to sub-pixel
-    /// noise after the shell blends them, so only a simpler filled translucent
-    /// disc is drawn. The band hue + shape cue are kept at every size so the
-    /// Medium / VeryLow bands stay distinguishable even in the tiny tray slot.</summary>
+    /// <summary>Paints one tray frame: the FIXED indigo "app tile", the SenseEase
+    /// white brand lens centred on it, and a SUBTLE per-band accent dot in the
+    /// bottom-right corner — all scaled to <paramref name="body"/>. The tile is
+    /// always brand indigo (#4B6EF5), never the band hue, so the primary read at
+    /// every size is "the SenseEase indigo lens". The lens DETAIL scales with
+    /// size: at ≥24 px the full lens (translucent disc + ring + top-left
+    /// highlight) is drawn; at 16–20 px the thin ring and highlight collapse to
+    /// sub-pixel noise after the shell blends them, so only a simpler filled
+    /// disc is drawn. The accent dot is the only band-varying element; it is
+    /// small enough that it never overpowers the indigo lens, yet glanceable as
+    /// a tier cue.</summary>
     private static void PaintBand(
         System.Drawing.Graphics g,
         System.Drawing.Rectangle body,
         TierColorPalette.TierBand band)
     {
-        // Legacy→5級 semantic mapping (preserve calm↔high intent):
-        // Grey(calm)→VeryHigh, Amber(mid)→Medium, Clay(high)→VeryLow.
-        System.Drawing.Color fill = band switch
-        {
-            TierColorPalette.TierBand.Medium  => TrayAmberFill,
-            TierColorPalette.TierBand.VeryLow => TrayClayFill,
-            _                                 => TrayGreyFill,
-        };
-
         // Corner radius proportional to the body so the tile keeps the same
         // "app tile" silhouette at every size (≈19% of the body width — the
         // 6 px radius on the old 28 px body).
         int radius = System.Math.Max(2, body.Width * 6 / 28);
 
+        // Fixed indigo tile — identical at every band. The tier is conveyed by
+        // the accent dot below, NOT by recolouring the tile.
         using (var tile = RoundedRectPath(body, radius))
-        using (var fillBrush = new System.Drawing.SolidBrush(fill))
-        {
+        using (var fillBrush = new System.Drawing.SolidBrush(TrayIndigoFill))
             g.FillPath(fillBrush, tile);
-            g.SetClip(tile);
-            switch (band)
-            {
-                case TierColorPalette.TierBand.Medium:
-                    DrawDiagonalHatch(g, body, TrayAmberHatchInk);
-                    break;
-                case TierColorPalette.TierBand.VeryLow:
-                    DrawCornerWedge(g, body, TrayClayWedgeInk);
-                    break;
-                // VeryHigh / other bands: plain fill — the textural
-                // "calm / nothing layered on" cue.
-            }
-            g.ResetClip();
-        }
 
         // Brand lens. At ≥24 px draw the full lens (ring + highlight); at the
         // tiny 16–20 px tray sizes those thin features vanish, so draw a single
-        // filled translucent disc on the band-tinted tile instead.
+        // filled disc on the indigo tile instead.
         if (body.Width >= 24)
             DrawBrandLens(g, body);
         else
             DrawSimpleBrandDisc(g, body);
+
+        // Subtle per-band accent dot in the bottom-right corner. Drawn LAST so
+        // it sits above the lens edge; sized small (≈22% of the body) so the
+        // indigo lens stays the dominant read at the 16 px tray slot.
+        DrawBandAccentDot(g, body, AccentDotColor(band));
     }
+
+    /// <summary>Per-band accent-dot colour. The only band-varying element of the
+    /// tray icon — the tile + lens are identical across bands.</summary>
+    private static System.Drawing.Color AccentDotColor(TierColorPalette.TierBand band) => band switch
+    {
+        TierColorPalette.TierBand.VeryHigh => TrayDotVeryHigh,
+        TierColorPalette.TierBand.High     => TrayDotHigh,
+        TierColorPalette.TierBand.Medium   => TrayDotMedium,
+        TierColorPalette.TierBand.Low      => TrayDotLow,
+        TierColorPalette.TierBand.VeryLow  => TrayDotVeryLow,
+        _                                  => TrayDotVeryHigh,
+    };
 
     /// <summary>Rounded-rectangle path for the tray tile body.</summary>
     private static System.Drawing.Drawing2D.GraphicsPath RoundedRectPath(
@@ -545,11 +545,11 @@ public sealed class TrayIconService : IDisposable
         return path;
     }
 
-    /// <summary>Paints the SenseEase brand lens — a translucent white disc with a
-    /// soft ring and a top-left highlight — centred on the tray tile, echoing the
-    /// AppIcon's lens over its tile grid. The band colour shows through the
-    /// translucent disc, so each band keeps its hue while the mark stays
-    /// recognizable (never a flat coloured square).</summary>
+    /// <summary>Paints the SenseEase brand lens — a near-opaque white disc with a
+    /// crisp white ring and a top-left highlight — centred on the indigo tray
+    /// tile, echoing the AppIcon's lens. On the fixed indigo fill this reads as a
+    /// clean white lens (the brand mark), so the tray icon stays recognizable as
+    /// SenseEase at every band.</summary>
     private static void DrawBrandLens(System.Drawing.Graphics g, System.Drawing.Rectangle body)
     {
         // Lens diameter ≈57% of the body (16 px on the old 28 px body), scaled
@@ -558,79 +558,60 @@ public sealed class TrayIconService : IDisposable
         float cx = body.X + body.Width / 2f;
         float cy = body.Y + body.Height / 2f;
         var lens = new System.Drawing.RectangleF(cx - dia / 2f, cy - dia / 2f, dia, dia);
-        using (var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(200, 255, 255, 255)))
+        // Near-opaque white disc for a clean, high-contrast lens on indigo. A
+        // hair of translucency (240) keeps a soft edge against the indigo rather
+        // than a hard cut-out.
+        using (var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(240, 255, 255, 255)))
             g.FillEllipse(disc, lens);
         float ringWidth = System.Math.Max(1f, dia / 10f);
         using (var ring = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 255, 255, 255), ringWidth))
             g.DrawEllipse(ring, lens);
+        // Soft top-left highlight tinted faint indigo so the lens reads as a
+        // glassy surface over the brand tile rather than a flat white dot.
         float hiDia = dia * 3.4f / 16f;
         float hiInset = dia * 2.6f / 16f;
-        using (var hi = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(235, 255, 255, 255)))
+        using (var hi = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(235, 0xEE, 0xF2, 0xFF)))
             g.FillEllipse(hi, cx - dia / 2f + hiInset, cy - dia / 2f + hiInset, hiDia, hiDia);
     }
 
     /// <summary>Simplified brand mark for the tiny 16–20 px tray frames: a
-    /// single filled translucent disc (no thin ring, no 3.4 px highlight — both
-    /// collapse to sub-pixel noise at 16 px after the shell blends them). The
-    /// band hue still shows through the translucent disc, so the band stays
-    /// readable and the mark keeps a recognizable round silhouette.</summary>
+    /// single near-opaque white disc (no thin ring, no 3.4 px highlight — both
+    /// collapse to sub-pixel noise at 16 px after the shell blends them). On the
+    /// indigo tile this still reads as a clean white lens with a recognizable
+    /// round silhouette.</summary>
     private static void DrawSimpleBrandDisc(System.Drawing.Graphics g, System.Drawing.Rectangle body)
     {
         float dia = body.Width * 16f / 28f;
         float cx = body.X + body.Width / 2f;
         float cy = body.Y + body.Height / 2f;
         var lens = new System.Drawing.RectangleF(cx - dia / 2f, cy - dia / 2f, dia, dia);
-        using var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(210, 255, 255, 255));
+        using var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(245, 255, 255, 255));
         g.FillEllipse(disc, lens);
     }
 
-    /// <summary>M12 amber shape cue: evenly-spaced diagonal stripes clipped to
-    /// the icon body. A greyscale viewer still perceives the stripe texture, so
-    /// amber is distinguishable from the plain grey band by shape, not hue.</summary>
-    private static void DrawDiagonalHatch(System.Drawing.Graphics g, System.Drawing.Rectangle body, System.Drawing.Color ink)
+    /// <summary>Alpha-1 (TrayBrand): the SUBTLE per-band tier cue — a small
+    /// filled accent dot in the bottom-right corner of the indigo tile, with a
+    /// thin indigo "halo" stroke so it sits cleanly on the tile edge without a
+    /// muddy seam. Sized ≈22% of the body so it never competes with the white
+    /// lens for the primary read; the dot still survives the 16 px downscale
+    /// because it is a solid, fully-opaque blob (no thin strokes inside).</summary>
+    private static void DrawBandAccentDot(System.Drawing.Graphics g, System.Drawing.Rectangle body, System.Drawing.Color dot)
     {
-        // Stripe spacing / width scale with the body (7 px / 3 px on the old
-        // 28 px body) so the hatch reads as the same texture at 16 / 32 / 48 px
-        // rather than a few stray lines on the small frames.
-        int spacing = System.Math.Max(3, body.Width * 7 / 28); // px between stripes
-        float stroke = System.Math.Max(1.5f, body.Width * 3f / 28f); // stripe width
-        using var pen = new System.Drawing.Pen(ink, stroke);
-        var oldClip = g.Clip;
-        try
-        {
-            // INTERSECT (not Replace) so the hatch stays inside the rounded-tile
-            // clip PaintBand already set — otherwise the stripes would bleed into
-            // the rounded corners (more visible at the small 16 px frame).
-            g.SetClip(body, System.Drawing.Drawing2D.CombineMode.Intersect);
-            // Sweep 45° lines from top-left to bottom-right across the body so
-            // a few full-length diagonals land inside the clip region.
-            for (int d = -body.Height; d < body.Width; d += spacing)
-            {
-                int x0 = body.Left + d;
-                g.DrawLine(pen, x0, body.Top, x0 + body.Height, body.Bottom);
-            }
-        }
-        finally
-        {
-            g.Clip = oldClip;
-        }
-    }
-
-    /// <summary>M12 high-band shape cue: a filled triangular wedge in the
-    /// bottom-right corner — a third distinct silhouette so the muted-clay high
-    /// state can't be confused with the hatched amber or the plain grey, even
-    /// before colour is considered.</summary>
-    private static void DrawCornerWedge(System.Drawing.Graphics g, System.Drawing.Rectangle body, System.Drawing.Color ink)
-    {
-        int size = body.Width / 2; // wedge spans half the body
-        var pts = new[]
-        {
-            new System.Drawing.Point(body.Right,        body.Bottom - size),
-            new System.Drawing.Point(body.Right,        body.Bottom),
-            new System.Drawing.Point(body.Right - size, body.Bottom),
-        };
-        using var wedgeBrush = new System.Drawing.SolidBrush(ink);
-        g.FillPolygon(wedgeBrush, pts);
+        float d = System.Math.Max(3f, body.Width * 6f / 28f); // ≈22% of body
+        // Inset from the bottom-right so the dot tucks just inside the rounded
+        // corner rather than overhanging the tile edge.
+        float inset = System.Math.Max(1f, body.Width * 1.5f / 28f);
+        float x = body.Right - inset - d;
+        float y = body.Bottom - inset - d;
+        var rect = new System.Drawing.RectangleF(x, y, d, d);
+        // Thin indigo separator halo (a slightly darker indigo) so the dot reads
+        // as a distinct chip on the indigo tile even when its own hue is a light
+        // indigo-blue (calm bands).
+        float haloW = System.Math.Max(0.75f, d / 6f);
+        using (var halo = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 0x2F, 0x4B, 0xC2), haloW))
+            g.DrawEllipse(halo, x - haloW / 2f, y - haloW / 2f, d + haloW, d + haloW);
+        using (var brush = new System.Drawing.SolidBrush(dot))
+            g.FillEllipse(brush, rect);
     }
 
     /// <summary>Builds a proper MULTI-SIZE ICO from the supplied frames, each

@@ -16,24 +16,27 @@
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
     <!-- ═══ Colors ═══════════════════════════════════════════════════════════
-         "Crisp Cool — calm-tuned" (HP-grade refresh, user-picked 2026-06-06).
-         Cool near-white canvas + light chrome + white cards; the accent is a
-         de-electrified clean blue (#3B6FC4, S~52%) RATIONED to the hero card,
-         primary CTA pills, the active-tab underline, the logo mark, and the
-         focus ring — NEVER the header bar, the canvas, card borders, or data
-         numerals (those are TextPrimary). All text pairs clear WCAG AA 4.5:1. -->
-    <SolidColorBrush x:Key="Canvas"        Color="#EEF1F5"/>
+         "myHP / HP Smart" refresh (user-picked 2026-06-07). Clean light, airy
+         canvas + white rounded cards + an INDIGO accent (#4B6EF5, S~89%)
+         RATIONED to the hero card, primary CTA pills, the active-tab underline,
+         the logo mark, and the focus ring — NEVER the header bar, the canvas,
+         card borders, or data numerals (those are TextPrimary). Cards sit on a
+         soft near-borderless surface with a CardBorder hairline for definition.
+         All text pairs clear WCAG AA 4.5:1. -->
+    <SolidColorBrush x:Key="Canvas"        Color="#F3F4F7"/>
     <SolidColorBrush x:Key="Surface"       Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="SurfaceMuted"  Color="#F3F5F8"/>
-    <SolidColorBrush x:Key="Separator"     Color="#D4DAE3"/>
-    <SolidColorBrush x:Key="TextPrimary"   Color="#16202E"/>
-    <SolidColorBrush x:Key="TextSecondary" Color="#475569"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#51606F"/>
-    <SolidColorBrush x:Key="Accent"        Color="#0096D6"/>
-    <SolidColorBrush x:Key="AccentHover"   Color="#00558C"/>
-    <!-- Light top-chrome surface (near-white) — the header is a hairline-divided
-         light bar, never a painted blue band. -->
-    <SolidColorBrush x:Key="HeaderSurface" Color="#FBFCFD"/>
+    <SolidColorBrush x:Key="SurfaceMuted"  Color="#EDEFF3"/>
+    <SolidColorBrush x:Key="Separator"     Color="#E3E6EC"/>
+    <!-- Hairline card outline for soft, near-borderless surface definition. -->
+    <SolidColorBrush x:Key="CardBorder"    Color="#ECEEF2"/>
+    <SolidColorBrush x:Key="TextPrimary"   Color="#1B2333"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#5A6475"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#8A93A3"/>
+    <SolidColorBrush x:Key="Accent"        Color="#4B6EF5"/>
+    <SolidColorBrush x:Key="AccentHover"   Color="#3552D9"/>
+    <!-- Light top-chrome surface — the header is a hairline-divided white bar,
+         never a painted indigo band. -->
+    <SolidColorBrush x:Key="HeaderSurface" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFF"/>
 
     <!-- Three comfort bands (base / weak fill / readable text-on-weak).
@@ -55,16 +58,16 @@
     <sys:Double x:Key="Gap.Tight">8</sys:Double>
     <Thickness  x:Key="Pad.CardAll">24</Thickness>
     <Thickness  x:Key="Gap.StackBottom">0,0,0,16</Thickness>
-    <CornerRadius x:Key="Radius.md">12</CornerRadius>
-    <CornerRadius x:Key="Radius.sm">8</CornerRadius>
+    <CornerRadius x:Key="Radius.md">16</CornerRadius>
+    <CornerRadius x:Key="Radius.sm">10</CornerRadius>
     <CornerRadius x:Key="Radius.pill">999</CornerRadius>
 
     <!-- ═══ Elevation ════════════════════════════════════════════════════════ -->
-    <!-- Soft black shadow (NOT a blue glow). Op 0.08, straight down. -->
+    <!-- Soft black shadow (NOT an indigo glow), softened for the airy look. -->
     <DropShadowEffect x:Key="Elev.2" Color="#000000" Direction="270"
-                      ShadowDepth="2" BlurRadius="10" Opacity="0.08"/>
+                      ShadowDepth="2" BlurRadius="10" Opacity="0.06"/>
     <DropShadowEffect x:Key="Elev.3" Color="#000000" Direction="270"
-                      ShadowDepth="4" BlurRadius="18" Opacity="0.10"/>
+                      ShadowDepth="4" BlurRadius="18" Opacity="0.09"/>
 
     <!-- ═══ Typography ═══════════════════════════════════════════════════════
          Font props only here; Foreground via DynamicResource so it resolves

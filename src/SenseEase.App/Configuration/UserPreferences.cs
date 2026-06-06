@@ -6,6 +6,29 @@ using SenseEase.Infrastructure.Storage;
 namespace SenseEase.App.Configuration;
 
 /// <summary>
+/// User-selectable theme mode (Appearance setting, 2026-06-07). Persisted in
+/// <see cref="UserPreferences.ThemeMode"/> and consumed by
+/// <see cref="Theme.ThemeManager"/>.
+/// <list type="bullet">
+///   <item><see cref="Auto"/> — follow the Windows light/dark system setting
+///         (registry <c>AppsUseLightTheme</c>); live-updates on OS flips.</item>
+///   <item><see cref="Light"/> — force light, never dark, regardless of OS.</item>
+///   <item><see cref="Dark"/> — force dark, always, regardless of OS.</item>
+/// </list>
+/// Serialised as its string name (forward-compatible; unknown values fall back
+/// to <see cref="Auto"/> on load).
+/// </summary>
+public enum AppThemeMode
+{
+    /// <summary>Follow the Windows system light/dark setting (default).</summary>
+    Auto,
+    /// <summary>Always light, never dark.</summary>
+    Light,
+    /// <summary>Always dark.</summary>
+    Dark,
+}
+
+/// <summary>
 /// Pop-up sprint Task 5: persisted user preferences. Lives at
 /// %LocalAppData%/SenseEase/user-preferences.json. Atomic write via the
 /// shared <see cref="AtomicJsonWriter"/> (tmp + File.Replace) so a
@@ -51,11 +74,15 @@ public sealed class UserPreferences
     //       head_tracking_follow_mode, head_tracking_escape_hatch_enabled.
     //       Old v=1 files load cleanly (missing fields default to the
     //       Roll forward strategy below).
+    //   3 — Appearance setting (2026-06-07) adds theme_mode. Old v=1/v=2 files
+    //       load cleanly; the missing field defaults to "Auto" (follow Windows),
+    //       which is the pre-setting behaviour, so upgrading installs keep their
+    //       OS-following theme until the user picks Light/Dark explicitly.
     [JsonPropertyName("schema_version")]
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     /// <summary>Current canonical schema version this build writes.</summary>
-    internal const int CurrentSchemaVersion = 2;
+    internal const int CurrentSchemaVersion = 3;
 
     /// <summary>Toggle A — auto-expand notification card on tier-up / spike.
     /// Default <c>false</c> per spec §4: passive signal first, active
@@ -151,6 +178,35 @@ public sealed class UserPreferences
     /// OverlayWindow.TriggerEscapeHatch + docs/HEAD-TRACKING-PRIVACY.md §3.4.</summary>
     [JsonPropertyName("head_tracking_escape_hatch_enabled")]
     public bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
+
+    // ── Appearance setting (2026-06-07) ─────────────────────────────────────
+
+    /// <summary>User-selected theme mode, string-serialised for forward-compat
+    /// exactly like <see cref="HeadTrackingFollowMode"/> ("Auto" / "Light" /
+    /// "Dark"). Default "Auto" (follow the Windows light/dark system setting) —
+    /// this matches the pre-setting behaviour, so existing installs and v=1/v=2
+    /// files (where the field is absent) keep following the OS until the user
+    /// explicitly picks Light or Dark in Settings → 外觀 / Appearance.
+    /// <para>A plain string (not an enum-typed property) is used deliberately:
+    /// an unrecognised stored value must NOT throw inside deserialisation and
+    /// wipe the whole prefs file — it should degrade to Auto. The typed
+    /// accessor <see cref="ThemeMode"/> performs that tolerant parse, and
+    /// <see cref="Theme.ThemeManager"/> consumes the typed value.</para></summary>
+    [JsonPropertyName("theme_mode")]
+    public string ThemeModeRaw { get; set; } = nameof(AppThemeMode.Auto);
+
+    /// <summary>Tolerant typed view over <see cref="ThemeModeRaw"/>. Unknown /
+    /// malformed strings fall back to <see cref="AppThemeMode.Auto"/> on get;
+    /// the setter writes the canonical enum name back to the raw string so the
+    /// persisted file stays "Auto"/"Light"/"Dark". Case-insensitive parse.</summary>
+    [JsonIgnore]
+    public AppThemeMode ThemeMode
+    {
+        get => Enum.TryParse<AppThemeMode>(ThemeModeRaw, ignoreCase: true, out var m)
+            ? m
+            : AppThemeMode.Auto;
+        set => ThemeModeRaw = value.ToString();
+    }
 
     // ── Static singleton + persistence ──────────────────────────────────────
 

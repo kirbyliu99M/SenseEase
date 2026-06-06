@@ -88,6 +88,74 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Appearance setting (2026-06-07): segmented-control segment.
+                 Three of these RadioButtons (GroupName="ThemeMode") form a
+                 single pill-grouped selector: 自動 / 淺色 / 深色. Each segment is
+                 a ≥44px-tall touch target with a clear selected fill (Accent),
+                 hover lift, and keyboard-focus ring — all via DynamicResource
+                 tokens so it tracks both themes. Selection is NOT colour-only:
+                 the picked segment also goes SemiBold + TextOnComfort so it
+                 reads without relying on hue. 160ms colour transitions keep the
+                 state change calm, not snappy. -->
+            <Style x:Key="ThemeSegment" TargetType="RadioButton">
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="MinHeight" Value="44"/>
+                <Setter Property="MinWidth" Value="84"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="FontWeight" Value="Medium"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <!-- Fill is token-driven (DynamicResource via the
+                                 triggers below) so it tracks BOTH themes — the
+                                 selected segment picks up the light indigo or the
+                                 brighter dark-mode indigo automatically. This
+                                 matches the established SettingSwitch pattern in
+                                 this same file (token swap, not a hardcoded
+                                 ColorAnimation that would freeze one theme's hue). -->
+                            <Border x:Name="SegBorder"
+                                    Background="Transparent"
+                                    CornerRadius="{StaticResource Radius.sm}"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  Margin="14,0"
+                                                  RecognizesAccessKey="True"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <!-- Hover (unselected): gentle muted fill -->
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsMouseOver" Value="True"/>
+                                        <Condition Property="IsChecked" Value="False"/>
+                                    </MultiTrigger.Conditions>
+                                    <Setter TargetName="SegBorder" Property="Background"
+                                            Value="{DynamicResource Surface}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                                </MultiTrigger>
+                                <!-- Selected: Accent fill, on-accent text, SemiBold
+                                     so selection survives without relying on hue. -->
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="SegBorder" Property="Background"
+                                            Value="{DynamicResource Accent}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextOnComfort}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                                <!-- Disabled: dim -->
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
     <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): shared settings UI
@@ -107,9 +175,11 @@
 
          The Close button intentionally stays in SettingsWindow.xaml because
          it's window-chrome; the Settings tab has no Close affordance. -->
-    <Border Background="White" CornerRadius="14" Padding="24" Margin="6">
+    <Border Background="{DynamicResource Canvas}"
+            CornerRadius="{StaticResource Radius.md}"
+            Padding="24" Margin="6">
         <Border.Effect>
-            <DropShadowEffect Color="#5B82C6" BlurRadius="14"
+            <DropShadowEffect Color="#000000" Direction="270" BlurRadius="14"
                               ShadowDepth="2" Opacity="0.08"/>
         </Border.Effect>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -123,8 +193,69 @@
                  Expander. RESTYLE/REGROUP only — every x:Name, handler and
                  binding is byte-identical to the previous flat layout. -->
             <StackPanel>
+                <!-- ═══ Section 0 · 外觀 / Appearance ═══════════════════════════
+                     Appearance setting (2026-06-07): user theme choice.
+                     A 3-segment selector (自動 / 淺色 / 深色) wired to
+                     ThemeManager.SetMode via OnThemeModeChanged. The whole
+                     selector sits in a SurfaceMuted "track" so the three pills
+                     read as one grouped control; the selected pill fills Accent.
+                     Hydrated from UserPreferences.ThemeMode in
+                     RefreshFromPreferences (guarded by _wiring like the rest). -->
+                <Border Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="外觀 / Appearance"
+                                   Margin="0,0,0,4"/>
+                        <TextBlock Text="選擇介面主題，或跟隨 Windows 系統設定。"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,14"/>
+
+                        <!-- Segmented control: one SurfaceMuted track wrapping
+                             three equal-width RadioButton segments. The track is
+                             Radius.md (12) so the inner segments' Radius.sm (8)
+                             nest cleanly inside the 3px padding. -->
+                        <Border Background="{DynamicResource SurfaceMuted}"
+                                BorderBrush="{DynamicResource CardBorder}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource Radius.md}"
+                                Padding="3"
+                                HorizontalAlignment="Left">
+                            <UniformGrid Rows="1" Columns="3">
+                                <RadioButton x:Name="ThemeAuto"
+                                             Style="{StaticResource ThemeSegment}"
+                                             GroupName="ThemeMode"
+                                             Content="自動 Auto"
+                                             ToolTip="跟隨 Windows 系統的淺色 / 深色設定&#x0a;Follow the Windows system light / dark setting"
+                                             Checked="OnThemeModeChanged"/>
+                                <RadioButton x:Name="ThemeLight"
+                                             Style="{StaticResource ThemeSegment}"
+                                             GroupName="ThemeMode"
+                                             Content="淺色 Light"
+                                             ToolTip="永遠使用淺色主題&#x0a;Always use the light theme"
+                                             Checked="OnThemeModeChanged"/>
+                                <RadioButton x:Name="ThemeDark"
+                                             Style="{StaticResource ThemeSegment}"
+                                             GroupName="ThemeMode"
+                                             Content="深色 Dark"
+                                             ToolTip="永遠使用深色主題&#x0a;Always use the dark theme"
+                                             Checked="OnThemeModeChanged"/>
+                            </UniformGrid>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
                 <!-- ═══ Section 1 · 通知與顯示 / Notifications & display ═══ -->
                 <Border Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
                         CornerRadius="{StaticResource Radius.md}"
                         Effect="{StaticResource Elev.2}"
                         Padding="20,18"
@@ -194,6 +325,8 @@
 
                 <!-- ═══ Section 2 · 背景常駐 / Background & startup ═══ -->
                 <Border Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
                         CornerRadius="{StaticResource Radius.md}"
                         Effect="{StaticResource Elev.2}"
                         Padding="20,18"
@@ -261,6 +394,8 @@
 
                 <!-- ═══ Section 3 · 頭部追蹤與隱私 / Head tracking & privacy ═══ -->
                 <Border Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
                         CornerRadius="{StaticResource Radius.md}"
                         Effect="{StaticResource Elev.2}"
                         Padding="20,18"
@@ -289,12 +424,12 @@
                                 <Button x:Name="RestartButton"
                                         Content="需重新啟動 / 立即重啟"
                                         Margin="10,0,0,0"
-                                        Padding="10,4"
-                                        FontSize="11"
-                                        FontWeight="Bold"
-                                        Foreground="#8B5A00"
-                                        Background="#FFF4D6"
-                                        BorderBrush="#E5A841"
+                                        Padding="10,5"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource ComfortRisingText}"
+                                        Background="{DynamicResource ComfortRisingWeak}"
+                                        BorderBrush="{DynamicResource ComfortRising}"
                                         BorderThickness="1"
                                         Cursor="Hand"
                                         Click="OnRestartClicked"
@@ -317,7 +452,7 @@
                                                TextWrapping="Wrap"/>
                                     <TextBlock Text="When on, app launch spawns a Python sidecar and reads the webcam (MediaPipe face-landmark inference) so the FOV mask follows your gaze. Default off for privacy. See docs/HEAD-TRACKING-PRIVACY.md."
                                                FontSize="11"
-                                               Foreground="#9AB6E0"
+                                               Foreground="{DynamicResource TextTertiary}"
                                                TextWrapping="Wrap"
                                                Margin="0,2,0,0"/>
                                 </StackPanel>
@@ -376,7 +511,7 @@
                                        Visibility="Collapsed"
                                        Text="（你的 calibration 紀錄顯示前庭敏感，此功能已停用以維持視覺保護。Disabled because vestibular sensitivity detected; temporary transparency would compromise visual protection.）"
                                        FontSize="11"
-                                       Foreground="#C2410C"
+                                       Foreground="{DynamicResource ComfortHighText}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                         </StackPanel>
@@ -416,7 +551,7 @@
                                Foreground="{DynamicResource TextTertiary}"
                                TextWrapping="Wrap"
                                Margin="0,0,0,10"/>
-                    <Border Background="#F8FAFF" BorderBrush="#E8EEFF" BorderThickness="1" CornerRadius="6" Padding="14,10">
+                    <Border Background="{DynamicResource SurfaceMuted}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" CornerRadius="{StaticResource Radius.sm}" Padding="14,10">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="170"/>
@@ -447,7 +582,7 @@
                         </Grid>
                     </Border>
                     <TextBlock Text="提示：所有快捷鍵僅在主控台視窗有焦點時觸發 (PreviewKeyDown 範圍)。Note: all hotkeys fire only when the main console window has focus."
-                               FontSize="10" Foreground="#9AB6E0" FontStyle="Italic"
+                               FontSize="10" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
                                TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </StackPanel>
             </StackPanel>

@@ -32,11 +32,17 @@
         <conv:TierToComfortLabelConverter x:Key="TierToComfortLabel"/>
         <conv:TierToComfortBandConverter  x:Key="TierToComfortBand"/>
 
-        <!-- ── Card ── -->
+        <!-- ── Card ──
+             Clean rounded surface (myHP / HP Smart look): Radius.md corner,
+             generous Pad.CardAll padding, soft Elev.2 shadow, plus a hairline
+             Separator border so the card keeps definition in BOTH themes
+             (critical for dark, where a borderless white-on-white card vanishes). -->
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource Surface}"/>
             <Setter Property="CornerRadius" Value="{StaticResource Radius.md}"/>
-            <Setter Property="Padding" Value="22,18"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="{StaticResource Pad.CardAll}"/>
             <Setter Property="Effect" Value="{StaticResource Elev.2}"/>
         </Style>
 
@@ -170,13 +176,13 @@
                         CornerRadius="20" Padding="14,5">
                     <Border.Style>
                         <Style TargetType="Border">
-                            <Setter Property="Background" Value="#1A7AD4"/>
+                            <Setter Property="Background" Value="{DynamicResource Accent}"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding SensingModeLabel}" Value="DEMO MODE">
-                                    <Setter Property="Background" Value="#F0832E"/>
+                                    <Setter Property="Background" Value="{DynamicResource ComfortRising}"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding SensingModeLabel}" Value="SCREEN CAPTURE">
-                                    <Setter Property="Background" Value="#5E3AAD"/>
+                                    <Setter Property="Background" Value="{DynamicResource Accent}"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -278,6 +284,7 @@
                      VIMS tier via read-only converters + Comfort* tokens. Replaces
                      the four raw-telemetry cards (now demoted to Advanced below). -->
                 <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                        BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                         Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
                         Margin="0,0,0,16"
                         AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
@@ -470,7 +477,7 @@
                             <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding OpticalFlowIndex}" Maximum="150"
-                                         Height="4" Background="#EEF3FF" Foreground="{DynamicResource Accent}"
+                                         Height="4" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="/ 150" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -496,7 +503,7 @@
                             <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding FovRadiusPercent, Mode=OneWay}" Maximum="100"
-                                         Height="4" Background="#EEF3FF" Foreground="{DynamicResource Accent}"
+                                         Height="4" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="Clear zone" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -511,7 +518,7 @@
                                 <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,6,0">
                                     <Ellipse.Style>
                                         <Style TargetType="Ellipse">
-                                            <Setter Property="Fill" Value="#B0BFD8"/>
+                                            <Setter Property="Fill" Value="{DynamicResource Separator}"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding MaskActive}" Value="True">
                                                     <Setter Property="Fill" Value="{DynamicResource ComfortHigh}"/>
@@ -539,25 +546,32 @@
 
                 </UniformGrid>
 
-                <!-- Status strip -->
-                <Border Background="#F3F6FC" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
-                        <TextBlock Text="{Binding FmsScore}" Foreground="{DynamicResource TextPrimary}"
-                                   FontWeight="Bold" FontSize="12"/>
-                        <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
-                        <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Text" Value="Hidden"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding OverlayVisible}" Value="True">
-                                            <Setter Property="Text" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                <!-- Status strip (FMS / Overlay diagnostics) -->
+                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="12,8" Margin="0,8,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{Binding FmsScore}" Foreground="{DynamicResource TextPrimary}"
+                                       FontWeight="Bold" FontSize="12"/>
+                            <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
+                            <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Hidden"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding OverlayVisible}" Value="True">
+                                                <Setter Property="Text" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                        <!-- Phase-C nit: diagnostic-hint caption so the relocated FMS
+                             strip reads as developer/diagnostic info, not a daily metric. -->
+                        <TextBlock Style="{StaticResource Type.Caption}"
+                                   Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
+                                   Text="診斷數值,日常使用可忽略 / Diagnostic values — safe to ignore in everyday use."/>
                     </StackPanel>
                 </Border>
                 </StackPanel>
@@ -630,7 +644,7 @@
                              Forces the FOV mask to stay visible at a user-chosen baseline
                              intensity. Natural pressure-driven tier still wins when higher,
                              so real motion still darkens the periphery further. -->
-                        <Separator Background="#E8EEFF" Margin="0,16"/>
+                        <Separator Background="{DynamicResource Separator}" Margin="0,16"/>
                         <TextBlock Text="保持開啟 / Always-on Overlay"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <Grid>
@@ -641,7 +655,7 @@
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <CheckBox IsChecked="{Binding PersistentOverlayEnabled}"
                                           Content="保持遮罩開啟 / Keep overlay visible"
-                                          FontSize="12" Foreground="#0A1F5C"
+                                          FontSize="12" Foreground="{DynamicResource TextPrimary}"
                                           VerticalContentAlignment="Center"/>
                                 <TextBlock Margin="22,2,0,0" Style="{StaticResource CardLabel}"
                                            Text="顯示器周邊維持暗角；偵測到動態時自動加深 / Periphery stays dim; darkens on detected motion."/>
@@ -668,7 +682,7 @@
                                        VerticalAlignment="Center"/>
                         </Grid>
 
-                        <Separator Background="#E8EEFF" Margin="0,16"/>
+                        <Separator Background="{DynamicResource Separator}" Margin="0,16"/>
                         <TextBlock Text="再適應 Habituation Engine"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <Grid>
@@ -678,7 +692,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <ProgressBar Value="{Binding HabituationLevel, Mode=OneWay}" Maximum="100"
-                                             Height="6" Background="#EEF3FF" Foreground="#2BA672"
+                                             Height="6" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource ComfortSteady}"
                                              BorderThickness="0"/>
                                 <TextBlock Margin="0,4,0,0" Style="{StaticResource CardLabel}"
                                            Text="{Binding HabituationLevel, StringFormat='再適應進度 Progress: {0}%'}"/>
@@ -712,6 +726,7 @@
                              Dashboard instead of a raw-telemetry dump. Same
                              read-only converters + Comfort* tokens. -->
                         <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                                BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                                 Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
                                 Margin="0,0,0,16"
                                 AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
@@ -867,7 +882,7 @@
                                     </StackPanel>
                                 </UniformGrid>
                                 <!-- Cross-component status row: OS-chrome suppression + auto Driver/Passenger -->
-                                <Separator Background="#E8EEFF" Margin="0,12,0,10"/>
+                                <Separator Background="{DynamicResource Separator}" Margin="0,12,0,10"/>
                                 <UniformGrid Rows="1" Columns="2">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                         <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,6,0">
@@ -876,10 +891,10 @@
                                                      is currently suppressing OFI. Default is amber; the trigger
                                                      flips to green when ActivityStatus == "Idle" exactly. -->
                                                 <Style TargetType="Ellipse">
-                                                    <Setter Property="Fill" Value="#F0832E"/>
+                                                    <Setter Property="Fill" Value="{DynamicResource ComfortRising}"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding ActivityStatus}" Value="Idle">
-                                                            <Setter Property="Fill" Value="#2BA672"/>
+                                                            <Setter Property="Fill" Value="{DynamicResource ComfortSteady}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -906,7 +921,7 @@
                                            Style="{StaticResource SectionTitle}"/>
                                 <TextBlock Text="畫面動態與防護強度的即時軌跡 / Live trace of screen motion and protection"
                                            Style="{StaticResource CardLabel}" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                                <Border Background="#F3F6FC" CornerRadius="8" Padding="14,10" Height="280">
+                                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="14,10" Height="280">
                                     <Canvas x:Name="PressureChartCanvas" ClipToBounds="True"/>
                                 </Border>
                                 <!-- Legend -->
@@ -1043,7 +1058,8 @@
 
                     <!-- Chat history -->
                     <Border Grid.Row="1" Margin="24,8,24,8"
-                            Background="{DynamicResource Surface}" CornerRadius="12" Padding="0"
+                            Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}" Padding="0"
+                            BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                             Effect="{StaticResource Elev.2}">
                         <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" Padding="16,12">
                             <ItemsControl ItemsSource="{Binding Messages}">
@@ -1251,7 +1267,8 @@
 
                     <!-- Status bar -->
                     <Border Grid.Row="4" Margin="24,0,24,8"
-                            Background="{DynamicResource Surface}" CornerRadius="8" Padding="14,7"
+                            Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}" Padding="14,7"
+                            BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                             Effect="{StaticResource Elev.2}">
                         <TextBlock Text="{Binding StatusText}"
                                    FontSize="12" Foreground="{DynamicResource TextTertiary}" TextWrapping="Wrap"
@@ -1265,8 +1282,9 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Background="{DynamicResource Surface}" CornerRadius="10"
+                        <Border Grid.Column="0" Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}"
                                 Padding="2" Margin="0,0,8,0"
+                                BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                                 Effect="{StaticResource Elev.2}">
                             <TextBox Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
                                      Padding="10,8" BorderThickness="0" Background="Transparent"
@@ -1293,10 +1311,10 @@
                  via static UserPreferences.Current + AppConfig.* singletons
                  + the UserPreferences.Changed event for visual sync.
                  Phase 1.5 user feedback: tab background follows the main
-                 console light palette (transparent → inherits #E2ECFF from
-                 MainTabs), not the dark Pop-up sprint theme. -->
+                 console light palette (the Canvas token), not the dark
+                 Pop-up sprint theme. -->
             <TabItem Header="設定 / Settings">
-                <Grid Background="#E2ECFF">
+                <Grid Background="{DynamicResource Canvas}">
                     <views:SettingsContent x:Name="SettingsTabContent"/>
                 </Grid>
             </TabItem>

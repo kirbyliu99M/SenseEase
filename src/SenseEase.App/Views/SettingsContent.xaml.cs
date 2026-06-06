@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using SenseEase.App.Configuration;
+using SenseEase.App.Theme;
 
 namespace SenseEase.App.Views;
 
@@ -78,6 +79,17 @@ public partial class SettingsContent : UserControl
         _wiring = true;
         try
         {
+            // Appearance setting (2026-06-07): hydrate the 自動/淺色/深色 segmented
+            // control from the persisted ThemeMode. Guarded by _wiring so the
+            // Checked handler (OnThemeModeChanged) does NOT re-enter SetMode
+            // during hydration.
+            switch (UserPreferences.Current.ThemeMode)
+            {
+                case AppThemeMode.Light: ThemeLight.IsChecked = true; break;
+                case AppThemeMode.Dark:  ThemeDark.IsChecked  = true; break;
+                default:                 ThemeAuto.IsChecked  = true; break; // Auto
+            }
+
             ToggleAuto.IsChecked           = UserPreferences.Current.AutoExpandNotifications;
             ToggleColor.IsChecked          = UserPreferences.Current.BarTrayColorEnabled;
             ToggleMinimizeToTray.IsChecked = UserPreferences.Current.MinimizeToTrayOnClose;
@@ -233,6 +245,28 @@ public partial class SettingsContent : UserControl
         AppConfig.HeadTrackingFollowMode = isFullFollow
             ? HeadTrackingFollowModeKind.FullFollow
             : HeadTrackingFollowModeKind.Balanced;
+    }
+
+    /// <summary>Appearance setting (2026-06-07): the 自動 / 淺色 / 深色 segmented
+    /// control changed. Maps the checked segment to a
+    /// <see cref="ThemeManager.ThemeMode"/> and hands it to
+    /// <see cref="ThemeManager.SetMode"/>, which persists the choice (via
+    /// <see cref="UserPreferences.ThemeMode"/>) and re-applies the theme to
+    /// every open window immediately. The <see cref="_wiring"/> guard skips this
+    /// during hydration so re-checking a segment in
+    /// <see cref="RefreshFromPreferences"/> doesn't loop back into SetMode.
+    /// <para>RadioButton.Checked fires only for the newly-selected segment, so a
+    /// single user pick raises this exactly once.</para></summary>
+    private void OnThemeModeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+
+        ThemeManager.ThemeMode mode;
+        if (ThemeLight.IsChecked == true)     mode = ThemeManager.ThemeMode.Light;
+        else if (ThemeDark.IsChecked == true) mode = ThemeManager.ThemeMode.Dark;
+        else                                  mode = ThemeManager.ThemeMode.Auto;
+
+        ThemeManager.SetMode(mode);
     }
 
     private void OnToggleEscapeHatchChanged(object sender, RoutedEventArgs e)

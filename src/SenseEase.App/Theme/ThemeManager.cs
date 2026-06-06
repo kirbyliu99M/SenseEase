@@ -2,14 +2,27 @@ using System;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using SenseEase.App.Configuration;
 
 namespace SenseEase.App.Theme;
 
 /// <summary>
-/// Makes the app follow the Windows light/dark system setting by merging a
-/// dark-palette <see cref="ResourceDictionary"/> view-locally into every
-/// <see cref="Window"/> when the OS is in dark mode, and removing it again when
-/// the OS flips back to light.
+/// Drives the app's light/dark appearance by merging a dark-palette
+/// <see cref="ResourceDictionary"/> view-locally into every <see cref="Window"/>
+/// when "dark" is in effect, and removing it again when "light" is in effect.
+///
+/// <para>Appearance setting (2026-06-07): the effective theme is decided by the
+/// user's saved <see cref="ThemeMode"/> choice (persisted in
+/// <see cref="UserPreferences.ThemeMode"/>):</para>
+/// <list type="bullet">
+///   <item><see cref="ThemeMode.Auto"/> — follow the Windows light/dark system
+///         setting (registry <c>AppsUseLightTheme</c>); live-updates when the OS
+///         theme flips. This is the legacy behaviour and the default.</item>
+///   <item><see cref="ThemeMode.Light"/> — force light; never dark, regardless
+///         of the OS setting. OS flips are ignored.</item>
+///   <item><see cref="ThemeMode.Dark"/> — force dark; always dark, regardless of
+///         the OS setting. OS flips are ignored.</item>
+/// </list>
 ///
 /// <para>Design constraints (mirroring SenseEaseTheme.xaml's "never App-level"
 /// rule): the dark palette is merged into each <c>Window.Resources</c>, NOT
@@ -18,12 +31,27 @@ namespace SenseEase.App.Theme;
 /// MainWindowSmokeTests boots never calls it, so test windows keep the light
 /// defaults.</para>
 ///
-/// <para>Degrade-not-crash posture: every registry / IO touch is wrapped in
-/// try/catch so a failure simply leaves the light default in place and never
-/// throws into the WPF message loop.</para>
+/// <para>Degrade-not-crash posture: every registry / IO / preferences touch is
+/// wrapped in try/catch so a failure simply leaves the light default in place
+/// and never throws into the WPF message loop.</para>
 /// </summary>
 public static class ThemeManager
 {
+    /// <summary>User-selectable theme mode. Re-exported from
+    /// <see cref="AppThemeMode"/> (which lives next to the persistence layer in
+    /// <see cref="UserPreferences"/>) so callers can write
+    /// <c>ThemeManager.ThemeMode.Dark</c> without a second using. The two are
+    /// the same underlying type.</summary>
+    public enum ThemeMode
+    {
+        /// <summary>Follow the Windows system light/dark setting (default).</summary>
+        Auto = AppThemeMode.Auto,
+        /// <summary>Always light, never dark.</summary>
+        Light = AppThemeMode.Light,
+        /// <summary>Always dark.</summary>
+        Dark = AppThemeMode.Dark,
+    }
+
     /// <summary>Pack URI for the dark-palette resource dictionary. Same
     /// assembly + <c>;component/Theme/</c> convention as SenseEaseTheme.xaml so
     /// the merge resolves view-locally inside each window.</summary>
@@ -34,6 +62,17 @@ public static class ThemeManager
     // only calls it once, but idempotence keeps the class-handler/SystemEvents
     // subscription from doubling up).
     private static bool _initialized;
+
+    // The effective user choice. Cached in-process so the hot per-window
+    // ApplyTo path (and the SystemEvents callback) doesn't re-read prefs on
+    // every call. Seeded from UserPreferences at Initialize() and updated by
+    // SetMode(). Defaults to Auto so the pre-Initialize / test path behaves
+    // exactly like the legacy OS-following manager.
+    private static ThemeMode _mode = ThemeMode.Auto;
+
+    /// <summary>The currently-applied theme mode (in-process cache; seeded from
+    /// <see cref="UserPreferences.ThemeMode"/> at <see cref="Initialize"/>).</summary>
+    public static ThemeMode CurrentMode => _mode;
 
     /// <summary>
     /// True when Windows is configured for the dark apps theme. Reads
@@ -63,15 +102,77 @@ public static class ThemeManager
     }
 
     /// <summary>
-    /// Call ONCE from <see cref="App.OnStartup"/>. Wires the app to follow the
-    /// OS theme by (a) registering a class handler so every window applies the
-    /// theme on Loaded, (b) applying immediately to any already-open windows,
-    /// and (c) re-evaluating + re-applying when the OS theme flips.
+    /// Resolves whether DARK should be applied right now, honouring the user's
+    /// <see cref="ThemeMode"/>:
+    /// <list type="bullet">
+    ///   <item><see cref="ThemeMode.Light"/> → always false.</item>
+    ///   <item><see cref="ThemeMode.Dark"/> → always true.</item>
+    ///   <item><see cref="ThemeMode.Auto"/> → defers to
+    ///         <see cref="DetectDark"/> (the OS setting).</item>
+    /// </list>
+    /// This is the single decision point used by <see cref="ApplyTo"/>.
+    /// </summary>
+    public static bool ShouldUseDark() => _mode switch
+    {
+        ThemeMode.Light => false,
+        ThemeMode.Dark => true,
+        _ => DetectDark(), // Auto
+    };
+
+    /// <summary>
+    /// Persist <paramref name="mode"/> as the user's choice and re-apply it to
+    /// every open window immediately. Called from the Settings → Appearance
+    /// selector. Best-effort: a preferences-write failure still updates the
+    /// in-process mode + repaints windows (so the live UI is correct even if
+    /// the choice didn't persist to disk), and never throws into the caller.
+    /// </summary>
+    public static void SetMode(ThemeMode mode)
+    {
+        _mode = mode;
+
+        // (1) Persist. UserPreferences.Save() fires UserPreferences.Changed,
+        // which the shared SettingsContent surfaces also listen to — but theme
+        // mode is applied to WINDOWS here directly (the toggle re-hydration in
+        // SettingsContent is about its own controls, not window chrome).
+        try
+        {
+            UserPreferences.Current.ThemeMode = (AppThemeMode)mode;
+            UserPreferences.Current.Save();
+        }
+        catch
+        {
+            // Persistence is best-effort (AtomicJsonWriter contract). Fall
+            // through and still repaint so the live session reflects the pick.
+        }
+
+        // (2) Re-apply to all open windows on the UI thread.
+        ApplyToAllWindows();
+    }
+
+    /// <summary>
+    /// Call ONCE from <see cref="App.OnStartup"/>. Reads the saved
+    /// <see cref="ThemeMode"/>, then wires the app to honour it by (a)
+    /// registering a class handler so every window applies the theme on Loaded,
+    /// (b) applying immediately to any already-open windows, and (c)
+    /// re-evaluating + re-applying when the OS theme flips (which only changes
+    /// anything in <see cref="ThemeMode.Auto"/>).
     /// </summary>
     public static void Initialize()
     {
         if (_initialized) return;
         _initialized = true;
+
+        // Read the saved mode FIRST so the very first window paint already
+        // reflects the user's choice. Best-effort: a prefs failure leaves the
+        // Auto default (legacy OS-following behaviour).
+        try
+        {
+            _mode = (ThemeMode)UserPreferences.Current.ThemeMode;
+        }
+        catch
+        {
+            _mode = ThemeMode.Auto;
+        }
 
         try
         {
@@ -85,17 +186,14 @@ public static class ThemeManager
 
             // (b) Apply to any windows that already exist at init time (e.g. a
             // window constructed before Initialize ran).
-            if (Application.Current is { } app)
-            {
-                foreach (Window w in app.Windows)
-                    ApplyTo(w);
-            }
+            ApplyToAllWindows();
 
             // (c) Re-apply to all open windows when the OS theme flips. The
             // General category covers the light/dark personalization change.
-            // SystemEvents fires on a background thread, so marshal the
-            // re-apply onto the UI dispatcher (guarding against a null
-            // dispatcher in degenerate teardown ordering).
+            // In Light/Dark forced modes ApplyTo ignores the OS value, so the
+            // flip is effectively a no-op there; we still re-run it (cheap +
+            // idempotent) rather than conditionally unsubscribing, so toggling
+            // back to Auto picks up flips without re-wiring.
             SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         }
         catch
@@ -114,26 +212,16 @@ public static class ThemeManager
     {
         if (e.Category != UserPreferenceCategory.General) return;
 
+        // Only Auto follows the OS; in forced Light/Dark an OS flip changes
+        // nothing, so skip the marshaled repaint entirely.
+        if (_mode != ThemeMode.Auto) return;
+
         try
         {
             Dispatcher? dispatcher = Application.Current?.Dispatcher;
             if (dispatcher is null) return;
 
-            dispatcher.BeginInvoke(new Action(() =>
-            {
-                try
-                {
-                    if (Application.Current is { } app)
-                    {
-                        foreach (Window w in app.Windows)
-                            ApplyTo(w);
-                    }
-                }
-                catch
-                {
-                    // Re-apply is best-effort; leave windows as-is on failure.
-                }
-            }));
+            dispatcher.BeginInvoke(new Action(ApplyToAllWindows));
         }
         catch
         {
@@ -141,9 +229,29 @@ public static class ThemeManager
         }
     }
 
+    /// <summary>Re-apply the effective theme to every open window. Safe to call
+    /// repeatedly (ApplyTo is idempotent). Wrapped so an enumeration/teardown
+    /// race never throws.</summary>
+    private static void ApplyToAllWindows()
+    {
+        try
+        {
+            if (Application.Current is { } app)
+            {
+                foreach (Window w in app.Windows)
+                    ApplyTo(w);
+            }
+        }
+        catch
+        {
+            // Best-effort; leave windows as-is on failure.
+        }
+    }
+
     /// <summary>
-    /// Idempotently brings window <paramref name="w"/> into sync with the OS
-    /// theme: when dark, ensures the dark-palette dictionary is present in
+    /// Idempotently brings window <paramref name="w"/> into sync with the
+    /// effective theme (see <see cref="ShouldUseDark"/>): when dark, ensures the
+    /// dark-palette dictionary is present in
     /// <c>w.Resources.MergedDictionaries</c> (adds it if absent); when light,
     /// removes it if present. Wrapped in try/catch so a registry/IO/URI failure
     /// just leaves the light default and never throws.
@@ -157,7 +265,7 @@ public static class ThemeManager
             var merged = w.Resources.MergedDictionaries;
             ResourceDictionary? existing = FindDarkPalette(merged);
 
-            if (DetectDark())
+            if (ShouldUseDark())
             {
                 // Ensure present (add only if missing — idempotent).
                 if (existing is null)
