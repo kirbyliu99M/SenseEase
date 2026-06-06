@@ -936,6 +936,22 @@ public partial class MainWindow : Window
                 var (l, t, w, h) = _cardWindow.GetMonitorRectInPhysicalPixels();
                 _viewModel.SetWgcMonitorExcludeRect(l, t, w, h);
             };
+            // EXCLUDE-RECT ORDERING FIX: ContentRendered pushes the mask once at
+            // the card's first paint, but AnchorTopCenter re-anchors on late
+            // SizeChanged (SizeToContent=Height settles after first render),
+            // moving the card while the WGC exclude rect still points at the old
+            // position. Re-push the mask on every LocationChanged *and*
+            // SizeChanged so the overlay always excludes the card's CURRENT
+            // top-center rect. The Closed handler above still clears the rect on
+            // card close — unchanged.
+            void PushCurrentCardExcludeRect()
+            {
+                if (_cardWindow is null) return;
+                var (l, t, w, h) = _cardWindow.GetMonitorRectInPhysicalPixels();
+                _viewModel.SetWgcMonitorExcludeRect(l, t, w, h);
+            }
+            _cardWindow.LocationChanged += (_, _) => PushCurrentCardExcludeRect();
+            _cardWindow.SizeChanged += (_, _) => PushCurrentCardExcludeRect();
             _cardWindow.EngageClicked += (_, _) =>
             {
                 // AF-1: "緩和畫面" must actually, visibly ease the view. Ensure the
@@ -1048,6 +1064,11 @@ public partial class MainWindow : Window
             WireCardProposalEventsOnce();
             _cardWindow.ActiveProposal = pending;
         }
+        // Record whether THIS open was user-initiated (tray / bar / gear) versus
+        // an auto-show driven by the tier gate, so the card can adapt its dismiss
+        // behaviour accordingly. Must be set before Show() so the value is in
+        // place when the card's visibility-change logic runs.
+        _cardWindow.UserOpened = userInitiated;
         _cardWindow.Show();
         // Pop-up revision (Kirby 2026-06-06): non-activating hover flyout — do NOT steal
         // focus (the window is ShowActivated=False; the chat face takes focus on click).

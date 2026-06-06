@@ -9,7 +9,7 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         SizeToContent="Height"
-        Width="560"
+        Width="380"
         WindowStartupLocation="Manual"
         ShowActivated="False"
         FontFamily="{DynamicResource Font.UI}">
@@ -137,16 +137,18 @@
          soft drop shadow. The card grows ABOVE the bar when ActiveProposal != null
          (ProposalPanel row). MouseMove anywhere resets the idle-collapse timer. -->
     <Border x:Name="CardBorder"
-            Background="{DynamicResource Surface}"
-            CornerRadius="14"
+            Background="#F2FFFFFF"
+            CornerRadius="11"
             Padding="14,10"
             BorderBrush="{DynamicResource Separator}"
             BorderThickness="1"
-            MouseMove="OnCardMouseMove"
-            MouseLeave="OnCardMouseLeave">
+            MouseMove="OnCardMouseMove">
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="SlideTransform"/>
+        </Border.RenderTransform>
         <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="14"
-                              ShadowDepth="3" Opacity="0.18"/>
+            <DropShadowEffect Color="Black" BlurRadius="18"
+                              ShadowDepth="2" Opacity="0.10"/>
         </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>

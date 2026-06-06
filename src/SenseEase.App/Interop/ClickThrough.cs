@@ -15,6 +15,7 @@ public static class ClickThrough
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TRANSPARENT = 0x00000020;
     private const int WS_EX_LAYERED = 0x00080000;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
 
     // On x64 the window-long APIs traffic in pointer-sized values, so use the
     // *Ptr variants (nint) rather than the 32-bit GetWindowLong/SetWindowLong,
@@ -57,6 +58,34 @@ public static class ClickThrough
         }
 
         nint newStyle = exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED;
+        Marshal.SetLastSystemError(0);
+        nint previous = SetWindowLongPtr(hwnd, GWL_EXSTYLE, newStyle);
+        if (previous == 0 && Marshal.GetLastWin32Error() != 0)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(),
+                "SetWindowLongPtr(GWL_EXSTYLE) failed.");
+        }
+    }
+
+    /// <summary>
+    /// Make the given window never steal foreground focus when it appears, while
+    /// keeping its own controls clickable. Adds ONLY WS_EX_NOACTIVATE (no
+    /// WS_EX_TRANSPARENT, which would make the card's buttons unclickable).
+    /// Call after the HWND exists (e.g. from Window.SourceInitialized).
+    /// </summary>
+    public static void EnableNoActivate(Window window)
+    {
+        IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
+
+        Marshal.SetLastSystemError(0);
+        nint exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        if (exStyle == 0 && Marshal.GetLastWin32Error() != 0)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(),
+                "GetWindowLongPtr(GWL_EXSTYLE) failed.");
+        }
+
+        nint newStyle = exStyle | WS_EX_NOACTIVATE;
         Marshal.SetLastSystemError(0);
         nint previous = SetWindowLongPtr(hwnd, GWL_EXSTYLE, newStyle);
         if (previous == 0 && Marshal.GetLastWin32Error() != 0)

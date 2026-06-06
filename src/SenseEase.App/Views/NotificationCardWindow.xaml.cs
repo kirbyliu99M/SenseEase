@@ -1,9 +1,8 @@
 using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using SenseEase.App.ViewModels;
@@ -115,12 +114,14 @@ public partial class NotificationCardWindow : Window
 
     private ProfileOverrideProposal? _activeProposal;
 
-    // EM5: the foreground-auto-close (click-outside-to-hide) must apply ONLY to
-    // cards the user has actually engaged with — otherwise an AUTO-surfaced card
-    // (a tier-up spike while the user is in another app — the headline scenario)
-    // is hidden by the very first 500 ms foreground poll, before the user ever
-    // sees it. Set on first mouse-move over the card; reset on every Show.
-    private bool _userHasInteracted;
+    /// <summary>Top-center revision: true when the card was opened by an explicit
+    /// user action (clicking the bar / tray) rather than auto-surfaced on a
+    /// tier-up. A user-opened card lingers (60 s idle window); an auto-surfaced
+    /// card is far calmer and self-dismisses after a short 5 s idle window so it
+    /// never nags. Read in <see cref="OnIsVisibleChanged"/> to pick the
+    /// <see cref="IdleTimeout"/> before the idle timer (re)starts.</summary>
+    public bool UserOpened { get; set; }
+
     private DispatcherTimer? _expiryCountdownTimer;
 
     /// <summary>The chatbot's currently-surfaced proposal, or null. Setting
@@ -283,7 +284,7 @@ public partial class NotificationCardWindow : Window
         // via the bar. Card itself hides — host keeps proposal pending.
         ActiveProposal = null;
         ProposalDeferred?.Invoke(this, p);
-        Hide();
+        HideWithSlide();
     }
 
     /// <summary>v0.9.1 round-3: invoked when the user types into the in-card
@@ -304,20 +305,6 @@ public partial class NotificationCardWindow : Window
     // re-activate the existing window instead of stacking duplicate instances.
     // Cleared on that window's Closed event.
     private SettingsWindow? _openSettingsWindow;
-
-    // v0.8 hotfix: click-outside-auto-close. User reported the card was
-    // staying open after they clicked another app — they want it to
-    // dismiss immediately when focus moves to a different process.
-    // 500 ms poll of GetForegroundWindow + process-ID compare. If the
-    // foreground window belongs to ANY other process (not SenseEase),
-    // hide the card. Stops on Hide/Close so we don't poll forever.
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-    private DispatcherTimer? _foregroundCheckTimer;
-    private DispatcherTimer? _mouseLeaveTimer;   // pop-up revision: hover-style dismiss grace
-    private static readonly uint OurProcessId = (uint)Process.GetCurrentProcess().Id;
 
     // overlay-bar-redesign D2/D3: cache the last content the card was set to
     // so an IsPowerSaveActive flip can re-render without callers passing
@@ -359,25 +346,31 @@ public partial class NotificationCardWindow : Window
     public NotificationCardWindow()
     {
         InitializeComponent();
+        // Top-center revision: a non-activating, frosted HP-blue acrylic pill.
+        // EnableNoActivate keeps the card from stealing foreground when it
+        // appears (its own controls stay clickable); EnableAcrylic frosts the
+        // background with a ~20% HP-blue tint (0x33D69600 = ABGR). Both must run
+        // after the HWND exists, hence SourceInitialized.
+        this.SourceInitialized += (_, _) =>
+        {
+            SenseEase.App.Interop.ClickThrough.EnableNoActivate(this);
+            SenseEase.App.Interop.AcrylicGlass.EnableAcrylic(this, 0x33D69600u);
+        };
         _idleTimer = new DispatcherTimer { Interval = IdleTimeout };
         _idleTimer.Tick += OnIdleTimerTick;
         Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
-        Closed += (_, _) =>
-        {
-            _idleTimer.Stop();
-            _foregroundCheckTimer?.Stop();
-            _foregroundCheckTimer = null;
-        };
+        Closed += (_, _) => _idleTimer.Stop();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Pop-up revision (Kirby 2026-06-06): the card is a hover-style flyout anchored
-        // to the BOTTOM-RIGHT of the working area — near the tray, its sole summon point
-        // — not below the now-disabled top bar. SizeToContent=Height means the final
-        // height isn't known until layout, so we re-anchor on SizeChanged too.
-        AnchorBottomRight();
+        // Top-center revision: the card is a calm narrow pill anchored to the
+        // TOP-CENTER of the working area (12 dip down from the top edge), where
+        // a system notification reads as ambient rather than tray-adjacent.
+        // SizeToContent=Height means the final height isn't known until layout,
+        // so we re-anchor on SizeChanged too.
+        AnchorTopCenter();
         SizeChanged -= OnCardSizeChanged;   // idempotent across repeated Loads
         SizeChanged += OnCardSizeChanged;
         // Initial fade-in + timers handled by OnIsVisibleChanged below so
@@ -386,49 +379,36 @@ public partial class NotificationCardWindow : Window
         // fire, so re-showing the card produced an invisible window).
     }
 
-    private void OnCardSizeChanged(object? sender, SizeChangedEventArgs e) => AnchorBottomRight();
+    private void OnCardSizeChanged(object? sender, SizeChangedEventArgs e) => AnchorTopCenter();
 
-    /// <summary>Pop-up revision: anchor the card to the bottom-right of the working
-    /// area (12 dip inset), near the tray that summons it. Re-run on SizeChanged so the
-    /// SizeToContent=Height measurement lands the bottom edge correctly.</summary>
-    private void AnchorBottomRight()
+    /// <summary>Top-center revision: anchor the card horizontally centered at the
+    /// TOP of the working area (12 dip down from the top edge). Re-run on
+    /// SizeChanged so the SizeToContent=Height measurement keeps the pill
+    /// centered as its width is the only fixed dimension.</summary>
+    private void AnchorTopCenter()
     {
-        var work = SystemParameters.WorkArea;
-        double h = ActualHeight > 0 ? ActualHeight : (double.IsNaN(Height) ? 0 : Height);
-        Left = work.Right  - Width - 12;
-        Top  = work.Bottom - h     - 12;
+        Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2.0;
+        Top = SystemParameters.WorkArea.Top + 12;
     }
 
-    // v0.8 hotfix: keep the foreground-check timer aligned with the card's
-    // visibility. Stops the timer when card is hidden (cheap when card isn't
-    // open), restarts when Show()n. IsVisibleChanged fires on both Show and
-    // Hide so this is the right hook (Loaded fires only once per construction).
-    // v0.9.1 round-4: also resets per-Show state — Opacity, idle timer,
-    // in-flight chat-send guard, and any pending fade storyboard — so the
-    // card recovers cleanly across repeated Show/Hide cycles.
+    // Top-center revision: per-Show state reset + slide-from-top entrance.
+    // IsVisibleChanged fires on both Show and Hide (Loaded fires only once per
+    // construction). On Show we reset Opacity, the idle timer, the in-flight
+    // chat-send guard, and any pending fade storyboard so the card recovers
+    // cleanly across repeated Show/Hide cycles.
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (IsVisible)
         {
-            // Cancel any leftover fade animation (idle-fade may have set
-            // Opacity to 0 via a storyboard whose animation is still attached
-            // to the OpacityProperty). BeginAnimation(null) detaches it so
-            // the local Opacity assignment below actually takes effect.
+            // Cancel any leftover animation (idle-fade may have set Opacity to 0,
+            // or a slide-out exit may be holding SlideTransform.Y at -12, via
+            // animations still attached to those properties). BeginAnimation(null)
+            // detaches them so the entrance / a11y instant-set below actually
+            // takes effect.
             BeginAnimation(OpacityProperty, null);
+            SlideTransform?.BeginAnimation(TranslateTransform.YProperty, null);
             _activeFadeStoryboard?.Stop(this);
             _activeFadeStoryboard = null;
-            // C1 (a11y): Reduce Motion → appear instantly (no 220 ms fade). The card
-            // pops for a user who may already feel unwell; respect their setting.
-            if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
-            {
-                Opacity = 1;
-            }
-            else
-            {
-                Opacity = 0;
-                var fadeIn = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)));
-                BeginAnimation(OpacityProperty, fadeIn);
-            }
 
             // Recover from a stuck in-flight chat send. If the previous
             // SendChatMessage callback threw before the finally block could
@@ -445,47 +425,46 @@ public partial class NotificationCardWindow : Window
             if (ChatInputBox is not null)   ChatInputBox.Text = string.Empty;
             if (ChatStatusText is not null) ChatStatusText.Text = string.Empty;
 
-            // EM5: a freshly (re)shown card has not been engaged yet — require a
-            // new interaction before the foreground poll may auto-close it.
-            _userHasInteracted = false;
+            // Top-center revision: a user-opened card lingers (60 s idle window);
+            // an auto-surfaced card self-dismisses after a short 5 s window so it
+            // never nags. Choose the timeout BEFORE (re)starting the idle timer.
+            IdleTimeout = UserOpened ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(5);
             RestartIdleTimer();
 
-            if (_foregroundCheckTimer is null)
+            // Slide-from-top entrance. C1 (a11y): Reduce Motion → appear
+            // instantly (no slide / no fade); the card pops for a user who may
+            // already feel unwell, so respect their setting.
+            if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
             {
-                _foregroundCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-                _foregroundCheckTimer.Tick += OnForegroundCheckTick;
+                Opacity = 1;
+                if (SlideTransform is not null) SlideTransform.Y = 0;
             }
-            _foregroundCheckTimer.Start();
-        }
-        else
-        {
-            _foregroundCheckTimer?.Stop();
+            else
+            {
+                BeginSlideIn();
+            }
         }
     }
 
-    /// <summary>v0.8 hotfix: hide the card when any non-SenseEase window
-    /// gains foreground. Implements the click-outside-auto-close UX the
-    /// user explicitly asked for ("I want it to autoclose, not stay
-    /// forever on the screen"). Compares foreground process ID against
-    /// our own — any of OUR windows (MainWindow, PersistentBarWindow,
-    /// NotificationCardWindow itself, SettingsWindow) keep the card alive;
-    /// any external process triggers immediate Hide.</summary>
-    private void OnForegroundCheckTick(object? sender, EventArgs e)
+    /// <summary>Top-center revision: ~180 ms slide-from-top entrance — the card
+    /// eases down from -12 dip while fading 0→1 (QuadraticEase EaseOut). Runs only
+    /// when Reduce Motion is off; the a11y path in <see cref="OnIsVisibleChanged"/>
+    /// snaps straight to the resting state instead.</summary>
+    private void BeginSlideIn()
     {
-        IntPtr fg = GetForegroundWindow();
-        if (fg == IntPtr.Zero) return;
-        GetWindowThreadProcessId(fg, out uint pid);
-        if (pid == 0) return; // GetWindowThreadProcessId failed; don't act
-        if (pid != OurProcessId)
+        Opacity = 0;
+        if (SlideTransform is not null) SlideTransform.Y = -12;
+
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        var dur = new Duration(TimeSpan.FromMilliseconds(180));
+
+        var opacityIn = new DoubleAnimation(0, 1, dur) { EasingFunction = ease };
+        BeginAnimation(OpacityProperty, opacityIn);
+
+        if (SlideTransform is not null)
         {
-            // EM5: only auto-close a card the user has actually engaged with, and
-            // never while a proposal is pending decision (it has its own 15s/60s
-            // expiry). An auto-surfaced, not-yet-touched card MUST survive the
-            // poll so the user sees the spike notification they're in another app
-            // and about to miss — that is the whole point of an ambient monitor.
-            // The 60 s idle → 5 s reversible fade still dismisses untouched cards.
-            if (_userHasInteracted && _activeProposal is null)
-                Hide();
+            var slideIn = new DoubleAnimation(-12, 0, dur) { EasingFunction = ease };
+            SlideTransform.BeginAnimation(TranslateTransform.YProperty, slideIn);
         }
     }
 
@@ -578,10 +557,9 @@ public partial class NotificationCardWindow : Window
 
     private void OnCardMouseMove(object sender, MouseEventArgs e)
     {
-        // Any movement inside the CardBorder counts as user interaction.
-        _userHasInteracted = true; // EM5: now the foreground poll may auto-close this card
-        // Reset both the idle timer AND cancel any in-progress fade (the
-        // "last-chance pull-back" path).
+        // Reset the idle timer AND cancel any in-progress idle-fade (the
+        // reversible "last-chance pull-back" path): any movement inside the
+        // CardBorder snaps opacity back to 1 and defers the idle dismiss.
         if (_activeFadeStoryboard is not null)
         {
             _activeFadeStoryboard.Stop(this);
@@ -589,22 +567,6 @@ public partial class NotificationCardWindow : Window
             Opacity = 1.0;
         }
         RestartIdleTimer();
-    }
-
-    private void OnCardMouseLeave(object sender, MouseEventArgs e)
-    {
-        // Pop-up revision (Kirby 2026-06-06): hover-style auto-dismiss. When the cursor
-        // leaves the card, hide it after a short grace period; re-entering cancels it via
-        // the IsMouseOver re-check. MouseLeave only fires after the cursor was OVER the
-        // card, so an auto-surfaced spike card the user is ignoring (cursor elsewhere)
-        // still survives to the 60 s idle-fade. Complements the foreground-poll auto-close.
-        if (_mouseLeaveTimer is null)
-        {
-            _mouseLeaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
-            _mouseLeaveTimer.Tick += (_, _) => { _mouseLeaveTimer!.Stop(); if (!IsMouseOver) Hide(); };
-        }
-        _mouseLeaveTimer.Stop();
-        _mouseLeaveTimer.Start();
     }
 
     private void RestartIdleTimer()
@@ -638,10 +600,37 @@ public partial class NotificationCardWindow : Window
         sb.Begin(this, isControllable: true);
     }
 
-    private void OnCloseClicked(object sender, RoutedEventArgs e) => Hide();
+    /// <summary>Top-center revision: dismiss with a ~150 ms slide-up exit — the
+    /// reverse of the entrance (Y 0→-12, Opacity 1→0, QuadraticEase EaseOut) then
+    /// <see cref="Window.Hide"/>. Under Reduce Motion the card hides instantly
+    /// (no slide). Used by the explicit dismiss affordances (× / Escape / 稍後);
+    /// the 60 s idle path keeps its own gentle 5 s opacity fade.</summary>
+    private void HideWithSlide()
+    {
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            Hide();
+            return;
+        }
+
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        var dur = new Duration(TimeSpan.FromMilliseconds(150));
+
+        var opacityOut = new DoubleAnimation(1, 0, dur) { EasingFunction = ease };
+        opacityOut.Completed += (_, _) => Hide();
+        BeginAnimation(OpacityProperty, opacityOut);
+
+        if (SlideTransform is not null)
+        {
+            var slideOut = new DoubleAnimation(0, -12, dur) { EasingFunction = ease };
+            SlideTransform.BeginAnimation(TranslateTransform.YProperty, slideOut);
+        }
+    }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => HideWithSlide();
 
     /// <summary>C2 (audit): keyboard escape route. Pressing Escape while the
-    /// card has focus dismisses it — the same gentle <see cref="Window.Hide"/>
+    /// card has focus dismisses it — the same gentle slide-up <see cref="Hide"/>
     /// as the × button (never quits the app). Apple HIG / WCAG both require a
     /// cancel/back affordance on every transient surface; the card is one.</summary>
     protected override void OnKeyDown(KeyEventArgs e)
@@ -649,7 +638,7 @@ public partial class NotificationCardWindow : Window
         if (e.Key == Key.Escape)
         {
             e.Handled = true;
-            Hide();
+            HideWithSlide();
             return;
         }
         base.OnKeyDown(e);
@@ -669,7 +658,6 @@ public partial class NotificationCardWindow : Window
     /// and would double-apply the ease — keeping the +/- contract single-shot.</summary>
     private void OnInterventionUpClicked(object sender, RoutedEventArgs e)
     {
-        _userHasInteracted = true;
         RestartIdleTimer();
         InterventionAdjustRequested?.Invoke(this, +1);
     }
@@ -679,7 +667,6 @@ public partial class NotificationCardWindow : Window
     /// open.</summary>
     private void OnInterventionDownClicked(object sender, RoutedEventArgs e)
     {
-        _userHasInteracted = true;
         RestartIdleTimer();
         InterventionAdjustRequested?.Invoke(this, -1);
     }
@@ -693,7 +680,6 @@ public partial class NotificationCardWindow : Window
     /// branch so a future cross-fade would only run when motion is allowed.</summary>
     private void OnFlipClicked(object sender, RoutedEventArgs e)
     {
-        _userHasInteracted = true;
         RestartIdleTimer();
         bool toChat = MainFace.Visibility == Visibility.Visible;
 
