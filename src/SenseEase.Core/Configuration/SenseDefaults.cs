@@ -21,7 +21,9 @@ public static class SenseDefaults
     public const double BaseDecayAlpha = 0.965;
     public const int ComplaintFovDelta = -15;
     public const int CooldownMs = 8000;
-    public const int EventLogMaxCount = 20;
+    // Retained Event Log entries (UI mirror + in-memory store). Raised 20 -> 200 so the
+    // 事件記錄 / Event Log tab keeps a longer history for easier verification (user request).
+    public const int EventLogMaxCount = 200;
 
     // Driver-mode passive-flow attenuation: in Driver mode the optical-flow index
     // is multiplied by this factor (does not hard-zero). Single source of truth for

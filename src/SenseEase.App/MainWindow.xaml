@@ -310,64 +310,20 @@
                         <!-- The 5級「動態感」status is the ONLY user-facing status (live on
                              tier + language). The label is self-contained
                              ("動態感 · 極低" / "Very Calm"), so no separate caption. -->
-                        <TextBlock Style="{StaticResource Type.Title}">
-                            <TextBlock.Text>
-                                <MultiBinding Converter="{StaticResource TierToFeelLabel}">
-                                    <Binding Path="VimsTier"/>
-                                    <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                                </MultiBinding>
-                            </TextBlock.Text>
-                        </TextBlock>
-
-                        <!-- Comfort + mode chips -->
-                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                            <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0"
-                                    BorderThickness="1.5">
-                                <Border.Style>
-                                    <!-- C3 (a11y): full-band-colour 1.5px border so the chip
-                                         is distinguishable without the near-invisible Weak
-                                         fill alone (colour-not-only). BorderBrush mirrors the
-                                         existing Background DataTrigger pattern; Weak fills
-                                         stay as the Background. -->
-                                    <Style TargetType="Border">
-                                        <Setter Property="Background" Value="{DynamicResource ComfortSteadyWeak}"/>
-                                        <Setter Property="BorderBrush" Value="{DynamicResource ComfortSteady}"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                <Setter Property="Background" Value="{DynamicResource ComfortRisingWeak}"/>
-                                                <Setter Property="BorderBrush" Value="{DynamicResource ComfortRising}"/>
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                <Setter Property="Background" Value="{DynamicResource ComfortHighWeak}"/>
-                                                <Setter Property="BorderBrush" Value="{DynamicResource ComfortHigh}"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBlock FontSize="12" FontWeight="SemiBold"
-                                           AutomationProperties.Name="Comfort band">
-                                    <TextBlock.Text>
-                                        <MultiBinding Converter="{StaticResource TierToFeelLabel}">
-                                            <Binding Path="VimsTier"/>
-                                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                                        </MultiBinding>
-                                    </TextBlock.Text>
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Foreground" Value="{DynamicResource ComfortSteadyText}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortRisingText}"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortHighText}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                            </Border>
-                            <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5"
+                        <!-- The 5級「動態感」status (title) + the auto Driver/Passenger mode
+                             chip on ONE row. The redundant comfort pill that duplicated the
+                             title is removed; the mode chip sits up next to the title. -->
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource Type.Title}" VerticalAlignment="Center">
+                                <TextBlock.Text>
+                                    <MultiBinding Converter="{StaticResource TierToFeelLabel}">
+                                        <Binding Path="VimsTier"/>
+                                        <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                            <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="12,0,0,0"
+                                    VerticalAlignment="Center"
                                     Background="{DynamicResource SurfaceMuted}">
                                 <TextBlock Text="{Binding Mode}" FontSize="12"
                                            Foreground="{DynamicResource TextSecondary}"/>
@@ -767,62 +723,20 @@
                             <StackPanel>
                                 <!-- The 5級「動態感」status is the ONLY user-facing status (live
                                      on tier + language); self-contained, no separate caption. -->
-                                <TextBlock Style="{StaticResource Type.Title}">
-                                    <TextBlock.Text>
-                                        <MultiBinding Converter="{StaticResource TierToFeelLabel}">
-                                            <Binding Path="VimsTier"/>
-                                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                                        </MultiBinding>
-                                    </TextBlock.Text>
-                                </TextBlock>
-                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0"
-                                            BorderThickness="1.5">
-                                        <Border.Style>
-                                            <!-- C3 (a11y): full-band-colour 1.5px border so the
-                                                 chip is distinguishable without the near-invisible
-                                                 Weak fill alone (colour-not-only). BorderBrush
-                                                 mirrors the existing Background DataTrigger pattern;
-                                                 Weak fills stay as the Background. -->
-                                            <Style TargetType="Border">
-                                                <Setter Property="Background" Value="{DynamicResource ComfortSteadyWeak}"/>
-                                                <Setter Property="BorderBrush" Value="{DynamicResource ComfortSteady}"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                        <Setter Property="Background" Value="{DynamicResource ComfortRisingWeak}"/>
-                                                        <Setter Property="BorderBrush" Value="{DynamicResource ComfortRising}"/>
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                        <Setter Property="Background" Value="{DynamicResource ComfortHighWeak}"/>
-                                                        <Setter Property="BorderBrush" Value="{DynamicResource ComfortHigh}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <TextBlock FontSize="12" FontWeight="SemiBold"
-                                                   AutomationProperties.Name="Comfort band">
-                                            <TextBlock.Text>
-                                                <MultiBinding Converter="{StaticResource TierToFeelLabel}">
-                                                    <Binding Path="VimsTier"/>
-                                                    <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                                                </MultiBinding>
-                                            </TextBlock.Text>
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortSteadyText}"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                            <Setter Property="Foreground" Value="{DynamicResource ComfortRisingText}"/>
-                                                        </DataTrigger>
-                                                        <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                            <Setter Property="Foreground" Value="{DynamicResource ComfortHighText}"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                    </Border>
-                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5"
+                                <!-- The 5級「動態感」status (title) + the auto Driver/Passenger
+                                     mode chip on ONE row; the redundant comfort pill that
+                                     duplicated the title is removed, mode chip up by the title. -->
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource Type.Title}" VerticalAlignment="Center">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{StaticResource TierToFeelLabel}">
+                                                <Binding Path="VimsTier"/>
+                                                <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="12,0,0,0"
+                                            VerticalAlignment="Center"
                                             Background="{DynamicResource SurfaceMuted}">
                                         <TextBlock Text="{Binding Mode}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondary}"/>

@@ -468,7 +468,11 @@
                 </Grid>
 
                 <!-- ── CHAT FACE (shown after flip) ─────────────────────────── -->
-                <Grid x:Name="ChatFace" Visibility="Collapsed">
+                <!-- Hidden (not Collapsed) so it is still MEASURED while the main face
+                     shows: the card then sizes to the MAX of both faces and keeps a
+                     constant footprint across a flip (no resize / re-centre jump).
+                     VerticalAlignment=Center keeps the chat row centred in that height. -->
+                <Grid x:Name="ChatFace" Visibility="Hidden" VerticalAlignment="Center">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>  <!-- back arrow -->
                         <ColumnDefinition Width="*"/>     <!-- input -->

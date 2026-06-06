@@ -624,7 +624,7 @@ public partial class NotificationCardWindow : Window
             // stays on the chat face after a flip, so reopening it later lands on the chat
             // box instead of the controls (user-reported: "doesn't return to page 1").
             if (MainFace is not null) MainFace.Visibility = Visibility.Visible;
-            if (ChatFace is not null) ChatFace.Visibility = Visibility.Collapsed;
+            if (ChatFace is not null) ChatFace.Visibility = Visibility.Hidden;
 
             _chatSendInFlight = false;
             if (ChatSendBtn is not null)  ChatSendBtn.IsEnabled = true;
@@ -917,15 +917,15 @@ public partial class NotificationCardWindow : Window
         if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
         {
             // Reduce Motion: swap instantly, no transition.
-            MainFace.Visibility = toChat ? Visibility.Collapsed : Visibility.Visible;
-            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Collapsed;
+            MainFace.Visibility = toChat ? Visibility.Hidden : Visibility.Visible;
+            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Hidden;
         }
         else
         {
             // Motion allowed: same instant swap today; a cross-fade could be
             // attached here behind this branch without touching the a11y path.
-            MainFace.Visibility = toChat ? Visibility.Collapsed : Visibility.Visible;
-            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Collapsed;
+            MainFace.Visibility = toChat ? Visibility.Hidden : Visibility.Visible;
+            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Hidden;
         }
 
         if (toChat) ChatInputBox.Focus();
