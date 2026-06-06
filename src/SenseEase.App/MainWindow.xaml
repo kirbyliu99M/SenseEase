@@ -34,15 +34,10 @@
 
         <!-- ── Card ── -->
         <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Background" Value="{DynamicResource Surface}"/>
+            <Setter Property="CornerRadius" Value="{StaticResource Radius.md}"/>
             <Setter Property="Padding" Value="22,18"/>
-            <Setter Property="Effect">
-                <Setter.Value>
-                    <DropShadowEffect Color="#5B82C6" BlurRadius="14"
-                                      ShadowDepth="2" Opacity="0.08"/>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Effect" Value="{StaticResource Elev.2}"/>
         </Style>
 
         <!-- ── Button template (rounded) ── -->
@@ -81,7 +76,7 @@
         </Style>
 
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
-            <Setter Property="Background" Value="#EEF3FF"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
             <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
         </Style>
 
@@ -108,14 +103,14 @@
         <Style x:Key="CardValue" TargetType="TextBlock">
             <Setter Property="FontSize" Value="32"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Margin" Value="0,4,0,2"/>
         </Style>
 
         <Style x:Key="SectionTitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Margin" Value="0,0,0,12"/>
         </Style>
 
@@ -124,11 +119,11 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="#344470"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
         </Style>
 
         <Style TargetType="GridViewColumnHeader">
-            <Setter Property="Background" Value="#EEF3FF"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
             <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="8,6"/>
@@ -461,6 +456,10 @@
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
                 <Expander Header="進階數據 / Advanced" IsExpanded="False" Margin="0,0,0,16"
                           Foreground="{DynamicResource TextSecondary}">
+                <StackPanel>
+                <TextBlock Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="開發/診斷用的原始數據,日常使用不需查看 / Raw diagnostic values — not needed for everyday use."/>
                 <!-- ── Status Cards ── -->
                 <UniformGrid Rows="1" Columns="4" Margin="0,12,0,0">
 
@@ -539,6 +538,29 @@
                     </Border>
 
                 </UniformGrid>
+
+                <!-- Status strip -->
+                <Border Background="#F3F6FC" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
+                        <TextBlock Text="{Binding FmsScore}" Foreground="{DynamicResource TextPrimary}"
+                                   FontWeight="Bold" FontSize="12"/>
+                        <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
+                        <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="Hidden"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding OverlayVisible}" Value="True">
+                                            <Setter Property="Text" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+                </StackPanel>
                 </Expander>
 
                 <!-- ── Controls ──
@@ -603,28 +625,6 @@
                                  ToggleDemoModeCommand kept on MainViewModel for
                                  any programmatic test invocations. -->
                         </WrapPanel>
-
-                        <!-- Status strip -->
-                        <Border Background="#F3F6FC" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding FmsScore}" Foreground="{DynamicResource TextPrimary}"
-                                           FontWeight="Bold" FontSize="12"/>
-                                <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="Hidden"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding OverlayVisible}" Value="True">
-                                                    <Setter Property="Text" Value="Visible"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
 
                         <!-- ── Always-on Overlay (issue #4) ──────────────────────────────
                              Forces the FOV mask to stay visible at a user-chosen baseline
@@ -1015,7 +1015,7 @@
 
             <!-- ── Tab 4: AI Assistant ── -->
             <TabItem Header="智能助理 / AI Assistant">
-                <Grid DataContext="{Binding ChatbotVm}" Background="#E2ECFF">
+                <Grid DataContext="{Binding ChatbotVm}" Background="{DynamicResource Canvas}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>  <!-- Recalibrate header (Stage 5b) -->
                         <RowDefinition Height="*"/>
@@ -1037,17 +1037,14 @@
                                 Content="重新校準 / Recalibrate"
                                 Command="{Binding RecalibrateCommand}"
                                 Style="{StaticResource GhostBtn}"
-                                Padding="14,6" FontSize="12"
+                                Padding="14,6" FontSize="12" MinHeight="44"
                                 ToolTip="Open the LLM calibration dialog without requiring a fresh demo."/>
                     </Grid>
 
                     <!-- Chat history -->
                     <Border Grid.Row="1" Margin="24,8,24,8"
-                            Background="White" CornerRadius="14" Padding="0">
-                        <Border.Effect>
-                            <DropShadowEffect Color="#5B82C6" BlurRadius="20"
-                                              ShadowDepth="2" Opacity="0.13"/>
-                        </Border.Effect>
+                            Background="{DynamicResource Surface}" CornerRadius="12" Padding="0"
+                            Effect="{StaticResource Elev.2}">
                         <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" Padding="16,12">
                             <ItemsControl ItemsSource="{Binding Messages}">
                                 <ItemsControl.ItemTemplate>
@@ -1060,14 +1057,14 @@
                                             <!-- User bubble (right) -->
                                             <Border Grid.Column="1"
                                                     Visibility="{Binding UserVisibility}"
-                                                    Background="#EEF3FF" CornerRadius="12,12,2,12"
+                                                    Background="{DynamicResource Accent}" CornerRadius="12,12,2,12"
                                                     Padding="12,8" Margin="60,0,0,0" HorizontalAlignment="Right">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Content}"
-                                                               FontSize="13" Foreground="#0A1F5C"
+                                                               FontSize="14" Foreground="{DynamicResource TextOnComfort}"
                                                                TextWrapping="Wrap"/>
                                                     <TextBlock Text="{Binding Timestamp}"
-                                                               FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                               FontSize="12" Foreground="{DynamicResource TextOnComfort}"
                                                                HorizontalAlignment="Right" Margin="0,4,0,0"/>
                                                 </StackPanel>
                                             </Border>
@@ -1075,11 +1072,11 @@
                                             <Border Grid.Column="0"
                                                     Grid.ColumnSpan="2"
                                                     Visibility="{Binding AssistantVisibility}"
-                                                    Background="#F8FAFF" CornerRadius="12,12,12,2"
+                                                    Background="{DynamicResource SurfaceMuted}" CornerRadius="12,12,12,2"
                                                     Padding="12,8" Margin="0,0,60,0" HorizontalAlignment="Left">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Author}"
-                                                               FontSize="10" Foreground="{DynamicResource Accent}"
+                                                               FontSize="12" Foreground="{DynamicResource Accent}"
                                                                FontWeight="SemiBold" Margin="0,0,0,4"/>
 
                                                     <!-- Animated typing-dots indicator (visible only when IsTyping=true).
@@ -1093,16 +1090,16 @@
                                                             <Storyboard x:Key="DotsStoryboard" RepeatBehavior="Forever">
                                                                 <DoubleAnimation Storyboard.TargetName="Dot1"
                                                                                  Storyboard.TargetProperty="Opacity"
-                                                                                 From="0.2" To="1.0" Duration="0:0:0.4"
+                                                                                 From="0.2" To="1.0" Duration="0:0:0.25"
                                                                                  AutoReverse="True"/>
                                                                 <DoubleAnimation Storyboard.TargetName="Dot2"
                                                                                  Storyboard.TargetProperty="Opacity"
-                                                                                 From="0.2" To="1.0" Duration="0:0:0.4"
-                                                                                 BeginTime="0:0:0.15" AutoReverse="True"/>
+                                                                                 From="0.2" To="1.0" Duration="0:0:0.25"
+                                                                                 BeginTime="0:0:0.1" AutoReverse="True"/>
                                                                 <DoubleAnimation Storyboard.TargetName="Dot3"
                                                                                  Storyboard.TargetProperty="Opacity"
-                                                                                 From="0.2" To="1.0" Duration="0:0:0.4"
-                                                                                 BeginTime="0:0:0.3" AutoReverse="True"/>
+                                                                                 From="0.2" To="1.0" Duration="0:0:0.25"
+                                                                                 BeginTime="0:0:0.2" AutoReverse="True"/>
                                                             </Storyboard>
                                                         </StackPanel.Resources>
                                                         <StackPanel.Triggers>
@@ -1123,7 +1120,7 @@
                                                          (•) in its replies. Hidden when the typing indicator is up. -->
                                                     <TextBlock Visibility="{Binding ContentVisibility}"
                                                                views:MarkdownInlines.Source="{Binding Content}"
-                                                               FontSize="13" Foreground="#0A1F5C"
+                                                               FontSize="14" Foreground="{DynamicResource TextPrimary}"
                                                                TextWrapping="Wrap"/>
 
                                                     <!-- Followup option cards. Only visible when the message carries
@@ -1147,7 +1144,7 @@
                                                                         Style="{StaticResource GhostBtn}"
                                                                         Margin="0,0,8,8"
                                                                         Padding="14,8"
-                                                                        FontSize="12"/>
+                                                                        FontSize="12" MinHeight="44"/>
                                                             </DataTemplate>
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
@@ -1164,21 +1161,22 @@
                                                                 <Button Command="{Binding DataContext.SelectProfileCommand,
                                                                                           RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
                                                                         CommandParameter="{Binding}"
-                                                                        Background="#FFFFFF"
-                                                                        BorderBrush="#B7CFE3"
+                                                                        Background="{DynamicResource Surface}"
+                                                                        BorderBrush="{DynamicResource Separator}"
                                                                         BorderThickness="1"
                                                                         Padding="12,10"
                                                                         Margin="0,0,0,8"
+                                                                        MinHeight="44"
                                                                         HorizontalContentAlignment="Stretch"
                                                                         Cursor="Hand">
                                                                     <StackPanel Orientation="Vertical">
                                                                         <TextBlock Text="{Binding Name}"
-                                                                                   FontSize="13"
+                                                                                   FontSize="14"
                                                                                    FontWeight="SemiBold"
-                                                                                   Foreground="#1E5BB0"/>
+                                                                                   Foreground="{DynamicResource Accent}"/>
                                                                         <TextBlock Text="{Binding Description}"
-                                                                                   FontSize="11"
-                                                                                   Foreground="#3A4252"
+                                                                                   FontSize="12"
+                                                                                   Foreground="{DynamicResource TextSecondary}"
                                                                                    TextWrapping="Wrap"
                                                                                    Margin="0,4,0,0"/>
                                                                     </StackPanel>
@@ -1188,7 +1186,7 @@
                                                     </ItemsControl>
 
                                                     <TextBlock Text="{Binding Timestamp}"
-                                                               FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                               FontSize="12" Foreground="{DynamicResource TextTertiary}"
                                                                Margin="0,4,0,0"/>
                                                 </StackPanel>
                                             </Border>
@@ -1216,10 +1214,10 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <TextBlock Text="想更新你的設定嗎？跟系統聊聊剛才的感覺。"
-                                           Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimary}" FontSize="14" FontWeight="SemiBold"
                                            TextWrapping="Wrap"/>
                                 <TextBlock Text="Want to refresh your settings? Chat about what you just felt."
-                                           Foreground="{DynamicResource TextSecondary}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondary}" FontSize="12"
                                            TextWrapping="Wrap" Margin="0,4,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal"
@@ -1253,13 +1251,10 @@
 
                     <!-- Status bar -->
                     <Border Grid.Row="4" Margin="24,0,24,8"
-                            Background="White" CornerRadius="8" Padding="14,7">
-                        <Border.Effect>
-                            <DropShadowEffect Color="#5B82C6" BlurRadius="10"
-                                              ShadowDepth="1" Opacity="0.10"/>
-                        </Border.Effect>
+                            Background="{DynamicResource Surface}" CornerRadius="8" Padding="14,7"
+                            Effect="{StaticResource Elev.2}">
                         <TextBlock Text="{Binding StatusText}"
-                                   FontSize="11" Foreground="{DynamicResource TextTertiary}" TextWrapping="Wrap"
+                                   FontSize="12" Foreground="{DynamicResource TextTertiary}" TextWrapping="Wrap"
                                    AutomationProperties.Name="AI assistant status"/>
                     </Border>
 
@@ -1270,15 +1265,12 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Background="White" CornerRadius="10"
-                                Padding="2" Margin="0,0,8,0">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#5B82C6" BlurRadius="10"
-                                                  ShadowDepth="1" Opacity="0.10"/>
-                            </Border.Effect>
+                        <Border Grid.Column="0" Background="{DynamicResource Surface}" CornerRadius="10"
+                                Padding="2" Margin="0,0,8,0"
+                                Effect="{StaticResource Elev.2}">
                             <TextBox Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
                                      Padding="10,8" BorderThickness="0" Background="Transparent"
-                                     FontSize="13" Foreground="#0A1F5C"
+                                     FontSize="14" Foreground="{DynamicResource TextPrimary}"
                                      AcceptsReturn="False" VerticalContentAlignment="Center">
                                 <TextBox.InputBindings>
                                     <KeyBinding Key="Return" Command="{Binding SendCommand}"/>
@@ -1287,10 +1279,10 @@
                         </Border>
                         <Button Grid.Column="1"
                                 Content="Send" Style="{StaticResource PrimaryBtn}"
-                                Command="{Binding SendCommand}" Margin="0,0,8,0"/>
+                                Command="{Binding SendCommand}" Margin="0,0,8,0" MinHeight="44"/>
                         <Button Grid.Column="2"
                                 Content="Clear" Style="{StaticResource GhostBtn}"
-                                Command="{Binding ClearCommand}"/>
+                                Command="{Binding ClearCommand}" MinHeight="44"/>
                     </Grid>
                 </Grid>
             </TabItem>
