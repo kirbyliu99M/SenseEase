@@ -897,13 +897,14 @@
                         </Border>
                         </Expander>
 
-                        <!-- VIMS Interception Monitor (live chart) — advanced telemetry,
-                             hidden from the Eye-Care tab (it lives on the Dashboard). -->
-                        <Border Style="{StaticResource Card}" Margin="0,0,0,16" Visibility="Collapsed">
+                        <!-- Protection-activity chart: the calm GRAPHICAL view the Eye-Care
+                             tab is meant to show (restored — Wave 2 over-collapsed it). Plain-
+                             language labels only; raw OFI/Pressure NUMBERS stay on the Dashboard. -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                             <StackPanel>
-                                <TextBlock Text="VIMS 干預監測 / Interception Monitor"
+                                <TextBlock Text="防護活動 / Protection activity"
                                            Style="{StaticResource SectionTitle}"/>
-                                <TextBlock Text="即時 OFI 與 VIMS Pressure 軌跡;紅色虛線為 mask 啟動閾值 (85)"
+                                <TextBlock Text="畫面動態與防護強度的即時軌跡 / Live trace of screen motion and protection"
                                            Style="{StaticResource CardLabel}" Margin="0,0,0,10" TextWrapping="Wrap"/>
                                 <Border Background="#F3F6FC" CornerRadius="8" Padding="14,10" Height="280">
                                     <Canvas x:Name="PressureChartCanvas" ClipToBounds="True"/>
@@ -911,13 +912,13 @@
                                 <!-- Legend -->
                                 <StackPanel Orientation="Horizontal" Margin="2,10,0,0">
                                     <Ellipse Width="8" Height="8" Fill="{StaticResource TextTertiary}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="OFI" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
+                                    <TextBlock Text="畫面動態 / Motion" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
                                     <Ellipse Width="8" Height="8" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="VIMS Pressure" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
+                                    <TextBlock Text="防護強度 / Protection" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
                                     <Rectangle Width="14" Height="2" Fill="{StaticResource ComfortHigh}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="Trigger threshold (85)" Margin="6,0,0,0"
+                                    <TextBlock Text="啟動點 / Activation" Margin="6,0,0,0"
                                                Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </StackPanel>
