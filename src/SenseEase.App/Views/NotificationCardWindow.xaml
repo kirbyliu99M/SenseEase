@@ -281,40 +281,30 @@
                          SetContent) + static separator + 介入調節/Adjust label,
                          with TelemetryText as a small sub-line. -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="TitleText"
-                                       Text=""
-                                       FontSize="15" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextPrimary}"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"
-                                       AutomationProperties.HelpText="通知標題 / Notification title"/>
-                            <!-- static separator -->
-                            <Border Width="1" Height="13"
-                                    Background="{StaticResource Separator}"
-                                    Margin="8,0,8,0" VerticalAlignment="Center"/>
-                            <!-- 介入調節 / Adjust label (tiering WIP — placeholder copy) -->
-                            <TextBlock Text="介入調節 / Adjust"
-                                       FontSize="12"
-                                       Foreground="{StaticResource TextSecondary}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <TextBlock x:Name="TelemetryText"
+                        <!-- ui-ux-pro-max principles applied (content-priority,
+                             visual-hierarchy, whitespace-balance, progressive-disclosure,
+                             truncation-strategy): ONE plain-language status line. The
+                             engineering telemetry (第 N 級 / 壓力) and the band-description
+                             body are kept ONLY so the test contract (SetContent /
+                             power-save) can read their .Text — they are HIDDEN on the calm
+                             bar (telemetry lives in the dashboard's Advanced view, never on
+                             this primary surface). The +/- pills are self-labelled by their
+                             tooltip + AutomationProperties, so no separate "介入調節" label
+                             clutters the left. -->
+                        <TextBlock x:Name="TitleText"
                                    Text=""
-                                   FontFamily="Consolas, 'Cascadia Mono', monospace"
-                                   FontSize="11"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimary}"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   AutomationProperties.HelpText="通知標題 / Notification title"/>
+                        <TextBlock x:Name="TelemetryText" Text="" Visibility="Collapsed"
+                                   FontFamily="Consolas, 'Cascadia Mono', monospace" FontSize="11"
                                    Foreground="{StaticResource TextSecondary}"
-                                   Margin="0,2,0,0"
                                    AutomationProperties.HelpText="感測讀數 / Sensing readout"/>
-                        <!-- Power-save body copy (kept so Test 2 can read BodyText).
-                             Visible only as a tiny sub-line; carries the exact
-                             power-save string the contract requires. -->
-                        <TextBlock x:Name="BodyText"
-                                   Text=""
-                                   FontSize="11"
-                                   Foreground="{StaticResource TextSecondary}"
+                        <TextBlock x:Name="BodyText" Text="" Visibility="Collapsed"
+                                   FontSize="11" Foreground="{StaticResource TextSecondary}"
                                    TextWrapping="Wrap"
-                                   Margin="0,2,0,0"
                                    AutomationProperties.HelpText="通知內容 / Notification details"/>
                     </StackPanel>
 
