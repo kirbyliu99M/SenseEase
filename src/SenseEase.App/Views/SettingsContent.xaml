@@ -7,6 +7,86 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- M16: calm iOS-style toggle-switch restyle for the settings
+                 CheckBoxes. A rounded pill TRACK that fills {StaticResource
+                 Accent} when checked, a sliding THUMB, ≥44px-wide hit area,
+                 hover / keyboard-focus / disabled (0.4 opacity) states. The
+                 content label sits to the right of the switch; the whole row
+                 keeps the original click-to-toggle behaviour. Only the visual
+                 chrome changes — every x:Name, Checked/Unchecked handler and
+                 IsChecked binding on the consumers is untouched. -->
+            <Style x:Key="SettingSwitch" TargetType="CheckBox">
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <Border Background="Transparent" Padding="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <!-- ≥44px-wide hit area: 44-wide cell wraps the 40px track -->
+                                    <Grid x:Name="SwitchHit" Width="44" Height="26" VerticalAlignment="Center">
+                                        <Border x:Name="Track"
+                                                Width="40" Height="24"
+                                                CornerRadius="12"
+                                                Background="{StaticResource SurfaceMuted}"
+                                                BorderBrush="{StaticResource Separator}"
+                                                BorderThickness="1"/>
+                                        <Border x:Name="Thumb"
+                                                Width="18" Height="18"
+                                                CornerRadius="9"
+                                                HorizontalAlignment="Left"
+                                                Margin="3,0,0,0"
+                                                Background="White"/>
+                                    </Grid>
+                                    <ContentPresenter x:Name="Label"
+                                                      Margin="10,0,0,0"
+                                                      VerticalAlignment="Center"
+                                                      RecognizesAccessKey="True"
+                                                      SnapsToDevicePixels="True"/>
+                                </StackPanel>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <!-- Checked: track fills Accent, thumb slides right -->
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource Accent}"/>
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                    <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+                                    <Setter TargetName="Thumb" Property="Margin" Value="0,0,3,0"/>
+                                </Trigger>
+                                <!-- Hover: gentle track lift -->
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsMouseOver" Value="True"/>
+                                        <Condition Property="IsChecked" Value="False"/>
+                                    </MultiTrigger.Conditions>
+                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource Separator}"/>
+                                </MultiTrigger>
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsMouseOver" Value="True"/>
+                                        <Condition Property="IsChecked" Value="True"/>
+                                    </MultiTrigger.Conditions>
+                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentHover}"/>
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource AccentHover}"/>
+                                </MultiTrigger>
+                                <!-- Keyboard focus: Accent ring around the track (in addition to FocusVisualStyle) -->
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                    <Setter TargetName="Track" Property="BorderThickness" Value="2"/>
+                                </Trigger>
+                                <!-- Disabled: dim whole control to 0.4 opacity -->
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
     <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): shared settings UI
@@ -56,6 +136,7 @@
                 <!-- Toggle A: auto-expand notifications -->
                 <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,16">
                     <CheckBox x:Name="ToggleAuto"
+                              Style="{StaticResource SettingSwitch}"
                               Content="讓 SenseEase 主動展開通知卡"
                               Foreground="#0A1F5C"
                               FontSize="13"
@@ -71,6 +152,7 @@
                 <!-- Toggle B: bar/tray colour -->
                 <StackPanel Grid.Row="2" Orientation="Vertical">
                     <CheckBox x:Name="ToggleColor"
+                              Style="{StaticResource SettingSwitch}"
                               Content="Bar 與 Tray 顏色隨 tier 變化"
                               Foreground="#0A1F5C"
                               FontSize="13"
@@ -91,6 +173,7 @@
 
                 <StackPanel Grid.Row="4" Orientation="Vertical" Margin="0,0,0,12">
                     <CheckBox x:Name="ToggleMinimizeToTray"
+                              Style="{StaticResource SettingSwitch}"
                               Content="關閉視窗時最小化到工作匣 (不結束程式)"
                               Foreground="#0A1F5C"
                               FontSize="13"
@@ -105,6 +188,7 @@
 
                 <StackPanel Grid.Row="5" Orientation="Vertical" Margin="0,0,0,8">
                     <CheckBox x:Name="ToggleRunAtStartup"
+                              Style="{StaticResource SettingSwitch}"
                               Content="登入 Windows 時自動啟動 SenseEase"
                               Foreground="#0A1F5C"
                               FontSize="13"
@@ -126,6 +210,7 @@
                 <StackPanel Grid.Row="7" Orientation="Vertical" Margin="0,0,0,12">
                     <StackPanel Orientation="Horizontal">
                         <CheckBox x:Name="ToggleHeadTrackingEnabled"
+                                  Style="{StaticResource SettingSwitch}"
                                   Content="啟用頭部追蹤 / Enable Head Tracking"
                                   Foreground="#0A1F5C"
                                   FontSize="13"
@@ -197,6 +282,7 @@
 
                 <StackPanel Grid.Row="9" Orientation="Vertical">
                     <CheckBox x:Name="ToggleEscapeHatch"
+                              Style="{StaticResource SettingSwitch}"
                               Content="啟用暫時透明 / Enable temporary transparency"
                               Foreground="#0A1F5C"
                               FontSize="13"

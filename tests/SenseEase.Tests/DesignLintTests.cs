@@ -20,8 +20,9 @@ public class DesignLintTests
     // Cool" refresh → 151 after the palette-consistency sweep migrated the card
     // (#1E5BB0), SpikePopup (dark theme), first-run/calibration banners, Settings
     // and CalibrationCardView (#024AD8) to theme tokens. Lower this each time a
-    // surface migrates to tokens.
-    private const int OrphanHexBaseline = 151;
+    // surface migrates to tokens → 150 after the final UI-polish wave (settings
+    // switch foreground → TextPrimary token, flat thumb).
+    private const int OrphanHexBaseline = 150;
 
     private static readonly Regex HexColor =
         new(@"#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})", RegexOptions.Compiled);

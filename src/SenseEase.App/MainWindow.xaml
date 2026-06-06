@@ -280,16 +280,25 @@
 
                         <!-- Comfort + mode chips -->
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                            <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0">
+                            <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0"
+                                    BorderThickness="1.5">
                                 <Border.Style>
+                                    <!-- C3 (a11y): full-band-colour 1.5px border so the chip
+                                         is distinguishable without the near-invisible Weak
+                                         fill alone (colour-not-only). BorderBrush mirrors the
+                                         existing Background DataTrigger pattern; Weak fills
+                                         stay as the Background. -->
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="{StaticResource ComfortSteadyWeak}"/>
+                                        <Setter Property="BorderBrush" Value="{StaticResource ComfortSteady}"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
                                                 <Setter Property="Background" Value="{StaticResource ComfortRisingWeak}"/>
+                                                <Setter Property="BorderBrush" Value="{StaticResource ComfortRising}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
                                                 <Setter Property="Background" Value="{StaticResource ComfortHighWeak}"/>
+                                                <Setter Property="BorderBrush" Value="{StaticResource ComfortHigh}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -341,6 +350,27 @@
                                 </Style>
                             </ProgressBar.Style>
                         </ProgressBar>
+
+                        <!-- ComfortMeter legend (a11y): persistent caption + low/high
+                             endpoint hints so the meter reads without colour alone.
+                             Binding/Max on the ProgressBar above are untouched. -->
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       Text="平穩 / calm"/>
+                            <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       HorizontalAlignment="Center" TextAlignment="Center"
+                                       Text="相對於你的個人閾值 / Relative to your personal threshold"/>
+                            <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       Text="高 / high"/>
+                        </Grid>
                     </StackPanel>
                 </Border>
 
@@ -656,16 +686,25 @@
                                 <TextBlock Style="{StaticResource Type.Caption}" Margin="0,6,0,0"
                                            Text="{Binding VimsTier, Converter={StaticResource TierToSubline}, Mode=OneWay}"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0">
+                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0"
+                                            BorderThickness="1.5">
                                         <Border.Style>
+                                            <!-- C3 (a11y): full-band-colour 1.5px border so the
+                                                 chip is distinguishable without the near-invisible
+                                                 Weak fill alone (colour-not-only). BorderBrush
+                                                 mirrors the existing Background DataTrigger pattern;
+                                                 Weak fills stay as the Background. -->
                                             <Style TargetType="Border">
                                                 <Setter Property="Background" Value="{StaticResource ComfortSteadyWeak}"/>
+                                                <Setter Property="BorderBrush" Value="{StaticResource ComfortSteady}"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
                                                         <Setter Property="Background" Value="{StaticResource ComfortRisingWeak}"/>
+                                                        <Setter Property="BorderBrush" Value="{StaticResource ComfortRising}"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
                                                         <Setter Property="Background" Value="{StaticResource ComfortHighWeak}"/>
+                                                        <Setter Property="BorderBrush" Value="{StaticResource ComfortHigh}"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -712,6 +751,27 @@
                                         </Style>
                                     </ProgressBar.Style>
                                 </ProgressBar>
+
+                                <!-- ComfortMeter legend (a11y): persistent caption +
+                                     low/high endpoint hints so the meter reads without
+                                     colour alone. Binding/Max above are untouched. -->
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
+                                               Foreground="{StaticResource TextTertiary}"
+                                               Text="平穩 / calm"/>
+                                    <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
+                                               Foreground="{StaticResource TextTertiary}"
+                                               HorizontalAlignment="Center" TextAlignment="Center"
+                                               Text="相對於你的個人閾值 / Relative to your personal threshold"/>
+                                    <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
+                                               Foreground="{StaticResource TextTertiary}"
+                                               Text="高 / high"/>
+                                </Grid>
                             </StackPanel>
                         </Border>
 

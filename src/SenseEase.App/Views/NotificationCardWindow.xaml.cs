@@ -149,10 +149,11 @@ public partial class NotificationCardWindow : Window
             return;
         }
 
-        // BlockedBySafety: keep section visible, surface the reason in red.
+        // BlockedBySafety: keep section visible, surface the reason in the
+        // safety-note callout (the M8 Border supplies the ⚠ glyph + chip).
         if (result.BlockedBySafety && _activeProposal is not null)
         {
-            ProposalSafetyNoteText.Text = $"⚠ 系統介入：{result.Reason}";
+            ProposalSafetyNoteText.Text = $"系統介入：{result.Reason}";
             ProposalSafetyNoteText.Visibility = Visibility.Visible;
             // Disable Accept so the user has to Decline or Later (clicking Accept
             // again would just re-block).
