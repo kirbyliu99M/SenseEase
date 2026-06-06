@@ -235,7 +235,7 @@
             </TabControl.Resources>
 
             <!-- ── Tab 1: Dashboard ── -->
-            <TabItem Header="Dashboard">
+            <TabItem Header="儀表板 / Dashboard">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="24,20,24,24">
 
@@ -703,7 +703,7 @@
             </TabItem>
 
             <!-- ── Tab 2: Eye-Protection Statistics ── -->
-            <TabItem Header="護眼儀表板 / Eye Protection">
+            <TabItem Header="護眼 / Eye Care">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24,20,24,24">
 
@@ -1015,7 +1015,7 @@
             </TabItem>
 
             <!-- ── Tab 4: AI Assistant ── -->
-            <TabItem Header="AI Assistant">
+            <TabItem Header="智能助理 / AI Assistant">
                 <Grid DataContext="{Binding ChatbotVm}" Background="#E2ECFF">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>  <!-- Recalibrate header (Stage 5b) -->
@@ -1304,7 +1304,7 @@
                  Phase 1.5 user feedback: tab background follows the main
                  console light palette (transparent → inherits #E2ECFF from
                  MainTabs), not the dark Pop-up sprint theme. -->
-            <TabItem Header="設定">
+            <TabItem Header="設定 / Settings">
                 <Grid Background="#E2ECFF">
                     <views:SettingsContent x:Name="SettingsTabContent"/>
                 </Grid>

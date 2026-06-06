@@ -435,20 +435,33 @@ public sealed class TrayIconService : IDisposable
                 _                                 => TrayGreyFill,
             };
 
+            // Rounded "app tile" body (matches the AppIcon glossy-tile language)
+            // instead of a flat square; band cues are clipped to the tile so the
+            // hatch/wedge never bleed past the rounded corners.
+            using (var tile = RoundedRectPath(body, 6))
             using (var fillBrush = new System.Drawing.SolidBrush(fill))
-                g.FillRectangle(fillBrush, body);
-
-            switch (band)
             {
-                case TierColorPalette.TierBand.Medium:
-                    DrawDiagonalHatch(g, body, TrayAmberHatchInk);
-                    break;
-                case TierColorPalette.TierBand.VeryLow:
-                    DrawCornerWedge(g, body, TrayClayWedgeInk);
-                    break;
-                // VeryHigh / other bands: plain fill — the textural
-                // "calm / nothing layered on" cue.
+                g.FillPath(fillBrush, tile);
+                g.SetClip(tile);
+                switch (band)
+                {
+                    case TierColorPalette.TierBand.Medium:
+                        DrawDiagonalHatch(g, body, TrayAmberHatchInk);
+                        break;
+                    case TierColorPalette.TierBand.VeryLow:
+                        DrawCornerWedge(g, body, TrayClayWedgeInk);
+                        break;
+                    // VeryHigh / other bands: plain fill — the textural
+                    // "calm / nothing layered on" cue.
+                }
+                g.ResetClip();
             }
+
+            // SenseEase brand lens (the translucent disc the AppIcon centres over
+            // its tile grid). Painted on EVERY band so the tray carries one
+            // recognizable identity — the calm/VeryHigh band is no longer a flat
+            // coloured square, the missing cue that read as "broken" in the tray.
+            DrawBrandLens(g, body);
         }
 
         byte[] icoBytes = BuildPngWrappedIco(bmp);
@@ -459,6 +472,39 @@ public sealed class TrayIconService : IDisposable
         var icon = new System.Drawing.Icon(stream);
         _distinctIconCache[band] = icon;
         return icon;
+    }
+
+    /// <summary>Rounded-rectangle path for the tray tile body.</summary>
+    private static System.Drawing.Drawing2D.GraphicsPath RoundedRectPath(
+        System.Drawing.Rectangle r, int radius)
+    {
+        int d = radius * 2;
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    /// <summary>Paints the SenseEase brand lens — a translucent white disc with a
+    /// soft ring and a top-left highlight — centred on the tray tile, echoing the
+    /// AppIcon's lens over its tile grid. The band colour shows through the
+    /// translucent disc, so each band keeps its hue while the mark stays
+    /// recognizable (never a flat coloured square).</summary>
+    private static void DrawBrandLens(System.Drawing.Graphics g, System.Drawing.Rectangle body)
+    {
+        const float dia = 16f;
+        float cx = body.X + body.Width / 2f;
+        float cy = body.Y + body.Height / 2f;
+        var lens = new System.Drawing.RectangleF(cx - dia / 2f, cy - dia / 2f, dia, dia);
+        using (var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(200, 255, 255, 255)))
+            g.FillEllipse(disc, lens);
+        using (var ring = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 255, 255, 255), 1.6f))
+            g.DrawEllipse(ring, lens);
+        using (var hi = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(235, 255, 255, 255)))
+            g.FillEllipse(hi, cx - dia / 2f + 2.6f, cy - dia / 2f + 2.6f, 3.4f, 3.4f);
     }
 
     /// <summary>M12 amber shape cue: evenly-spaced diagonal stripes clipped to
