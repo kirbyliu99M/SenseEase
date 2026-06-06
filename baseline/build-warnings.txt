@@ -1,18 +1,18 @@
-﻿  正在判斷要還原的專案...
-  已還原 C:\Users\kirby\Desktop\SenseEase APP\src\SenseEase.Core\SenseEase.Core.csproj (97 毫秒 內)。
-  已還原 C:\Users\kirby\Desktop\SenseEase APP\src\SenseEase.Infrastructure\SenseEase.Infrastructure.csproj (928 毫秒 內)。
-  已還原 C:\Users\kirby\Desktop\SenseEase APP\src\SenseEase.App\SenseEase.App.csproj (928 毫秒 內)。
+  正在判斷要還原的專案...
+  已還原 <repo>\src\SenseEase.Core\SenseEase.Core.csproj (97 毫秒 內)。
+  已還原 <repo>\src\SenseEase.Infrastructure\SenseEase.Infrastructure.csproj (928 毫秒 內)。
+  已還原 <repo>\src\SenseEase.App\SenseEase.App.csproj (928 毫秒 內)。
   4 項專案中有 1 項在最新狀態，可進行還原。
-  SenseEase.Core -> C:\Users\kirby\Desktop\SenseEase APP\src\SenseEase.Core\bin\Release\net8.0\SenseEase.Core.dll
-  SenseEase.Infrastructure -> C:\Users\kirby\Desktop\SenseEase APP\src\SenseEase.Infrastructure\bin\Release\net8.0-windows10.0.19041.0\SenseEase.Infrastructure.dll
-  SenseEase.App -> C:\Users\kirby\Desktop\SenseEase APP\src\SenseEase.App\bin\Release\net8.0-windows10.0.19041.0\SenseEase.App.dll
-C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\HabituationTests.cs(23,13): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\SenseEase.Tests.csproj]
-C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\HabituationTests.cs(142,13): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\SenseEase.Tests.csproj]
-C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\HabituationTests.cs(157,9): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\SenseEase.Tests.csproj]
-C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\HabituationTests.cs(174,13): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\SenseEase.Tests.csproj]
-C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\HabituationTests.cs(277,9): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\SenseEase.Tests.csproj]
-C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\HabituationTests.cs(278,9): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\SenseEase.Tests.csproj]
-  SenseEase.Tests -> C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\bin\Release\net8.0-windows10.0.19041.0\SenseEase.Tests.dll
+  SenseEase.Core -> <repo>\src\SenseEase.Core\bin\Release\net8.0\SenseEase.Core.dll
+  SenseEase.Infrastructure -> <repo>\src\SenseEase.Infrastructure\bin\Release\net8.0-windows10.0.19041.0\SenseEase.Infrastructure.dll
+  SenseEase.App -> <repo>\src\SenseEase.App\bin\Release\net8.0-windows10.0.19041.0\SenseEase.App.dll
+<repo>\tests\SenseEase.Tests\HabituationTests.cs(23,13): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [<repo>\tests\SenseEase.Tests\SenseEase.Tests.csproj]
+<repo>\tests\SenseEase.Tests\HabituationTests.cs(142,13): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [<repo>\tests\SenseEase.Tests\SenseEase.Tests.csproj]
+<repo>\tests\SenseEase.Tests\HabituationTests.cs(157,9): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [<repo>\tests\SenseEase.Tests\SenseEase.Tests.csproj]
+<repo>\tests\SenseEase.Tests\HabituationTests.cs(174,13): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [<repo>\tests\SenseEase.Tests\SenseEase.Tests.csproj]
+<repo>\tests\SenseEase.Tests\HabituationTests.cs(277,9): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [<repo>\tests\SenseEase.Tests\SenseEase.Tests.csproj]
+<repo>\tests\SenseEase.Tests\HabituationTests.cs(278,9): warning CS0618: 'HabituationEngine.Step(double, bool, double)' 已經過時: 'Use Step(pressure, maskActive, vimsTier, dtSeconds). Test-only fallback.' [<repo>\tests\SenseEase.Tests\SenseEase.Tests.csproj]
+  SenseEase.Tests -> <repo>\tests\SenseEase.Tests\bin\Release\net8.0-windows10.0.19041.0\SenseEase.Tests.dll
 
 建置成功。
 

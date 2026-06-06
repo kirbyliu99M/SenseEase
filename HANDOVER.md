@@ -169,7 +169,7 @@ App startup: window appears in ~25s (Mistral loads on background ~30s total). If
 The authoritative project state lives in:
 
 ```
-C:\Users\Kirby Liu\.claude\projects\c--Users-Kirby-Liu-Desktop-SenseEase-APP\memory\
+%USERPROFILE%\.claude\projects\<project-slug>\memory\
   MEMORY.md                — index, always loaded
   project_senseease.md     — full phase log + key decisions + roadmap
 ```

@@ -20,5 +20,5 @@ The original `overlay-idle.png` capture spec was written assuming the overlay is
 
 ## Cross-references
 
-- [head-tracking-sprint-state.md](../../../../.claude/projects/c--Users-kirby-Desktop-SenseEase-APP/memory/head-tracking-sprint-state.md) — M3 invariant wording fix, UVHS section
-- [uvhs-playbook.md](../../../../.claude/projects/c--Users-kirby-Desktop-SenseEase-APP/memory/uvhs-playbook.md) — "reference auto-artifacts vs human-reference auto-artifacts" guidance
+- `head-tracking-sprint-state.md` (developer memory doc) — M3 invariant wording fix, UVHS section
+- `uvhs-playbook.md` (developer memory doc) — "reference auto-artifacts vs human-reference auto-artifacts" guidance

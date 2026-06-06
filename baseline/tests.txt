@@ -1,4 +1,4 @@
-﻿C:\Users\kirby\Desktop\SenseEase APP\tests\SenseEase.Tests\bin\Release\net8.0-windows10.0.19041.0\SenseEase.Tests.dll 的測試回合 (.NETCoreApp,Version=v8.0)
+﻿<repo>\tests\SenseEase.Tests\bin\Release\net8.0-windows10.0.19041.0\SenseEase.Tests.dll 的測試回合 (.NETCoreApp,Version=v8.0)
 總共有 1 個測試檔案與指定的模式相符。
 [xUnit.net 00:00:03.66]     SenseEase.Tests.TierColorPaletteTests.TrayIconService_FullLifecycle_NoCrash_E2EPlaceholder [SKIP]
   已跳過 SenseEase.Tests.TierColorPaletteTests.TrayIconService_FullLifecycle_NoCrash_E2EPlaceholder [1 ms]
