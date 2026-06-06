@@ -228,6 +228,13 @@ public partial class PersistentBarWindow : Window
     // live tier so a screen reader announces the current comfort level.
     private const string AutomationNameBase = "Comfort Level Indicator / 舒適度指示";
 
+    // P2 (LOCKED COPY): the bar's sleep mode IS the paused off-state. It has no
+    // text affordance of its own — the dashed SleepOverlay is colour-only — so
+    // the accessible name is the only channel assistive tech has to announce
+    // "paused". EnterSleepMode sets this; ExitSleepMode restores the live
+    // tier-based comfort-level name.
+    private const string PausedAutomationName = "已暫停 · 點此恢復 / Paused — tap to resume";
+
     /// <summary>L4 (a11y): refresh the window's accessible name with the live
     /// VIMS tier so assistive tech announces the current comfort level (the
     /// bar is otherwise a 4 dip colour-only affordance with no text). Additive
@@ -236,6 +243,13 @@ public partial class PersistentBarWindow : Window
     /// level can't drift from the colour the user sees.</summary>
     private void UpdateAutomationName(int tier)
     {
+        // P2 paused off-state: while sleep mode (the paused off-state) is
+        // active, the accessible name must announce the paused affordance, not
+        // the live comfort level — otherwise the engine's StateChanged →
+        // SetTier stream would overwrite the paused name within ~300 ms.
+        // Mirrors the brush-snapshot precedence SetTier already enforces.
+        if (_preSleepBackground is not null) return;
+
         // 5級 動態感: derive the user-facing band label from the single-source
         // helpers so the spoken level can't drift from the colour the user sees.
         // FeelLabel(band) is the 中文 級 text; pair it with FeelLabelEn for the
@@ -263,6 +277,10 @@ public partial class PersistentBarWindow : Window
         // the dashed outline carries the "paused" affordance.
         BarFill.Background = new SolidColorBrush(Color.FromArgb(20, 0xDD, 0xDD, 0xDD));
         SleepOverlay.Visibility = Visibility.Visible;
+        // P2: announce the paused affordance. Set AFTER the snapshot above so
+        // UpdateAutomationName's _preSleepBackground guard is already armed and
+        // a racing SetTier can't clobber this string.
+        System.Windows.Automation.AutomationProperties.SetName(this, PausedAutomationName);
     }
 
     /// <summary>overlay-bar-redesign D3: restore the bar's pre-sleep fill
@@ -274,6 +292,9 @@ public partial class PersistentBarWindow : Window
         BarFill.Background = _preSleepBackground;
         _preSleepBackground = null;
         SleepOverlay.Visibility = Visibility.Collapsed;
+        // P2: clear _preSleepBackground BEFORE this call so UpdateAutomationName's
+        // paused-guard is disarmed and the live comfort-level name is restored.
+        UpdateAutomationName(_currentTier);
     }
 
     // D3 liveness contract: snapshot of the bar's pre-FAULT fill. Non-null while

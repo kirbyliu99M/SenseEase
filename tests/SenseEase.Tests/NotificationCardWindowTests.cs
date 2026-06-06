@@ -55,9 +55,9 @@ public class NotificationCardWindowTests
             w.ApplyTemplate();
             w.IsPowerSaveActive = true;
             w.SetContent(TierColorPalette.TierBand.VeryLow, 8, 89);
-            // v0.9.2: zh-only below the title's VIMS product term.
-            Assert.Equal("VIMS · 省電模式中", w.TitleText.Text);
-            Assert.Equal("感測已暫停，可點擊「省電」恢復。", w.BodyText.Text);
+            // P2 (Pause/Resume mode-shift): zh-only paused copy below the VIMS term.
+            Assert.Equal("VIMS · 已暫停", w.TitleText.Text);
+            Assert.Equal("防護已暫停，點一下即可恢復。", w.BodyText.Text);
         });
     }
 

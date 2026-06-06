@@ -355,16 +355,19 @@
                                     Background="{StaticResource Separator}"
                                     Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-                            <!-- 停用 / Disable — a CheckBox restyled as a pill that
-                                 drives PowerSaveToggle (keeps x:Name + event). -->
+                            <!-- 暫停 / 恢復 — a CheckBox restyled as a pill that
+                                 drives PowerSaveToggle (keeps x:Name + event).
+                                 P2 mode-shift: label reads 暫停 when running
+                                 (unchecked) and 恢復 when paused (checked), swapped
+                                 by the IsChecked trigger below. -->
                             <CheckBox x:Name="PowerSaveToggle"
                                       VerticalAlignment="Center"
                                       Margin="0,0,6,0"
                                       Cursor="Hand"
                                       Foreground="{StaticResource Accent}"
-                                      ToolTip="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
-                                      AutomationProperties.Name="停用 / Disable"
-                                      AutomationProperties.HelpText="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
+                                      ToolTip="暫停或恢復所有防護（不會關閉應用程式）"
+                                      AutomationProperties.Name="暫停或恢復防護 / Pause or resume protection"
+                                      AutomationProperties.HelpText="暫停或恢復所有防護（不會關閉應用程式）"
                                       Checked="OnPowerSaveToggled"
                                       Unchecked="OnPowerSaveToggled">
                                 <CheckBox.Template>
@@ -376,13 +379,17 @@
                                                 CornerRadius="{StaticResource Radius.pill}"
                                                 Padding="12,6"
                                                 SnapsToDevicePixels="True">
-                                            <ContentPresenter HorizontalAlignment="Center"
-                                                              VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="PowerSaveLabel"
+                                                       Text="暫停"
+                                                       FontSize="12" FontWeight="SemiBold"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsChecked" Value="True">
                                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
                                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                <Setter TargetName="PowerSaveLabel" Property="Text" Value="恢復"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
@@ -391,7 +398,6 @@
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
                                 </CheckBox.Template>
-                                <TextBlock Text="停用 / Disable" FontSize="12" FontWeight="SemiBold"/>
                             </CheckBox>
 
                             <!-- 設定 / Settings -->

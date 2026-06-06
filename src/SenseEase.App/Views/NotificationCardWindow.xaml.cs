@@ -495,9 +495,9 @@ public partial class NotificationCardWindow : Window
     {
         if (_isPowerSaveActive)
         {
-            TitleText.Text = "VIMS · 省電模式中";
+            TitleText.Text = "VIMS · 已暫停";
             TelemetryText.Text = string.Empty;
-            BodyText.Text  = "感測已暫停，可點擊「省電」恢復。";
+            BodyText.Text  = "防護已暫停，點一下即可恢復。";
             return;
         }
 

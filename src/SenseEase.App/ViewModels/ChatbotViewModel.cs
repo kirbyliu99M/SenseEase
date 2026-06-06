@@ -68,6 +68,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.";
 
     private bool _isGenerating;
+    private bool _isPaused;
     private string _inputText = string.Empty;
     private string _statusText = string.Empty;
 
@@ -183,6 +184,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>P2 (Pause/Resume mode-shift): when true, the chatbot is gated —
+    /// <see cref="SendCommand"/>.CanExecute returns false while the sensing
+    /// pipeline is paused. Set by MainWindow.ApplyPowerSave: true on pause,
+    /// false on resume. Flipping it re-evaluates the command's executability.</summary>
+    public bool IsPaused
+    {
+        get => _isPaused;
+        set
+        {
+            if (Set(ref _isPaused, value))
+                ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
+        }
+    }
+
     public string InputText
     {
         get => _inputText;
@@ -255,7 +270,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         _isOverlayVisible = isOverlayVisible;
 
         SendCommand = new RelayCommand(async _ => await SendAsync(),
-            _ => !IsGenerating && !string.IsNullOrWhiteSpace(InputText));
+            _ => !IsGenerating && !IsPaused && !string.IsNullOrWhiteSpace(InputText));
         ClearCommand = new RelayCommand(_ => Clear());
 
         // Stage 5a/5b — banner + recalibrate commands.

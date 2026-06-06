@@ -1061,6 +1061,15 @@ public partial class MainWindow : Window
         if (_powerSaveActive == enabled) return;
         _powerSaveActive = enabled;
 
+        // P2 (LOCKED, Wallpaper-Engine-style mode shift): gate the chatbot on
+        // ENABLE. While paused the chatbot's SendCommand is disabled (the VM's
+        // IsPaused flag drives CanExecute) so no new proposal can be requested
+        // mid-pause. The matching un-gate + cross-boundary re-screen lives on
+        // the DISABLE (resume) path at the bottom of this method, ordered AFTER
+        // the existing resume steps so the snapshot revalidation runs against a
+        // fully-resumed pipeline.
+        if (enabled) _viewModel.ChatbotVm.IsPaused = true;
+
         // Drive WGC provider via the VM pass-through. When the VM isn't
         // currently routed to WGC the pass-through is a no-op for ticks,
         // but the paused flag is still updated for the next swap.
@@ -1181,6 +1190,20 @@ public partial class MainWindow : Window
                     SafeLog($"[ApplyPowerSave] sidecar lifecycle threw {ex.GetType().Name}: {ex.Message}");
                 }
             });
+        }
+
+        // P2 (LOCKED, Wallpaper-Engine-style mode shift): on RESUME, un-gate the
+        // chatbot THEN re-screen any proposal that was surfaced/pending across the
+        // pause boundary. Ordered last so RevalidateActiveProposalAfterResume sees
+        // a fully-resumed pipeline (WGC un-paused, overlay restored, sidecar
+        // restarting). The revalidate NEVER auto-applies — a Blocked verdict
+        // clears the proposal + logs a safety-intercept; otherwise it stays
+        // surfaced for the user to re-Accept by hand. Vestibular-UNIFORM: no
+        // guard, confirm, warning, or nag (Q3=B).
+        if (!enabled)
+        {
+            _viewModel.ChatbotVm.IsPaused = false;
+            _viewModel.RevalidateActiveProposalAfterResume();
         }
     }
 

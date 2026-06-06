@@ -235,6 +235,46 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _proposalExpiryTimer = null;
     }
 
+    /// <summary>P2 (LOCKED, Wallpaper-Engine-style Pause/Resume mode shift):
+    /// on RESUME, re-screen the proposal that was surfaced/pending across the
+    /// pause boundary so nothing auto-applies as if the pause never happened.
+    /// Called by MainWindow.ApplyPowerSave(false) AFTER the existing resume
+    /// steps and after ChatbotVm.IsPaused is cleared.
+    ///
+    /// <para>Behaviour: if <see cref="ActiveProposal"/> is null or already
+    /// expired → no-op. Otherwise load a FRESH snapshot and run the same
+    /// defensive intercepts <see cref="HabituationOverrideApplicator.ApplyAccepted"/>
+    /// uses (<see cref="HabituationOverrideApplicator.CheckSafetyIntercepts"/>).
+    /// Blocked → record an Expired action + log a safety-intercept event +
+    /// clear the proposal (the user must re-ask). Not blocked → leave it
+    /// surfaced/pending for the user to re-Accept by hand. NEVER calls
+    /// ApplyAccepted — Resume is a control toggle, not a user acceptance.</para>
+    ///
+    /// <para>Must be invoked on the UI dispatcher thread (mutates the
+    /// proposal lifecycle, like every other Accept/Decline/Expire path).</para></summary>
+    public void RevalidateActiveProposalAfterResume()
+    {
+        if (_activeProposal is not { } proposal) return;
+        if (DateTime.UtcNow >= proposal.ExpiresAtUtc) return; // expired → no-op (watchdog clears it)
+
+        var snapshot = SafeLoadSnapshot();
+        var intercept = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
+        if (!intercept.Blocked) return; // safe across the boundary — leave it surfaced for manual re-Accept
+
+        // Blocked across the pause boundary: never carry a now-unsafe proposal
+        // forward. Record the lifecycle outcome (mirrors ExpireActiveProposal so
+        // the Processor's one-at-a-time / cooldown bookkeeping stays consistent),
+        // log a forensic safety-intercept entry, then clear so the next chatbot
+        // turn starts clean.
+        _overrideApplicator.RecordExpired(proposal);
+        _log.Append(new EventLogEntry
+        {
+            Category = "Habituation.SafetyIntercept",
+            Message  = $"active proposal cleared on resume: {intercept.Reason ?? "blocked by safety re-screen"}",
+        });
+        ClearActiveProposal();
+    }
+
     /// <summary>M3 7e: ChatbotVm.ProposalReceived handler. Runs the
     /// Processor's 5 validation rules; on accept, stores the proposal as
     /// active, starts the expiry watchdog, and raises
@@ -244,6 +284,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// reply may still mention the suggestion in prose).</summary>
     private void OnChatbotProposalReceived(object? sender, ProfileOverrideProposal proposal)
     {
+        // P2 (LOCKED, Pause/Resume mode shift): while paused the chatbot's
+        // SendCommand is gated off (ChatbotVm.IsPaused), but a proposal already
+        // in flight from a turn that started just before the pause could still
+        // arrive here. Short-circuit it so nothing surfaces mid-pause. The
+        // pause flag is MainWindow's session-scoped _powerSaveActive, read via
+        // the same host-injected lookup the [habituation_state] block uses.
+        if (_powerSaveActiveLookup?.Invoke() == true)
+        {
+            _log.Append(new EventLogEntry
+            {
+                Category = "Habituation.SafetyIntercept",
+                Message  = "chatbot proposal dropped: arrived while paused",
+            });
+            return;
+        }
+
         var snapshot = SafeLoadSnapshot();
         var validation = HabituationOverrideProcessor.Validate(
             proposal,

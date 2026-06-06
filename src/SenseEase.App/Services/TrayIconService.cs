@@ -332,7 +332,7 @@ public sealed class TrayIconService : IDisposable
         if (enabled)
         {
             _preSavedStatusText ??= _statusItem.Header as string;
-            _statusItem.Header = "Power Save ON";
+            _statusItem.Header = "已暫停 · 點此恢復";
         }
         else if (_preSavedStatusText != null)
         {
