@@ -9,23 +9,27 @@ namespace SenseEase.Tests;
 
 /// <summary>Pop-up sprint Task 3 — tests for the single source of truth on
 /// tier → colour mapping. Bar and tray both consume this; tests pin the
-/// invariants so a future "I'll just tweak the amber a bit" edit can't
+/// invariants so a future "I'll just tweak the 中 級 hue a bit" edit can't
 /// silently desync the two surfaces.</summary>
 public class TierColorPaletteTests
 {
     // ── Band lookup ─────────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData(-5,  TierColorPalette.TierBand.Grey)]
-    [InlineData(0,   TierColorPalette.TierBand.Grey)]
-    [InlineData(1,   TierColorPalette.TierBand.Grey)]
-    [InlineData(5,   TierColorPalette.TierBand.Grey)]
-    [InlineData(6,   TierColorPalette.TierBand.Amber)]
-    [InlineData(7,   TierColorPalette.TierBand.Amber)]
-    [InlineData(8,   TierColorPalette.TierBand.Red)]
-    [InlineData(10,  TierColorPalette.TierBand.Red)]
-    [InlineData(11,  TierColorPalette.TierBand.Red)]   // defensive clamp
-    [InlineData(999, TierColorPalette.TierBand.Red)]
+    [InlineData(0,   TierColorPalette.TierBand.VeryHigh)] // defensive clamp ≤ 0
+    [InlineData(1,   TierColorPalette.TierBand.VeryHigh)]
+    [InlineData(2,   TierColorPalette.TierBand.VeryHigh)]
+    [InlineData(3,   TierColorPalette.TierBand.High)]
+    [InlineData(4,   TierColorPalette.TierBand.High)]
+    [InlineData(5,   TierColorPalette.TierBand.Medium)]
+    [InlineData(6,   TierColorPalette.TierBand.Medium)]
+    [InlineData(7,   TierColorPalette.TierBand.Medium)]
+    [InlineData(8,   TierColorPalette.TierBand.Low)]
+    [InlineData(9,   TierColorPalette.TierBand.Low)]
+    [InlineData(10,  TierColorPalette.TierBand.Low)]
+    [InlineData(11,  TierColorPalette.TierBand.VeryLow)]
+    [InlineData(12,  TierColorPalette.TierBand.VeryLow)]
+    [InlineData(999, TierColorPalette.TierBand.VeryLow)] // defensive clamp ≥ 13
     public void BandForTier_ReturnsExpectedBand(int tier, TierColorPalette.TierBand expected)
     {
         Assert.Equal(expected, TierColorPalette.BandForTier(tier));
@@ -34,12 +38,11 @@ public class TierColorPaletteTests
     // ── Brush (bar surface) ──────────────────────────────────────────────────
 
     [Theory]
-    [InlineData(1, 0x26, 0x66, 0x66, 0x66)] // grey, alpha 0.15
-    [InlineData(5, 0x26, 0x66, 0x66, 0x66)]
-    [InlineData(6, 0x4D, 0xE6, 0x8C, 0x28)] // amber, alpha 0.30
-    [InlineData(7, 0x4D, 0xE6, 0x8C, 0x28)]
-    [InlineData(8, 0x73, 0xDC, 0x32, 0x28)] // red,   alpha 0.45
-    [InlineData(10, 0x73, 0xDC, 0x32, 0x28)]
+    [InlineData(1,  0x26, 0x9B, 0xB4, 0xD4)] // VeryHigh (極高), alpha 0.15
+    [InlineData(3,  0x38, 0x6F, 0x93, 0xC2)] // High     (高),   alpha 0.22
+    [InlineData(5,  0x4D, 0x4A, 0x77, 0xB5)] // Medium   (中),   alpha 0.30
+    [InlineData(8,  0x61, 0x34, 0x5E, 0x97)] // Low      (低),   alpha 0.38
+    [InlineData(11, 0x73, 0x24, 0x3F, 0x6B)] // VeryLow  (極低),  alpha 0.45
     public void BrushForTier_MatchesSpecArgb(int tier, byte a, byte r, byte g, byte b)
     {
         var brush = TierColorPalette.BrushForTier(tier);
@@ -52,30 +55,33 @@ public class TierColorPaletteTests
     [Fact]
     public void BrushForTier_ReturnsFrozenSharedInstances()
     {
-        // Same band → same frozen instance (no per-call allocation on the hot path).
-        var grey1 = TierColorPalette.BrushForTier(1);
-        var grey5 = TierColorPalette.BrushForTier(5);
-        Assert.Same(grey1, grey5);
-        Assert.True(grey1.IsFrozen);
+        // Same 級 → same frozen instance (no per-call allocation on the hot path).
+        var veryHigh1 = TierColorPalette.BrushForTier(1);
+        var veryHigh2 = TierColorPalette.BrushForTier(2);
+        Assert.Same(veryHigh1, veryHigh2);
+        Assert.True(veryHigh1.IsFrozen);
 
-        var amber6 = TierColorPalette.BrushForTier(6);
-        var amber7 = TierColorPalette.BrushForTier(7);
-        Assert.Same(amber6, amber7);
+        var medium5 = TierColorPalette.BrushForTier(5);
+        var medium6 = TierColorPalette.BrushForTier(6);
+        var medium7 = TierColorPalette.BrushForTier(7);
+        Assert.Same(medium5, medium6);
+        Assert.Same(medium6, medium7);
 
-        var red8  = TierColorPalette.BrushForTier(8);
-        var red10 = TierColorPalette.BrushForTier(10);
-        Assert.Same(red8, red10);
+        var low8  = TierColorPalette.BrushForTier(8);
+        var low9  = TierColorPalette.BrushForTier(9);
+        var low10 = TierColorPalette.BrushForTier(10);
+        Assert.Same(low8, low9);
+        Assert.Same(low9, low10);
     }
 
     // ── Icon (tray surface) ──────────────────────────────────────────────────
 
     [Theory]
-    [InlineData(1)]
-    [InlineData(5)]
-    [InlineData(6)]
-    [InlineData(7)]
-    [InlineData(8)]
-    [InlineData(10)]
+    [InlineData(1)]  // VeryHigh
+    [InlineData(3)]  // High
+    [InlineData(5)]  // Medium
+    [InlineData(8)]  // Low
+    [InlineData(11)] // VeryLow
     public void IconForTier_ReturnsTypeAcceptableToTrayLibrary(int tier)
     {
         // Bugfix on Task 3 (overlay-bar-redesign): the original assertion was
@@ -172,17 +178,18 @@ public class TierColorPaletteTests
         // the icon (and HICON) per state-change tick would leak handles
         // because the cache index, not GC, is what eventually calls
         // DestroyIcon. Same-band re-fetch MUST hit the cache.
-        Assert.Same(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(5));
-        Assert.Same(TierColorPalette.IconForTier_Win(6),  TierColorPalette.IconForTier_Win(7));
+        Assert.Same(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(2));
+        Assert.Same(TierColorPalette.IconForTier_Win(5),  TierColorPalette.IconForTier_Win(7));
         Assert.Same(TierColorPalette.IconForTier_Win(8),  TierColorPalette.IconForTier_Win(10));
     }
 
     [Fact]
     public void IconForTier_Win_DifferentBandsReturnDifferentInstances()
     {
-        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(6));
-        Assert.NotSame(TierColorPalette.IconForTier_Win(6),  TierColorPalette.IconForTier_Win(10));
-        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(10));
+        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(5));
+        Assert.NotSame(TierColorPalette.IconForTier_Win(5),  TierColorPalette.IconForTier_Win(8));
+        Assert.NotSame(TierColorPalette.IconForTier_Win(8),  TierColorPalette.IconForTier_Win(11));
+        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(11));
     }
 
     [Theory]
@@ -312,20 +319,22 @@ public class TierColorPaletteTests
         // Two tiers in the same band must return the same cached bitmap —
         // tray re-render every state tick would allocate a 32×32 RTBitmap
         // otherwise, which is wasteful.
-        Assert.Same(TierColorPalette.IconForTier(1),  TierColorPalette.IconForTier(5));
-        Assert.Same(TierColorPalette.IconForTier(6),  TierColorPalette.IconForTier(7));
+        Assert.Same(TierColorPalette.IconForTier(1),  TierColorPalette.IconForTier(2));
+        Assert.Same(TierColorPalette.IconForTier(5),  TierColorPalette.IconForTier(7));
         Assert.Same(TierColorPalette.IconForTier(8),  TierColorPalette.IconForTier(10));
     }
 
     [Fact]
     public void IconForTier_DifferentBandsReturnDifferentInstances()
     {
-        // Sanity: bands must be visually distinct cache entries.
-        var grey  = TierColorPalette.IconForTier(1);
-        var amber = TierColorPalette.IconForTier(6);
-        var red   = TierColorPalette.IconForTier(10);
-        Assert.NotSame(grey, amber);
-        Assert.NotSame(amber, red);
-        Assert.NotSame(grey, red);
+        // Sanity: 級 must be visually distinct cache entries.
+        var veryHigh = TierColorPalette.IconForTier(1);
+        var medium   = TierColorPalette.IconForTier(5);
+        var low      = TierColorPalette.IconForTier(8);
+        var veryLow  = TierColorPalette.IconForTier(11);
+        Assert.NotSame(veryHigh, medium);
+        Assert.NotSame(medium, low);
+        Assert.NotSame(low, veryLow);
+        Assert.NotSame(veryHigh, veryLow);
     }
 }

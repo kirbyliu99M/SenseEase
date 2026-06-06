@@ -10,8 +10,8 @@ namespace SenseEase.App.Services;
 /// decision logic is unit-testable without spinning up a WPF window.
 ///
 /// <para>Mute is keyed by <see cref="TierColorPalette.TierBand"/>: muting
-/// the amber band suppresses auto-expansion for tier-up events into 6/7,
-/// independent of grey or red mutes. This matches spec §2 ("該類型靜音
+/// the Medium 級 band suppresses auto-expansion for tier-up events into 6/7,
+/// independent of VeryHigh or VeryLow mutes. This matches spec §2 ("該類型靜音
 /// 6 小時" — "this kind muted 6 h"); we treat colour band as "kind".</para>
 ///
 /// <para>Mute does NOT block user-initiated card opens. Spec is explicit:

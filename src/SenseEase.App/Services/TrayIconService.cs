@@ -280,14 +280,9 @@ public sealed class TrayIconService : IDisposable
         // expose it and reaching into the concrete MockInferenceEngine would
         // couple the tray to the engine impl. The chat tab is the place for
         // that detail. Tier alone is enough for an ambient status indicator.
-        string band = TierColorPalette.BandForTier(state.VimsTier) switch
-        {
-            TierColorPalette.TierBand.Grey  => "舒緩",
-            TierColorPalette.TierBand.Amber => "中度",
-            TierColorPalette.TierBand.Red   => "高壓",
-            _                               => "—",
-        };
-        string header = $"VIMS Tier {state.VimsTier} · {band}";
+        // 5級 動態感 label via the single-source helper — never hardcode 級 strings.
+        string feel = TierColorPalette.FeelLabel(TierColorPalette.BandForTier(state.VimsTier));
+        string header = $"VIMS 第 {state.VimsTier}/12 · 動態感 {feel}";
         // Path Z bug-fix 1: while in Power Save, refresh the stashed snapshot
         // instead of the visible "Power Save ON" header. Otherwise a tier
         // change during a PS window overwrites the visible header AND leaves
@@ -300,7 +295,7 @@ public sealed class TrayIconService : IDisposable
 
         // Tooltip mirrors the live tier always — the OS tooltip is the
         // immediate read; the menu label carries the PS state.
-        _tray.ToolTipText = $"SenseEase — Tier {state.VimsTier} · {band}";
+        _tray.ToolTipText = $"SenseEase — 第 {state.VimsTier}/12 · 動態感 {feel}";
 
         RefreshToggleBarLabel();
     }
@@ -431,11 +426,13 @@ public sealed class TrayIconService : IDisposable
             // old flat icon used.
             var body = new System.Drawing.Rectangle(2, 2, 28, 28);
 
+            // Legacy→5級 semantic mapping (preserve calm↔high intent):
+            // Grey(calm)→VeryHigh, Amber(mid)→Medium, Red(high)→VeryLow.
             System.Drawing.Color fill = band switch
             {
-                TierColorPalette.TierBand.Amber => TrayAmberFill,
-                TierColorPalette.TierBand.Red   => TrayClayFill,
-                _                               => TrayGreyFill,
+                TierColorPalette.TierBand.Medium  => TrayAmberFill,
+                TierColorPalette.TierBand.VeryLow => TrayClayFill,
+                _                                 => TrayGreyFill,
             };
 
             using (var fillBrush = new System.Drawing.SolidBrush(fill))
@@ -443,13 +440,14 @@ public sealed class TrayIconService : IDisposable
 
             switch (band)
             {
-                case TierColorPalette.TierBand.Amber:
+                case TierColorPalette.TierBand.Medium:
                     DrawDiagonalHatch(g, body, TrayAmberHatchInk);
                     break;
-                case TierColorPalette.TierBand.Red:
+                case TierColorPalette.TierBand.VeryLow:
                     DrawCornerWedge(g, body, TrayClayWedgeInk);
                     break;
-                // Grey: plain fill — the textural "calm / nothing layered on" cue.
+                // VeryHigh / other bands: plain fill — the textural
+                // "calm / nothing layered on" cue.
             }
         }
 

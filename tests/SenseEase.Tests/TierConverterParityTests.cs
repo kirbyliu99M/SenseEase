@@ -17,11 +17,11 @@ public class TierConverterParityTests
     [Theory]
     [InlineData(0, "Idle")]
     [InlineData(1, "Steady")]
-    [InlineData(5, "Steady")]
-    [InlineData(6, "Rising")]
+    [InlineData(4, "Steady")]
+    [InlineData(5, "Rising")]
     [InlineData(7, "Rising")]
     [InlineData(8, "High")]
-    [InlineData(10, "High")]
+    [InlineData(12, "High")]
     public void ComfortBand_AgreesWithTierColorPalette(int tier, string expectedBand)
     {
         Assert.Equal(expectedBand, ComfortBands.For(tier));
@@ -30,10 +30,12 @@ public class TierConverterParityTests
         {
             string fromPalette = TierColorPalette.BandForTier(tier) switch
             {
-                TierColorPalette.TierBand.Grey  => "Steady",
-                TierColorPalette.TierBand.Amber => "Rising",
-                TierColorPalette.TierBand.Red   => "High",
-                _                               => "?",
+                TierColorPalette.TierBand.VeryHigh => "Steady",
+                TierColorPalette.TierBand.High     => "Steady",
+                TierColorPalette.TierBand.Medium   => "Rising",
+                TierColorPalette.TierBand.Low      => "High",
+                TierColorPalette.TierBand.VeryLow  => "High",
+                _                                  => "?",
             };
             Assert.Equal(fromPalette, ComfortBands.For(tier)); // single-source band
         }

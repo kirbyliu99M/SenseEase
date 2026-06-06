@@ -78,8 +78,9 @@ public partial class MainWindow : Window
     private readonly NotificationCardController _cardController = new();
     // Tracks the previous tier band so tier-up auto-expand only fires on
     // the band-crossing edge, not on every state push within the same band.
-    // Initialised to Grey (the default startup state).
-    private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.Grey;
+    // Initialised to VeryHigh (the default startup state — 極高 / calmest band,
+    // legacy Grey under the 5級 動態感 relabel).
+    private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.VeryHigh;
 
     public MainWindow()
     {
@@ -783,11 +784,12 @@ public partial class MainWindow : Window
     {
         _persistentBar?.SetTier(st.VimsTier);
 
-        // Task 5: tier-up auto-expand. When the band crosses
-        // grey → amber (≤5 → ≥6) we treat that as a meaningful
-        // state escalation worth the card if Toggle A is ON. Track
-        // the previous band so we only fire on the CROSSING edge,
-        // not every sample within the new band.
+        // Task 5: tier-up auto-expand. When the band crosses out of
+        // the calmest band (VeryHigh → any higher-intervention band, the
+        // 5級 動態感 equivalent of the legacy grey → amber edge) we treat
+        // that as a meaningful state escalation worth the card if Toggle A
+        // is ON. Track the previous band so we only fire on the CROSSING
+        // edge, not every sample within the new band.
         var newBand = TierColorPalette.BandForTier(st.VimsTier);
 
         // Mirror tier/pressure into an already-open Card so its title stays
@@ -796,8 +798,8 @@ public partial class MainWindow : Window
         if (_cardWindow is { IsVisible: true })
             _cardWindow.SetContent(newBand, st.VimsTier, st.Pressure);
 
-        if (_lastBand == TierColorPalette.TierBand.Grey
-            && newBand != TierColorPalette.TierBand.Grey
+        if (_lastBand == TierColorPalette.TierBand.VeryHigh
+            && newBand != TierColorPalette.TierBand.VeryHigh
             && UserPreferences.Current.UseNewBarOverlay
             && UserPreferences.Current.AutoExpandNotifications)
         {

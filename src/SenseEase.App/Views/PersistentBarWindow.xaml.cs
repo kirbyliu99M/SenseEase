@@ -236,13 +236,12 @@ public partial class PersistentBarWindow : Window
     /// level can't drift from the colour the user sees.</summary>
     private void UpdateAutomationName(int tier)
     {
-        string tierText = TierColorPalette.BandForTier(tier) switch
-        {
-            TierColorPalette.TierBand.Grey  => "calm / 平靜",
-            TierColorPalette.TierBand.Amber => "elevated / 偏高",
-            TierColorPalette.TierBand.Red   => "high / 高",
-            _                               => "calm / 平靜",
-        };
+        // 5級 動態感: derive the user-facing band label from the single-source
+        // helpers so the spoken level can't drift from the colour the user sees.
+        // FeelLabel(band) is the 中文 級 text; pair it with FeelLabelEn for the
+        // bilingual a11y name (EN / 中文) convention used elsewhere.
+        var band = TierColorPalette.BandForTier(tier);
+        string tierText = $"{TierColorPalette.FeelLabelEn(band)} / {TierColorPalette.FeelLabel(band)}";
         System.Windows.Automation.AutomationProperties.SetName(
             this, $"{AutomationNameBase}: {tierText}");
     }

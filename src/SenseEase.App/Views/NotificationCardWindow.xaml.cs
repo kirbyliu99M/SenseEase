@@ -320,10 +320,11 @@ public partial class NotificationCardWindow : Window
 
     // overlay-bar-redesign D2/D3: cache the last content the card was set to
     // so an IsPowerSaveActive flip can re-render without callers passing
-    // values again. Default band is Grey for the rare path where the toggle
-    // is set before any SetContent — the card simply shows the power-save
-    // message anyway, so the cached band is irrelevant in that state.
-    private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.Grey;
+    // values again. Default band is VeryHigh (the calmest 級) for the rare
+    // path where the toggle is set before any SetContent — the card simply
+    // shows the power-save message anyway, so the cached band is irrelevant
+    // in that state.
+    private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.VeryHigh;
     private int _lastTier = 1;
     private double _lastPressure;
     private bool _hasContent;
@@ -532,23 +533,31 @@ public partial class NotificationCardWindow : Window
     }
 
     // BC-1: band → plain-language, app-action headline (same register as the Home
-    // hero — what SenseEase is doing, never a felt-state claim).
+    // hero — what SenseEase is doing, never a felt-state claim). 5級 動態感
+    // collapse: VeryHigh & High → old Grey/calm copy; Medium → old Amber copy;
+    // Low & VeryLow → old Red copy (reuses the existing 3 strings, no new wording).
     private static string HeadlineForBand(TierColorPalette.TierBand band) => band switch
     {
-        TierColorPalette.TierBand.Grey  => "守護你的畫面",
-        TierColorPalette.TierBand.Amber => "正在緩和邊緣",
-        TierColorPalette.TierBand.Red   => "正在強力緩和",
-        _                                => "守護你的畫面",
+        TierColorPalette.TierBand.VeryHigh => "守護你的畫面",
+        TierColorPalette.TierBand.High     => "守護你的畫面",
+        TierColorPalette.TierBand.Medium   => "正在緩和邊緣",
+        TierColorPalette.TierBand.Low      => "正在強力緩和",
+        TierColorPalette.TierBand.VeryLow  => "正在強力緩和",
+        _                                  => "守護你的畫面",
     };
 
     // D4: calm, app-action body copy — what SenseEase is doing, no detective
     // "偵測到…" register, no urgent imperatives (retires the banned phrases).
+    // 5級 動態感 collapse: VeryHigh & High → old Grey/calm copy; Medium → old
+    // Amber copy; Low & VeryLow → old Red copy (reuses the existing 3 strings).
     private static string DescriptionForBand(TierColorPalette.TierBand band) => band switch
     {
-        TierColorPalette.TierBand.Grey  => "畫面平穩，一切安好。",
-        TierColorPalette.TierBand.Amber => "畫面開始活躍，正在輕輕緩和邊緣。需要的話可以短暫休息。",
-        TierColorPalette.TierBand.Red   => "畫面變化較大，正在加強緩和。可以的話稍微休息一下。",
-        _                                => string.Empty,
+        TierColorPalette.TierBand.VeryHigh => "畫面平穩，一切安好。",
+        TierColorPalette.TierBand.High     => "畫面平穩，一切安好。",
+        TierColorPalette.TierBand.Medium   => "畫面開始活躍，正在輕輕緩和邊緣。需要的話可以短暫休息。",
+        TierColorPalette.TierBand.Low      => "畫面變化較大，正在加強緩和。可以的話稍微休息一下。",
+        TierColorPalette.TierBand.VeryLow  => "畫面變化較大，正在加強緩和。可以的話稍微休息一下。",
+        _                                  => string.Empty,
     };
 
     private void OnCardMouseMove(object sender, MouseEventArgs e)

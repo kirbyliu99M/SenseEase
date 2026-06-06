@@ -8,98 +8,104 @@ using System.Windows.Media.Imaging;
 namespace SenseEase.App.Views;
 
 /// <summary>
-/// Pop-up sprint single source of truth for the 3-tier colour mapping used by
-/// the persistent bar (Task 2) AND the system tray icon (Task 3). Lives here
-/// rather than on <see cref="PersistentBarWindow"/> so the tray service can
-/// reuse the mapping without taking a dependency on a Window class — and so
-/// future UI surfaces (notification card, settings indicators, etc.) all
-/// converge on one table.
+/// Single source of truth for the <b>5級 動態感</b> colour mapping used by the
+/// persistent bar, the system tray icon, and the notification card. Lives here
+/// rather than on <see cref="PersistentBarWindow"/> so the tray service can reuse
+/// the mapping without depending on a Window class — and so every UI surface
+/// converges on one table.
 ///
-/// <para>Tier bands (user decision 2026-05-26):</para>
+/// <para>Adaptive Fit Layer Q2=B: this replaced the legacy 3-band (Grey/Amber/Red)
+/// projection. The intensity scale is the native 12 levels; this projects them to
+/// the 5級 動態感 the user actually sees (拍板-1, spec §1.1):</para>
 /// <list type="bullet">
-///   <item>Tier 1–5  → grey  (RGB 102,102,102)</item>
-///   <item>Tier 6–7  → amber (RGB 230,140,40)</item>
-///   <item>Tier 8–10 → red   (RGB 220, 50,40)</item>
+///   <item>L1–2  → VeryHigh (極高 — most natural, least intervention)</item>
+///   <item>L3–4  → High     (高)</item>
+///   <item>L5–7  → Medium   (中 — default L5)</item>
+///   <item>L8–10 → Low      (低)</item>
+///   <item>L11–12→ VeryLow  (極低 — most stabilized, persistent mask)</item>
 /// </list>
+///
+/// <para>Colours are a calm cool ramp (plugin-grounded, MasterPlan §13.6): the
+/// ui-ux-pro-max palette DB reserves red for <c>Destructive</c> only — every calm
+/// product (Mental Health, Meditation, Medical) uses calm blue/teal — so there is
+/// deliberately <b>no alarm red</b>; "more intervention" reads as a deeper, calmer
+/// blue, matching the app Accent #3B6FC4 and the non-alarming 動態感 framing.</para>
 ///
 /// <para>Two shapes are exposed:</para>
 /// <list type="bullet">
-///   <item><see cref="BrushForTier"/> — ambient-overlay alpha (0.15 / 0.30 / 0.45) for
+///   <item><see cref="BrushForTier"/> — ambient-overlay alpha ladder (0.15→0.45) for
 ///         the bar. Soft, deliberately under-visible.</item>
 ///   <item><see cref="IconForTier"/> — full-alpha 32×32 rendered icon for the tray.
 ///         The tray icon must be visible against any taskbar background, so it
 ///         can't reuse the bar's low-alpha brush directly. Same RGB hue, alpha
-///         bumped to 1.0 — the tier-signal intent is preserved across surfaces.</item>
+///         bumped to 1.0 — the level-signal intent is preserved across surfaces.</item>
 /// </list>
 ///
 /// Brushes and icons are static + Frozen so they're shareable across threads
-/// and produce zero allocation on tier-change ticks.
+/// and produce zero allocation on level-change ticks.
 /// </summary>
 public static class TierColorPalette
 {
-    // ── Tier hue RGB channels ────────────────────────────────────────────────
-    // The raw RGB triples behind GreyHue / AmberHue / RedHue, named so the
-    // hue table below reads as intent rather than a wall of magic numbers and
-    // so a channel can't be edited in one hue but forgotten in another. Values
-    // are the user-locked tier colours (decision 2026-05-26) — pinned
-    // byte-for-byte by TierColorPaletteTests.BrushForTier_MatchesSpecArgb, so
-    // these consts must stay numerically identical to the prior literals.
-    private const byte GreyChannel = 102;       // grey is a neutral R=G=B=102
-    private const byte AmberR = 230, AmberG = 140, AmberB = 40; // warm "rising" amber
-    private const byte RedR   = 220, RedG   =  50, RedB   = 40; // alert "high" red
-
-    // Shared hue table — RGB only. Bar adds low alpha; tray icon renders at
-    // full alpha. Changing a hue here changes every consuming surface in lock
-    // step (the only way to avoid bar-amber-but-tray-still-grey drift bugs).
-    private static readonly Color GreyHue  = Color.FromRgb(GreyChannel, GreyChannel, GreyChannel);
-    private static readonly Color AmberHue = Color.FromRgb(AmberR, AmberG, AmberB);
-    private static readonly Color RedHue   = Color.FromRgb(RedR,   RedG,   RedB);
+    // ── 5級 動態感 hue RGB channels (calm cool ramp, plugin-grounded §13.6) ──
+    // VeryHigh = 極高 (most natural) → VeryLow = 極低 (most stabilized). No alarm
+    // red: the ui-ux-pro-max palette DB reserves red for Destructive only; every
+    // calm product (Mental Health / Meditation / Medical) uses calm blue/teal.
+    // Harmonised with the app Accent #3B6FC4. Pinned byte-for-byte by
+    // TierColorPaletteTests.BrushForTier_MatchesSpecArgb — keep these numerically
+    // identical to the §13.6 table.
+    private static readonly Color VeryHighHue = Color.FromRgb(0x9B, 0xB4, 0xD4); // #9BB4D4 airy blue-grey
+    private static readonly Color HighHue     = Color.FromRgb(0x6F, 0x93, 0xC2); // #6F93C2 light calm blue
+    private static readonly Color MediumHue   = Color.FromRgb(0x4A, 0x77, 0xB5); // #4A77B5 mid calm blue
+    private static readonly Color LowHue       = Color.FromRgb(0x34, 0x5E, 0x97); // #345E97 deeper blue
+    private static readonly Color VeryLowHue  = Color.FromRgb(0x24, 0x3F, 0x6B); // #243F6B deep calm slate
 
     // ── Opacity ladder (alpha bytes) ─────────────────────────────────────────
-    // The bar deliberately under-renders the tier colour; the ladder climbs by
-    // band so a worse state is a touch more present without ever shouting. Two
-    // rungs per band: a resting ambient-overlay alpha and a near-opaque hover
-    // alpha (see HoverBrush block). Named so the 0.15→0.30→0.45 resting ladder
-    // and the hover bumps read as a deliberate progression rather than stray
-    // hex. Pinned by TierColorPaletteTests.BrushForTier_MatchesSpecArgb (resting
-    // rungs) — keep these alpha bytes byte-identical to the prior literals.
-    private const byte GreyAlpha  = 0x26; // 0.15 — calm/steady, barely-there
-    private const byte AmberAlpha = 0x4D; // 0.30 — rising, slightly more present
-    private const byte RedAlpha   = 0x73; // 0.45 — high strain, most present resting rung
-    private const byte GreyHoverAlpha  = 0xA6; // 0.65 — readable on hover, still soft
-    private const byte AmberHoverAlpha = 0xEB; // 0.92 — near-opaque on hover
-    private const byte RedHoverAlpha   = 0xFF; // 1.00 — fully opaque (critical-alert tier)
+    // The bar deliberately under-renders the level colour; the ladder climbs by
+    // 級 so a more-stabilized state is a touch more present without ever shouting.
+    // Two rungs per 級: a resting ambient-overlay alpha and a near-opaque hover
+    // alpha. Pinned by TierColorPaletteTests.BrushForTier_MatchesSpecArgb.
+    private const byte VeryHighAlpha = 0x26; // 0.15 — 極高, barely-there
+    private const byte HighAlpha     = 0x38; // 0.22 — 高
+    private const byte MediumAlpha   = 0x4D; // 0.30 — 中
+    private const byte LowAlpha      = 0x61; // 0.38 — 低
+    private const byte VeryLowAlpha  = 0x73; // 0.45 — 極低, most present resting rung
+    private const byte VeryHighHoverAlpha = 0xA6; // 0.65 — readable on hover, still soft
+    private const byte HighHoverAlpha     = 0xBD; // 0.74
+    private const byte MediumHoverAlpha   = 0xD4; // 0.83
+    private const byte LowHoverAlpha      = 0xEB; // 0.92
+    private const byte VeryLowHoverAlpha  = 0xFF; // 1.00 — fully opaque (most-stabilized 級)
 
     // Bar brushes — ambient-overlay alpha. Frozen for cross-thread reuse +
     // zero allocation on the StateChanged hot path.
-    private static readonly SolidColorBrush GreyBrush  = MakeFrozen(GreyHue,  GreyAlpha);  // 0.15
-    private static readonly SolidColorBrush AmberBrush = MakeFrozen(AmberHue, AmberAlpha); // 0.30
-    private static readonly SolidColorBrush RedBrush   = MakeFrozen(RedHue,   RedAlpha);   // 0.45
+    private static readonly SolidColorBrush VeryHighBrush = MakeFrozen(VeryHighHue, VeryHighAlpha); // 0.15
+    private static readonly SolidColorBrush HighBrush     = MakeFrozen(HighHue,     HighAlpha);     // 0.22
+    private static readonly SolidColorBrush MediumBrush   = MakeFrozen(MediumHue,   MediumAlpha);   // 0.30
+    private static readonly SolidColorBrush LowBrush      = MakeFrozen(LowHue,      LowAlpha);      // 0.38
+    private static readonly SolidColorBrush VeryLowBrush  = MakeFrozen(VeryLowHue,  VeryLowAlpha);  // 0.45
 
-    // Path Z UX iter 4 — hover variants bumped further per user feedback
-    // ("still a bit disruptive, raise its opacity"). When the cursor
-    // approaches the bar, swap to these near-opaque variants so the tier
-    // colour reads cleanly without the user having to squint. Red goes
-    // fully opaque since it's the critical-alert tier.
-    private static readonly SolidColorBrush GreyHoverBrush  = MakeFrozen(GreyHue,  GreyHoverAlpha);  // 0.65
-    private static readonly SolidColorBrush AmberHoverBrush = MakeFrozen(AmberHue, AmberHoverAlpha); // 0.92
-    private static readonly SolidColorBrush RedHoverBrush   = MakeFrozen(RedHue,   RedHoverAlpha);   // 1.00
+    // Hover variants — near-opaque so the level colour reads cleanly when the
+    // cursor approaches the bar. 極低 goes fully opaque (the most-stabilized 級).
+    private static readonly SolidColorBrush VeryHighHoverBrush = MakeFrozen(VeryHighHue, VeryHighHoverAlpha); // 0.65
+    private static readonly SolidColorBrush HighHoverBrush     = MakeFrozen(HighHue,     HighHoverAlpha);     // 0.74
+    private static readonly SolidColorBrush MediumHoverBrush   = MakeFrozen(MediumHue,   MediumHoverAlpha);   // 0.83
+    private static readonly SolidColorBrush LowHoverBrush      = MakeFrozen(LowHue,      LowHoverAlpha);      // 0.92
+    private static readonly SolidColorBrush VeryLowHoverBrush  = MakeFrozen(VeryLowHue,  VeryLowHoverAlpha);  // 1.00
 
     // D3 liveness contract: the FAULTED bar fill. Muted clay (#B65C4E) at low
     // alpha — "needs attention," explicitly NEVER alarm red, per the locked
     // palette's "muted clay for high strain, never alarm red." A single frozen
     // source so the Faulted bar can't drift into a raw XAML hex literal; it is
-    // intentionally OUTSIDE the tier band table (liveness is orthogonal to tier).
+    // intentionally OUTSIDE the 級 table (liveness is orthogonal to intensity).
     private static readonly Color ClayHue = Color.FromRgb(0xB6, 0x5C, 0x4E);
     // 0x66 (~0.40): on a 4-dip bar the FILL must carry the calm clay tone so the
     // bar reads "warm / needs attention," not an alarm-red outline. Paired with a
     // softened outline (#80B65C4E in XAML) so the frame defines without shouting.
     public static readonly SolidColorBrush FaultedBarBrush = MakeFrozen(ClayHue, 0x66); // ~0.40
 
-    // Tray icons — full-alpha 32×32 rendered once, frozen, cached by tier band.
+    // Tray icons — full-alpha 32×32 rendered once, frozen, cached by 級.
     private static readonly Dictionary<int, ImageSource> _iconCache = new();
 
-    // System.Drawing.Icon cache for the tray, keyed by tier band.
+    // System.Drawing.Icon cache for the tray, keyed by 級.
     //
     // Evolution across the sprint:
     //   • Patch 3 (a47fb95): Bitmap.GetHicon() + Icon.FromHandle. Required
@@ -134,56 +140,63 @@ public static class TierColorPalette
         return b;
     }
 
-    /// <summary>Resolves a 1–10 VIMS tier to the bar's ambient-overlay brush.
-    /// Out-of-range tiers clamp defensively to the nearest band (≤0 → grey,
-    /// ≥11 → red). Same frozen instance returned for every call within a
-    /// band — assignable from any thread without WPF freezing complaints.</summary>
+    /// <summary>Resolves a 1–12 intensity level to the bar's ambient-overlay brush.
+    /// Out-of-range levels clamp defensively to the nearest 級 (≤0 → VeryHigh,
+    /// ≥13 → VeryLow). Same frozen instance returned for every call within a
+    /// 級 — assignable from any thread without WPF freezing complaints.</summary>
     public static SolidColorBrush BrushForTier(int tier) => BandForTier(tier) switch
     {
-        TierBand.Grey  => GreyBrush,
-        TierBand.Amber => AmberBrush,
-        TierBand.Red   => RedBrush,
-        _              => GreyBrush, // unreachable; satisfies exhaustiveness
+        TierBand.VeryHigh => VeryHighBrush,
+        TierBand.High     => HighBrush,
+        TierBand.Medium   => MediumBrush,
+        TierBand.Low      => LowBrush,
+        TierBand.VeryLow  => VeryLowBrush,
+        _                 => VeryHighBrush, // unreachable; satisfies exhaustiveness
     };
 
-    /// <summary>Path Z UX iter 3: hover-state variant of <see cref="BrushForTier"/>.
-    /// Same hue, ~2× alpha — used by <see cref="PersistentBarWindow"/> when
-    /// the cursor enters the hover-proximity zone so the tier colour reads
-    /// clearly. Frozen + cached, identical lifetime to the base brushes.</summary>
+    /// <summary>Hover-state variant of <see cref="BrushForTier"/>. Same hue,
+    /// higher alpha — used by <see cref="PersistentBarWindow"/> when the cursor
+    /// enters the hover-proximity zone so the level colour reads clearly.
+    /// Frozen + cached, identical lifetime to the base brushes.</summary>
     public static SolidColorBrush HoverBrushForTier(int tier) => BandForTier(tier) switch
     {
-        TierBand.Grey  => GreyHoverBrush,
-        TierBand.Amber => AmberHoverBrush,
-        TierBand.Red   => RedHoverBrush,
-        _              => GreyHoverBrush,
+        TierBand.VeryHigh => VeryHighHoverBrush,
+        TierBand.High     => HighHoverBrush,
+        TierBand.Medium   => MediumHoverBrush,
+        TierBand.Low      => LowHoverBrush,
+        TierBand.VeryLow  => VeryLowHoverBrush,
+        _                 => VeryHighHoverBrush,
     };
 
-    /// <summary>Resolves a 1–10 VIMS tier to a 32×32 ImageSource for the system
-    /// tray icon. Full-alpha rendering (the tray icon must be visible against
-    /// any taskbar background — low-alpha would disappear on light themes).
-    /// Cached per band; first call allocates, subsequent calls return the
+    private static Color HueForTier(int tier) => BandForTier(tier) switch
+    {
+        TierBand.VeryHigh => VeryHighHue,
+        TierBand.High     => HighHue,
+        TierBand.Medium   => MediumHue,
+        TierBand.Low      => LowHue,
+        TierBand.VeryLow  => VeryLowHue,
+        _                 => VeryHighHue,
+    };
+
+    /// <summary>Resolves a 1–12 intensity level to a 32×32 ImageSource for the
+    /// system tray icon. Full-alpha rendering (the tray icon must be visible
+    /// against any taskbar background — low-alpha would disappear on light
+    /// themes). Cached per 級; first call allocates, subsequent calls return the
     /// cached frozen RenderTargetBitmap.</summary>
     public static ImageSource IconForTier(int tier)
     {
         int bandKey = (int)BandForTier(tier);
         if (_iconCache.TryGetValue(bandKey, out var cached)) return cached;
 
-        Color hue = BandForTier(tier) switch
-        {
-            TierBand.Grey  => GreyHue,
-            TierBand.Amber => AmberHue,
-            TierBand.Red   => RedHue,
-            _              => GreyHue,
-        };
-        var bmp = RenderIconBitmap(hue);
+        var bmp = RenderIconBitmap(HueForTier(tier));
         _iconCache[bandKey] = bmp;
         return bmp;
     }
 
-    /// <summary>Returns a <see cref="System.Drawing.Icon"/> for the tier band.
+    /// <summary>Returns a <see cref="System.Drawing.Icon"/> for the 級.
     /// This is the path the tray uses in production (via Hardcodet
     /// <c>TaskbarIcon.Icon</c>, not <c>TaskbarIcon.IconSource</c>). Cached per
-    /// band; cached Icons are released by <see cref="DisposeWinIconCache"/>
+    /// 級; cached Icons are released by <see cref="DisposeWinIconCache"/>
     /// at app shutdown.
     /// <para><b>Icon construction</b> (Patch 7): the bitmap is rendered to a
     /// PNG byte stream, then wrapped in a hand-built ICO container
@@ -201,19 +214,13 @@ public static class TierColorPalette
         int bandKey = (int)BandForTier(tier);
         if (_winIconCache.TryGetValue(bandKey, out var cached)) return cached;
 
-        Color hue = BandForTier(tier) switch
-        {
-            TierBand.Grey  => GreyHue,
-            TierBand.Amber => AmberHue,
-            TierBand.Red   => RedHue,
-            _              => GreyHue,
-        };
+        Color hue = HueForTier(tier);
 
         // 32×32 GDI+ Bitmap. We do NOT round the corners — at 32 px the
         // 2-px radius the WPF version uses is barely visible after the
         // shell scales the icon down to 16×16, and FillRoundedRectangle
         // isn't built into GDI+ (would require manual GraphicsPath arcs).
-        // The tier signal is the colour, not the corner radius.
+        // The level signal is the colour, not the corner radius.
         using var bmp = new System.Drawing.Bitmap(32, 32);
         using (var g = System.Drawing.Graphics.FromImage(bmp))
         {
@@ -286,10 +293,10 @@ public static class TierColorPalette
         return icoStream.ToArray();
     }
 
-    /// <summary>Test-only accessor: returns the raw ICO bytes for a tier
-    /// band so structure-contract tests can verify the exact bytes we
+    /// <summary>Test-only accessor: returns the raw ICO bytes for a 級
+    /// so structure-contract tests can verify the exact bytes we
     /// wrote (without round-tripping through Win32's Icon serialiser
-    /// which may normalise). Forces icon creation if the band hasn't
+    /// which may normalise). Forces icon creation if the 級 hasn't
     /// been used yet. Internal + InternalsVisibleTo SenseEase.Tests
     /// (already wired in the csproj).</summary>
     internal static byte[] GetIcoBytesForTesting(int tier)
@@ -363,21 +370,55 @@ public static class TierColorPalette
         return bmp;
     }
 
-    /// <summary>Three colour bands. Public so tests can name them; the enum
-    /// values double as cache keys in <see cref="_iconCache"/>.</summary>
+    /// <summary>The five 動態感 級 (拍板-1). Public so tests can name them; the enum
+    /// values double as cache keys in <see cref="_iconCache"/>. Ordered calm→stabilized
+    /// (VeryHigh = 極高 = most natural; VeryLow = 極低 = most stabilized) so the
+    /// integer ordering matches intervention intensity.</summary>
     public enum TierBand
     {
-        Grey  = 0,
-        Amber = 1,
-        Red   = 2,
+        VeryHigh = 0, // 極高
+        High     = 1, // 高
+        Medium   = 2, // 中
+        Low      = 3, // 低
+        VeryLow  = 4, // 極低
     }
 
-    /// <summary>Pure tier → band lookup. The one place this knowledge lives.
-    /// Defensive clamping: tier ≤ 0 → Grey, tier ≥ 11 → Red.</summary>
+    /// <summary>Pure level → 級 lookup (spec §1.1, 拍板-1). The one place this
+    /// knowledge lives. Defensive clamping: level ≤ 0 → VeryHigh, level ≥ 13 → VeryLow.</summary>
     public static TierBand BandForTier(int tier) => tier switch
     {
-        <= 5  => TierBand.Grey,
-        6 or 7 => TierBand.Amber,
-        _     => TierBand.Red, // 8..10 and defensively ≥11
+        <= 2  => TierBand.VeryHigh, // L1–2 (and defensively ≤ 0)
+        <= 4  => TierBand.High,     // L3–4
+        <= 7  => TierBand.Medium,   // L5–7 (default L5)
+        <= 10 => TierBand.Low,      // L8–10
+        _     => TierBand.VeryLow,  // L11–12 (and defensively ≥ 13)
     };
+
+    /// <summary>The user-facing 5級 動態感 label (中文) for a 級 — the single source
+    /// every surface (bar / tray / card) uses so the intensity language can't drift.
+    /// "動態感" describes the screen (極高 = most natural, 極低 = most stabilized),
+    /// deliberately non-alarming. §6-safe: no diagnosis/treatment/optimisation claims.</summary>
+    public static string FeelLabel(TierBand band) => band switch
+    {
+        TierBand.VeryHigh => "極高",
+        TierBand.High     => "高",
+        TierBand.Medium   => "中",
+        TierBand.Low      => "低",
+        TierBand.VeryLow  => "極低",
+        _                 => "中",
+    };
+
+    /// <summary>English 5級 動態感 label (§6-safe). Pairs with <see cref="FeelLabel"/>.</summary>
+    public static string FeelLabelEn(TierBand band) => band switch
+    {
+        TierBand.VeryHigh => "Most Natural",
+        TierBand.High     => "Light",
+        TierBand.Medium   => "Balanced",
+        TierBand.Low      => "Steady",
+        TierBand.VeryLow  => "Most Steady",
+        _                 => "Balanced",
+    };
+
+    /// <summary>Convenience: 1–12 level → 5級 中文 label.</summary>
+    public static string FeelLabelForTier(int tier) => FeelLabel(BandForTier(tier));
 }

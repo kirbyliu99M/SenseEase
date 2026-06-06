@@ -34,9 +34,10 @@ public class NotificationCardWindowTests
             var w = new NotificationCardWindow();
             // Force template instantiation so TitleText is non-null.
             w.ApplyTemplate();
-            w.SetContent(TierColorPalette.TierBand.Amber, 3, 27.4);
+            w.SetContent(TierColorPalette.TierBand.Medium, 3, 27.4);
             // BC-1 (D2): the title is now plain-language app-action keyed off the
-            // band; the raw tier/pressure is demoted to a mono subline.
+            // band; the raw tier/pressure is demoted to a mono subline. 5級 remap:
+            // old Amber → Medium, which collapses to the same "正在緩和邊緣" copy.
             Assert.Equal("正在緩和邊緣", w.TitleText.Text);
             Assert.Equal("第 3 級 / 12　·　壓力 27", w.TelemetryText.Text);
         });
@@ -53,7 +54,7 @@ public class NotificationCardWindowTests
             var w = new NotificationCardWindow();
             w.ApplyTemplate();
             w.IsPowerSaveActive = true;
-            w.SetContent(TierColorPalette.TierBand.Red, 8, 89);
+            w.SetContent(TierColorPalette.TierBand.VeryLow, 8, 89);
             // v0.9.2: zh-only below the title's VIMS product term.
             Assert.Equal("VIMS · 省電模式中", w.TitleText.Text);
             Assert.Equal("感測已暫停，可點擊「省電」恢復。", w.BodyText.Text);

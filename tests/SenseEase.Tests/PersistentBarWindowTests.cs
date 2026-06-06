@@ -6,74 +6,73 @@ using Xunit;
 
 namespace SenseEase.Tests;
 
-/// <summary>Pop-up sprint Task 2 — pins the 3-tier colour mapping for the
-/// persistent ambient bar. Verifies the user-decided ranges (Tier 1–5 grey,
-/// 6–7 amber, 8–10 red) and clamping at edges. The bar's positioning + show
-/// path is not unit-testable without WPF dispatcher harness (covered by
-/// manual acceptance in Task 7).</summary>
+/// <summary>Pins the native 12-level → 5級 動態感 colour mapping for the persistent
+/// ambient bar (Adaptive Fit Q2=B; was the legacy Tier 1–5 grey / 6–7 amber / 8–10 red
+/// 3-band). Verifies the §1.1 ranges (L1–2 極高, L3–4 高, L5–7 中, L8–10 低, L11–12 極低)
+/// against the calm-cool ramp (§13.6) and clamping at edges. The bar's positioning +
+/// show path is not unit-testable without a WPF dispatcher harness (manual acceptance).</summary>
 public class PersistentBarWindowTests
 {
-    // RGBA target values from the spec (User decisions 2026-05-26).
-    // Stored as (A, R, G, B) for direct comparison against Color.FromArgb.
-    private const byte GreyA  = 0x26;  // 0.15 alpha × 255
-    private const byte GreyR  = 0x66, GreyG  = 0x66, GreyB  = 0x66;
-    private const byte AmberA = 0x4D;  // 0.30 alpha × 255
-    private const byte AmberR = 0xE6, AmberG = 0x8C, AmberB = 0x28;
-    private const byte RedA   = 0x73;  // 0.45 alpha × 255
-    private const byte RedR   = 0xDC, RedG   = 0x32, RedB   = 0x28;
+    // (A, R, G, B) for the calm-cool 5級 ramp (plugin-grounded §13.6) — direct
+    // comparison against Color.FromArgb. No alarm red; deeper blue = more stabilized.
+    private const byte VeryHighA = 0x26, VeryHighR = 0x9B, VeryHighG = 0xB4, VeryHighB = 0xD4; // 極高 #9BB4D4
+    private const byte HighA     = 0x38, HighR     = 0x6F, HighG     = 0x93, HighB     = 0xC2; // 高   #6F93C2
+    private const byte MediumA   = 0x4D, MediumR   = 0x4A, MediumG   = 0x77, MediumB   = 0xB5; // 中   #4A77B5
+    private const byte LowA      = 0x61, LowR      = 0x34, LowG      = 0x5E, LowB      = 0x97; // 低   #345E97
+    private const byte VeryLowA  = 0x73, VeryLowR  = 0x24, VeryLowG  = 0x3F, VeryLowB  = 0x6B; // 極低 #243F6B
 
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    [InlineData(5)]
-    public void Tier1To5_ReturnsGrey(int tier)
-    {
-        AssertColor(PersistentBarWindow.BrushForTier(tier), GreyA, GreyR, GreyG, GreyB);
-    }
+    public void Level1And2_ReturnsVeryHigh(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), VeryHighA, VeryHighR, VeryHighG, VeryHighB);
 
     [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void Level3And4_ReturnsHigh(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), HighA, HighR, HighG, HighB);
+
+    [Theory]
+    [InlineData(5)]
     [InlineData(6)]
     [InlineData(7)]
-    public void Tier6And7_ReturnsAmber(int tier)
-    {
-        AssertColor(PersistentBarWindow.BrushForTier(tier), AmberA, AmberR, AmberG, AmberB);
-    }
+    public void Level5To7_ReturnsMedium(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), MediumA, MediumR, MediumG, MediumB);
 
     [Theory]
     [InlineData(8)]
     [InlineData(9)]
     [InlineData(10)]
-    public void Tier8To10_ReturnsRed(int tier)
-    {
-        AssertColor(PersistentBarWindow.BrushForTier(tier), RedA, RedR, RedG, RedB);
-    }
+    public void Level8To10_ReturnsLow(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), LowA, LowR, LowG, LowB);
+
+    [Theory]
+    [InlineData(11)]
+    [InlineData(12)]
+    public void Level11And12_ReturnsVeryLow(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), VeryLowA, VeryLowR, VeryLowG, VeryLowB);
 
     [Theory]
     [InlineData(0)]   // engine should never emit this, but defensive
     [InlineData(-5)]
-    public void TierAtOrBelowZero_ClampsToGrey(int tier)
-    {
-        AssertColor(PersistentBarWindow.BrushForTier(tier), GreyA, GreyR, GreyG, GreyB);
-    }
+    public void LevelAtOrBelowZero_ClampsToVeryHigh(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), VeryHighA, VeryHighR, VeryHighG, VeryHighB);
 
     [Theory]
-    [InlineData(11)]  // defensive — clamps to nearest band (red)
+    [InlineData(13)]  // defensive — clamps to the nearest 級 (極低)
     [InlineData(99)]
-    public void TierAboveTen_ClampsToRed(int tier)
-    {
-        AssertColor(PersistentBarWindow.BrushForTier(tier), RedA, RedR, RedG, RedB);
-    }
+    public void LevelAbove12_ClampsToVeryLow(int tier)
+        => AssertColor(PersistentBarWindow.BrushForTier(tier), VeryLowA, VeryLowR, VeryLowG, VeryLowB);
 
     [Fact]
     public void BrushesAreFrozen_ShareableAcrossThreads()
     {
         // Brushes are returned from the static cache; they must be Frozen so
         // they can be assigned on any thread without WPF freezing complaints.
-        Assert.True(PersistentBarWindow.BrushForTier(1).IsFrozen);
-        Assert.True(PersistentBarWindow.BrushForTier(6).IsFrozen);
-        Assert.True(PersistentBarWindow.BrushForTier(10).IsFrozen);
+        Assert.True(PersistentBarWindow.BrushForTier(1).IsFrozen);   // 極高
+        Assert.True(PersistentBarWindow.BrushForTier(6).IsFrozen);   // 中
+        Assert.True(PersistentBarWindow.BrushForTier(10).IsFrozen);  // 低
     }
 
     private static void AssertColor(SolidColorBrush brush, byte a, byte r, byte g, byte b)

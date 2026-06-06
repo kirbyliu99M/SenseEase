@@ -19,18 +19,21 @@ namespace SenseEase.App.Converters;
 /// </summary>
 internal static class ComfortBands
 {
-    /// <summary>The three comfort bands map 1:1 onto the tier colour bands:
-    /// Grey→Steady, Amber→Rising, Red→High. Tier ≤ 0 is the pre-first-tick Idle
-    /// state. Single source: delegates to <see cref="TierColorPalette.BandForTier"/>.</summary>
+    /// <summary>The Home hero stays a 3-bucket comfort overview, so the native 5級
+    /// 動態感 collapses onto the three hero tokens: VeryHigh|High→Steady, Medium→Rising,
+    /// Low|VeryLow→High. Tier ≤ 0 is the pre-first-tick Idle state. Single source:
+    /// delegates to <see cref="TierColorPalette.BandForTier"/>.</summary>
     public static string For(int tier)
     {
         if (tier <= 0) return "Idle";
         return TierColorPalette.BandForTier(tier) switch
         {
-            TierColorPalette.TierBand.Grey  => "Steady",
-            TierColorPalette.TierBand.Amber => "Rising",
-            TierColorPalette.TierBand.Red   => "High",
-            _                               => "Steady",
+            TierColorPalette.TierBand.VeryHigh => "Steady",
+            TierColorPalette.TierBand.High     => "Steady",
+            TierColorPalette.TierBand.Medium   => "Rising",
+            TierColorPalette.TierBand.Low      => "High",
+            TierColorPalette.TierBand.VeryLow  => "High",
+            _                                  => "Steady",
         };
     }
 
