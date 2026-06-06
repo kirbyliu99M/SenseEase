@@ -1,6 +1,30 @@
+using SenseEase.Core.AdaptiveFit;
 using SenseEase.Core.Models;
 
 namespace SenseEase.Core.Abstractions;
+
+/// <summary>
+/// Why a <see cref="IInferenceEngine.SetLevel"/> was invoked. Alpha-2 core GROUP A:
+/// distinguishes the user's manual +/- nudge from the Adaptive Fit selector's
+/// automatic snaps, so later groups (cooldown state machine, Q4/Q5 ordering) can
+/// branch on the cause without inspecting call sites.
+/// </summary>
+public enum LevelChangeCause
+{
+    /// <summary>The user pressed the +/- fine-tune control (manual nudge).</summary>
+    UserPlusMinus,
+
+    /// <summary>The selector moved to an adjacent set; the level snaps onto the
+    /// new set's 12-level curve (Q4 felt-snap clears the chatbot delta first, Q5).</summary>
+    SetChangeSnap,
+
+    /// <summary>A felt-intensity report snaps the level onto the resolved curve
+    /// (Q4 felt-snap clears the chatbot delta first, Q5).</summary>
+    FeltIntensitySnap,
+
+    /// <summary>A cross-segment set-move proposal was confirmed by the user.</summary>
+    ProposalConfirm,
+}
 
 /// <summary>
 /// Inference layer contract: Leaky Integrator, Noise Gate, Driver/Passenger mode,
@@ -51,4 +75,33 @@ public interface IInferenceEngine
 
     /// <summary>Current accumulated user-feedback FOV offset (negative = shrink), clamped [-60,0].</summary>
     int UserFovOffset { get; }
+
+    // ── Adaptive Fit selector surface (Alpha-2 core GROUP A) ────────────────────
+    // M1-gated; reachable ONLY when AppConfig.AdaptiveFitSelectorEnabled == true.
+    // These three members carry DEFAULT interface implementations (C# 8) so the
+    // build stays green for any implementer that does not provide its own —
+    // MockInferenceEngine overrides all three with real engine-state logic, while
+    // an unseen test double / stub inherits the safe defaults below WITHOUT any
+    // behaviour change on the flag-off (today's) path. set0 ≡ today.
+
+    /// <summary>The engine's current discrete intensity level (1..12) — the same
+    /// value exposed as <c>SenseState.VimsTier</c>. Default no-op implementers
+    /// report the neutral default level (5, the median set's resting rung).</summary>
+    int CurrentLevel => 5;
+
+    /// <summary>Resolve the per-level render envelope (peak mask alpha, FOV floor,
+    /// discretizer scale, grid visibility) for a 1-based level (1..12) on the
+    /// engine's active Adaptive Fit set. For <see cref="GridCoord.Set0"/> the
+    /// resolved params reproduce today's engine exactly (set0 ≡ today). The default
+    /// implementation resolves against the pinned median <see cref="GridCoord.Set0"/>
+    /// curve so any implementer is at least byte-correct at the default set.</summary>
+    LevelParams ResolveLevel(int level) => SetGrid.Curve(GridCoord.Set0).ForLevel(level);
+
+    /// <summary>Set the engine's discrete level, tagging WHY
+    /// (<see cref="LevelChangeCause"/>). Any behavioural effect is gated behind
+    /// <c>AppConfig.AdaptiveFitSelectorEnabled</c>; for SetChange/FeltIntensity
+    /// snaps the chatbot delta is cleared (Q5) before the snap (Q4), preserving the
+    /// earned habituation <c>_offset</c>. The default implementation is a safe no-op
+    /// so flag-off / non-selector implementers are unaffected.</summary>
+    void SetLevel(int level, LevelChangeCause cause) { /* no-op default; see MockInferenceEngine */ }
 }

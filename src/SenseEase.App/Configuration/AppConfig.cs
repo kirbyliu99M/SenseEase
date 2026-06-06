@@ -262,6 +262,27 @@ public static class AppConfig
     // Settings UI can opt out of automation if needed.
     public static bool AutoDriverPassengerModeEnabled { get; set; } = true;
 
+    /// <summary>Alpha-2 core GROUP A: master gate for the entire Adaptive Fit
+    /// selector (the 50-set grid + ResolveLevel/SetLevel + the stats/selector/
+    /// state-machine pipeline that lands in later groups). Defaults to
+    /// <c>false</c> — M1-gated: the selector's OFI/pressure norm-factor inputs
+    /// need real WGC calibration data (days away), so the foundation ships
+    /// dormant and is anchored only when M1 lands.
+    ///
+    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When this is
+    /// <c>false</c> (the default) NOTHING on the hot path reads the new grid:
+    /// <c>MockInferenceEngine.Update</c> runs the existing
+    /// <c>VimsLevels</c>/<c>ComposeFovRadius</c> path unchanged and never
+    /// consults <c>SetGrid</c>/<c>ResolveLevel</c>. The new path is reachable
+    /// ONLY when this flag is <c>true</c>; even then, at the pinned median
+    /// <c>GridCoord.Set0</c> the resolved mask alpha / FOV floor equal today's
+    /// values (set0 ≡ today), so flipping the flag at set0 is a no-op.</para>
+    ///
+    /// <para>Same settable-static pattern as the other runtime feature flags
+    /// here (AppConfig is a static class — no init-only properties); flipping
+    /// requires explicit opt-in in code or a future settings UI.</para></summary>
+    public static bool AdaptiveFitSelectorEnabled { get; set; } = false;
+
     /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven
     /// FOV mask centering. Defaults to false (privacy + stability). When
     /// false, all head-tracking code paths are dead — overlay behaves exactly

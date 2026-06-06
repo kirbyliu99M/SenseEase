@@ -1,4 +1,5 @@
 using SenseEase.Core.Abstractions;
+using SenseEase.Core.AdaptiveFit;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
@@ -28,6 +29,23 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private int      _vimsTier = 1;
     private int      _pendingTierCandidate = 1;
     private DateTime _pendingTierSinceUtc  = DateTime.MinValue;
+
+    // ── Adaptive Fit selector (Alpha-2 core GROUP A) ─────────────────────────
+    // The engine's active set in the 50-set grid. PINNED to the median Set0
+    // (Band 5, Shape 2) in this foundation — the selector that moves it lands in
+    // a later group (C/D). At Set0 the resolved curve reproduces today's engine
+    // exactly (set0 ≡ today), so even with the flag ON the mask/FOV are unchanged.
+    private GridCoord _activeSet = GridCoord.Set0;
+
+    // Engine-local mirror of AppConfig.AdaptiveFitSelectorEnabled. SenseEase.
+    // Infrastructure does NOT (and must not) reference SenseEase.App, so the App
+    // layer cannot be read here directly — the same architectural rule that keeps
+    // HeadTrackingEnabled an App-only flag with the Infrastructure side gated via
+    // DI. This instance flag is the Infrastructure-visible gate; it DEFAULTS OFF,
+    // which is what guarantees flag-off byte-identity by construction. A later
+    // group mirrors AppConfig.AdaptiveFitSelectorEnabled onto it at startup. While
+    // false, NO new code path below is reachable and Update() runs today's path.
+    private bool _adaptiveFitSelectorEnabled;
 
     // ── Habituation-profile snapshot bookkeeping (Phase 4) ───────────────────
     // Tracks the engine state we persisted on the most recent successful
@@ -293,6 +311,26 @@ public sealed class MockInferenceEngine : IInferenceEngine
             UpdateVimsTier(now);
             Current.VimsTier = _vimsTier;
 
+            // ── Adaptive Fit gated branch (Alpha-2 core GROUP A) ─────────────
+            // FLAG-OFF (the default): this whole block is skipped — Current.
+            // FovRadiusPercent keeps the value ComposeFovRadius produced above
+            // and nothing reads the new grid (byte-identical to today).
+            //
+            // FLAG-ON at Set0 (the pinned median): ResolveLevel(_vimsTier) on
+            // the Set0 curve yields FovFloorPercent == 15, which is exactly the
+            // floor ComposeFovRadius already clamped to (SenseDefaults.
+            // TightestNaturalFovRadiusPercent), so re-applying it changes
+            // nothing — set0 ≡ today even with the flag ON. For a later,
+            // selector-moved set the resolved (provisional) floor can be tighter,
+            // and THIS is where it takes effect. The discretizer, hysteresis, and
+            // every flag-off path are untouched; only the post-compose FOV floor
+            // is re-clamped here, behind the flag.
+            if (_adaptiveFitSelectorEnabled)
+            {
+                LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
+                Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
+            }
+
             Current.Shader = _shader;
             Current.LastUpdatedAt = DateTime.Now;
 
@@ -368,6 +406,90 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             _habituation.SetPaused(paused);
             Current.HabituationPaused = _habituation.IsPaused;
+        }
+    }
+
+    // ── Adaptive Fit selector surface (Alpha-2 core GROUP A) ──────────────────
+    // M1-gated; every behavioural effect here is fenced behind
+    // _adaptiveFitSelectorEnabled (default OFF → today's behaviour byte-identical).
+    // ResolveLevel is a pure query (no state mutation) so it is always safe to call.
+
+    /// <summary>Engine-local mirror of <c>AppConfig.AdaptiveFitSelectorEnabled</c>.
+    /// Defaults OFF — while false, the gated branch in <see cref="Update"/> is skipped
+    /// and <see cref="SetLevel"/> is a no-op, so the engine is byte-identical to today.
+    /// The App layer (a later group) sets this from the AppConfig flag at startup;
+    /// SenseEase.Infrastructure cannot read SenseEase.App directly, mirroring the
+    /// HeadTrackingEnabled App-only-flag rule.</summary>
+    public bool AdaptiveFitSelectorEnabled
+    {
+        get { lock (_gate) { return _adaptiveFitSelectorEnabled; } }
+        set { lock (_gate) { _adaptiveFitSelectorEnabled = value; } }
+    }
+
+    /// <summary>The engine's current discrete intensity level (1..12) — the same
+    /// value surfaced as <c>SenseState.VimsTier</c>. Reading it does not depend on
+    /// the flag; it just exposes the tier under the engine lock.</summary>
+    public int CurrentLevel { get { lock (_gate) { return _vimsTier; } } }
+
+    /// <summary>Resolve the per-level render envelope (peak mask alpha, FOV floor,
+    /// discretizer scale, grid visibility) for a 1-based <paramref name="level"/>
+    /// (1..12) on the engine's active set. At <see cref="GridCoord.Set0"/> (the
+    /// pinned median, always active in this foundation) the resolved params equal
+    /// today's engine: <c>PeakMaskAlpha == OverlayWindow.VimsLevels[L-1].Alpha</c>,
+    /// <c>FovFloorPercent == 15</c>, <c>Scale == 11.0</c>, <c>GridVisibility ==
+    /// 0.75</c> — so set0 ≡ today. Pure query; never mutates engine state, so it is
+    /// safe to call regardless of the flag.</summary>
+    public LevelParams ResolveLevel(int level)
+    {
+        lock (_gate) { return SetGrid.Curve(_activeSet).ForLevel(level); }
+    }
+
+    /// <summary>Set the engine's discrete level, tagging WHY via
+    /// <paramref name="cause"/>. NO-OP when the selector flag is OFF (today's path
+    /// has no notion of a directly-set level). When ON, sets the tier and — for
+    /// <see cref="LevelChangeCause.SetChangeSnap"/> /
+    /// <see cref="LevelChangeCause.FeltIntensitySnap"/> — clears the transient
+    /// chatbot delta (FOV offset + shader knobs) BEFORE the snap (Q5 before Q4),
+    /// reusing the <see cref="ResetPersonalization"/> shader path that PRESERVES the
+    /// earned habituation <c>_offset</c> (it calls <c>ResetTransientState</c>, never
+    /// the full post-calibration reset). The discretizer / hysteresis are not
+    /// touched; the snapped tier is recomputed onto the active set's curve on the
+    /// next Update via the gated branch.</summary>
+    public void SetLevel(int level, LevelChangeCause cause)
+    {
+        lock (_gate)
+        {
+            // Flag-off: a direct SetLevel has no meaning on today's path. Skip
+            // entirely so the OFF behaviour stays byte-identical.
+            if (!_adaptiveFitSelectorEnabled) return;
+
+            // Q4/Q5 ordering: for the two snap causes, clear the chatbot delta
+            // (transient personalization) FIRST — preserving _offset — then snap.
+            // Reuses the SAME transient-reset path as ResetPersonalization
+            // (ResetTransientState preserves the earned habituation _offset, Q4.5);
+            // it deliberately does NOT touch _vimsTier here so the snap below is
+            // the single writer of the level.
+            if (cause is LevelChangeCause.SetChangeSnap or LevelChangeCause.FeltIntensitySnap)
+            {
+                _userFovOffset = 0;
+                _shader.ResetToDefault();
+                _habituation.ResetTransientState();   // preserves _offset (Q4.5 / C5)
+                Current.HabituationLevel  = _habituation.HabituationLevel;
+                Current.HabituationPaused = _habituation.IsPaused;
+            }
+
+            // Snap the tier onto the new curve. Clamp to the native 12-rung span
+            // and reset the pending-debounce bookkeeping so the snapped tier holds
+            // (the selector's snap is authoritative — no debounce walk back).
+            _vimsTier             = Math.Clamp(level, 1, SetCurve.LevelCount);
+            _pendingTierCandidate = _vimsTier;
+            _pendingTierSinceUtc  = DateTime.MinValue;
+            Current.VimsTier      = _vimsTier;
+            Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+
+            // Apply the active set's FOV floor (set0 ⇒ 15, a no-op vs today).
+            LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
+            Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
         }
     }
 
