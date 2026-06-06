@@ -63,6 +63,13 @@ public sealed class TrayIconService : IDisposable
     // is captured in wgc_diag.txt without needing to re-instrument.
     private DispatcherTimer? _visibilityWatchdog;
 
+    // M12 (TrayDistinct): per-band cache of the locally code-drawn tray icon.
+    // Keyed by TierColorPalette.TierBand so two tiers in the same band reuse
+    // one System.Drawing.Icon (and one HICON) — matching the old
+    // TierColorPalette._winIconCache behaviour so we don't allocate / leak an
+    // HICON every StateChanged tick. Released in Dispose().
+    private readonly System.Collections.Generic.Dictionary<TierColorPalette.TierBand, System.Drawing.Icon> _distinctIconCache = new();
+
     /// <summary>Raised when the user single-left-clicks the tray icon.
     /// Task 3 has no card to expand, so this event has no subscribers in
     /// Task 3 wiring. Task 4 will subscribe and open the notification card.</summary>
@@ -144,7 +151,13 @@ public sealed class TrayIconService : IDisposable
             // UriSource for the library's URI-based pixel loader). The Icon
             // property routes straight to Win32 Shell_NotifyIcon's HICON
             // requirement — what the system shell actually needs.
-            Icon        = TierColorPalette.IconForTier_Win(_vm.VimsTier),
+            //
+            // M12 (TrayDistinct): first paint uses the same shape-cued local
+            // builder ApplyState uses, honouring the BarTrayColorEnabled toggle
+            // so the initial icon matches what the first StateChanged tick would
+            // draw (no flat-then-shaped flicker on launch).
+            Icon        = BuildDistinctTrayIcon(TierColorPalette.BandForTier(
+                              UserPreferences.Current.BarTrayColorEnabled ? _vm.VimsTier : 1)),
         };
         _tray.TrayLeftMouseUp += (_, _) => LeftClicked?.Invoke(this, EventArgs.Empty);
 
@@ -245,9 +258,17 @@ public sealed class TrayIconService : IDisposable
         // regardless of tier (per spec §1 — bar/tray "永遠維持灰色透明").
         // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT
         // the broken ImageSource path (TaskbarIcon.IconSource). See
-        // TierColorPalette.IconForTier_Win for HICON lifecycle details.
+        // BuildDistinctTrayIcon below for HICON lifecycle details.
+        //
+        // M12 (TrayDistinct): the grey↔amber icons were only ~35% colour
+        // distance and blurred at the 16 px shell size. We now draw the icon
+        // locally (BuildDistinctTrayIcon) so the amber/elevated band is set
+        // apart from grey by SHAPE (a diagonal hatch), not hue alone —
+        // colour-blind-safe — and the amber hue itself is bumped to a more
+        // saturated tone. The contract of this method is unchanged: resolve
+        // the effective band, assign _tray.Icon, refresh the labels.
         int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? state.VimsTier : 1;
-        _tray.Icon = TierColorPalette.IconForTier_Win(effectiveTier);
+        _tray.Icon = BuildDistinctTrayIcon(TierColorPalette.BandForTier(effectiveTier));
         RefreshLabels(state);
     }
 
@@ -354,6 +375,173 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
+    // ── M12 (TrayDistinct): code-drawn, colour-blind-safe tray icons ─────────
+    //
+    // The previous tray icon (TierColorPalette.IconForTier_Win) painted each
+    // band as a flat rounded square that differed by HUE only. The grey
+    // (102,102,102) → amber (230,140,40) step was ~35% perceptual distance and
+    // collapsed to near-identical greys for a deuteranope / protanope, and
+    // blurred together once the Win11 shell downscales 32 px → 16 px.
+    //
+    // Fix: keep the 32 px canvas and the proven PNG-in-ICO wrapper (the only
+    // path that registers reliably with the Hardcodet tray on .NET 8 — GDI+
+    // has no ICO encoder), but make the three bands differ by SHAPE as well as
+    // hue so they are distinguishable without relying on colour:
+    //   • Grey  (calm)     — plain filled rounded square.
+    //   • Amber (elevated) — saturated amber + a diagonal HATCH overlay. The
+    //                        texture reads as "different" even in greyscale.
+    //   • Red   (high)     — muted CLAY (never alarm red) + a filled-corner
+    //                        wedge, a third distinct silhouette.
+    // Calm-audience: no alarm red — the high band uses the same muted clay
+    // (#B65C4E) the faulted bar uses. Reduced motion is N/A here: tray icons
+    // are static (spec §1 "never animates"), so AccessibilityHelper.ReducedMotion
+    // doesn't gate anything in this path.
+
+    // Band hues. Amber bumped from the old (230,140,40) to a more saturated
+    // #E67E1E so the colour step off grey is larger even before the hatch.
+    private static readonly System.Drawing.Color TrayGreyFill  = System.Drawing.Color.FromArgb(255, 102, 102, 102); // calm grey, RGB 102
+    private static readonly System.Drawing.Color TrayAmberFill = System.Drawing.Color.FromArgb(255, 0xE6, 0x7E, 0x1E); // #E67E1E saturated amber
+    private static readonly System.Drawing.Color TrayClayFill  = System.Drawing.Color.FromArgb(255, 0xB6, 0x5C, 0x4E); // #B65C4E muted clay — NEVER alarm red
+
+    // Shape-cue ink: a darker shade of each band's own hue so the hatch / wedge
+    // reads as a textured carve-out rather than a second colour the user has to
+    // decode. Kept fully opaque so it survives the 16 px downscale.
+    private static readonly System.Drawing.Color TrayAmberHatchInk = System.Drawing.Color.FromArgb(255, 0x8A, 0x47, 0x0C); // deep amber for the hatch strokes
+    private static readonly System.Drawing.Color TrayClayWedgeInk  = System.Drawing.Color.FromArgb(255, 0x7A, 0x35, 0x2A); // deep clay for the corner wedge
+
+    /// <summary>M12: returns the colour-blind-safe, shape-cued tray icon for a
+    /// band, cached so repeated same-band ticks reuse one <see
+    /// cref="System.Drawing.Icon"/> (and HICON). Released in <see
+    /// cref="Dispose"/>. The 32 px canvas + PNG-in-ICO wrapper match the
+    /// previously-shipping path; only the painting (saturated amber + hatch,
+    /// clay + corner wedge) differs.</summary>
+    private System.Drawing.Icon BuildDistinctTrayIcon(TierColorPalette.TierBand band)
+    {
+        if (_distinctIconCache.TryGetValue(band, out var cached)) return cached;
+
+        // 32×32 GDI+ bitmap with a 2 px transparent margin (matches the prior
+        // icon's bounding box so the shell layout is unchanged).
+        using var bmp = new System.Drawing.Bitmap(32, 32);
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(System.Drawing.Color.Transparent);
+
+            // Body rectangle (inside the 2 px margin), same 28×28 footprint the
+            // old flat icon used.
+            var body = new System.Drawing.Rectangle(2, 2, 28, 28);
+
+            System.Drawing.Color fill = band switch
+            {
+                TierColorPalette.TierBand.Amber => TrayAmberFill,
+                TierColorPalette.TierBand.Red   => TrayClayFill,
+                _                               => TrayGreyFill,
+            };
+
+            using (var fillBrush = new System.Drawing.SolidBrush(fill))
+                g.FillRectangle(fillBrush, body);
+
+            switch (band)
+            {
+                case TierColorPalette.TierBand.Amber:
+                    DrawDiagonalHatch(g, body, TrayAmberHatchInk);
+                    break;
+                case TierColorPalette.TierBand.Red:
+                    DrawCornerWedge(g, body, TrayClayWedgeInk);
+                    break;
+                // Grey: plain fill — the textural "calm / nothing layered on" cue.
+            }
+        }
+
+        byte[] icoBytes = BuildPngWrappedIco(bmp);
+        // Icon(Stream) reads the stream eagerly in the ctor, so disposing the
+        // MemoryStream right after is safe — matches the prior TierColorPalette
+        // path. The Icon owns the HICON it allocates; we Dispose() it in Dispose.
+        using var stream = new MemoryStream(icoBytes);
+        var icon = new System.Drawing.Icon(stream);
+        _distinctIconCache[band] = icon;
+        return icon;
+    }
+
+    /// <summary>M12 amber shape cue: evenly-spaced diagonal stripes clipped to
+    /// the icon body. A greyscale viewer still perceives the stripe texture, so
+    /// amber is distinguishable from the plain grey band by shape, not hue.</summary>
+    private static void DrawDiagonalHatch(System.Drawing.Graphics g, System.Drawing.Rectangle body, System.Drawing.Color ink)
+    {
+        const int spacing = 7;   // px between stripes — coarse enough to survive 16 px downscale
+        const float stroke = 3f; // stripe width
+        using var pen = new System.Drawing.Pen(ink, stroke);
+        var oldClip = g.Clip;
+        try
+        {
+            g.SetClip(body);
+            // Sweep 45° lines from top-left to bottom-right across the body so
+            // a few full-length diagonals land inside the clip region.
+            for (int d = -body.Height; d < body.Width; d += spacing)
+            {
+                int x0 = body.Left + d;
+                g.DrawLine(pen, x0, body.Top, x0 + body.Height, body.Bottom);
+            }
+        }
+        finally
+        {
+            g.Clip = oldClip;
+        }
+    }
+
+    /// <summary>M12 high-band shape cue: a filled triangular wedge in the
+    /// bottom-right corner — a third distinct silhouette so the muted-clay high
+    /// state can't be confused with the hatched amber or the plain grey, even
+    /// before colour is considered.</summary>
+    private static void DrawCornerWedge(System.Drawing.Graphics g, System.Drawing.Rectangle body, System.Drawing.Color ink)
+    {
+        int size = body.Width / 2; // wedge spans half the body
+        var pts = new[]
+        {
+            new System.Drawing.Point(body.Right,        body.Bottom - size),
+            new System.Drawing.Point(body.Right,        body.Bottom),
+            new System.Drawing.Point(body.Right - size, body.Bottom),
+        };
+        using var wedgeBrush = new System.Drawing.SolidBrush(ink);
+        g.FillPolygon(wedgeBrush, pts);
+    }
+
+    /// <summary>M12: builds an in-memory ICO wrapping the bitmap as a PNG
+    /// (Win Vista+ accepts PNG-in-ICO). Mirrors the proven wrapper that ships
+    /// the tray icon today — GDI+ on .NET 8 has no ICO encoder, so we write the
+    /// 6-byte ICONDIR + 16-byte ICONDIRENTRY ourselves and lean on the working
+    /// PNG encoder for the payload. Width/Height are single BYTES; BitCount is
+    /// 32 (not 0) for the Win11 shell renderer.</summary>
+    private static byte[] BuildPngWrappedIco(System.Drawing.Bitmap bmp)
+    {
+        byte[] pngBytes;
+        using (var pngStream = new MemoryStream())
+        {
+            bmp.Save(pngStream, System.Drawing.Imaging.ImageFormat.Png);
+            pngBytes = pngStream.ToArray();
+        }
+
+        using var icoStream = new MemoryStream();
+        using (var writer = new BinaryWriter(icoStream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            // ── ICONDIR (6 bytes) ──
+            writer.Write((ushort)0);   // Reserved
+            writer.Write((ushort)1);   // Type = 1 (ICO)
+            writer.Write((ushort)1);   // ImageCount = 1
+            // ── ICONDIRENTRY (16 bytes) ──
+            writer.Write((byte)32);    // Width  (BYTE; 0 = 256)
+            writer.Write((byte)32);    // Height (BYTE; 0 = 256)
+            writer.Write((byte)0);     // ColorCount: 0 for PNG / ≥256 colours
+            writer.Write((byte)0);     // Reserved
+            writer.Write((ushort)1);   // Planes
+            writer.Write((ushort)32);  // BitCount: 32 (RGBA), not 0
+            writer.Write((uint)pngBytes.Length); // ImageSize
+            writer.Write((uint)22);    // ImageOffset = 6 + 16
+        }
+        icoStream.Write(pngBytes, 0, pngBytes.Length);
+        return icoStream.ToArray();
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -368,11 +556,21 @@ public sealed class TrayIconService : IDisposable
         // process lifetime by the static invocation list.
         UserPreferences.Changed -= OnPreferencesChanged;
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
-        // Fix 3: release the cached HICONs. Bitmap.GetHicon() returned them
-        // unmanaged; Icon.FromHandle() doesn't take ownership; without
-        // explicit DestroyIcon they leak until process exit. Safe even if
-        // _tray.Dispose() already released the shell-side reference (the
-        // OS reference-counts HICONs).
+        // M12 (TrayDistinct): release the locally code-drawn band icons. The
+        // Icon(Stream) ctor takes ownership of the HICON it allocates, so
+        // Icon.Dispose() fully releases each one — no manual DestroyIcon. Done
+        // AFTER _tray.Dispose() so the live icon's handle isn't pulled while
+        // the shell still references it. Safe even if _tray.Dispose() already
+        // dropped the shell-side reference (HICONs are OS ref-counted).
+        foreach (var icon in _distinctIconCache.Values)
+        {
+            try { icon.Dispose(); } catch { /* best-effort */ }
+        }
+        _distinctIconCache.Clear();
+        // Fix 3: release any HICONs cached on TierColorPalette's own path
+        // (IconForTier_Win) in case other callers populated it. The tray no
+        // longer uses that path for its live icon (M12 draws locally), but the
+        // cleanup stays so a stray cache entry can't leak until process exit.
         TierColorPalette.DisposeWinIconCache();
     }
 }

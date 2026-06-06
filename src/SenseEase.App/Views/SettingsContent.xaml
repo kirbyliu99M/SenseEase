@@ -98,7 +98,7 @@
 
          Phase 1.5 polish (post-smoke-test, user feedback):
            • Light theme matching main console palette (#E2ECFF / White
-             cards / #0A1F5C dark navy text / #024AD8 accent).
+             cards / {StaticResource TextPrimary} dark navy text / #024AD8 accent).
            • "需重新啟動" badge replaced with an actual "立即重啟" Button
              that restarts the app via a delayed cmd handoff (releases
              single-instance mutex before relaunching).
@@ -112,195 +112,275 @@
                               ShadowDepth="2" Opacity="0.08"/>
         </Border.Effect>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/> <!-- 0: section title (notifications) -->
-                    <RowDefinition Height="Auto"/> <!-- 1: toggle A row -->
-                    <RowDefinition Height="Auto"/> <!-- 2: toggle B row -->
-                    <RowDefinition Height="Auto"/> <!-- 3: background-section header -->
-                    <RowDefinition Height="Auto"/> <!-- 4: toggle C: minimize to tray -->
-                    <RowDefinition Height="Auto"/> <!-- 5: toggle D: run at startup -->
-                    <RowDefinition Height="Auto"/> <!-- 6: head-tracking section header -->
-                    <RowDefinition Height="Auto"/> <!-- 7: head-tracking enable -->
-                    <RowDefinition Height="Auto"/> <!-- 8: follow mode group -->
-                    <RowDefinition Height="Auto"/> <!-- 9: escape hatch -->
-                    <RowDefinition Height="Auto"/> <!-- 10: dev test hotkeys reference table -->
-                </Grid.RowDefinitions>
+            <!-- M3 regroup (2026-06-06): the formerly flat single scroll is now
+                 organised into three visually-grouped {StaticResource Surface}
+                 section cards (Radius.md + Elev.2), each opened by a
+                 {StaticResource Type.Heading} title and using {StaticResource
+                 Separator} hairlines to divide its rows. The long bilingual
+                 helper paragraphs keep one concise line inline and tuck the
+                 remainder behind a small collapsed "了解更多 / Learn more"
+                 Expander. RESTYLE/REGROUP only — every x:Name, handler and
+                 binding is byte-identical to the previous flat layout. -->
+            <StackPanel>
+                <!-- ═══ Section 1 · 通知與顯示 / Notifications & display ═══ -->
+                <Border Background="{StaticResource Surface}"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="通知與顯示 / Notifications &amp; display"
+                                   Margin="0,0,0,14"/>
 
-                <TextBlock Grid.Row="0"
-                           Text="通知與顯示"
-                           FontSize="16" FontWeight="Bold"
-                           Foreground="#0A1F5C"
-                           Margin="0,0,0,16"/>
+                        <!-- Toggle A: auto-expand notifications -->
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox x:Name="ToggleAuto"
+                                      Style="{StaticResource SettingSwitch}"
+                                      Content="讓 SenseEase 主動展開通知卡"
+                                      Foreground="{StaticResource TextPrimary}"
+                                      FontSize="13"
+                                      Checked="OnToggleAutoChanged"
+                                      Unchecked="OnToggleAutoChanged"/>
+                            <TextBlock Text="偵測到中度以上不適時自動展開通知卡。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                            <Expander Header="了解更多 / Learn more"
+                                      FontSize="11"
+                                      Foreground="{StaticResource TextTertiary}"
+                                      IsExpanded="False"
+                                      Margin="22,2,0,0">
+                                <TextBlock Text="開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextTertiary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"/>
+                            </Expander>
+                        </StackPanel>
 
-                <!-- Toggle A: auto-expand notifications -->
-                <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,16">
-                    <CheckBox x:Name="ToggleAuto"
-                              Style="{StaticResource SettingSwitch}"
-                              Content="讓 SenseEase 主動展開通知卡"
-                              Foreground="#0A1F5C"
-                              FontSize="13"
-                              Checked="OnToggleAutoChanged"
-                              Unchecked="OnToggleAutoChanged"/>
-                    <TextBlock Text="開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                </StackPanel>
+                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
 
-                <!-- Toggle B: bar/tray colour -->
-                <StackPanel Grid.Row="2" Orientation="Vertical">
-                    <CheckBox x:Name="ToggleColor"
-                              Style="{StaticResource SettingSwitch}"
-                              Content="Bar 與 Tray 顏色隨 tier 變化"
-                              Foreground="#0A1F5C"
-                              FontSize="13"
-                              Checked="OnToggleColorChanged"
-                              Unchecked="OnToggleColorChanged"/>
-                    <TextBlock Text="開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                </StackPanel>
-
-                <TextBlock Grid.Row="3"
-                           Text="背景常駐 / Background"
-                           FontSize="14" FontWeight="Bold"
-                           Foreground="#0A1F5C"
-                           Margin="0,20,0,8"/>
-
-                <StackPanel Grid.Row="4" Orientation="Vertical" Margin="0,0,0,12">
-                    <CheckBox x:Name="ToggleMinimizeToTray"
-                              Style="{StaticResource SettingSwitch}"
-                              Content="關閉視窗時最小化到工作匣 (不結束程式)"
-                              Foreground="#0A1F5C"
-                              FontSize="13"
-                              Checked="OnToggleMinimizeToTrayChanged"
-                              Unchecked="OnToggleMinimizeToTrayChanged"/>
-                    <TextBlock Text="開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                </StackPanel>
-
-                <StackPanel Grid.Row="5" Orientation="Vertical" Margin="0,0,0,8">
-                    <CheckBox x:Name="ToggleRunAtStartup"
-                              Style="{StaticResource SettingSwitch}"
-                              Content="登入 Windows 時自動啟動 SenseEase"
-                              Foreground="#0A1F5C"
-                              FontSize="13"
-                              Checked="OnToggleRunAtStartupChanged"
-                              Unchecked="OnToggleRunAtStartupChanged"/>
-                    <TextBlock Text="開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                </StackPanel>
-
-                <TextBlock Grid.Row="6"
-                           Text="頭部追蹤 / Head Tracking"
-                           FontSize="14" FontWeight="Bold"
-                           Foreground="#0A1F5C"
-                           Margin="0,20,0,8"/>
-
-                <StackPanel Grid.Row="7" Orientation="Vertical" Margin="0,0,0,12">
-                    <StackPanel Orientation="Horizontal">
-                        <CheckBox x:Name="ToggleHeadTrackingEnabled"
-                                  Style="{StaticResource SettingSwitch}"
-                                  Content="啟用頭部追蹤 / Enable Head Tracking"
-                                  Foreground="#0A1F5C"
-                                  FontSize="13"
-                                  VerticalAlignment="Center"
-                                  Checked="OnToggleHeadTrackingEnabledChanged"
-                                  Unchecked="OnToggleHeadTrackingEnabledChanged"/>
-                        <!-- Phase 1.5 user feedback: badge replaced with a
-                             real Button that restarts the app. Click prompts
-                             confirmation, then spawns a delayed cmd handoff
-                             (timeout 2 → start) so the current process can
-                             release the single-instance mutex before the new
-                             instance launches. -->
-                        <Button x:Name="RestartButton"
-                                Content="需重新啟動 / 立即重啟"
-                                Margin="10,0,0,0"
-                                Padding="10,4"
-                                FontSize="11"
-                                FontWeight="Bold"
-                                Foreground="#8B5A00"
-                                Background="#FFF4D6"
-                                BorderBrush="#E5A841"
-                                BorderThickness="1"
-                                Cursor="Hand"
-                                Click="OnRestartClicked"
-                                ToolTip="點擊立即重啟 SenseEase 以套用頭部追蹤變更&#x0a;Click to restart SenseEase now and apply head-tracking changes"/>
+                        <!-- Toggle B: bar/tray colour -->
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox x:Name="ToggleColor"
+                                      Style="{StaticResource SettingSwitch}"
+                                      Content="Bar 與 Tray 顏色隨 tier 變化"
+                                      Foreground="{StaticResource TextPrimary}"
+                                      FontSize="13"
+                                      Checked="OnToggleColorChanged"
+                                      Unchecked="OnToggleColorChanged"/>
+                            <TextBlock Text="bar 與 tray icon 顏色依視覺壓力 tier 變化。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                            <Expander Header="了解更多 / Learn more"
+                                      FontSize="11"
+                                      Foreground="{StaticResource TextTertiary}"
+                                      IsExpanded="False"
+                                      Margin="22,2,0,0">
+                                <TextBlock Text="開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextTertiary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"/>
+                            </Expander>
+                        </StackPanel>
                     </StackPanel>
-                    <TextBlock Text="開啟時，啟動會啟動 Python sidecar 並讀取 webcam（MediaPipe 推論臉部姿態）讓 FOV 遮罩跟著你的視線移動。預設關閉以保護隱私。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                    <TextBlock Text="When on, app launch spawns a Python sidecar and reads the webcam (MediaPipe face-landmark inference) so the FOV mask follows your gaze. Default off for privacy. See docs/HEAD-TRACKING-PRIVACY.md."
-                               FontSize="11"
-                               Foreground="#9AB6E0"
-                               TextWrapping="Wrap"
-                               Margin="22,2,0,0"/>
-                </StackPanel>
+                </Border>
 
-                <StackPanel Grid.Row="8" Orientation="Vertical" Margin="0,0,0,12">
-                    <TextBlock Text="跟隨模式 / Follow Mode"
-                               FontSize="12" FontWeight="Bold"
-                               Foreground="#0A1F5C"
-                               Margin="22,0,0,4"/>
-                    <RadioButton x:Name="FollowModeBalanced"
-                                 GroupName="HeadTrackingFollowMode"
-                                 Content="平衡 Balanced (建議 / recommended)"
-                                 Foreground="#0A1F5C"
-                                 FontSize="13"
-                                 Margin="22,2,0,0"
-                                 Checked="OnFollowModeChanged"/>
-                    <TextBlock Text="遮罩中心限制在螢幕中央 80% 區域，周邊永遠維持部分遮蔽（臨床預設、減輕視覺動暈）。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="42,2,0,0"/>
-                    <RadioButton x:Name="FollowModeFull"
-                                 GroupName="HeadTrackingFollowMode"
-                                 Content="完整跟隨 Full follow (邊緣較完整，可能感覺較不穩定)"
-                                 Foreground="#0A1F5C"
-                                 FontSize="13"
-                                 Margin="22,8,0,0"
-                                 Checked="OnFollowModeChanged"/>
-                    <TextBlock Text="遮罩中心可走到螢幕角落，可以完整看到邊緣內容；周邊變化較大、可能感覺較不穩定。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="42,2,0,0"/>
-                </StackPanel>
+                <!-- ═══ Section 2 · 背景常駐 / Background & startup ═══ -->
+                <Border Background="{StaticResource Surface}"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="背景常駐 / Background &amp; startup"
+                                   Margin="0,0,0,14"/>
 
-                <StackPanel Grid.Row="9" Orientation="Vertical">
-                    <CheckBox x:Name="ToggleEscapeHatch"
-                              Style="{StaticResource SettingSwitch}"
-                              Content="啟用暫時透明 / Enable temporary transparency"
-                              Foreground="#0A1F5C"
-                              FontSize="13"
-                              Checked="OnToggleEscapeHatchChanged"
-                              Unchecked="OnToggleEscapeHatchChanged"/>
-                    <TextBlock Text="連點兩下 Ctrl / Double-tap Ctrl — 短暫降低 FOV 遮罩到 30% 透明度 3 秒，方便偷瞄螢幕角落。"
-                               FontSize="11"
-                               Foreground="#7B8DB0"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                    <TextBlock x:Name="EscapeHatchVestibularNote"
-                               Visibility="Collapsed"
-                               Text="（你的 calibration 紀錄顯示前庭敏感，此功能已停用以維持視覺保護。Disabled because vestibular sensitivity detected; temporary transparency would compromise visual protection.）"
-                               FontSize="11"
-                               Foreground="#C2410C"
-                               TextWrapping="Wrap"
-                               Margin="22,4,0,0"/>
-                </StackPanel>
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox x:Name="ToggleMinimizeToTray"
+                                      Style="{StaticResource SettingSwitch}"
+                                      Content="關閉視窗時最小化到工作匣 (不結束程式)"
+                                      Foreground="{StaticResource TextPrimary}"
+                                      FontSize="13"
+                                      Checked="OnToggleMinimizeToTrayChanged"
+                                      Unchecked="OnToggleMinimizeToTrayChanged"/>
+                            <TextBlock Text="按下主視窗的 X 只會收到工作匣，背景持續偵測。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                            <Expander Header="了解更多 / Learn more"
+                                      FontSize="11"
+                                      Foreground="{StaticResource TextTertiary}"
+                                      IsExpanded="False"
+                                      Margin="22,2,0,0">
+                                <TextBlock Text="開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextTertiary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"/>
+                            </Expander>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox x:Name="ToggleRunAtStartup"
+                                      Style="{StaticResource SettingSwitch}"
+                                      Content="登入 Windows 時自動啟動 SenseEase"
+                                      Foreground="{StaticResource TextPrimary}"
+                                      FontSize="13"
+                                      Checked="OnToggleRunAtStartupChanged"
+                                      Unchecked="OnToggleRunAtStartupChanged"/>
+                            <TextBlock Text="跟著 Windows 登入自動啟動並最小化到工作匣。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                            <Expander Header="了解更多 / Learn more"
+                                      FontSize="11"
+                                      Foreground="{StaticResource TextTertiary}"
+                                      IsExpanded="False"
+                                      Margin="22,2,0,0">
+                                <TextBlock Text="開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextTertiary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"/>
+                            </Expander>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Section 3 · 頭部追蹤與隱私 / Head tracking & privacy ═══ -->
+                <Border Background="{StaticResource Surface}"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="頭部追蹤與隱私 / Head tracking &amp; privacy"
+                                   Margin="0,0,0,14"/>
+
+                        <StackPanel Orientation="Vertical">
+                            <StackPanel Orientation="Horizontal">
+                                <CheckBox x:Name="ToggleHeadTrackingEnabled"
+                                          Style="{StaticResource SettingSwitch}"
+                                          Content="啟用頭部追蹤 / Enable Head Tracking"
+                                          Foreground="{StaticResource TextPrimary}"
+                                          FontSize="13"
+                                          VerticalAlignment="Center"
+                                          Checked="OnToggleHeadTrackingEnabledChanged"
+                                          Unchecked="OnToggleHeadTrackingEnabledChanged"/>
+                                <!-- Phase 1.5 user feedback: badge replaced with a
+                                     real Button that restarts the app. Click prompts
+                                     confirmation, then spawns a delayed cmd handoff
+                                     (timeout 2 → start) so the current process can
+                                     release the single-instance mutex before the new
+                                     instance launches. -->
+                                <Button x:Name="RestartButton"
+                                        Content="需重新啟動 / 立即重啟"
+                                        Margin="10,0,0,0"
+                                        Padding="10,4"
+                                        FontSize="11"
+                                        FontWeight="Bold"
+                                        Foreground="#8B5A00"
+                                        Background="#FFF4D6"
+                                        BorderBrush="#E5A841"
+                                        BorderThickness="1"
+                                        Cursor="Hand"
+                                        Click="OnRestartClicked"
+                                        ToolTip="點擊立即重啟 SenseEase 以套用頭部追蹤變更&#x0a;Click to restart SenseEase now and apply head-tracking changes"/>
+                            </StackPanel>
+                            <TextBlock Text="啟動 Python sidecar 並讀取 webcam，讓 FOV 遮罩跟著視線。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                            <Expander Header="了解更多 / Learn more"
+                                      FontSize="11"
+                                      Foreground="{StaticResource TextTertiary}"
+                                      IsExpanded="False"
+                                      Margin="22,2,0,0">
+                                <StackPanel Margin="0,4,0,0">
+                                    <TextBlock Text="開啟時，啟動會啟動 Python sidecar 並讀取 webcam（MediaPipe 推論臉部姿態）讓 FOV 遮罩跟著你的視線移動。預設關閉以保護隱私。"
+                                               FontSize="11"
+                                               Foreground="{StaticResource TextTertiary}"
+                                               TextWrapping="Wrap"/>
+                                    <TextBlock Text="When on, app launch spawns a Python sidecar and reads the webcam (MediaPipe face-landmark inference) so the FOV mask follows your gaze. Default off for privacy. See docs/HEAD-TRACKING-PRIVACY.md."
+                                               FontSize="11"
+                                               Foreground="#9AB6E0"
+                                               TextWrapping="Wrap"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="跟隨模式 / Follow Mode"
+                                       FontSize="12" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimary}"
+                                       Margin="22,0,0,4"/>
+                            <RadioButton x:Name="FollowModeBalanced"
+                                         GroupName="HeadTrackingFollowMode"
+                                         Content="平衡 Balanced (建議 / recommended)"
+                                         Foreground="{StaticResource TextPrimary}"
+                                         FontSize="13"
+                                         Margin="22,2,0,0"
+                                         Checked="OnFollowModeChanged"/>
+                            <TextBlock Text="遮罩中心限制在螢幕中央 80% 區域，周邊永遠維持部分遮蔽（臨床預設、減輕視覺動暈）。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="42,2,0,0"/>
+                            <RadioButton x:Name="FollowModeFull"
+                                         GroupName="HeadTrackingFollowMode"
+                                         Content="完整跟隨 Full follow (邊緣較完整，可能感覺較不穩定)"
+                                         Foreground="{StaticResource TextPrimary}"
+                                         FontSize="13"
+                                         Margin="22,8,0,0"
+                                         Checked="OnFollowModeChanged"/>
+                            <TextBlock Text="遮罩中心可走到螢幕角落，可以完整看到邊緣內容；周邊變化較大、可能感覺較不穩定。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="42,2,0,0"/>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox x:Name="ToggleEscapeHatch"
+                                      Style="{StaticResource SettingSwitch}"
+                                      Content="啟用暫時透明 / Enable temporary transparency"
+                                      Foreground="{StaticResource TextPrimary}"
+                                      FontSize="13"
+                                      Checked="OnToggleEscapeHatchChanged"
+                                      Unchecked="OnToggleEscapeHatchChanged"/>
+                            <TextBlock Text="連點兩下 Ctrl / Double-tap Ctrl — 短暫降低 FOV 遮罩到 30% 透明度 3 秒，方便偷瞄螢幕角落。"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                            <TextBlock x:Name="EscapeHatchVestibularNote"
+                                       Visibility="Collapsed"
+                                       Text="（你的 calibration 紀錄顯示前庭敏感，此功能已停用以維持視覺保護。Disabled because vestibular sensitivity detected; temporary transparency would compromise visual protection.）"
+                                       FontSize="11"
+                                       Foreground="#C2410C"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
                 <!-- Phase 5 follow-up (v0.11, 2026-05-31): developer / QA test
                      hotkey reference table. Per user request, labeled as "dev
@@ -325,14 +405,14 @@
                      methods StartMockHeadPoseSweep / TriggerEscapeHatch
                      themselves). Once fixed, flip Visibility="Collapsed"
                      back to Visible to re-expose the reference table. -->
-                <StackPanel Grid.Row="10" Margin="0,24,0,0" Visibility="Collapsed">
+                <StackPanel Margin="0,8,0,0" Visibility="Collapsed">
                     <TextBlock Text="開發者測試快捷鍵 / Developer Test Hotkeys"
                                FontSize="14" FontWeight="Bold"
-                               Foreground="#0A1F5C"
+                               Foreground="{StaticResource TextPrimary}"
                                Margin="0,0,0,6"/>
                     <TextBlock Text="以下快捷鍵為開發 / QA 測試用途，非一般使用流程的一部分。These are for development / QA testing only, not part of the normal user flow."
                                FontSize="11"
-                               Foreground="#7B8DB0"
+                               Foreground="{StaticResource TextTertiary}"
                                TextWrapping="Wrap"
                                Margin="0,0,0,10"/>
                     <Border Background="#F8FAFF" BorderBrush="#E8EEFF" BorderThickness="1" CornerRadius="6" Padding="14,10">
@@ -353,23 +433,23 @@
                                        FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource Accent}" Margin="0,0,0,6"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + Shift + H"
-                                       FontFamily="Consolas" FontSize="12" Foreground="#0A1F5C" Margin="0,2,0,2"/>
+                                       FontFamily="Consolas" FontSize="12" Foreground="{StaticResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="1" Grid.Column="1"
                                        Text="觸發 20 秒模擬頭部姿勢掃描 (橫向→縱向→圓形→中心持住)。G4 head-tracking UVHS 用於無 webcam 機器驗證 wiring 端到端。Independent of AppConfig.HeadTrackingEnabled."
-                                       FontSize="11" Foreground="#0A1F5C" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                       FontSize="11" Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="連點兩下 Ctrl"
-                                       FontFamily="Consolas" FontSize="12" Foreground="#0A1F5C" Margin="0,2,0,2"/>
+                                       FontFamily="Consolas" FontSize="12" Foreground="{StaticResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="2" Grid.Column="1"
                                        Text="(400 ms 內) 觸發 FOV 遮罩 3 秒透明度 30% 的「偷瞄」逃生口。受上方「開啟臨時透明度」開關控制；前庭敏感者強制停用。Same as the toggle above; listed here for hotkey discoverability."
-                                       FontSize="11" Foreground="#0A1F5C" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                       FontSize="11" Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
                         </Grid>
                     </Border>
                     <TextBlock Text="提示：所有快捷鍵僅在主控台視窗有焦點時觸發 (PreviewKeyDown 範圍)。Note: all hotkeys fire only when the main console window has focus."
                                FontSize="10" Foreground="#9AB6E0" FontStyle="Italic"
                                TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </StackPanel>
-            </Grid>
+            </StackPanel>
         </ScrollViewer>
     </Border>
 </UserControl>

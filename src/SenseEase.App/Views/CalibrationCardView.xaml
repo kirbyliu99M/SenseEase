@@ -15,7 +15,7 @@
          IsCardNVisible flags on the VM).
 
          Visual style mirrors the chatbot tab: white card with shadow,
-         #0A1F5C text, #024AD8 primary accents, #EEF3FF ghost surface.
+         {StaticResource TextPrimary} text, #024AD8 primary accents, #EEF3FF ghost surface.
          No new colours are introduced.
          ============================================================ -->
 
@@ -66,7 +66,7 @@
 
         <Style x:Key="CalibAlertBtn" TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#7B8DB0"/>
+            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
         </Style>
 
         <!-- Generic single-select option button. Use Tag for the value carried
@@ -75,41 +75,50 @@
         <Style x:Key="OptionRadioBtn" TargetType="RadioButton">
             <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="OptionCheckBox" TargetType="CheckBox">
             <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="CalibTitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
 
         <Style x:Key="CalibSubtitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="#7B8DB0"/>
+            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="Margin" Value="0,2,0,12"/>
         </Style>
 
+        <!-- M14(a): muted helper line shown above the multi-select chip groups
+             (Q2 / Q5). Token-driven foreground so it tracks the calm palette. -->
+        <Style x:Key="CalibMultiSelectHint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
         <Style x:Key="CalibFreetextLabel" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="#7B8DB0"/>
+            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
             <Setter Property="Margin" Value="0,10,0,4"/>
         </Style>
 
         <Style x:Key="CalibFreetextBox" TargetType="TextBox">
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="#0A1F5C"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="Background" Value="#F8FAFF"/>
             <Setter Property="BorderBrush" Value="#E8EEFF"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -144,7 +153,7 @@
                                    FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
                     </Border>
                     <TextBlock Text="請依您剛才看完 demo 的感受作答 / Answer based on how the demo felt"
-                               FontSize="11" Foreground="#7B8DB0" VerticalAlignment="Center"
+                               FontSize="11" Foreground="{StaticResource TextTertiary}" VerticalAlignment="Center"
                                TextWrapping="Wrap"/>
                 </StackPanel>
                 <TextBlock Grid.Column="1" Text="{Binding CardCounterText}"
@@ -192,6 +201,10 @@
                     <TextBlock Style="{StaticResource CalibSubtitle}"
                                Text="Which symptoms did you notice? Multi-select."/>
 
+                    <!-- M14(a): muted multi-select hint above the symptom chips. -->
+                    <TextBlock Style="{StaticResource CalibMultiSelectHint}"
+                               Text="可複選，或略過 / Pick any, or skip"/>
+
                     <CheckBox Style="{StaticResource OptionCheckBox}"
                               Content="頭暈 / Dizziness" IsChecked="{Binding Q2Dizziness}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
@@ -229,19 +242,35 @@
                                 <ControlTemplate TargetType="RadioButton">
                                     <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
                                             BorderThickness="1" CornerRadius="6" Padding="6,10"
-                                            MinHeight="58">
-                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock Text="1" FontSize="18" FontWeight="Bold"
-                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="無 / None" FontSize="10" Foreground="#7B8DB0"
-                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                        </StackPanel>
+                                            MinHeight="58" RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="CellScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Grid>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="1" FontSize="18" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="無 / None" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <!-- M14(b): selected-state checkmark affordance. -->
+                                            <TextBlock x:Name="CellCheck" Text="✓" FontSize="11" FontWeight="Bold"
+                                                       Foreground="White" Visibility="Collapsed"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                       Margin="0,-4,-1,0"/>
+                                        </Grid>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                            <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="Cell" Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                                </Setter.Value>
+                                            </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
@@ -256,19 +285,35 @@
                                 <ControlTemplate TargetType="RadioButton">
                                     <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
                                             BorderThickness="1" CornerRadius="6" Padding="6,10"
-                                            MinHeight="58">
-                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock Text="2" FontSize="18" FontWeight="Bold"
-                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="輕微 / Mild" FontSize="10" Foreground="#7B8DB0"
-                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                        </StackPanel>
+                                            MinHeight="58" RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="CellScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Grid>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="2" FontSize="18" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="輕微 / Mild" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <!-- M14(b): selected-state checkmark affordance. -->
+                                            <TextBlock x:Name="CellCheck" Text="✓" FontSize="11" FontWeight="Bold"
+                                                       Foreground="White" Visibility="Collapsed"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                       Margin="0,-4,-1,0"/>
+                                        </Grid>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                            <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="Cell" Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                                </Setter.Value>
+                                            </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
@@ -283,19 +328,35 @@
                                 <ControlTemplate TargetType="RadioButton">
                                     <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
                                             BorderThickness="1" CornerRadius="6" Padding="6,10"
-                                            MinHeight="58">
-                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock Text="3" FontSize="18" FontWeight="Bold"
-                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="中等 / Moderate" FontSize="10" Foreground="#7B8DB0"
-                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                        </StackPanel>
+                                            MinHeight="58" RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="CellScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Grid>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="3" FontSize="18" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="中等 / Moderate" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <!-- M14(b): selected-state checkmark affordance. -->
+                                            <TextBlock x:Name="CellCheck" Text="✓" FontSize="11" FontWeight="Bold"
+                                                       Foreground="White" Visibility="Collapsed"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                       Margin="0,-4,-1,0"/>
+                                        </Grid>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                            <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="Cell" Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                                </Setter.Value>
+                                            </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
@@ -310,19 +371,35 @@
                                 <ControlTemplate TargetType="RadioButton">
                                     <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
                                             BorderThickness="1" CornerRadius="6" Padding="6,10"
-                                            MinHeight="58">
-                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock Text="4" FontSize="18" FontWeight="Bold"
-                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="明顯 / Strong" FontSize="10" Foreground="#7B8DB0"
-                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                        </StackPanel>
+                                            MinHeight="58" RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="CellScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Grid>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="4" FontSize="18" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="明顯 / Strong" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <!-- M14(b): selected-state checkmark affordance. -->
+                                            <TextBlock x:Name="CellCheck" Text="✓" FontSize="11" FontWeight="Bold"
+                                                       Foreground="White" Visibility="Collapsed"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                       Margin="0,-4,-1,0"/>
+                                        </Grid>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                            <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="Cell" Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                                </Setter.Value>
+                                            </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
@@ -336,19 +413,35 @@
                                 <ControlTemplate TargetType="RadioButton">
                                     <Border x:Name="Cell" Background="#F8FAFF" BorderBrush="#E8EEFF"
                                             BorderThickness="1" CornerRadius="6" Padding="6,10"
-                                            MinHeight="58">
-                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock Text="5" FontSize="18" FontWeight="Bold"
-                                                       Foreground="#0A1F5C" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="嚴重 / Severe" FontSize="10" Foreground="#7B8DB0"
-                                                       HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                        </StackPanel>
+                                            MinHeight="58" RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="CellScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Grid>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="5" FontSize="18" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="嚴重 / Severe" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <!-- M14(b): selected-state checkmark affordance. -->
+                                            <TextBlock x:Name="CellCheck" Text="✓" FontSize="11" FontWeight="Bold"
+                                                       Foreground="White" Visibility="Collapsed"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                       Margin="0,-4,-1,0"/>
+                                        </Grid>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
+                                            <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="Cell" Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                                </Setter.Value>
+                                            </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
@@ -400,6 +493,10 @@
                                Text="Q5: 以下是否有符合您的長期狀況？(可複選)"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
                                Text="Any of these long-term risk factors? Multi-select."/>
+
+                    <!-- M14(a): muted multi-select hint above the risk-factor chips. -->
+                    <TextBlock Style="{StaticResource CalibMultiSelectHint}"
+                               Text="可複選，或略過 / Pick any, or skip"/>
 
                     <CheckBox Style="{StaticResource OptionCheckBox}"
                               Content="容易暈車 / 暈船 / Motion sickness"
@@ -461,10 +558,13 @@
                     </Button.Style>
                 </Button>
                 <!-- Complete button — only on the last card. Stacked at column 3
-                     so it occupies the same slot as Next; only one is visible. -->
-                <Button Grid.Column="3"
+                     so it occupies the same slot as Next; only one is visible.
+                     M14(c): completion routes through OnCompleteClicked so the
+                     in-card "已儲存 / Saved" confirmation can show briefly before
+                     CompleteCommand fires and the host dismisses the card. -->
+                <Button x:Name="CompleteButton" Grid.Column="3"
                         Content="完成 / Complete"
-                        Command="{Binding CompleteCommand}">
+                        Click="OnCompleteClicked">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -477,6 +577,33 @@
                     </Button.Style>
                 </Button>
             </Grid>
+
+            <!-- M14(c): brief in-card "已儲存 / Saved" confirmation. Spans all
+                 three rows so it veils the card while it dismisses. Shown by
+                 OnCompleteClicked, which then defers CompleteCommand so this is
+                 visible for a beat. Collapsed by default; fade-in is gated on
+                 AccessibilityHelper.ReducedMotion() in code-behind. -->
+            <Border x:Name="SavedOverlay" Grid.Row="0" Grid.RowSpan="3"
+                    Background="{DynamicResource Surface}" Opacity="0.96"
+                    CornerRadius="{DynamicResource Radius.md}"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Border Background="{DynamicResource ComfortSteadyWeak}"
+                            CornerRadius="999" Width="34" Height="34"
+                            Margin="0,0,12,0">
+                        <TextBlock Text="✓" FontSize="18" FontWeight="Bold"
+                                   Foreground="{DynamicResource ComfortSteadyText}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="已儲存" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Saved" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondary}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Grid>
     </Border>
 </UserControl>
