@@ -21,9 +21,13 @@ namespace SenseEase.Infrastructure.Storage;
 /// <para>One file per UTC day; files older than <see cref="RetentionDays"/> are
 /// pruned at construction; each day's file is capped at <see cref="MaxDailyFileBytes"/>.
 /// Only entries whose Category starts with a forensic prefix (Habituation. /
-/// Chatbot. / Calibration. / Safety. / Storage.) are written to disk — the
-/// in-memory window keeps everything for the dashboard. All file I/O is
+/// Chatbot. / Calibration. / Safety. / Storage. / State. / AdaptiveFit.) are written
+/// to disk — the in-memory window keeps everything for the dashboard. All file I/O is
 /// best-effort: logging must never crash the app.</para>
+///
+/// <para><see cref="ReadDurable"/> reads those daily files back (filtered by a `since`
+/// instant) for the Adaptive Fit per-user stats pipeline — the only read path that
+/// crosses a process restart.</para>
 /// </summary>
 public sealed class FileEventLogStore : IEventLogStore
 {
@@ -36,7 +40,7 @@ public sealed class FileEventLogStore : IEventLogStore
     public const int RetentionDays = 7;
 
     private static readonly string[] DurableCategoryPrefixes =
-        { "Habituation.", "Chatbot.", "Calibration.", "Safety.", "Storage.", "State." };
+        { "Habituation.", "Chatbot.", "Calibration.", "Safety.", "Storage.", "State.", "AdaptiveFit." };
 
     public event EventHandler<EventLogEntry>? Appended;
 
@@ -72,6 +76,38 @@ public sealed class FileEventLogStore : IEventLogStore
     public IReadOnlyList<EventLogEntry> Recent()
     {
         lock (_gate) { return _recent.ToList(); }
+    }
+
+    /// <summary>
+    /// Durable history at or after <paramref name="since"/>, read back from the 7-day
+    /// rolling JSONL this store already writes (one file per UTC day). Backs the Adaptive
+    /// Fit per-user stats pipeline. Best-effort: any malformed line or I/O error is
+    /// skipped/swallowed, never thrown. Does not touch the in-memory window or Append path.
+    /// </summary>
+    public IReadOnlyList<EventLogEntry> ReadDurable(DateTime since)
+    {
+        var result = new List<EventLogEntry>();
+        try
+        {
+            if (!Directory.Exists(_dir)) return result;
+            foreach (string file in Directory.GetFiles(_dir, "event-log-*.jsonl"))
+            {
+                IEnumerable<string> lines;
+                try { lines = File.ReadLines(file); }
+                catch { continue; } // file vanished / locked — skip it
+                foreach (string line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    EventLogEntry? entry;
+                    try { entry = JsonSerializer.Deserialize<EventLogEntry>(line, _opts); }
+                    catch { continue; } // tolerate a torn/partial trailing line
+                    if (entry is not null && entry.Timestamp >= since)
+                        result.Add(entry);
+                }
+            }
+        }
+        catch { /* best-effort: never crash a read-back */ }
+        return result;
     }
 
     private static bool IsDurableCategory(string? category)

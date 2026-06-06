@@ -123,4 +123,64 @@ public static class SenseDefaults
     // Display Comfort lux→VCP defaults removed at v0.11 (UI Consolidation Sprint
     // Phase 4) — feature decommissioned along with the entire DDC/CI pipeline.
     // See CHANGELOG.md v0.11 "Removed".
+
+    // ── Adaptive Fit selector (F1/F2 governance) ──────────────────────────────
+    // Alpha-2 P3/P4 GROUP C. Provisional, deliberately CONSERVATIVE weights/margins:
+    // the selector should prefer Hold over chasing noise until M1 calibrates the OFI
+    // norm-factors. All values are read ONLY behind AppConfig.AdaptiveFitSelectorEnabled
+    // (default OFF) — nothing here is on today's hot path.
+    //
+    // score(candidate) = W1·fit(pressure,band) + W2·fit(spike,shape) + W3·fit(calm,band)
+    //                    − W4·ManhattanDistance(current,candidate) − W5·manualConflict.
+    // The fit-term weights (W1..W3) dominate; the distance penalty (W4) only breaks ties
+    // toward the nearer cell; the manual-conflict penalty (W5) is large enough to suppress
+    // any single-step move that opposes a recent user adjustment (user authority defers).
+
+    /// <summary>Selector weight on pressure→Band fit (the primary intensity signal).</summary>
+    public const double SelectorW1Pressure = 1.0;
+
+    /// <summary>Selector weight on spike-recurrence→Shape fit (response-shape responsiveness).</summary>
+    public const double SelectorW2Spike = 0.6;
+
+    /// <summary>Selector weight on calm-ratio→Band fit (the relax-when-calm signal).</summary>
+    public const double SelectorW3Calm = 0.6;
+
+    /// <summary>Selector distance penalty per unit Manhattan step. Small: it only breaks
+    /// near-ties toward the closer adjacent cell; it must not by itself veto a move that the
+    /// fit terms clearly prefer (every candidate is at distance 0 or 1 by construction).</summary>
+    public const double SelectorW4Distance = 0.1;
+
+    /// <summary>Selector manual-conflict penalty. Large enough that one conflicting unit of
+    /// fit-advantage cannot overcome it — a candidate moving OPPOSITE a recent manual
+    /// adjustment is effectively suppressed (user authority defers the auto-move).</summary>
+    public const double SelectorW5ManualConflict = 2.0;
+
+    /// <summary>Minimum score advantage argmax must hold over "stay" before any move fires
+    /// (anti-overfit confidence gate). Conservative: small fit wobbles do not move the set.</summary>
+    public const double SelectorConfidenceMargin = 0.15;
+
+    /// <summary>Half-width (in normalised [0,1] feature units) of the linear fit kernel:
+    /// fit = 1 − clamp(|featureNorm − cellTargetNorm| / FitTolerance, 0, 1). Larger ⇒ a
+    /// gentler, more forgiving fit (cells further from the ideal still score &gt; 0).
+    /// 0.7 is wide enough that a feature near a [0,1] extreme still produces a usable
+    /// per-band gradient from mid-grid (so a clearly-hot/clearly-calm window can move),
+    /// yet narrow enough that a neutral mid-grid window's best neighbour stays under the
+    /// confidence margin (so noise Holds). Provisional until M1 anchors the OFI norms.</summary>
+    public const double SelectorFitTolerance = 0.7;
+
+    /// <summary>Window-sample floor: the selector returns Hold until at least this many
+    /// samples back the stats (thin data must never move the set).</summary>
+    public const int SelectorMinSamplesBeforeAnyMove = 12;
+
+    /// <summary>Seconds the state machine stays in Cooldown after a set change (soft-定型);
+    /// no further auto-move is evaluated until it elapses back to Active.</summary>
+    public const double SetCooldownSeconds = 300.0;
+
+    /// <summary>Minimum seconds in Settling before the machine may advance to Active
+    /// (paired with the min-samples + confident-pick condition).</summary>
+    public const double SettlingMinSeconds = 60.0;
+
+    /// <summary>Multiplier applied to the REMAINING cooldown when a proposal is declined —
+    /// each decline doubles the wait, so repeated rejection backs the selector off fast.</summary>
+    public const double CooldownDeclineMultiplier = 2.0;
 }
