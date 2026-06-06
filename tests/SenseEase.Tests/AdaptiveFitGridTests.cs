@@ -35,6 +35,7 @@ namespace SenseEase.Tests;
 /// it in a try/finally and restores it to <c>false</c> so there is no cross-test leakage
 /// (the field is a process-wide static).</para>
 /// </summary>
+[Collection("AdaptiveFitSelectorFlag")]
 public class AdaptiveFitGridTests
 {
     // ──────────────────────────────────────────────────────────────────────────

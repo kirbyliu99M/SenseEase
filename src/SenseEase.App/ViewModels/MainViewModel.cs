@@ -571,6 +571,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // state change) for the chatbot's Phase 6c trajectory builder.
         _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log);
 
+        // Alpha-2 GROUP D flag-mirror: the single App↔engine seam that arms the
+        // adaptive-fit set-selector post-M1. SenseEase.Infrastructure cannot read
+        // SenseEase.App, so the App layer mirrors the AppConfig flag onto the engine's
+        // instance property here at startup — exactly the HeadTrackingEnabled App-only-
+        // flag rule (see CreateHeadPoseReader, which reads AppConfig.HeadTrackingEnabled).
+        // Because AppConfig.AdaptiveFitSelectorEnabled defaults to false, this is a no-op
+        // today: the engine stays OFF and the flag-off path is byte-identical. Flipping
+        // the AppConfig flag is the only change needed to activate the selector.
+        if (_engine is MockInferenceEngine mockEngineForSelector)
+            mockEngineForSelector.AdaptiveFitSelectorEnabled = AppConfig.AdaptiveFitSelectorEnabled;
+
         // M3 7e+ fix: mirror every _log.Append into the dashboard's bound
         // EventLog ObservableCollection so entries originating outside
         // MainViewModel (M1 habituation events from MockInferenceEngine,

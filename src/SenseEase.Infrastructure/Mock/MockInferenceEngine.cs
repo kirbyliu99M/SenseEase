@@ -47,6 +47,41 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // false, NO new code path below is reachable and Update() runs today's path.
     private bool _adaptiveFitSelectorEnabled;
 
+    // ── Adaptive Fit selector TICK (Alpha-2 core GROUP D) ────────────────────
+    // Everything in this region is reachable ONLY inside an
+    // 'if (_adaptiveFitSelectorEnabled)' guard in Update(); while the flag is
+    // OFF (the default) none of it runs and Update() is byte-identical to today.
+    //
+    // The lifecycle/cooldown governor that decides WHEN a set move may be
+    // evaluated. Pure Core type; it NEVER touches _offset (that invariant is the
+    // whole reason it is a dedicated type). Advanced by dt every eval tick.
+    private readonly AdaptiveFitStateMachine _adaptiveFitMachine = new();
+
+    // Conservative evaluation cadence: accumulate dt and evaluate the selector at
+    // most once per SettlingMinSeconds of accumulated time, so the durable-window
+    // stats read + selector run is a low-frequency background concern, not a
+    // per-Update cost. Reset to 0 on each evaluation.
+    private double _adaptiveFitEvalAccumulator;
+
+    // Recency tracking for recentManualLevelDelta (selector "manual authority"
+    // term). The last ApplyUserFeedback delta is interpreted as a manual level
+    // nudge: a NEGATIVE fovDelta (the user asked for more protection / a tighter
+    // FOV) is a manual move toward a STRONGER band ⇒ a POSITIVE level delta; a
+    // positive fovDelta (more openness) ⇒ negative. Only counts while within
+    // AdaptiveFitManualRecencySeconds of the nudge; otherwise the selector sees 0
+    // (no conflict). Conservative + simple per spec.
+    private int      _lastManualLevelDeltaSign;
+    private DateTime _lastManualFeedbackAtUtc = DateTime.MinValue;
+
+    // Durable stats window (days) read back from _eventLog.ReadDurable. Matches
+    // FileEventLogStore.RetentionDays (7) so we read the full rolling JSONL.
+    private const double AdaptiveFitDurableWindowDays = 7.0;
+
+    // Recency window (seconds) within which the last manual +/- still counts as a
+    // selector manual-authority signal. Local to this file (no SenseDefaults edit
+    // in scope). Kept conservative — a single SettlingMinSeconds window.
+    private const double AdaptiveFitManualRecencySeconds = SenseDefaults.SettlingMinSeconds;
+
     // ── Habituation-profile snapshot bookkeeping (Phase 4) ───────────────────
     // Tracks the engine state we persisted on the most recent successful
     // FileHabituationProfileStore.Save call. MaybePersistProfileSnapshot
@@ -329,6 +364,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
             {
                 LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
                 Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
+
+                // ── Selector tick (GROUP D) ──────────────────────────────────
+                // Conservative cadence: accumulate dt and only do the durable
+                // stats read + state-machine advance + selector run at most once
+                // per SettlingMinSeconds of accumulated time. Cheap on every
+                // other Update; the heavy work is rate-limited here. Still gated
+                // entirely by the flag, so OFF ⇒ none of this is reachable.
+                _adaptiveFitEvalAccumulator += dt;
+                if (_adaptiveFitEvalAccumulator >= SenseDefaults.SettlingMinSeconds)
+                {
+                    double evalDt = _adaptiveFitEvalAccumulator;
+                    _adaptiveFitEvalAccumulator = 0.0;
+                    MaybeRunAdaptiveFitSelector(now, evalDt);
+                }
             }
 
             Current.Shader = _shader;
@@ -349,6 +398,18 @@ public sealed class MockInferenceEngine : IInferenceEngine
     {
         lock (_gate)
         {
+            // GROUP D — record the manual nudge as the selector's recentManual
+            // signal. Sign convention: a NEGATIVE fovDelta (more protection /
+            // tighter FOV) is a manual move toward a STRONGER band ⇒ POSITIVE
+            // level delta. These fields are read ONLY inside the flag-gated
+            // selector tick, so this is inert on the flag-off path (it just
+            // writes two private fields nothing else consults).
+            if (fovDelta != 0)
+            {
+                _lastManualLevelDeltaSign = -Math.Sign(fovDelta);
+                _lastManualFeedbackAtUtc  = DateTime.UtcNow;
+            }
+
             _userFovOffset = Math.Clamp(_userFovOffset + fovDelta, -60, 0);
             // D5: a negative (tightening) delta is a discomfort recurrence ONLY when it
             // is NOT an explicit standing preference. A deliberate "more protection"
@@ -491,6 +552,192 @@ public sealed class MockInferenceEngine : IInferenceEngine
             LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
             Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
         }
+    }
+
+    // ── Adaptive Fit selector tick (Alpha-2 core GROUP D) ─────────────────────
+    // Reachable ONLY from the flag-gated region in Update(); the caller already
+    // holds _gate and has verified _adaptiveFitSelectorEnabled. While the flag is
+    // OFF none of this runs and Update() is byte-identical to today.
+
+    /// <summary>One conservative selector evaluation. Builds the user's own
+    /// windowed <see cref="UserIntensityStats"/> from the durable event log,
+    /// advances the cooldown state machine by <paramref name="evalDt"/>, and — when
+    /// the machine <c>CanEvaluate</c> — runs the deterministic selector. A
+    /// resulting <see cref="SelectorDecision.MoveTo"/> is applied SILENTLY only
+    /// when the target is adjacent, stays in the SAME 5級 segment, and passes the
+    /// vestibular guard; a CROSS-SEGMENT target HOLDs (P5 propose-confirm). Caller
+    /// holds <c>_gate</c>.</summary>
+    private void MaybeRunAdaptiveFitSelector(DateTime now, double evalDt)
+    {
+        // Build the single user's own durable stats. If we have no event log,
+        // there is no durable history to read — skip (no stats ⇒ no move).
+        if (_eventLog is null) return;
+
+        DateTime since = now.AddDays(-AdaptiveFitDurableWindowDays);
+        IReadOnlyList<EventLogEntry> durable;
+        try { durable = _eventLog.ReadDurable(since); }
+        catch { return; } // best-effort read; a failed read just means "no move this tick"
+
+        UserIntensityStats stats = IntensityStatsBuilder.Build(
+            durable, now, _habituation.EffectiveTrigger);
+
+        // recentManualLevelDelta: the last manual +/- within the recency window,
+        // else 0 (no conflict). Conservative + simple per spec.
+        int recentManualLevelDelta = 0;
+        if (_lastManualFeedbackAtUtc != DateTime.MinValue
+            && (now - _lastManualFeedbackAtUtc).TotalSeconds <= AdaptiveFitManualRecencySeconds)
+        {
+            recentManualLevelDelta = _lastManualLevelDeltaSign;
+        }
+
+        // The state machine's Settling → Active gate wants to know whether a
+        // confident pick currently exists; ask the selector once up front (pure,
+        // no state change) and feed the boolean in.
+        SelectorDecision peek = DeterministicSetSelector.Select(
+            _activeSet, stats, SelectorWeights.Default, recentManualLevelDelta);
+        bool haveConfidentPick = peek is SelectorDecision.MoveTo;
+
+        _adaptiveFitMachine.Advance(evalDt, stats.SampleCount, haveConfidentPick);
+        if (!_adaptiveFitMachine.CanEvaluate) return;
+
+        // Re-run under the now-eligible machine (peek above may predate the
+        // Advance that promoted us to Active). Pure; cheap.
+        SelectorDecision decision = DeterministicSetSelector.Select(
+            _activeSet, stats, SelectorWeights.Default, recentManualLevelDelta);
+
+        if (decision is not SelectorDecision.MoveTo move) return;
+        GridCoord target = move.Target;
+
+        // Adjacency invariant (belt-and-suspenders: the selector only ever
+        // proposes distance-1 cells, but we re-assert before applying).
+        if (GridCoord.ManhattanDistance(_activeSet, target) != 1) return;
+
+        // CROSS-SEGMENT (5級) move ⇒ HOLD. A silent auto-move may only happen
+        // WITHIN the current 5級 segment; a segment change is a felt-intensity
+        // change the user must confirm.
+        // P5 TODO: route cross-segment proposals through the propose-confirm
+        // (LevelChangeCause.ProposalConfirm) flow instead of silently holding.
+        if (FiveBandSegmentForSet(target) != FiveBandSegmentForSet(_activeSet)) return;
+
+        // Vestibular guard: block any move toward a WEAKER band (propose-stronger-
+        // only) for advisory users. A blocked move HOLDs this tick.
+        if (!PassesVestibularGuard(_activeSet, target)) return;
+
+        // All gates passed → apply the move silently and notify the machine so it
+        // enters Cooldown (soft-定型) before the next evaluation. Capture the source
+        // before ApplySetMove repoints _activeSet so the log reads source→target.
+        GridCoord from = _activeSet;
+        ApplySetMove(target);
+        _adaptiveFitMachine.OnSetChange();
+        AppendAdaptiveFitEvent("AdaptiveFit.SetMove",
+            $"silent adjacent move {FormatSet(from)} → {FormatSet(target)} (L{_vimsTier}, samples={stats.SampleCount})");
+    }
+
+    /// <summary>Apply an Adaptive Fit set move (SPEC item 3). Clears the chatbot
+    /// delta FIRST via the SAME offset-preserving transient-reset path
+    /// <see cref="SetLevel"/> uses (Q5: <c>_userFovOffset=0</c> +
+    /// <c>ResetToDefault</c> + <c>ResetTransientState</c>, PRESERVING the earned
+    /// habituation <c>_offset</c> / C5), THEN re-seeds the displayed level on the
+    /// new curve (Q4 felt-snap). Never touches <c>_offset</c>. Caller holds
+    /// <c>_gate</c>.</summary>
+    private void ApplySetMove(GridCoord target)
+    {
+        _activeSet = target;
+
+        // Q5 first: clear the transient chatbot delta, preserving _offset.
+        _userFovOffset = 0;
+        _shader.ResetToDefault();
+        _habituation.ResetTransientState();   // preserves _offset (Q4.5 / C5)
+        Current.HabituationLevel  = _habituation.HabituationLevel;
+        Current.HabituationPaused = _habituation.IsPaused;
+
+        // SPEC item 4 — vestibular L9 floor: an advisory user's resolved level is
+        // clamped to >= 9 on any set move (propose-stronger-only safety stance).
+        // Non-advisory users keep their current rung. Keep the pending-debounce
+        // bookkeeping in sync so UpdateVimsTier does not immediately walk it back.
+        if (string.Equals(_lastCalibrationResult?.MedicalAdvisory, "vestibular",
+                          StringComparison.OrdinalIgnoreCase)
+            && _vimsTier < 9)
+        {
+            _vimsTier             = 9;
+            _pendingTierCandidate = _vimsTier;
+            _pendingTierSinceUtc  = DateTime.MinValue;
+        }
+
+        // Q4 then: re-seed the displayed level on the NEW set's curve. The tier
+        // value itself is unchanged for non-advisory users (felt-snap keeps the
+        // rung); we re-apply the new curve's FOV floor on top of the recomposed
+        // radius.
+        Current.VimsTier = _vimsTier;
+        Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+        LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
+        Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
+    }
+
+    /// <summary>Vestibular guard (SPEC item 4): for a user carrying the vestibular
+    /// advisory (the SAME in-memory signal the hard-cap path keys off —
+    /// <c>LastCalibrationResult.MedicalAdvisory == "vestibular"</c>), BLOCK any move
+    /// toward a WEAKER band (lower <see cref="GridCoord.Band"/>) — propose-stronger-
+    /// only. A move that holds or raises Band is allowed. Non-advisory users are
+    /// unaffected. (The L9 floor / 0.20 mask floor are enforced at resolve time by
+    /// the grid's clamps; this method governs the directional move gate.)</summary>
+    private bool PassesVestibularGuard(GridCoord current, GridCoord target)
+    {
+        bool vestibular =
+            string.Equals(_lastCalibrationResult?.MedicalAdvisory, "vestibular",
+                          StringComparison.OrdinalIgnoreCase);
+        if (!vestibular) return true;
+
+        // Propose-stronger-only: a move that LOWERS the intensity Band is blocked.
+        return target.Band >= current.Band;
+    }
+
+    /// <summary>Map a set to its 5級 segment via the set's nominal level (SPEC item
+    /// 2 fallback — no <c>SetGrid.Segment</c> helper exists, and the canonical
+    /// <c>TierColorPalette.BandForTier</c> lives in the App layer which
+    /// Infrastructure cannot reference). The set's nominal level is its grid
+    /// <see cref="GridCoord.Band"/> (0..9) mapped linearly onto the 12-rung ladder,
+    /// then bucketed with the SAME ≤2/≤4/≤7/≤10/else mapping the App's BandForTier
+    /// uses. Set0 (Band 5) ⇒ nominal L7 ⇒ Medium segment, matching its default-L5
+    /// Medium 動態感.</summary>
+    private static int FiveBandSegmentForSet(GridCoord set)
+    {
+        // Band 0..9 → nominal level 1..12 (linear, monotonic). round(1 + band·11/9).
+        int nominalLevel = (int)Math.Round(
+            1.0 + set.Band * (SetCurve.LevelCount - 1) / (double)GridCoord.MaxBand);
+        nominalLevel = Math.Clamp(nominalLevel, 1, SetCurve.LevelCount);
+        return nominalLevel switch
+        {
+            <= 2  => 0, // 極高
+            <= 4  => 1, // 高
+            <= 7  => 2, // 中  (Set0 lands here)
+            <= 10 => 3, // 低
+            _     => 4, // 極低
+        };
+    }
+
+    private static string FormatSet(GridCoord c) => $"set(B{c.Band},S{c.Shape})";
+
+    /// <summary>Emit an <c>AdaptiveFit.*</c> event-log entry (durable-prefixed, so
+    /// it round-trips through <see cref="IEventLogStore.ReadDurable"/>). Best-effort;
+    /// a logging failure never crashes the engine.</summary>
+    private void AppendAdaptiveFitEvent(string category, string message)
+    {
+        if (_eventLog is null) return;
+        try
+        {
+            _eventLog.Append(new EventLogEntry
+            {
+                Timestamp    = DateTime.UtcNow,
+                Category     = category,
+                Message      = message,
+                Ofi          = Current.RawOpticalFlowIndex,
+                Pressure     = Current.Pressure,
+                FovRadius    = Current.FovRadiusPercent,
+                MaskSnapshot = Current.MaskActive ? "ON" : "off",
+            });
+        }
+        catch { /* best-effort; event-log writes must never crash the engine */ }
     }
 
     // ── Habituation profile pass-throughs (Phase 3) ──────────────────────────
