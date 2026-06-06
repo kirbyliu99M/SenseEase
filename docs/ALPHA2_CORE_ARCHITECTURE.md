@@ -37,3 +37,63 @@ Vestibular: propose-stronger-only (block weaker-band set moves), resolved level 
 
 ## Test plan (`tests/.../AdaptiveFit*Tests.cs`)
 no-move-on-noise · adjacency-only · Q4-before-Q5 · dual-trigger-cooldown-precedence · no-oscillation · confidence-gate · **flag-off parity (set0 output ≡ baseline; extend D6 L1-alpha=0)** · vestibular (weaker-band blocked, ≥L9, mask≥0.20, `_offset` untouched) · silent-vs-propose.
+
+## Alpha-2 addendum — cancel explicit user calibration → auto-profiling (Kirby 2026-06-06)
+
+**Status: RECORD-ONLY. M1-gated. Do NOT implement now.** This is a future-direction
+decision captured for back-trace; no code, no test, no flag changes land from this
+section. The CURRENT explicit-calibration flow (`docs/CALIBRATION.md`) remains fully in
+effect until Alpha-2 ships this.
+
+**Why Alpha-2 (not merely deferred).** The starting-level "gradual convergence" only has
+meaning once auto-adaptation (P3/P4, the Adaptive Fit selector + state machine above) is
+live. Cancelling explicit calibration BEFORE auto-adapt would strand new users at a default
+they cannot get adjusted away from. So this lands WITH auto-adaptation, after M1 — it is
+coupled to the same M1 gate as the rest of this document, not an independent toggle.
+
+**Direction.** Cancel EXPLICIT user calibration (the 5-card questionnaire / demo-reaction
+form and its LLM-dialog sibling) → the engine auto-profiles from usage behaviour instead.
+Goal: a more immersive, zero-setup start.
+
+**Start defaults (after calibration is cancelled).**
+- **Starting level → neutral L5 "中"** (the Set0 median already pinned as set#0 above).
+  Auto-adaptation gradually converges from there; a first-time user with no data starts at
+  this standard value rather than at a self-reported profile.
+- **Habituation profile initial → TYPICAL.** The user may still change it via the
+  propose-confirm path — this is the 1-b-preserved *user-initiated* "change profile via
+  confirmation" entry, NOT an auto-adaptive dynamic profile switch. (Auto-adaptation moves
+  the level/set; the profile band stays a deliberate user-confirmed choice.)
+
+**Vestibular safety (replaces the cancelled `Q5RiskFactors.VestibularDiagnosed` detection —
+CRITICAL, must not be lost).** The system CANNOT infer a vestibular diagnosis from
+optical-flow / behaviour — it is a medical fact, not a usage pattern. So after explicit
+calibration is cancelled, this detection MUST be preserved in another form; otherwise the
+entire vestibular-protection logic loses its trigger condition (the L9 floor /
+SevereStrikeLimit=1 / TriggerPressure-50 hard-override would have nothing to fire on).
+- **Form** — on first use, quietly place a ONE-TIME field at the bottom of the UI asking
+  「是否有前庭/眩暈相關診斷?」. Non-blocking; it is NOT a calibration gate.
+- **Trigger / dismiss** — after ANY response (yes / no / close) it never appears again. If
+  the user closes the app WITHOUT any interaction at all, it appears again next launch.
+  Implementation must ensure it is genuinely asked ONCE (not flashed-and-counted: a flash
+  that the user never actually engaged must not consume the one-time ask).
+- **Default** — skip / unanswered → treated as NON-vestibular (normal logic). Rationale:
+  vestibular users are a minority; treating all silent users as vestibular would impose the
+  L9 floor on the majority. Real vestibular users typically know their diagnosis and will
+  actively answer.
+- **Answer "yes"** → activate vestibular protection: **L9 floor, SevereStrikeLimit = 1,
+  TriggerPressure 50 hard-override** — all unchanged from today's behaviour.
+- **Regret mechanism (required)** — this vestibular setting MUST be permanently changeable
+  in Settings (placed next to reset) so a user who skipped can enable protection later.
+  This permanent-changeability is precisely what makes "ask once + skip = non-vestibular"
+  safe: there is no permanent loss of protection for a user who dismissed the one-time ask.
+
+**UI knock-on (Alpha-2, hand to ui-ux).** Remove the Main Console calibration entry;
+simplify the console toward its final form (5級 動態感 status + +/- fine-tune + chatbot
+input + 停用); move reset into Settings; place the vestibular setting in Settings next to
+reset.
+
+**Clarification (do not conflate two different "calibrations").** This cancels USER
+calibration (personal profiling — the questionnaire/LLM-dialog described in
+`docs/CALIBRATION.md`). The **M1 ENGINE calibration** (MAD→OFI physical scale) is
+UNAFFECTED — it remains the Alpha-2 hard prerequisite for auto-adaptation, exactly as this
+document already states. Two different things; do not merge them.

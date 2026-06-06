@@ -787,3 +787,57 @@ Stage 7's three code fixes (7a IsFirstRun proxy replacement, 7b wipe-
 probe wiring, 7c un-skipped auto-dismiss test) close the user's
 re-review TODO list. Stages 7d (6-scenario acceptance smoke) and 7e
 (this document) close the docs + acceptance gates.
+
+---
+
+## Appendix B — Alpha-2: auto-profiling replaces explicit calibration (planned, Kirby 2026-06-06)
+
+**Status: PLANNED / RECORD-ONLY. M1-gated.** Everything described in §1–§9 above —
+the entire explicit-calibration flow (5-card buttons UI, LLM dialog, `CalibrationProcessor`,
+`personal_pressure_scale`, the schema-v2 fields) — **remains in effect as-is until Alpha-2
+ships this replacement.** Nothing here changes current behaviour; it is captured for
+back-trace only. The replacement is gated behind M1 (engine MAD→OFI calibration) shipping
+together with auto-adaptation; see `docs/ALPHA2_CORE_ARCHITECTURE.md` for the architectural
+companion.
+
+**Direction.** Alpha-2 cancels EXPLICIT user calibration (the questionnaire / demo-reaction
+form and its LLM-dialog sibling described above) in favour of the engine **auto-profiling
+from usage behaviour**. Goal: a more immersive, zero-setup start. Why Alpha-2 and not just
+"deferred": the starting-level "gradual convergence" only has meaning once auto-adaptation
+(P3/P4) is live — cancelling explicit calibration before auto-adapt would strand new users
+at a default they cannot get adjusted. So it lands WITH auto-adaptation, after M1.
+
+**Start defaults (after explicit calibration is cancelled).**
+- **Starting level → neutral L5 "中"**; auto-adaptation gradually converges from there. A
+  first-time user with no data starts at this standard value.
+- **Habituation profile initial → TYPICAL.** The user may still change it via the
+  propose-confirm path — the preserved *user-initiated* "change profile via confirmation"
+  entry, NOT an auto-adaptive dynamic switch.
+
+**Vestibular safety — MUST be preserved (critical).** Cancelling calibration removes the
+`Q5RiskFactors.VestibularDiagnosed` detection (§2.1 step 2, §4.4). The system CANNOT infer
+a vestibular diagnosis from optical-flow / behaviour — it is a medical fact, not a usage
+pattern — so this detection MUST survive in another form, or the whole vestibular-protection
+logic (the override-50 + strike-limit-1 + L9 floor of §4.4) loses its trigger condition.
+- **Form** — on first use, a ONE-TIME field quietly placed at the bottom of the UI asks
+  「是否有前庭/眩暈相關診斷?」. Non-blocking; not a calibration gate.
+- **Trigger / dismiss** — after ANY response (yes / no / close) it never appears again; if
+  the user closes the app WITHOUT any interaction, it reappears next launch. Asked genuinely
+  ONCE (not flashed-and-counted).
+- **Default** — skip / unanswered → treated as NON-vestibular (normal logic). Vestibular
+  users are a minority; treating all silent users as vestibular would impose the L9 floor on
+  the majority, and real vestibular users usually know and will actively answer.
+- **Answer "yes"** → activate vestibular protection: **L9 floor, SevereStrikeLimit = 1,
+  TriggerPressure 50 hard-override** — all unchanged from today (§4.4).
+- **Regret mechanism (required)** — this vestibular setting MUST be permanently changeable
+  in Settings (next to reset), so a user who skipped can enable protection later. This is
+  what makes "ask once + skip = non-vestibular" safe — no permanent loss of protection.
+
+**UI knock-on (Alpha-2, hand to ui-ux).** Remove the Main Console calibration entry;
+simplify the console toward its final form (5級 動態感 status + +/- fine-tune + chatbot input
++ 停用); move reset into Settings; place the vestibular setting in Settings next to reset.
+
+**Clarification.** This cancels USER calibration (personal profiling — the flow this whole
+document describes). The **M1 ENGINE calibration** (MAD→OFI physical scale) is UNAFFECTED —
+it remains the Alpha-2 hard prerequisite for auto-adaptation. Two different things; do not
+conflate.

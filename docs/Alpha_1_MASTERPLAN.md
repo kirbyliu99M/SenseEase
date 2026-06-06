@@ -341,6 +341,8 @@ Kirby delegated both the colour ramp and the labels to the **ui-ux-pro-max** plu
 
 Polarity (spec): "動態感" describes the **screen** — 極高 = most natural (least intervention), 極低 = most stabilized — the deliberately non-alarming framing. Labels are §6-safe (no diagnosis/treatment/optimisation claims); the §6 banned-phrase lint runs as part of 1-a-ii. **Colours are a proposal pending a visual hard-stop (UVHS)** — implemented in 1-a-ii, then signed off on a rendered screenshot before final.
 
+> **Confirm-chain RECORD (2026-06-06 — closes the traceability gap):** Kirby's 2nd-confirm for the Stage-1 native rebuild AND the Reading-A habituation-sever choice (§13.5 Stage 1 + the open clarification at §13.5 "⚠️ One open clarification") were both **given and are realized in code**: dd8f458 (1-a-i, native 12-level scale), 3907a60 (1-a-ii, 3-band → 5級 + §6 lint), d86a9a8 (1-b, Reading-A habituation sever).
+>
 > **Status (2026-06-06):** P0 docs committed (dd3e35d). **Stage 1-a-i shipped green** (dd8f458 — native 12-level scale replaces VimsTier 1–10; 848✓). Next: **1-a-ii** (3-band → 5級 per §13.6, plugin-grounded, visual hard-stop) → **1-b** (habituation sever, Reading A — remove live chatbot profile-switch, keep FOV offset earning). Stage 2 (P3/P4) is Alpha-2, gated on M1 (P1). P5 is gated/later.
 
 ---
