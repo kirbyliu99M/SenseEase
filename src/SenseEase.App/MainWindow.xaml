@@ -813,7 +813,8 @@
                         <!-- H4 (audit): the raw 5-column live metrics demoted into a
                              collapsed Advanced expander — the hero above carries the
                              calm at-a-glance status. Bindings byte-identical. -->
-                        <Expander Header="進階即時數據 / Advanced — live metrics" IsExpanded="False" Margin="0,0,0,16">
+                        <Expander Header="進階即時數據 / Advanced — live metrics" IsExpanded="False" Margin="0,0,0,16"
+                                  Visibility="Collapsed"><!-- advanced telemetry lives on the Dashboard only -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <UniformGrid Rows="1" Columns="5">
@@ -896,8 +897,9 @@
                         </Border>
                         </Expander>
 
-                        <!-- VIMS Interception Monitor (live chart) -->
-                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                        <!-- VIMS Interception Monitor (live chart) — advanced telemetry,
+                             hidden from the Eye-Care tab (it lives on the Dashboard). -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16" Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock Text="VIMS 干預監測 / Interception Monitor"
                                            Style="{StaticResource SectionTitle}"/>
@@ -921,8 +923,9 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Session Summary -->
-                        <Border Style="{StaticResource Card}">
+                        <!-- Session Summary — advanced raw metrics, hidden from the
+                             Eye-Care tab (advanced info lives on the Dashboard). -->
+                        <Border Style="{StaticResource Card}" Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock Text="本次工作階段 / Session Summary" Style="{StaticResource SectionTitle}"/>
                                 <UniformGrid Rows="1" Columns="5">
@@ -993,17 +996,12 @@
                                           MaxHeight="200">
                                     <ListView.View>
                                         <GridView>
-                                            <GridViewColumn Header="Time"       Width="72"
+                                            <!-- Raw OFI / Pressure / FOV / Mask columns removed: advanced
+                                                 telemetry belongs on the Dashboard, not the Event Log, which
+                                                 keeps a plain Time + Action record. -->
+                                            <GridViewColumn Header="時間 / Time"   Width="80"
                                                             DisplayMemberBinding="{Binding Time}"/>
-                                            <GridViewColumn Header="OFI"        Width="60"
-                                                            DisplayMemberBinding="{Binding Ofi, StringFormat='{}{0:F1}'}"/>
-                                            <GridViewColumn Header="Pressure"   Width="76"
-                                                            DisplayMemberBinding="{Binding Pressure, StringFormat='{}{0:F1}'}"/>
-                                            <GridViewColumn Header="FOV Radius" Width="82"
-                                                            DisplayMemberBinding="{Binding FovRadius, StringFormat='{}{0}%'}"/>
-                                            <GridViewColumn Header="Mask"       Width="52"
-                                                            DisplayMemberBinding="{Binding MaskSnapshot}"/>
-                                            <GridViewColumn Header="Action"     Width="360"
+                                            <GridViewColumn Header="事件 / Action"  Width="440"
                                                             DisplayMemberBinding="{Binding Message}"/>
                                         </GridView>
                                     </ListView.View>

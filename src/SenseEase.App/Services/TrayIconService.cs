@@ -282,7 +282,7 @@ public sealed class TrayIconService : IDisposable
         // that detail. Tier alone is enough for an ambient status indicator.
         // 5級 動態感 label via the single-source helper — never hardcode 級 strings.
         string feel = TierColorPalette.FeelLabel(TierColorPalette.BandForTier(state.VimsTier));
-        string header = $"VIMS 第 {state.VimsTier}/12 · 動態感 {feel}";
+        string header = $"動態感 {feel}";  // plain-language only — the tier index is advanced info (Dashboard-only)
         // Path Z bug-fix 1: while in Power Save, refresh the stashed snapshot
         // instead of the visible "Power Save ON" header. Otherwise a tier
         // change during a PS window overwrites the visible header AND leaves
@@ -295,7 +295,7 @@ public sealed class TrayIconService : IDisposable
 
         // Tooltip mirrors the live tier always — the OS tooltip is the
         // immediate read; the menu label carries the PS state.
-        _tray.ToolTipText = $"SenseEase — 第 {state.VimsTier}/12 · 動態感 {feel}";
+        _tray.ToolTipText = $"SenseEase — 動態感 {feel}";  // plain status; no tier index in the OS tooltip
 
         RefreshToggleBarLabel();
     }

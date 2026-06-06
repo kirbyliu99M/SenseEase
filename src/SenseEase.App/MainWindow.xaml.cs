@@ -184,7 +184,11 @@ public partial class MainWindow : Window
                     { Interval = TimeSpan.FromMilliseconds(67) };
                 _chartTimer.Tick += (_, _) =>
                 {
-                    if (_chartDirty) { _chartDirty = false; RedrawChart(); }
+                    // Only redraw when the chart is actually on-screen. It is now
+                    // collapsed on the Eye-Care tab (advanced telemetry lives on the
+                    // Dashboard), so this stays dormant; it also skips redraws while
+                    // the Eye-Care tab is not the active one.
+                    if (_chartDirty && PressureChartCanvas.IsVisible) { _chartDirty = false; RedrawChart(); }
                 };
                 _chartTimer.Start();
             }
