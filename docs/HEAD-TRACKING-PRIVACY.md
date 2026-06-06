@@ -189,22 +189,38 @@ any moment" — closing the SenseEase main window also kills the
 sidecar via the `Process.Kill` path in `SidecarHeadPoseReader.
 DisposeAsync`.
 
-### 3.4 Vestibular interaction
+### 3.4 Vestibular interaction — full-Disable policy (RULED 2026-06-06, Q3 = B)
 
-For users whose calibration profile records a vestibular diagnosis
-(`HabituationProfileSnapshot.CalibrationResponses.Q5RiskFactors`
-contains `VestibularDiagnosed`), the temporary-transparency escape
-hatch is force-disabled. The Settings UI greys out the checkbox and
-the Ctrl+Ctrl chord no-ops.
+**Policy (supersedes the prior "always-on for vestibular" stance):** any
+user — **including a vestibular-diagnosed user** — can one-tap **fully
+disable all protection** (mask / sidecar / chatbot / adaptive fit), with
+**no confirmation, no warning, and no background recovery prompt**. Disable
+is the clean off-state of the control; the user re-enables from the bar or
+Settings at any time (a visible off-state affordance, *not* a nag). This is
+the unified Disable specified in
+[`SenseEase-Adaptive-Fit-Layer-v1.md` §7](SenseEase-Adaptive-Fit-Layer-v1.md);
+the behaviour lands in **P2 (Alpha-1)** — until P2 ships, the current
+escape-hatch code (below) stands.
 
-Rationale: the FOV mask IS the visual-motion-sickness protection for
-vestibular-sensitive users. Even a 3-second window of 30 % mask
-opacity could surface VIMS in a moment of high peripheral motion.
-Better UX is to keep the protection always-on for diagnosed users.
+**Informed-choice risk note (Kirby 拍板, 2026-06-06):** this formally
+**retracts** the earlier promise that vestibular protection cannot be turned
+off. Rationale for the change: it matches the app's intuitive usage model
+(turn it off cleanly, leave nothing running). The VIMS risk a
+vestibular-diagnosed user takes on while protection is fully disabled is
+**borne by the user**. This trade-off may be challenged at ATCC / OT /
+vestibular-specialist review; it is retained here in full for traceability.
+See also [SAFETY-PROVISIONS.md §3.1](SAFETY-PROVISIONS.md).
 
-See [POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md)
-cross-sprint risk table for the v1.0 follow-up (tunable cap rather
-than binary disable).
+> **Superseded rationale (kept for traceability):** the original stance
+> force-disabled the *temporary-transparency escape hatch* for vestibular
+> profiles (`Q5RiskFactors` contains `VestibularDiagnosed`) — Settings greyed
+> out the checkbox and the Ctrl+Ctrl chord no-op'd — because the FOV mask *is*
+> the VIMS protection and even a 3-second 30 % window could surface symptoms.
+> The full-Disable ruling above replaces that "always-on for diagnosed users"
+> position; the escape-hatch code remains as-is until P2 unifies it under the
+> single Disable control. The
+> [POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md)
+> "tunable cap rather than binary disable" follow-up is moot under this ruling.
 
 ---
 

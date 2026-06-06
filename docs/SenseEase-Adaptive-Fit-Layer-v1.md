@@ -1,17 +1,24 @@
 # SenseEase — 自動適配層規格 (Adaptive Fit Layer)
 
 > **審查狀態 (2026-06-06):** 本檔為使用者提供之 v1 設計草案,已收進 repo 作為 SSOT。
-> 經 codebase-grounded 審查(6-agent),**現行程式碼不支援本規格的三項基礎假設**,
-> 故本檔標為 **DRAFT — 待 P0 rebase**。對應審查結論與分階段計劃見
-> [`Alpha_1_MASTERPLAN.md` §13](Alpha_1_MASTERPLAN.md)。三項需先拍板的基礎落差:
-> 1. **12 檔強度梯 (SetLevel/ResolveLevel/ResetShaderToLevelDefault) 不存在** —— 現行引擎為
->    `VimsTier` 1–10 + 3-band 舒適模型。本層須 rebase 至 VimsTier+3-band,或另建 12 檔子系統 + tier↔level mapper。
-> 2. **50 組格點 deterministic selector 不存在**(淨新元件;`HabituationTrajectoryBuilder` 是唯讀敘述、
->    `HabituationOverrideProcessor` 是安全驗證器,皆非評分器)。
-> 3. **M1(MAD→OFI 實測校準)未完成,且依現行 MasterPlan 屬 Alpha-2** —— 本層之「硬前置」與專案里程碑順序衝突。
-> 另:`停用` 全關(含遮罩)與 `HEAD-TRACKING-PRIVACY §3.4`「前庭防護不可關」矛盾,須先解。
+> 經 codebase-grounded 審查(6-agent)+ **Kirby 最終拍板 (2026-06-06, Q1–Q8)**,
+> 三項基礎落差已有定案。本檔標為 **DRAFT — P0 rebasing**;對應審查結論、最終決策
+> 與兩階段計劃見 [`Alpha_1_MASTERPLAN.md` §13](Alpha_1_MASTERPLAN.md)。三項落差與拍板:
+> 1. **12 檔強度梯不存在(SetLevel/ResolveLevel/ResetShaderToLevelDefault repo 內無)** ——
+>    現行引擎為 `VimsTier` 1–10 + 3-band 舒適模型(`SenseState.cs:46`)。**Q2 拍板 = B:
+>    以原生 12 檔狀態「取代」 VimsTier 1–10(非薄對映層)**;消除兩套刻度並存。屬動核心
+>    狀態機,需 Kirby 二次確認風險評估後再動引擎碼(見 §13.5)。
+> 2. **50 組格點 deterministic selector 為淨新元件**:`HabituationTrajectoryBuilder` 經查實
+>    為唯讀單行敘述(chatbot context)、`HabituationOverrideProcessor` 為安全驗證器,**皆非
+>    統計/評分管線**——故 selector + `w1..w5` + 信心門檻**淨新建**,不得宣稱重用(見 §11)。
+> 3. **M1(MAD→OFI 實測校準)未完成,屬 Alpha-2** —— **Q1 拍板 = A:本層排 Alpha-2(M1 之後)**。
+>    P0(設計/規格 rebase)+ P2(停用安全)為 Alpha-1;選擇器/強度模型 gated on M1。
+> 4. **`停用` 語意與前庭** —— **Q3 拍板 = B:全使用者(含前庭)一鍵完全停用、無確認、無警示、
+>    無背景恢復提示**;正式撤除 `HEAD-TRACKING-PRIVACY §3.4`「前庭防護不可關」承諾(見 §7)。
+>    Kirby 知情拍板;前庭使用者停用期間之 VIMS 風險由使用者承擔,決策保留於文件可回溯。
 >
-> 以下為使用者原文(未改動),作為 rebase 的依據。
+> 以下為使用者原文,**僅依 Q8 拍板修正三處事實錯誤(§7 停用語意、§11 重用宣稱、本標頭 12 檔定位)**,
+> 其餘未改動,作為 rebase 依據。
 
 ---
 
@@ -107,11 +114,9 @@
 
 ## 7. 「停用」語意 + 安全配套(拍板-2)
 
-**語意**:完全停掉、乾淨——僅保留 APP 開啟,所有機能停擺(遮罩/sidecar/chatbot/自動適配),資料暫停蒐集。**資料**:暫停蒐集、不歸零;恢復回到停用前 active set 與檔位。
-**安全配套(預設採用)**:因完全停用會關閉前庭防護、覆寫 `HEAD-TRACKING-PRIVACY §3.4` 精神,三項配套必須同行:
-1. **知情(一次性)**:前庭使用者首次按「停用」時明確告知「這會關閉你的暈動防護」;之後 no-nag。
-2. **可逆且顯眼**:停用中顯示「防護已停用 · 點此恢復」狀態,不可埋藏。
-3. **文件一致**:更新 `HEAD-TRACKING-PRIVACY §3.4` 與 `SAFETY-PROVISIONS`,載明「完全停用會關閉前庭防護,屬使用者主動知情之選擇」。
+**語意(Q3 拍板 = B,2026-06-06)**:完全停掉、乾淨——僅保留 APP 開啟,所有機能停擺(遮罩/sidecar/chatbot/自動適配),資料暫停蒐集。**對所有使用者一致,含前庭診斷使用者**:一鍵完全停用、**無確認、無警示、無背景恢復提示**。**資料**:暫停蒐集、不歸零;恢復回到停用前 active set 與檔位。
+**可逆**:停用為控制項的 off 狀態,使用者可隨時於 bar/設定一鍵恢復;**此為狀態指示,非背景提醒(no-nag)**。
+**文件 / 風險(知情拍板)**:此決策**正式撤除** `HEAD-TRACKING-PRIVACY §3.4`「前庭防護不可關」承諾;`HEAD-TRACKING-PRIVACY §3.4` 與 `SAFETY-PROVISIONS` 已更新為「使用者可一鍵完全停用所有防護(含前庭),無任何警示或確認」。前庭使用者於完全停用期間之 VIMS 風險由使用者承擔;此取捨於 ATCC / 專家審閱(OT、前庭專業)可能被質疑,Kirby 已理解並願辯護,決策保留可回溯。理由:符合 APP 直覺 usage model(直覺關掉、不留背景)。
 
 ---
 
@@ -122,7 +127,7 @@
 | 狀態行 | 顯示 **5 級動態感 + 防護狀態**(例:「動態感:中 · 防護中」) | 中性、非症狀;**不得**顯示跳動精準壓力 %;避免「暈眩」等症狀詞 |
 | `+` / `−` | 12 檔 ±1;跨級距才改 5 級標籤 | 換檔 = **hard-set 清 chatbot delta**;有微調時給一次性瞬時回饋 |
 | 對話框 / send | chatbot **細部微調**(疊在當前檔基線) | 受遮罩 0.20 地板;前庭守門;換組提案也在此 |
-| 「停用」 | §7 完全停用 | 前庭:首次告知 + 顯眼可逆狀態;非省電模式 |
+| 「停用」 | §7 完全停用 | 全使用者(含前庭)無確認、無警示;顯眼可逆 off 狀態(no-nag);非省電模式 |
 | 「設定」 | 進階 / WS-U;**自動適配開關放這** | 不在 bar 上 |
 | `X` / 復原(↶) | 關閉 / 復原上一步 | 復原應能撤回最近一次手動調整 |
 
@@ -146,9 +151,10 @@
 
 ## 11. 與既有元件 / backlog 的接點
 
-`HabituationTrajectoryBuilder`(重用為統計輸入)、propose-confirm Card / `ChatbotActionLog`(重用)、`HabituationProfileParams.ResolveLevel(1..12)`(依賴 12 檔 SSOT)、`IInferenceEngine.SetLevel`(重用)、WS-M/M1 校準(硬前置)、C5/H16(依賴)、WS-G/G-TRAIN(連動)、`SenseDefaults` F1/F2(權重/時長/門檻)、`HEAD-TRACKING-PRIVACY §3.4`/`SAFETY-PROVISIONS`(須更新)。
+**淨新建(無可重用)**:50 格點 selector + `w1..w5` 評分 + 信心門檻 + 統計管線——`HabituationTrajectoryBuilder`(唯讀單行 chatbot 敘述)與 `HabituationOverrideProcessor`(安全驗證器)**皆非統計/評分管線,不得重用為統計輸入**;原生 12 檔狀態取代 VimsTier 後,`ResolveLevel(1..12)` / `IInferenceEngine.SetLevel` 為**淨新 API**(現行 repo 無此面)。
+**可重用 / 連動**:propose-confirm Card / `ChatbotActionLog`(重用)、`HabituationOverrideApplicator` 三攔截(重用為前庭守門)、WS-M/M1 校準(硬前置)、C5/H16(依賴)、WS-G/G-TRAIN(連動)、`HEAD-TRACKING-PRIVACY §3.4`/`SAFETY-PROVISIONS`(已依 Q3 更新)。
 
-> **審查註:** 上列「重用」多項與現行程式碼不符(ResolveLevel/SetLevel/F1-F2 不存在;TrajectoryBuilder 非統計管線)。詳見 MasterPlan §13。
+> **Q8① 已修正:** 原稿「重用 `HabituationTrajectoryBuilder` 為統計輸入 / `ResolveLevel` / `SetLevel`」與現行程式碼不符,已改為淨新建。詳見 MasterPlan §13。
 
 ---
 

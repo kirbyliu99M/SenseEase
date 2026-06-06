@@ -141,6 +141,39 @@ escalate without intervention.
 
 ---
 
+## 3.1 User-initiated full Disable — informed-choice override (RULED 2026-06-06, Q3 = B)
+
+**Scope distinction (important):** the §3 vestibular hard cap governs
+**chatbot-/engine-proposed relaxation** — those proposals still pass through
+all three intercept layers, unchanged. This §3.1 governs the **explicit
+user-initiated "停用 / Disable" control** (Adaptive Fit Layer §7), which is a
+*different mechanism*: a deliberate one-tap action by the user, not a
+suggestion the engine surfaces.
+
+**Policy:** any user — **including a vestibular-diagnosed user** — can one-tap
+**fully disable all protection** with **no confirmation, no warning, and no
+background recovery prompt**. This is a clean stop (mask / sidecar / chatbot /
+adaptive fit all off; data collection paused, not zeroed). Resume returns to
+the pre-disable active set and level. This formally **supersedes**
+[HEAD-TRACKING-PRIVACY §3.4](HEAD-TRACKING-PRIVACY.md)'s prior "vestibular
+protection cannot be turned off" stance.
+
+**Why the hard cap still stands alongside it:** the user pressing their own
+Disable button is an intentional, self-authored choice; a chatbot *proposing*
+relaxation to a vestibular user is the engine nudging them toward less
+protection. The first is honoured; the second is still blocked. The two are
+not in tension.
+
+**Informed-choice risk (Kirby 拍板, 2026-06-06):** the VIMS risk a
+vestibular-diagnosed user takes on during full Disable is **borne by the
+user**. Rationale: the app's intuitive usage model (turn it off cleanly, leave
+nothing running). May be challenged at ATCC / OT / vestibular-specialist
+review; retained for traceability. Implementation lands in **P2 (Alpha-1)**;
+on Resume, any queued relaxation proposals MUST re-fire the three §4
+apply-time intercepts (never auto-apply across a Disable boundary).
+
+---
+
 ## 4. Defensive intercept layer
 
 **Where**: `HabituationOverrideApplicator.CheckSafetyIntercepts` (static,
