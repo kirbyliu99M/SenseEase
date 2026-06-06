@@ -98,14 +98,23 @@ public class HabituationOverrideApplicatorTests
     }
 
     [Fact]
-    public void ApplyAccepted_SwitchProfile_UpdatesEngineProfile()
+    public void ApplyAccepted_SwitchProfile_NoOps_ProfileUnchanged()
     {
+        // Reading A (2026-06-06): the chatbot can no longer switch the habituation
+        // profile — it is set ONLY at calibration. SwitchProfile is a defensive
+        // no-op at the engine (ApplyChatbotOverride returns applied=false), so
+        // ApplyAccepted does NOT succeed and the engine profile is left untouched.
         var (app, engine, _, _, actionLog) = Build(MakeSnapshot(profile: "RESILIENT"));
+        var before = engine.HabituationProfile;
+        var beforeSource = engine.HabituationProfileSource;
         var proposal = MakeProposal(OverrideIntent.SwitchProfile, "SENSITIVE");
 
         var result = app.ApplyAccepted(proposal);
 
-        Assert.True(result.IsSuccess);
+        // No-op: not a success, and the engine profile is unchanged.
+        Assert.False(result.IsSuccess);
+        Assert.Equal(before, engine.HabituationProfile);
+        Assert.Equal(beforeSource, engine.HabituationProfileSource);
         Assert.Single(actionLog.Recent());
     }
 
@@ -319,17 +328,22 @@ public class HabituationOverrideApplicatorTests
     }
 
     [Fact]
-    public void Matrix_Rule2_SwitchProfile_BlocksWithVestibularReason()
+    public void Matrix_Rule2_SwitchProfile_ProfileUnchanged()
     {
-        // RESILIENT is less restrictive than the TYPICAL default ⇒ relaxation;
-        // vestibular advisory ⇒ Rule 2.
-        var snapshot = MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.Vestibular);
+        // Reading A (2026-06-06): SwitchProfile no longer applies at the engine
+        // (profile is calibration-only), so this is no longer a meaningful Rule-2
+        // BLOCK test — the proposal can never mutate the profile regardless of the
+        // vestibular advisory. Assert the engine profile is UNCHANGED after the
+        // attempt to keep coverage of the no-op at the apply path.
+        var (app, engine, _, _, _) = Build(
+            MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.Vestibular));
+        var before = engine.HabituationProfile;
         var proposal = MakeProposal(OverrideIntent.SwitchProfile, "RESILIENT");
 
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
+        var result = app.ApplyAccepted(proposal);
 
-        Assert.True(result.Blocked);
-        Assert.Contains("vestibular", result.Reason!);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(before, engine.HabituationProfile);
     }
 
     [Fact]
@@ -364,17 +378,22 @@ public class HabituationOverrideApplicatorTests
     }
 
     [Fact]
-    public void Matrix_Rule3_SwitchProfile_BlocksWithHighRiskReason()
+    public void Matrix_Rule3_SwitchProfile_ProfileUnchanged()
     {
-        // A profile switch (RESILIENT, less restrictive than TYPICAL) is, by
-        // definition in IsSignificantRelaxation, always significant.
-        var snapshot = MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.HighRiskCombo);
+        // Reading A (2026-06-06): SwitchProfile no longer applies at the engine
+        // (profile is calibration-only), so this is no longer a meaningful Rule-3
+        // BLOCK test — the proposal can never mutate the profile regardless of the
+        // high-risk-combo advisory. Assert the engine profile is UNCHANGED after the
+        // attempt to keep coverage of the no-op at the apply path.
+        var (app, engine, _, _, _) = Build(
+            MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.HighRiskCombo));
+        var before = engine.HabituationProfile;
         var proposal = MakeProposal(OverrideIntent.SwitchProfile, "RESILIENT");
 
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
+        var result = app.ApplyAccepted(proposal);
 
-        Assert.True(result.Blocked);
-        Assert.Contains("high-risk-combo", result.Reason!);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(before, engine.HabituationProfile);
     }
 
     [Fact]

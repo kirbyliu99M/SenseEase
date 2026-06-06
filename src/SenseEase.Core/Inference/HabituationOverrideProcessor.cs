@@ -90,6 +90,20 @@ public static class HabituationOverrideProcessor
     {
         DateTime utcNow = now ?? DateTime.UtcNow;
 
+        // ── Reading A (2026-06-06): switch_profile sever ──────────────────────
+        // The habituation PROFILE (Resilient / Typical / Sensitive) is set ONLY
+        // at calibration (ApplyCalibrationResult -> SetProfile(..., "calibration_demo")).
+        // The chatbot can no longer switch the profile live. This EARLY gate
+        // rejects ALL SwitchProfile proposals — known or unknown value — before
+        // any other validation rule runs, so the parser still parses the intent
+        // but the Processor never surfaces a Card for it. AdjustSensitivity (the
+        // intensity axis) and AdjustStrikeLimit (a tuning dial) are untouched.
+        if (proposal.Intent == OverrideIntent.SwitchProfile)
+        {
+            return OverrideValidationResult.Reject(
+                "switch_profile is not supported — the habituation profile is set during calibration");
+        }
+
         // ── Rule 1: expires_at_iso in [now, now + 7 days] ──
         // Past expiry is a hard reject — the proposal is already stale and
         // surfacing the Card would just show a "已過期" timer. Future-but-

@@ -193,17 +193,21 @@ public class Phase8AcceptanceTests
     }
 
     [Fact]
-    public void ScenarioB_LexiconProposal_FlowsThroughApplicator()
+    public void ScenarioB_LexiconSwitchProfile_NoOps_ProfileUnchanged()
     {
+        // Reading A (2026-06-06): the chatbot/lexicon SwitchProfile path is
+        // calibration-only now — the applicator no-ops it and the profile holds.
         var snap = MakeSnapshot(profile: "TYPICAL");
-        var (engine, _, _, actionLog, applicator, _) = BuildFullStack(snap);
+        var (engine, _, _, _, applicator, _) = BuildFullStack(snap);
 
         var proposal = HabituationProposalLexicon.TryDetect("switch to SENSITIVE profile", snap);
         Assert.NotNull(proposal);
+        var profileBefore = engine.HabituationProfile;
+
         var apply = applicator.ApplyAccepted(proposal!);
 
-        Assert.True(apply.IsSuccess);
-        Assert.Contains(actionLog.Recent(), e => e.Kind == ChatbotActionKind.Accepted);
+        Assert.False(apply.IsSuccess);
+        Assert.Equal(profileBefore, engine.HabituationProfile);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -323,15 +327,16 @@ public class Phase8AcceptanceTests
     }
 
     [Fact]
-    public void ScenarioE_UserPicksProfile_AppliesThroughApplicator()
+    public void ScenarioE_UserPicksProfile_NoOps_ProfileUnchanged()
     {
+        // Reading A (2026-06-06): profile is calibration-only. The in-chat profile
+        // picker routed a SwitchProfile proposal through the applicator; that path
+        // now no-ops (profile does not change mid-session). NOTE: this leaves the
+        // in-chat picker defunct — flagged for product follow-up.
         var snap = MakeSnapshot(profile: "TYPICAL");
-        var (engine, _, _, actionLog, applicator, _) = BuildFullStack(snap);
+        var (engine, _, _, _, applicator, _) = BuildFullStack(snap);
+        var profileBefore = engine.HabituationProfile;
 
-        // Simulate the host-side wiring: user clicks RESILIENT in the
-        // picker bubble → MainViewModel builds a SwitchProfile proposal
-        // and routes it through the applicator (same path as a chatbot-
-        // driven proposal but with rationale = "user picked from picker").
         var proposal = new ProfileOverrideProposal(
             Intent: OverrideIntent.SwitchProfile,
             TargetField: "profile",
@@ -339,8 +344,8 @@ public class Phase8AcceptanceTests
             Rationale: "user picked from in-chat profile picker",
             ExpiresAtUtc: DateTime.UtcNow.AddHours(24));
         var result = applicator.ApplyAccepted(proposal);
-        Assert.True(result.IsSuccess);
-        Assert.Contains(actionLog.Recent(), e => e.Kind == ChatbotActionKind.Accepted);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(profileBefore, engine.HabituationProfile);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

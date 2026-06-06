@@ -233,7 +233,7 @@ public class HabituationStrikeAndStateTests
         Assert.True(engine.IsAwaitingUserConfirm);
 
         // User (via chatbot) switches profile mid-pause.
-        engine.SetProfile(HabituationProfile.Sensitive, "chatbot_override");
+        engine.SetProfile(HabituationProfile.Sensitive, "test_param");
 
         // Pause state MUST survive — current safety requirement is orthogonal
         // to which profile they'll resume into.
@@ -242,7 +242,7 @@ public class HabituationStrikeAndStateTests
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
         // Profile change DID take effect for the profile fields.
         Assert.Equal(HabituationProfile.Sensitive, engine.CurrentProfile);
-        Assert.Equal("chatbot_override", engine.ProfileSource);
+        Assert.Equal("test_param", engine.ProfileSource);
     }
 
     // ── Case 7: stable window pass resets strike count ──────────────────────
@@ -281,7 +281,7 @@ public class HabituationStrikeAndStateTests
         Assert.Equal(1.0, engine.SevereStrikeCount);
 
         int offsetBefore = engine.HabituationOffset;
-        engine.SetProfile(HabituationProfile.Typical, "chatbot_override");
+        engine.SetProfile(HabituationProfile.Typical, "test_param");
 
         Assert.Equal(0.0, engine.SevereStrikeCount);                // strikes RESET
         Assert.Equal(offsetBefore, engine.HabituationOffset);       // offset PRESERVED
@@ -297,7 +297,7 @@ public class HabituationStrikeAndStateTests
         Assert.Equal(30, engine.HabituationOffset);
 
         // SENSITIVE cap = 15. Offset must be clamped down.
-        engine.SetProfile(HabituationProfile.Sensitive, "chatbot_override");
+        engine.SetProfile(HabituationProfile.Sensitive, "test_param");
 
         Assert.Equal(15, engine.HabituationOffset);
     }

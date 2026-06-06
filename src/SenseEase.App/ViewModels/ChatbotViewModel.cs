@@ -237,7 +237,21 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // _dispatcher.Invoke still work; the tests that exercise async paths
         // either don't construct ChatbotViewModel at all (CalibrationApplicator
         // covers them) or pump the dispatcher on an STA thread.
-        _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        // Prefer the app's UI dispatcher in production. Use it ONLY when the
+        // constructing thread actually owns it (CheckAccess) and it is not shutting
+        // down. Under xUnit, a prior WPF test on a parallel STA thread can leave an
+        // Application.Current behind whose dispatcher belongs to another (now dead or
+        // parked) thread — Invoke on it either throws (dead) or BLOCKS forever
+        // (parked, never pumped), silently dropping or hanging the crisis floor's
+        // bubble-add. Falling back to the current thread's live dispatcher keeps the
+        // crisis Invoke synchronous in tests. In production the VM is constructed on
+        // the UI thread, so CheckAccess() is true and behaviour is unchanged.
+        var appDispatcher = Application.Current?.Dispatcher;
+        _dispatcher = (appDispatcher is not null
+                       && appDispatcher.CheckAccess()
+                       && !appDispatcher.HasShutdownStarted)
+            ? appDispatcher
+            : Dispatcher.CurrentDispatcher;
         _isOverlayVisible = isOverlayVisible;
 
         SendCommand = new RelayCommand(async _ => await SendAsync(),

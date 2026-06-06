@@ -580,15 +580,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
                 case OverrideIntent.SwitchProfile:
                 {
-                    if (proposedValue is not string s
-                        || !Enum.TryParse<HabituationProfile>(s, ignoreCase: true, out var profile))
-                    {
-                        applied = false;
-                        break;
-                    }
-                    if (_habituation.CurrentProfile != profile)
-                        _habituation.SetProfile(profile, "chatbot_override");
-                    applied = true;
+                    // Reading A (2026-06-06): chatbot profile-switch removed — profile is
+                    // calibration-only. Unreachable in normal flow (Processor rejects
+                    // SwitchProfile); kept as a defensive no-op. Do NOT call
+                    // _habituation.SetProfile; leave the profile unchanged.
+                    applied = false;
                     break;
                 }
 

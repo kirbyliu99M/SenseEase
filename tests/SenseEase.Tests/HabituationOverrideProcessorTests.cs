@@ -123,20 +123,27 @@ public class HabituationOverrideProcessorTests
     [InlineData("TYPICAL")]
     [InlineData("SENSITIVE")]
     [InlineData("typical")] // case-insensitive
-    public void Validate_SwitchProfile_KnownProfile_Accepts(string profile)
+    public void Validate_SwitchProfile_KnownProfile_Rejected_NotSupported(string profile)
     {
+        // Reading A (2026-06-06): the habituation profile is set ONLY at
+        // calibration. The chatbot can no longer switch it live, so an
+        // early gate rejects EVERY SwitchProfile proposal — even a known,
+        // well-formed profile value.
         var proposal = MakeProposal(OverrideIntent.SwitchProfile, profile);
         var result = HabituationOverrideProcessor.Validate(proposal, MakeSnapshot(profile: "RESILIENT"), now: NowFixed);
-        Assert.True(result.IsAccepted);
+        Assert.False(result.IsAccepted);
+        Assert.Contains("calibration", result.RejectionReason!.ToLowerInvariant());
     }
 
     [Fact]
     public void Validate_SwitchProfile_UnknownProfile_Rejects()
     {
+        // Still rejected — but via the Reading A early gate (calibration-only),
+        // which fires before the unknown-profile range check. Don't pin the
+        // exact reason; just confirm it's rejected.
         var proposal = MakeProposal(OverrideIntent.SwitchProfile, "EXTREME");
         var result = HabituationOverrideProcessor.Validate(proposal, MakeSnapshot(), now: NowFixed);
         Assert.False(result.IsAccepted);
-        Assert.Contains("unknown profile", result.RejectionReason);
     }
 
     [Theory]
@@ -200,11 +207,14 @@ public class HabituationOverrideProcessorTests
     public void Validate_VestibularUser_LessRestrictiveProfileSwitch_Rejects()
     {
         // Vestibular user currently TYPICAL, proposal switches to RESILIENT (less restrictive).
+        // Reading A (2026-06-06): SwitchProfile is now rejected outright by the
+        // calibration-only early gate (which fires before the rule-3 vestibular
+        // check), so the rejection no longer carries a SafetyNote. The contract
+        // that still matters here: a profile switch is NOT accepted.
         var proposal = MakeProposal(OverrideIntent.SwitchProfile, "RESILIENT");
         var snapshot = MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.Vestibular);
         var result = HabituationOverrideProcessor.Validate(proposal, snapshot, now: NowFixed);
         Assert.False(result.IsAccepted);
-        Assert.NotNull(result.SafetyNote);
     }
 
     [Fact]
