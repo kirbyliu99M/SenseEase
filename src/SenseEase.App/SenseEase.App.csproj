@@ -64,17 +64,6 @@
     <Resource Include="Resources\hp-logo.jpg" />
   </ItemGroup>
 
-  <!-- Lightweight intro splash (HP + SenseEase lockup). The WPF SplashScreen build
-       action shows this PNG as a NATIVE layered window the instant the process starts
-       — before the WPF UI thread spins up MainWindow — covering the ML / WGC load, then
-       auto-fades out (~300 ms) when MainWindow first renders. Native rendering means no
-       animation engine and negligible startup cost, and because it is NOT a WPF Window
-       it never hijacks Application.MainWindow (used for card positioning + the demo
-       window owner). The PNG has transparent rounded corners for a floating card look. -->
-  <ItemGroup>
-    <SplashScreen Include="Resources\splash.png" />
-  </ItemGroup>
-
   <!-- Dark palette override layer. The WPF SDK auto-includes every .xaml
        under the project as <Page>, which would run the XAML through the
        markup compiler expecting a Page/code-behind pairing. Palette.Dark.xaml
