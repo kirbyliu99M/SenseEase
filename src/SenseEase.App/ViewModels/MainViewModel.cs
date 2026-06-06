@@ -634,6 +634,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         });
         StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
         ResetStateCommand = new RelayCommand(_ => ResetState());
+        // Dashboard profile quick-access pills route through the SAME safety-
+        // checked path as the in-chat profile picker (CommandParameter is the
+        // canonical profile string "RESILIENT"/"TYPICAL"/"SENSITIVE").
+        SelectProfileCommand = new RelayCommand(o => OnChatbotProfilePickerSelected(this, o as string ?? string.Empty));
         ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
         ToggleDemoModeCommand = new RelayCommand(_ => ToggleDemoMode());
         AnalyzeFeedbackCommand = new RelayCommand(async _ => await SubmitFeedbackAsync(),
@@ -1059,6 +1063,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ToggleHabituationCommand { get; }
     public ICommand StartSetupDemoCommand { get; }
     public ICommand SkipSetupCommand { get; }
+    public ICommand SelectProfileCommand { get; }
 
     // Welcome banner state. Initialised from AppConfig.IsFirstRun so a brand-new
     // install shows the calibration prompt automatically; toggled false the

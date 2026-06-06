@@ -7,7 +7,7 @@
         Icon="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
         Height="820" Width="1160"
         MinHeight="700" MinWidth="980"
-        Background="#E2ECFF"
+        Background="{DynamicResource Canvas}"
         FontFamily="Segoe UI">
 
     <Window.Resources>
@@ -142,7 +142,8 @@
     <DockPanel>
 
         <!-- ══════════ HEADER ══════════ -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource Accent}" Padding="28,14">
+        <Border DockPanel.Dock="Top" Background="{StaticResource HeaderSurface}"
+                BorderBrush="{StaticResource Separator}" BorderThickness="0,0,0,1" Padding="28,14">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -151,9 +152,9 @@
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                     <TextBlock Text="SenseEase"
-                               FontSize="22" FontWeight="Bold" Foreground="White"/>
+                               FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"/>
                     <TextBlock Text="OS-level Preventive Visual Comfort Prototype"
-                               Foreground="#8ABAFF" FontSize="12"/>
+                               Foreground="{StaticResource TextTertiary}" FontSize="12"/>
                 </StackPanel>
 
                 <Border Grid.Column="1" VerticalAlignment="Center"
@@ -340,6 +341,55 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ── Profile quick-access (個人化設定檔) ──
+                     Compact light pills under the D1 hero. Bound to the SAME
+                     SelectProfileCommand contract used by the in-chat profile
+                     picker, passing the canonical profile string as the
+                     CommandParameter (the command's RelayCommand already accepts
+                     a string: `else if (o is string s) OnProfileSelected(s)`).
+                     UNCERTAINTY: SelectProfileCommand lives on the per-message
+                     ChatMessageViewModel, not on MainViewModel (the Dashboard's
+                     DataContext), so this binding does not resolve here at
+                     runtime. Per the brief we wire to the existing command with
+                     the string parameter rather than invent a new one; surfacing
+                     a MainViewModel-level command (or RelayCommand →
+                     OnChatbotProfilePickerSelected) would make it live. -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="個人化設定檔 / Profile"
+                                   Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="RESILIENT"
+                                    Command="{Binding SelectProfileCommand}"
+                                    CommandParameter="RESILIENT"
+                                    Background="{StaticResource SurfaceMuted}"
+                                    Foreground="{StaticResource TextSecondary}"
+                                    FontSize="12" FontWeight="SemiBold"
+                                    BorderThickness="0" Padding="16,7" Cursor="Hand"
+                                    Template="{StaticResource RoundBtn}"
+                                    Margin="0,0,8,0"/>
+                            <Button Content="TYPICAL"
+                                    Command="{Binding SelectProfileCommand}"
+                                    CommandParameter="TYPICAL"
+                                    Background="{StaticResource SurfaceMuted}"
+                                    Foreground="{StaticResource TextSecondary}"
+                                    FontSize="12" FontWeight="SemiBold"
+                                    BorderThickness="0" Padding="16,7" Cursor="Hand"
+                                    Template="{StaticResource RoundBtn}"
+                                    Margin="0,0,8,0"/>
+                            <Button Content="SENSITIVE"
+                                    Command="{Binding SelectProfileCommand}"
+                                    CommandParameter="SENSITIVE"
+                                    Background="{StaticResource SurfaceMuted}"
+                                    Foreground="{StaticResource TextSecondary}"
+                                    FontSize="12" FontWeight="SemiBold"
+                                    BorderThickness="0" Padding="16,7" Cursor="Hand"
+                                    Template="{StaticResource RoundBtn}"
+                                    Margin="0"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
                 <Expander Header="進階數據 / Advanced" IsExpanded="False" Margin="0,0,0,16"
                           Foreground="{StaticResource TextSecondary}">
@@ -490,10 +540,10 @@
                         <Border Background="#F3F6FC" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding FmsScore}" Foreground="{StaticResource Accent}"
+                                <TextBlock Text="{Binding FmsScore}" Foreground="{StaticResource TextPrimary}"
                                            FontWeight="Bold" FontSize="12"/>
                                 <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="12">
+                                <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="12">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Text" Value="Hidden"/>
@@ -545,7 +595,7 @@
                                     VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2"
                                        Text="{Binding PersistentOverlayBaselineTier, StringFormat='L{0}'}"
-                                       Foreground="{StaticResource Accent}" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimary}" FontWeight="Bold"
                                        Width="36" TextAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Grid>
@@ -577,43 +627,8 @@
                      (UI Consolidation Sprint Phase 4) — feature decommissioned.
                      See CHANGELOG.md v0.11 "Removed". -->
 
-                <!-- ── Event Log ── -->
-                <Border Style="{StaticResource Card}">
-                    <DockPanel>
-                        <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Event Log"
-                                       Style="{StaticResource SectionTitle}" Margin="0"/>
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding EventLog.Count, StringFormat='Latest {0} entries'}"
-                                       Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <ListView ItemsSource="{Binding EventLog}"
-                                  Style="{StaticResource LogListView}"
-                                  MaxHeight="200">
-                            <ListView.View>
-                                <GridView>
-                                    <GridViewColumn Header="Time"       Width="72"
-                                                    DisplayMemberBinding="{Binding Time}"/>
-                                    <GridViewColumn Header="OFI"        Width="60"
-                                                    DisplayMemberBinding="{Binding Ofi, StringFormat='{}{0:F1}'}"/>
-                                    <GridViewColumn Header="Pressure"   Width="76"
-                                                    DisplayMemberBinding="{Binding Pressure, StringFormat='{}{0:F1}'}"/>
-                                    <GridViewColumn Header="FOV Radius" Width="82"
-                                                    DisplayMemberBinding="{Binding FovRadius, StringFormat='{}{0}%'}"/>
-                                    <GridViewColumn Header="Mask"       Width="52"
-                                                    DisplayMemberBinding="{Binding MaskSnapshot}"/>
-                                    <GridViewColumn Header="Action"     Width="360"
-                                                    DisplayMemberBinding="{Binding Message}"/>
-                                </GridView>
-                            </ListView.View>
-                        </ListView>
-                    </DockPanel>
-                </Border>
+                <!-- Event Log relocated to its own TabItem ("事件記錄 / Event Log",
+                     after Eye-Protection) per the Crisp Cool refresh. -->
 
             </StackPanel>
         </ScrollViewer>
@@ -706,20 +721,20 @@
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Optical Flow" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="VIMS Pressure" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
+                                        <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
                                             <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 10"/>
                                         </TextBlock>
@@ -728,13 +743,13 @@
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="FOV Radius" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="22"
+                                        <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
@@ -815,35 +830,35 @@
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionFovIntercepts}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="FOV Intercepts" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakOfi, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Peak Optical Flow" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakPressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Peak VIMS Pressure" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionMaskActiveText}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Mask Active Time" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionUptimeText}"
-                                                   Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Session Uptime" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
@@ -856,7 +871,52 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- ── Tab 3: AI Assistant ── -->
+            <!-- ── Tab 3: Event Log (relocated from Dashboard) ── -->
+            <TabItem Header="事件記錄 / Event Log">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,20,24,24">
+                        <!-- ── Event Log ── -->
+                        <Border Style="{StaticResource Card}">
+                            <DockPanel>
+                                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Event Log"
+                                               Style="{StaticResource SectionTitle}" Margin="0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding EventLog.Count, StringFormat='Latest {0} entries'}"
+                                               Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <ListView ItemsSource="{Binding EventLog}"
+                                          Style="{StaticResource LogListView}"
+                                          MaxHeight="200">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Time"       Width="72"
+                                                            DisplayMemberBinding="{Binding Time}"/>
+                                            <GridViewColumn Header="OFI"        Width="60"
+                                                            DisplayMemberBinding="{Binding Ofi, StringFormat='{}{0:F1}'}"/>
+                                            <GridViewColumn Header="Pressure"   Width="76"
+                                                            DisplayMemberBinding="{Binding Pressure, StringFormat='{}{0:F1}'}"/>
+                                            <GridViewColumn Header="FOV Radius" Width="82"
+                                                            DisplayMemberBinding="{Binding FovRadius, StringFormat='{}{0}%'}"/>
+                                            <GridViewColumn Header="Mask"       Width="52"
+                                                            DisplayMemberBinding="{Binding MaskSnapshot}"/>
+                                            <GridViewColumn Header="Action"     Width="360"
+                                                            DisplayMemberBinding="{Binding Message}"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ── Tab 4: AI Assistant ── -->
             <TabItem Header="AI Assistant">
                 <Grid DataContext="{Binding ChatbotVm}" Background="#E2ECFF">
                     <Grid.RowDefinitions>
