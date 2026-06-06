@@ -43,26 +43,35 @@ measured response. The default is permissive, not cautious — caution is opt-in
 via calibration or chatbot override.
 
 A maximally-cautious default (`SENSITIVE` for all new installs) was rejected.
-Chang-Hain progressive exposure requires gradual relaxation; defaulting to the
-tightest profile would suppress long-term habituation progress, contradicting
-the framework's intent. RESILIENT default + active downgrade-on-calibration
-matches the clinical logic: assume the user can tolerate normal exposure until
-measured evidence says otherwise.
+Our graded-relaxation model favours gradual easing; defaulting every new user to
+the tightest profile would hold them at maximum suppression with no measured
+path to relax, which we treat as counter-productive to the gentle-relaxation
+arc. RESILIENT default + active downgrade-on-calibration matches that logic:
+assume the user can handle normal exposure until measured evidence says
+otherwise. (This is an engineering-pacing rationale, not a clinical claim.)
 
 ### 1.2 — Evidence base
 
 Citations supporting the profile thresholds and the tiered-pause logic:
 
-- **Barány Society Consensus on MS / VIMS diagnostic criteria** (2023) — tier
+- **Bárány Society Consensus on MS / VIMS diagnostic criteria** (2023) — tier
   stratification framework
-- **Chang & Hain (2020)** — progressive TDP (threshold-determined personalisation)
-  framework; phased calibration
-- **Pavlou (2010)** — intensive vestibular rehabilitation regimen reports 55 %
-  dropout; argues for supervised graded exposure rather than aggressive one-shot
-  protocols → motivates the SENSITIVE tier's longer windows and tier-9
-  user-confirm gate
-- **VIMSSQ-short norms** (Lukacova et al. 2023, 2025) — population distribution
-  of VIMS susceptibility, informs the three-tier granularity
+- **Chang, C.-P. (Chih-Pei Chang)** — "Visual vertigo treatment through
+  optokinetic stimulation with stationary anchoring" (*Physiotherapy Research and
+  Reports*) — a short **theoretical proposal** (not a clinical trial) for the
+  stationary-anchoring optokinetic approach that motivates the opt-in anchor-grid
+  layer. The gradual-relaxation pacing below is *our* engineering interpretation,
+  not a validated protocol from this source. (Corrects the earlier mis-citation
+  "Chang & Hain 2020 / progressive TDP", G-CITE.)
+- **Pavlou, Bronstein & Davies (2013)** — RCT of vestibular rehabilitation; the
+  ~55 % dropout was in the **unsupervised** arm (supervised ≈10 %). This
+  supervised-vs-unsupervised gap — not an "intensive one-shot" regimen — is what
+  motivates the SENSITIVE tier's longer windows and the tier-9 user-confirm gate.
+  (Corrects the earlier "Pavlou 2010 / 55 % attributed to the intensive arm".)
+- **VIMSSQ-short norms** (Golding, J.F. & Keshavarz, B., 2025, *Multisensory
+  Research*) — population distribution of VIMS susceptibility; informs the
+  three-tier granularity. (Re-attributed from the earlier "Lukacova et al.",
+  G-CITE.)
 
 ---
 
