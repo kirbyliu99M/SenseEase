@@ -86,17 +86,19 @@ public class HabituationProfileTests
     // ── GetPostSpikePauseMs tier dispatch ────────────────────────────────────
 
     [Theory]
-    // tier ≤ 5 → low pause, no user-confirm required
+    // Native 12-level scale: low ≤ 6, mid 7–9, confirm ≥ 10 (same top-3 / mid-3
+    // proportions as the prior 1..10 thresholds of ≤5 / 6–7 / ≥8).
+    // level ≤ 6 → low pause, no user-confirm required
     [InlineData(1, false,  90_000)]
     [InlineData(3, false,  90_000)]
-    [InlineData(5, false,  90_000)]
-    // tier 6 / 7 → mid pause, still no confirm
-    [InlineData(6, false, 120_000)]
+    [InlineData(6, false,  90_000)]
+    // level 7–9 → mid pause, still no confirm
     [InlineData(7, false, 120_000)]
-    // tier ≥ 8 → -1, requires user confirm
-    [InlineData(8, true,       -1)]
-    [InlineData(9, true,       -1)]
+    [InlineData(9, false, 120_000)]
+    // level ≥ 10 → -1, requires user confirm
     [InlineData(10, true,      -1)]
+    [InlineData(11, true,      -1)]
+    [InlineData(12, true,      -1)]
     public void GetPostSpikePauseMs_Resilient(int vimsTier, bool expectConfirm, int expectMs)
     {
         int ms = HabituationProfileParams.Resilient.GetPostSpikePauseMs(vimsTier, out bool confirm);
@@ -106,11 +108,11 @@ public class HabituationProfileTests
 
     [Theory]
     [InlineData(1, false,  90_000)]
-    [InlineData(5, false,  90_000)]
-    [InlineData(6, false, 180_000)]
+    [InlineData(6, false,  90_000)]
     [InlineData(7, false, 180_000)]
-    [InlineData(8, true,       -1)]
-    [InlineData(9, true,       -1)]
+    [InlineData(9, false, 180_000)]
+    [InlineData(10, true,      -1)]
+    [InlineData(12, true,      -1)]
     public void GetPostSpikePauseMs_Typical(int vimsTier, bool expectConfirm, int expectMs)
     {
         int ms = HabituationProfileParams.Typical.GetPostSpikePauseMs(vimsTier, out bool confirm);
@@ -119,17 +121,17 @@ public class HabituationProfileTests
     }
 
     [Theory]
-    // SENSITIVE doubles the low-tier pause to 180_000 ms.
+    // SENSITIVE doubles the low-level pause to 180_000 ms.
     [InlineData(1, false, 180_000)]
     [InlineData(3, false, 180_000)]
-    [InlineData(5, false, 180_000)]
-    // Mid-tier pause is 300_000 ms (5 min) — explicit spec value, verifies
+    [InlineData(6, false, 180_000)]
+    // Mid-level pause is 300_000 ms (5 min) — explicit spec value, verifies
     // the most punitive auto-resume path for the most cautious profile.
-    [InlineData(6, false, 300_000)]
     [InlineData(7, false, 300_000)]
-    // Tier 8+ same as other profiles — require user confirm.
-    [InlineData(8, true,       -1)]
-    [InlineData(9, true,       -1)]
+    [InlineData(9, false, 300_000)]
+    // Level 10+ same as other profiles — require user confirm.
+    [InlineData(10, true,      -1)]
+    [InlineData(12, true,      -1)]
     public void GetPostSpikePauseMs_Sensitive(int vimsTier, bool expectConfirm, int expectMs)
     {
         int ms = HabituationProfileParams.Sensitive.GetPostSpikePauseMs(vimsTier, out bool confirm);
@@ -137,15 +139,15 @@ public class HabituationProfileTests
         Assert.Equal(expectMs, ms);
     }
 
-    // ── Boundary case: tier 8 specifically (the spec calls this out) ────────
+    // ── Boundary case: level 10 specifically (top-3 confirm gate, 12-level scale) ──
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
     [InlineData(HabituationProfile.Typical)]
     [InlineData(HabituationProfile.Sensitive)]
-    public void GetPostSpikePauseMs_Tier8_AlwaysRequiresUserConfirm(HabituationProfile profile)
+    public void GetPostSpikePauseMs_TopLevel_AlwaysRequiresUserConfirm(HabituationProfile profile)
     {
-        int ms = HabituationProfileParams.For(profile).GetPostSpikePauseMs(8, out bool confirm);
+        int ms = HabituationProfileParams.For(profile).GetPostSpikePauseMs(10, out bool confirm);
         Assert.True(confirm);
         Assert.Equal(-1, ms);
     }

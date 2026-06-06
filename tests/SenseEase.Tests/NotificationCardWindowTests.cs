@@ -22,8 +22,8 @@ namespace SenseEase.Tests;
 public class NotificationCardWindowTests
 {
     /// <summary>Test 1 (D2): SetContent formats the numeric title with
-    /// rounded pressure. Updated UX iter 3: tier shows "N/10" (10-band
-    /// VIMS scale is unambiguous now) and pressure shows raw value with
+    /// rounded pressure. Level shows "N/12" (native 12-level scale — Adaptive
+    /// Fit Q2=B; was the 10-band scale) and pressure shows raw value with
     /// the mask-trigger reference (no fake "/100" denominator since
     /// LeakyIntegrator is unbounded).</summary>
     [Fact]
@@ -38,7 +38,7 @@ public class NotificationCardWindowTests
             // BC-1 (D2): the title is now plain-language app-action keyed off the
             // band; the raw tier/pressure is demoted to a mono subline.
             Assert.Equal("正在緩和邊緣", w.TitleText.Text);
-            Assert.Equal("第 3 級 / 10　·　壓力 27", w.TelemetryText.Text);
+            Assert.Equal("第 3 級 / 12　·　壓力 27", w.TelemetryText.Text);
         });
     }
 

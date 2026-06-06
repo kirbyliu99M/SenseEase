@@ -954,7 +954,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // FOV is preserved as a PREFERENCE that takes effect when pressure DOES spike,
         // but it no longer makes the mask appear on its own.
         double t      = Math.Clamp(Current.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
-        double levelF = 1.0 + (9.0 * t); // 1..10
+        double levelF = 1.0 + (11.0 * t); // 1..12 (native 12-level scale — Adaptive Fit Q2=B)
 
         // ── Fast-onset bypass ────────────────────────────────────────────────
         // A genuine pressure surge can jump levelF by several units in one Update tick.
@@ -964,7 +964,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         double gap = levelF - _vimsTier;
         if (gap >= SenseDefaults.VimsTierFastOnsetGap)
         {
-            int snap = Math.Clamp((int)Math.Round(levelF), _vimsTier + 1, 10);
+            int snap = Math.Clamp((int)Math.Round(levelF), _vimsTier + 1, 12);
             _vimsTier             = snap;
             _pendingTierCandidate = snap;
             _pendingTierSinceUtc  = DateTime.MinValue;
@@ -993,7 +993,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         int debounceMs;
         if (levelF >= upBoundary)
         {
-            candidate  = Math.Min(10, _vimsTier + 1);
+            candidate  = Math.Min(12, _vimsTier + 1);
             debounceMs = SenseDefaults.VimsTierUpDebounceMs;
         }
         else if (levelF <= downBoundary)

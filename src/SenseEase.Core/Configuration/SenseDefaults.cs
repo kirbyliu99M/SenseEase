@@ -92,7 +92,7 @@ public static class SenseDefaults
     // of WGC-only delay, making screen content respond visibly slower than cursor input.
     public const int VimsMedianTaps = 3;
 
-    // Visual VIMS tier (1..10) hysteresis. Within a tier the displayed mask does not move.
+    // Visual intensity level (1..12, native scale — Adaptive Fit Q2=B) hysteresis. Within a level the displayed mask does not move.
     // To transition UP requires levelF to exceed currentTier + 0.5 + deadband for `UpDebounceMs`.
     // To transition DOWN requires falling below currentTier - 0.5 - deadband for `DownDebounceMs`.
     // Asymmetric attack/release mirrors audio compressor design — fast tighten, slow release.
@@ -104,7 +104,10 @@ public static class SenseDefaults
     // Fast-release knob for lower tiers (≤ VimsLowTierReleaseCutoff). At low tiers we are
     // mostly relaxed already, so the mask should clear briskly.
     public const int    VimsTierDownDebounceLowMs = 250;  // tiers ≤ cutoff release at this rate
-    public const int    VimsLowTierReleaseCutoff  = 7;    // tier transition target ≤ this uses low-ms
+    // Rescaled 7→9 for the native 12-level scale: the top 3 levels (10,11,12)
+    // keep the slow "dangerous top" release; levels ≤ 9 clear briskly — same
+    // top-3 proportion as the prior 1..10 scale's 8,9,10.
+    public const int    VimsLowTierReleaseCutoff  = 9;    // level transition target ≤ this uses low-ms
 
     // Fast-onset bypass: when levelF outruns the current tier by this many levels in a single
     // tick, snap straight to the new tier (no debounce).

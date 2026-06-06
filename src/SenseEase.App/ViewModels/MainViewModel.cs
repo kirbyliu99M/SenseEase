@@ -959,14 +959,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private int _persistentOverlayBaselineTier = 1;
-    /// <summary>Baseline VIMS tier (1–10) when PersistentOverlayEnabled is true.
+    /// <summary>Baseline intensity level (1–12, native scale) when PersistentOverlayEnabled is true.
     /// D6 day-1 default is 1 = 0% alpha at rest (nothing visibly dims; the field is
-    /// "ready", not "always dark"). Natural higher tiers still override, so a real
+    /// "ready", not "always dark"). Natural higher levels still override, so a real
     /// motion spike darkens the periphery. The user can raise this baseline.</summary>
     public int PersistentOverlayBaselineTier
     {
         get => _persistentOverlayBaselineTier;
-        set => Set(ref _persistentOverlayBaselineTier, Math.Clamp(value, 1, 10));
+        set => Set(ref _persistentOverlayBaselineTier, Math.Clamp(value, 1, 12));
     }
 
     /// <summary>Apply the always-on tier floor to a freshly-emitted SenseState. Returns

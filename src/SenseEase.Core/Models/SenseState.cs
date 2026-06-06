@@ -41,8 +41,12 @@ public class SenseState
     /// <summary>True once pressure has crossed the trigger threshold.</summary>
     public bool MaskActive { get; set; }
 
-    /// <summary>Discrete VIMS tier 1..10. Updated by the engine with hysteresis +
-    /// asymmetric debounce so the displayed mask is stable within a tier.</summary>
+    /// <summary>Discrete intensity level 1..12 (the native intensity scale that
+    /// replaced the legacy VimsTier 1..10 — Adaptive Fit Layer Q2=B). Updated by
+    /// the engine with hysteresis + asymmetric debounce so the displayed mask is
+    /// stable within a level. Property name kept as <c>VimsTier</c> for now to
+    /// bound the rebuild's blast radius; the user-facing label is the 5級 動態感
+    /// projection, not this raw value.</summary>
     public int VimsTier { get; set; } = 1;
 
     /// <summary>"Driver" or "Passenger" — affects passive optical-flow weighting.</summary>

@@ -52,18 +52,25 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// OverlayWindow's per-tick smoothing cross-fades color+alpha between tiers.
     /// </summary>
     // internal (not private) so D6DayOneProtectionTests can assert L1 == 0% alpha.
+    // Native 12-level scale (Adaptive Fit Q2=B) — was 10 rungs, extended to 12.
+    // L1 stays 0% alpha (D6 day-1 protection floor; pinned by
+    // D6DayOneProtectionTests.OverlayWindow_VimsLevels_L1AlphaIsZero). Alpha climbs
+    // monotonically 0.00 → ~0.92; hue shifts neutral gray → cool-shifted near-black
+    // (+blue tint at the top so the mask reads as deliberate dimming on bright bg).
     internal static readonly (byte R, byte G, byte B, double Alpha)[] VimsLevels =
     {
-        (102, 102, 102, 0.00), // L1  #666666  0%   neutral gray
-        (102, 102, 102, 0.17), // L2  #666666  17%
-        ( 68,  68,  68, 0.34), // L3  #444444  34%
-        ( 68,  68,  68, 0.43), // L4  #444444  43%
-        ( 34,  34,  34, 0.51), // L5  #222222  51%
-        ( 34,  34,  34, 0.60), // L6  #222222  60%
-        (  4,   4,  10, 0.68), // L7  #04040A  68%  cool-shifted near-black (+blue tint)
-        (  2,   2,   8, 0.77), // L8  #020208  77%
-        (  0,   0,   6, 0.85), // L9  #000006  85%
-        (  0,   0,   4, 0.92), // L10 #000004  92%  peak — slight blue read on bright bg
+        (102, 102, 102, 0.00), // L1  #666666  0%   neutral gray (day-1 floor)
+        (102, 102, 102, 0.14), // L2  #666666  14%
+        ( 85,  85,  85, 0.25), // L3  #555555  25%
+        ( 68,  68,  68, 0.34), // L4  #444444  34%
+        ( 68,  68,  68, 0.42), // L5  #444444  42%
+        ( 51,  51,  51, 0.50), // L6  #333333  50%
+        ( 34,  34,  34, 0.58), // L7  #222222  58%
+        ( 20,  20,  24, 0.66), // L8  #141418  66%  cool-shift begins
+        (  8,   8,  14, 0.73), // L9  #08080E  73%
+        (  4,   4,  10, 0.80), // L10 #04040A  80%
+        (  2,   2,   8, 0.86), // L11 #020208  86%
+        (  0,   0,   4, 0.92), // L12 #000004  92%  peak — slight blue read on bright bg
     };
 
     // Smoothed currently-displayed mask color + alpha. Tracks the engine's discrete tier
@@ -366,7 +373,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // L7+ carries a subtle cool tint so the mask reads as deliberate dimming even on
         // bright backgrounds (pure-black mask on white content reads as "uniform gray
         // wash" — the slight blue shift restores the "out-of-focus" perceptual cue).
-        int tier = Math.Clamp(state.VimsTier, 1, 10);
+        int tier = Math.Clamp(state.VimsTier, 1, 12);
         var (tR, tG, tB, tAlpha) = VimsLevels[tier - 1];
 
         // Seed on first tick so we don't ease in from black/zero at startup.
@@ -689,8 +696,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // by MainWindow.OnStateChanged flows through here automatically (issue #1 fix),
         // so the Chang-Hain anchor grid appears at the user's baseline tier even on a
         // calm screen.
-        int    tier        = Math.Clamp(state.VimsTier, 1, 10);
-        double tierFraction = (tier - 1) / 9.0;                  // 0 at L1, 1 at L10
+        int    tier        = Math.Clamp(state.VimsTier, 1, 12);
+        double tierFraction = (tier - 1) / 11.0;                 // 0 at L1, 1 at L12
         double gv          = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
         double ceiling     = Math.Min(1.0, 0.40 + (0.80 * gv));
         double target      = Math.Clamp(tierFraction * ceiling * (0.55 + (0.45 * _smoothedIntensity)),

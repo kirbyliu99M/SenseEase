@@ -69,46 +69,47 @@ public class HabituationStrikeAndStateTests
         Assert.False(engine.IsPaused);
     }
 
-    // ── Case 3: tier 9 spike → PausedAwaitingUserConfirm, never auto-resumes ─
+    // ── Case 3: level 11 spike → PausedAwaitingUserConfirm, never auto-resumes ─
+    // (12-level scale: the confirm gate is level ≥ 10; 11 is comfortably inside it.)
 
     [Fact]
-    public void Tier9Spike_EntersPausedAwaitingUserConfirmAndStays()
+    public void Tier11Spike_EntersPausedAwaitingUserConfirmAndStays()
     {
         var engine = new HabituationEngine();
         Calm(engine, 240);
 
-        engine.Step(70.0, false, vimsTier: 9, dtSeconds: 1.0);
+        engine.Step(70.0, false, vimsTier: 11, dtSeconds: 1.0);
 
         Assert.True(engine.IsAwaitingUserConfirm);
         Assert.True(engine.IsPaused);
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
 
         // Drive an HOUR of calm — engine must NOT auto-resume.
-        for (int i = 0; i < 3600; i++) engine.Step(10.0, false, vimsTier: 9, dtSeconds: 1.0);
+        for (int i = 0; i < 3600; i++) engine.Step(10.0, false, vimsTier: 11, dtSeconds: 1.0);
         Assert.True(engine.IsAwaitingUserConfirm);
         Assert.True(engine.IsPaused);
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
     }
 
-    // ── Case 3 (E4): tier ≥ 8 confirm-gate, parameterised over profile × tier ─
+    // ── Case 3 (E4): level ≥ 10 confirm-gate, parameterised over profile × level ─
     // Generalises Case 3 above into a cross-product of {RESILIENT, TYPICAL,
-    // SENSITIVE} × {tier 8, 9, 10}. The tier ≥ 8 user-confirm gate is
+    // SENSITIVE} × {level 10, 11, 12}. The level ≥ 10 user-confirm gate is
     // profile-INDEPENDENT (HabituationProfileParams.GetPostSpikePauseMs returns
-    // requireUserConfirm = true for any vimsTier >= 8, regardless of the
+    // requireUserConfirm = true for any vimsTier >= 10, regardless of the
     // profile's pause numerics), so every combination must park in
     // PausedAwaitingUserConfirm and never auto-resume. Assertions mirror Case 3
     // exactly — none are weakened.
 
     [Theory]
-    [InlineData(HabituationProfile.Resilient, 8)]
-    [InlineData(HabituationProfile.Resilient, 9)]
     [InlineData(HabituationProfile.Resilient, 10)]
-    [InlineData(HabituationProfile.Typical, 8)]
-    [InlineData(HabituationProfile.Typical, 9)]
+    [InlineData(HabituationProfile.Resilient, 11)]
+    [InlineData(HabituationProfile.Resilient, 12)]
     [InlineData(HabituationProfile.Typical, 10)]
-    [InlineData(HabituationProfile.Sensitive, 8)]
-    [InlineData(HabituationProfile.Sensitive, 9)]
+    [InlineData(HabituationProfile.Typical, 11)]
+    [InlineData(HabituationProfile.Typical, 12)]
     [InlineData(HabituationProfile.Sensitive, 10)]
+    [InlineData(HabituationProfile.Sensitive, 11)]
+    [InlineData(HabituationProfile.Sensitive, 12)]
     public void HighTierSpike_EntersPausedAwaitingUserConfirmAndStays_AcrossProfiles(
         HabituationProfile profile, int tier)
     {
@@ -121,7 +122,7 @@ public class HabituationStrikeAndStateTests
 
         engine.Step(70.0, false, vimsTier: tier, dtSeconds: 1.0);
 
-        // Enters the confirm gate (mirrors Case 3, generalised to tier ≥ 8).
+        // Enters the confirm gate (mirrors Case 3, generalised to level ≥ 10).
         Assert.True(engine.IsAwaitingUserConfirm);
         Assert.True(engine.IsPaused);
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
@@ -133,23 +134,24 @@ public class HabituationStrikeAndStateTests
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
     }
 
-    // ── Case 3 negative control: tier 7 never enters the confirm gate ────────
-    // Tier 7 is the highest tier still below the confirm threshold. Across ALL
-    // profiles it must take the auto-resuming mid-pause (Cooldown), NOT the
-    // user-confirm park. This pins the boundary of the tier ≥ 8 gate so a
-    // regression that lowered the threshold to 7 would fail here.
+    // ── Case 3 negative control: level 9 never enters the confirm gate ────────
+    // Level 9 is the highest level still below the confirm threshold (12-level
+    // scale: gate is level ≥ 10). Across ALL profiles it must take the
+    // auto-resuming mid-pause (Cooldown), NOT the user-confirm park. This pins
+    // the boundary of the level ≥ 10 gate so a regression that lowered the
+    // threshold to 9 would fail here.
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
     [InlineData(HabituationProfile.Typical)]
     [InlineData(HabituationProfile.Sensitive)]
-    public void Tier7Spike_NeverEntersConfirmGate_AcrossProfiles(HabituationProfile profile)
+    public void Tier9Spike_NeverEntersConfirmGate_AcrossProfiles(HabituationProfile profile)
     {
         var engine = new HabituationEngine();
         engine.SetProfile(profile, "test_param");
-        Calm(engine, 240, tier: 7);
+        Calm(engine, 240, tier: 9);
 
-        engine.Step(70.0, false, vimsTier: 7, dtSeconds: 1.0);
+        engine.Step(70.0, false, vimsTier: 9, dtSeconds: 1.0);
 
         // Auto-resuming cooldown — explicitly NOT the confirm gate.
         Assert.False(engine.IsAwaitingUserConfirm);
@@ -165,7 +167,7 @@ public class HabituationStrikeAndStateTests
     {
         var engine = new HabituationEngine();
         Calm(engine, 240);
-        engine.Step(70.0, false, vimsTier: 9, dtSeconds: 1.0);
+        engine.Step(70.0, false, vimsTier: 11, dtSeconds: 1.0);
         Assert.True(engine.IsAwaitingUserConfirm);
 
         engine.AcknowledgeAndResume();
@@ -227,7 +229,7 @@ public class HabituationStrikeAndStateTests
     {
         var engine = new HabituationEngine();
         Calm(engine, 240);
-        engine.Step(70.0, false, vimsTier: 9, dtSeconds: 1.0);
+        engine.Step(70.0, false, vimsTier: 11, dtSeconds: 1.0);
         Assert.True(engine.IsAwaitingUserConfirm);
 
         // User (via chatbot) switches profile mid-pause.
@@ -319,10 +321,10 @@ public class HabituationStrikeAndStateTests
     }
 
     [Fact]
-    public void CurrentEngineState_PausedAwaiting_AfterTier9Spike()
+    public void CurrentEngineState_PausedAwaiting_AfterTier11Spike()
     {
         var engine = new HabituationEngine();
-        engine.Step(70.0, false, vimsTier: 9, dtSeconds: 1.0);
+        engine.Step(70.0, false, vimsTier: 11, dtSeconds: 1.0);
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
     }
 

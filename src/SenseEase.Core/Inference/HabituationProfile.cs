@@ -46,7 +46,7 @@ public enum HabituationProfile
     Typical,
 
     /// <summary>High reactivity. Cautious relaxation, low cap, strict
-    /// strike limit, mid-tier spikes get longer pauses. Tier ≥ 8 spikes
+    /// strike limit, mid-level spikes get longer pauses. Level ≥ 10 spikes
     /// require explicit user confirmation to resume.</summary>
     Sensitive,
 }
@@ -77,12 +77,12 @@ public sealed class HabituationProfileParams
     /// <summary>FOV percentage points added per relaxation step.</summary>
     public double StepMagnitudePp { get; }
 
-    /// <summary>Spike-recovery pause length for low-tier spikes
-    /// (VIMS tier ≤ 5). Engine resumes automatically after this.</summary>
+    /// <summary>Spike-recovery pause length for low-level spikes
+    /// (intensity level ≤ 6). Engine resumes automatically after this.</summary>
     public int PostSpikePauseLowMs { get; }
 
-    /// <summary>Spike-recovery pause length for mid-tier spikes
-    /// (VIMS tier 6 or 7). Engine resumes automatically after this.</summary>
+    /// <summary>Spike-recovery pause length for mid-level spikes
+    /// (intensity level 7–9). Engine resumes automatically after this.</summary>
     public int PostSpikePauseMidMs { get; }
 
     /// <summary>Hard ceiling on the accumulated FOV offset, in percentage
@@ -183,24 +183,25 @@ public sealed class HabituationProfileParams
         _ => throw new ArgumentOutOfRangeException(nameof(profile)),
     };
 
-    /// <summary>Tier-aware post-spike pause selector.
+    /// <summary>Level-aware post-spike pause selector (native 12-level scale,
+    /// rescaled from the prior 1..10 thresholds — same top-3 / mid-3 proportions).
     /// <list type="bullet">
-    ///   <item>Tier ≤ 5 → returns <see cref="PostSpikePauseLowMs"/>, requireUserConfirm = false</item>
-    ///   <item>Tier 6 or 7 → returns <see cref="PostSpikePauseMidMs"/>, requireUserConfirm = false</item>
-    ///   <item>Tier ≥ 8 → returns -1, requireUserConfirm = true (engine enters
+    ///   <item>Level ≤ 6 → returns <see cref="PostSpikePauseLowMs"/>, requireUserConfirm = false</item>
+    ///   <item>Level 7–9 → returns <see cref="PostSpikePauseMidMs"/>, requireUserConfirm = false</item>
+    ///   <item>Level ≥ 10 → returns -1, requireUserConfirm = true (engine enters
     ///         PausedAwaitingUserConfirm and stays there until AcknowledgeAndResume)</item>
     /// </list>
-    /// The high-tier user-confirm gate is a safety floor: under severe symptoms
+    /// The top-level user-confirm gate is a safety floor: under severe symptoms
     /// the engine refuses to silently resume on a timer; the user (or the
     /// chatbot on their explicit behalf) must affirm they're ready.</summary>
     public int GetPostSpikePauseMs(int vimsTier, out bool requireUserConfirm)
     {
-        if (vimsTier >= 8)
+        if (vimsTier >= 10)
         {
             requireUserConfirm = true;
             return -1;
         }
         requireUserConfirm = false;
-        return vimsTier >= 6 ? PostSpikePauseMidMs : PostSpikePauseLowMs;
+        return vimsTier >= 7 ? PostSpikePauseMidMs : PostSpikePauseLowMs;
     }
 }

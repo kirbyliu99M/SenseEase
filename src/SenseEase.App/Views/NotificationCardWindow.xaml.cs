@@ -506,7 +506,8 @@ public partial class NotificationCardWindow : Window
         if (_hasContent)
         {
             // v0.9.1 round-5: localized title. zh-only below the VIMS product
-            // term per user spec — "VIMS 視覺壓力 第 N 級 / 10 · 壓力指數 P".
+            // term per user spec — "VIMS 視覺壓力 第 N 級 / 12 · 壓力指數 P"
+            // (native 12-level scale — Adaptive Fit Q2=B; was / 10).
             // Removed the internal "(mask at 85)" debug suffix from the
             // user-facing surface; the dashboard chart still surfaces the 85
             // threshold for power users. Pressure is shown WITHOUT a "/100"
@@ -518,7 +519,7 @@ public partial class NotificationCardWindow : Window
             // SenseEase is DOING), with the raw tier/pressure demoted to a small
             // mono subline rather than headlining the card with telemetry.
             TitleText.Text = HeadlineForBand(_lastBand);
-            TelemetryText.Text = $"第 {_lastTier} 級 / 10　·　壓力 {Math.Round(_lastPressure)}";
+            TelemetryText.Text = $"第 {_lastTier} 級 / 12　·　壓力 {Math.Round(_lastPressure)}";
         }
         else
         {

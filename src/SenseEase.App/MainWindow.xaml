@@ -834,7 +834,7 @@
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
-                                            <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 10"/>
+                                            <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 12"/>
                                         </TextBlock>
                                         <TextBlock Text="VIMS Tier" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
