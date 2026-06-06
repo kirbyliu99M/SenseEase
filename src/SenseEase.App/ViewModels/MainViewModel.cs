@@ -384,6 +384,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>USER dashboard profile pills (RESILIENT / TYPICAL / SENSITIVE).
+    /// Unlike the in-chat picker (<see cref="OnChatbotProfilePickerSelected"/>),
+    /// which must stay on the SEVERED chatbot SwitchProfile path (Reading A: the
+    /// chatbot can no longer live-switch the profile), the user's own pick drives
+    /// the engine directly via the calibration-grade
+    /// <see cref="MockInferenceEngine.SetHabituationProfile"/> setter. These are two
+    /// genuinely separate paths — the sever touches ONLY the chatbot one, so the
+    /// dashboard pills work while the chatbot override stays a no-op.</summary>
+    private void OnUserProfileSelected(string profileName)
+    {
+        string canon = (profileName ?? string.Empty).Trim().ToUpperInvariant();
+        if (!Enum.TryParse<HabituationProfile>(canon, ignoreCase: true, out var profile))
+            return; // unknown profile string — ignore the click
+
+        if (_engine is MockInferenceEngine mock)
+        {
+            mock.SetHabituationProfile(profile, source: "user_dashboard");
+            // CurrentProfile reads the live engine profile; raise it here so the
+            // active pill repaints immediately even when sensing is stopped (it is
+            // also notified from UpdateFromState during live sensing).
+            OnPropertyChanged(nameof(CurrentProfile));
+        }
+    }
+
     /// <summary>Phase 5 Step 7 (v0.11, 2026-05-31): backstop for the primary
     /// Card-driven expiry path (<c>NotificationCardWindow.ProposalExpired</c>
     /// → <see cref="ExpireActiveProposal"/>). Card's 15s timer only exists
@@ -722,10 +746,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         });
         StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
         ResetStateCommand = new RelayCommand(_ => ResetState());
-        // Dashboard profile quick-access pills route through the SAME safety-
-        // checked path as the in-chat profile picker (CommandParameter is the
-        // canonical profile string "RESILIENT"/"TYPICAL"/"SENSITIVE").
-        SelectProfileCommand = new RelayCommand(o => OnChatbotProfilePickerSelected(this, o as string ?? string.Empty));
+        // Dashboard profile pills are the USER's own pick: drive the engine directly
+        // via SetHabituationProfile (NOT the severed chatbot SwitchProfile path —
+        // Reading A keeps the chatbot from live-switching the profile). CommandParameter
+        // is the canonical profile string "RESILIENT"/"TYPICAL"/"SENSITIVE".
+        SelectProfileCommand = new RelayCommand(o => OnUserProfileSelected(o as string ?? string.Empty));
         ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
         ToggleDemoModeCommand = new RelayCommand(_ => ToggleDemoMode());
         AnalyzeFeedbackCommand = new RelayCommand(async _ => await SubmitFeedbackAsync(),

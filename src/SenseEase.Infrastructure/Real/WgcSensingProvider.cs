@@ -111,10 +111,12 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     // D3 liveness contract: continuous sensing-liveness state. _unhealthy is the
     // edge-trigger latch so SensingHealthChanged fires only on TRANSITIONS, not
     // every frame. The liveness watchdog (OnLivenessWatchdog) rearms forever —
-    // unlike the one-shot Resume watchdog — so a SILENT stall during normal
-    // running (monitor sleep, lock-screen, RDP, a GPU TDR that doesn't throw) is
-    // caught: self-heal silently at the stall threshold, surface Faulted only if
-    // the self-heal hasn't restored frames by the (larger) faulted threshold.
+    // unlike the one-shot Resume watchdog — and keys off LOOP liveness (_lastPollAt,
+    // stamped every tick) rather than new-frame arrival. WGC emits no new frames on
+    // an idle/static screen (also monitor-sleep, lock-screen, RDP), which is healthy,
+    // not a stall — so only a wedged capture loop (OnTick stops firing) trips the
+    // self-heal / Faulted thresholds. Throwing faults (GPU TDR / device-removed) are
+    // surfaced + recovered by the OnTick catch instead.
     private readonly Timer _livenessTimer;
     private volatile bool _unhealthy;
     private const int SensingStalledThresholdMs = 3000; // silent self-heal trigger
@@ -213,7 +215,8 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private volatile bool _paused;
     private DateTime _resumedAt;
     private bool _watchdogScheduled;
-    private DateTime _lastFrameProcessedAt; // updated each successful OnTick
+    private DateTime _lastFrameProcessedAt; // updated each successful OnTick (real frame) — clears faults via MarkHealthy
+    private DateTime _lastPollAt;           // updated every non-throwing OnTick (loop-liveness clock the watchdog keys off)
 
     // v0.8 hotfix: warm-up suppression. User reported that at app startup
     // the VIMS pressure spiked (~60% FOV reduction visible as a dimmed
@@ -356,8 +359,10 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     /// one-shot Resume watchdog. Heal-first / surface-second so transient hiccups
     /// (monitor wake, brief TDR) never reach the user: at the stall threshold it
     /// triggers the same silent Stop()+Start() self-heal the fault path uses; only
-    /// if frames are STILL absent at the (larger) faulted threshold does it surface
-    /// a fault. Suppressed while paused, warming up, or before the first frame.
+    /// if the capture loop is STILL unresponsive at the (larger) faulted threshold
+    /// does it surface a fault. Keys off _lastPollAt (loop liveness), so an idle
+    /// screen with no new frames is NOT mistaken for a stall. Suppressed while
+    /// paused, warming up, or before the first tick.
     /// Never throws.</summary>
     private void OnLivenessWatchdog(object? _)
     {
@@ -365,18 +370,25 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         {
             if (!_running || _paused) return;                 // not actively sensing
             if (DateTime.UtcNow < _warmupUntilUtc) return;    // pipeline still settling
-            if (_lastFrameProcessedAt == default) return;     // no frame yet (Start in progress)
+            if (_lastPollAt == default) return;               // no tick yet (Start in progress)
 
-            double ageMs = (DateTime.UtcNow - _lastFrameProcessedAt).TotalMilliseconds;
+            // Key off the LOOP-liveness poll, not new-frame arrival. WGC produces no
+            // new frames on an idle/static screen (or monitor-sleep / lock / RDP), so
+            // a frame-arrival watchdog would Stop()+Start() every few seconds on a
+            // quiet desktop — the "capture flaps on/off" bug. A stale poll instead
+            // means OnTick itself stopped firing (timer wedged / callback hung), the
+            // real fault worth healing. Throwing faults (GPU TDR / device-removed)
+            // are surfaced + recovered by the OnTick catch, independent of this clock.
+            double ageMs = (DateTime.UtcNow - _lastPollAt).TotalMilliseconds;
             if (ageMs > SensingFaultedThresholdMs)
             {
-                WgcLog($"Liveness watchdog: no real frame for {ageMs:F0} ms (> {SensingFaultedThresholdMs}) → surfacing Faulted.");
+                WgcLog($"Liveness watchdog: capture loop unresponsive for {ageMs:F0} ms (> {SensingFaultedThresholdMs}) → surfacing Faulted.");
                 MarkUnhealthy();
                 ScheduleFaultRecovery();  // keep attempting recovery (coalesced by _faulted)
             }
             else if (ageMs > SensingStalledThresholdMs)
             {
-                WgcLog($"Liveness watchdog: no real frame for {ageMs:F0} ms (> {SensingStalledThresholdMs}) → silent self-heal.");
+                WgcLog($"Liveness watchdog: capture loop unresponsive for {ageMs:F0} ms (> {SensingStalledThresholdMs}) → silent self-heal.");
                 ScheduleFaultRecovery();  // heal first, do NOT surface yet
             }
         }
@@ -567,6 +579,10 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         // pressure spike → overlay stays at neutral FOV until real
         // measurements are available.
         _warmupUntilUtc = DateTime.UtcNow.AddSeconds(WarmupDurationSec);
+        // Seed both liveness clocks at Start so the first post-warmup watchdog tick
+        // never sees a stale poll (the watchdog is suppressed until warmup ends, and
+        // OnTick stamps _lastPollAt every tick from here on).
+        _lastPollAt = _lastFrameProcessedAt = DateTime.UtcNow;
         WgcLog($"Start complete — timer running. Warmup until {_warmupUntilUtc:HH:mm:ss.fff}");
         _timer.Change(SenseDefaults.WgcCaptureIntervalMs, SenseDefaults.WgcCaptureIntervalMs);
         // D3: arm the continuous liveness watchdog alongside the capture timer.
@@ -627,6 +643,15 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         // without disposing the capture session (cheap to resume).
         if (_paused) return;
         if (_contentWidth == 0 || _contentHeight == 0) return;
+
+        // Liveness poll stamp: mark that the capture loop is RUNNING this tick,
+        // independent of whether a new frame arrived. WGC only delivers frames on
+        // screen CHANGE, so an idle/static screen (also monitor-sleep, lock-screen,
+        // RDP) legitimately yields no new frames — that must NOT look like a stall.
+        // The watchdog keys off this poll time; _lastFrameProcessedAt (real frame)
+        // is kept only to clear faults via MarkHealthy. A genuinely wedged loop
+        // stops stamping → watchdog recovers; throwing faults hit the catch below.
+        _lastPollAt = DateTime.UtcNow;
 
         // v0.8 hotfix: warm-up suppression. While the pipeline is settling
         // (first WarmupDurationSec after Start), emit OFI=0 and keep
