@@ -222,6 +222,26 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // Engine stays on RESILIENT default; if profileStore is non-null we'll
         // write a fresh snapshot on the next persist tick — see
         // _profileSnapshotDirty initial state below.
+        //
+        // WAVE W2.0-E (fail-open observability): a store WAS wired but Load()
+        // returned null. That null is indistinguishable here between three
+        // causes — genuine first run (file truly absent), a CORRUPT/unparsable
+        // file, or a REFUSED schema downgrade — and in the latter two the
+        // engine has just SILENTLY discarded a calibrated profile (profile +
+        // source + scale + advisory) and reverted to RESILIENT/source='default'.
+        // That loss leaves no trace today. Emit ONE non-blocking durable record
+        // to the same IEventLogStore sink the rest of this file uses (file-backed
+        // ⇒ 7-day rolling JSONL, so it round-trips ReadDurable) so the silent
+        // downgrade is auditable after the fact. No UI alarm; best-effort write.
+        // Skipped when profileStore is null (headless / unit-test contexts where
+        // there is no profile to lose).
+        else if (profileStore is not null)
+        {
+            AppendRecoveryEvent("Recovery.ProfileLoadNull",
+                "habituation profile Load() returned null (missing / corrupt / refused-downgrade); " +
+                $"engine reverted to {_habituation.CurrentProfile.ToString().ToUpperInvariant()} " +
+                $"source='{_habituation.ProfileSource}' (calibration state, if any, was not restored)");
+        }
 
         if (adjustmentLog is not null)
         {
@@ -1134,6 +1154,32 @@ public sealed class MockInferenceEngine : IInferenceEngine
             AppendHabituationEvent("Habituation.StateChange",
                 $"{_lastSavedEngineState} → {es}");
         }
+    }
+
+    /// <summary>WAVE W2.0-E: emit the boot-time fail-open recovery record when a
+    /// wired profile store returns a null snapshot and the engine silently reverts
+    /// to the RESILIENT default. Routes through the SAME durable
+    /// <see cref="IEventLogStore"/> sink as the habituation lifecycle events so the
+    /// silent calibration-state loss round-trips <see cref="IEventLogStore.ReadDurable"/>.
+    /// Best-effort and null-safe so it is callable from the constructor: a missing
+    /// event log or a logging failure never blocks engine boot (fail-open).</summary>
+    private void AppendRecoveryEvent(string category, string message)
+    {
+        if (_eventLog is null) return;
+        try
+        {
+            _eventLog.Append(new EventLogEntry
+            {
+                Timestamp    = DateTime.UtcNow,
+                Category     = category,
+                Message      = message,
+                Ofi          = Current.RawOpticalFlowIndex,
+                Pressure     = Current.Pressure,
+                FovRadius    = Current.FovRadiusPercent,
+                MaskSnapshot = Current.MaskActive ? "ON" : "off",
+            });
+        }
+        catch { /* best-effort; recovery diagnostics must never crash engine boot */ }
     }
 
     private void AppendHabituationEvent(string category, string message)

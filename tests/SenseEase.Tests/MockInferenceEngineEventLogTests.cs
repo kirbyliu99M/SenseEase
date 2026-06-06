@@ -1,4 +1,6 @@
 using System.Linq;
+using SenseEase.Core.Abstractions;
+using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Storage;
 using Xunit;
@@ -18,6 +20,58 @@ namespace SenseEase.Tests;
 /// </summary>
 public class MockInferenceEngineEventLogTests
 {
+    /// <summary>A wired profile store whose Load() always returns null — the
+    /// fail-open shape WAVE W2.0-E targets (missing / corrupt / refused
+    /// schema-downgrade all surface as a null snapshot at the engine boundary).
+    /// Non-null itself, so the engine knows a store WAS supplied.</summary>
+    private sealed class NullLoadProfileStore : IHabituationProfileStore
+    {
+        public HabituationProfileSnapshot? Load() => null;
+        public void Save(HabituationProfileSnapshot snapshot) { /* no-op */ }
+    }
+
+    [Fact]
+    public void NullProfileLoad_WithWiredStore_EmitsRecoveryRecord()
+    {
+        // WAVE W2.0-E: when a profile store IS wired but Load() returns null,
+        // the engine silently reverts to RESILIENT + source='default', losing
+        // any calibrated state. That silent loss must leave one durable,
+        // non-blocking audit record on the event-log sink so it is traceable
+        // after the fact. No UI alarm — purely a diagnostics breadcrumb.
+        var eventLog = new InMemoryEventLogStore();
+        var engine = new MockInferenceEngine(
+            adjustmentLog: null,
+            habituationStore: null,
+            profileStore: new NullLoadProfileStore(),
+            eventLog: eventLog);
+
+        var recovery = eventLog.Recent()
+            .Where(e => e.Category == "Recovery.ProfileLoadNull")
+            .ToList();
+        var rec = Assert.Single(recovery);
+        // The record names the fallback the engine silently took so the loss is
+        // self-describing without cross-referencing other state.
+        Assert.Contains("RESILIENT", rec.Message);
+        Assert.Contains("default", rec.Message);
+    }
+
+    [Fact]
+    public void NullProfileStore_EmitsNoRecoveryRecord()
+    {
+        // Symmetric guard: when NO profile store is wired at all (headless /
+        // unit-test contexts), there is no calibration state to lose, so the
+        // recovery record must NOT fire — it would be noise, not a signal.
+        var eventLog = new InMemoryEventLogStore();
+        var engine = new MockInferenceEngine(
+            adjustmentLog: null,
+            habituationStore: null,
+            profileStore: null,
+            eventLog: eventLog);
+
+        Assert.DoesNotContain(eventLog.Recent(),
+            e => e.Category == "Recovery.ProfileLoadNull");
+    }
+
     [Fact]
     public void ApplyUserFeedback_SevereDelta_EmitsSpikeAndStateChange()
     {
