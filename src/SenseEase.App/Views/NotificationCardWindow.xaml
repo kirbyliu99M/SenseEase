@@ -1,6 +1,7 @@
 <Window x:Class="SenseEase.App.Views.NotificationCardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
         Title="SenseEase notification"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -216,7 +217,7 @@
                             CornerRadius="6"
                             Padding="8,6"
                             Margin="0,0,0,8"
-                            AutomationProperties.Name="安全提醒 / Safety note"
+                            AutomationProperties.Name="{loc:T Zh='安全提醒', En='Safety note'}"
                             Visibility="{Binding Visibility, ElementName=ProposalSafetyNoteText}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#x26A0;"
@@ -297,6 +298,9 @@
                          SetContent) + static separator + 介入調節/Adjust label,
                          with TelemetryText as a small sub-line. -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
+                        <!-- The 5級「動態感」status is the ONLY user-facing status; the label
+                             ("動態感 · 極低" / "Very Calm") is self-contained, no caption. -->
+
                         <!-- HUD-card rework item 1: the LEFT primary label is the
                              PLAIN-LANGUAGE SCREEN STATUS (the band feel — what the
                              screen is doing right now), set by the host via
@@ -315,15 +319,15 @@
                                    Foreground="{DynamicResource TextPrimary}"
                                    VerticalAlignment="Center"
                                    TextTrimming="None"
-                                   AutomationProperties.HelpText="畫面狀態 / Screen status"/>
+                                   AutomationProperties.HelpText="{loc:T Zh='畫面狀態', En='Screen status'}"/>
                         <TextBlock x:Name="TelemetryText" Text="" Visibility="Collapsed"
                                    FontFamily="Consolas, 'Cascadia Mono', monospace" FontSize="11"
                                    Foreground="{DynamicResource TextSecondary}"
-                                   AutomationProperties.HelpText="感測讀數 / Sensing readout"/>
+                                   AutomationProperties.HelpText="{loc:T Zh='感測讀數', En='Sensing readout'}"/>
                         <TextBlock x:Name="BodyText" Text="" Visibility="Collapsed"
                                    FontSize="11" Foreground="{DynamicResource TextSecondary}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.HelpText="通知內容 / Notification details"/>
+                                   AutomationProperties.HelpText="{loc:T Zh='通知內容', En='Notification details'}"/>
                     </StackPanel>
 
                     <!-- RIGHT: controls. Top row = close (X) + flip. Bottom row =
@@ -345,7 +349,7 @@
                                 Foreground="{DynamicResource TextTertiary}"
                                 FontSize="16" FontWeight="Bold"
                                 Cursor="Hand"
-                                AutomationProperties.Name="關閉通知 / Close"
+                                AutomationProperties.Name="{loc:T Zh='關閉通知', En='Close'}"
                                 Click="OnCloseClicked"/>
 
                         <!-- CENTER controls + bottom-right flip. -->
@@ -362,8 +366,8 @@
                                     Content="&#x2212;"
                                     Margin="0,0,6,0"
                                     Click="OnInterventionDownClicked"
-                                    AutomationProperties.Name="減弱介入 / Adjust down"
-                                    ToolTip="減弱介入 / Ease less"/>
+                                    AutomationProperties.Name="{loc:T Zh='減弱介入', En='Adjust down'}"
+                                    ToolTip="{loc:T Zh='減弱介入', En='Ease less'}"/>
                             <TextBlock x:Name="LevelText"
                                        Text="L1"
                                        MinWidth="26"
@@ -372,15 +376,15 @@
                                        TextAlignment="Center"
                                        VerticalAlignment="Center"
                                        Margin="0,0,6,0"
-                                       AutomationProperties.Name="目前介入級別 / Current level"
-                                       ToolTip="目前介入級別 / Current intervention level"/>
+                                       AutomationProperties.Name="{loc:T Zh='目前介入級別', En='Current level'}"
+                                       ToolTip="{loc:T Zh='目前介入級別', En='Current intervention level'}"/>
                             <Button x:Name="InterventionUpBtn"
                                     Style="{StaticResource RoundPillButtonStyle}"
                                     Content="+"
                                     Margin="0,0,8,0"
                                     Click="OnInterventionUpClicked"
-                                    AutomationProperties.Name="加強介入 / Adjust up"
-                                    ToolTip="加強介入 / Ease more"/>
+                                    AutomationProperties.Name="{loc:T Zh='加強介入', En='Adjust up'}"
+                                    ToolTip="{loc:T Zh='加強介入', En='Ease more'}"/>
 
                             <!-- thin separator -->
                             <Border Width="1" Height="22"
@@ -397,9 +401,9 @@
                                       Margin="0,0,6,0"
                                       Cursor="Hand"
                                       Foreground="{DynamicResource Accent}"
-                                      ToolTip="暫停或恢復所有防護（不會關閉應用程式）"
-                                      AutomationProperties.Name="暫停或恢復防護 / Pause or resume protection"
-                                      AutomationProperties.HelpText="暫停或恢復所有防護（不會關閉應用程式）"
+                                      ToolTip="{loc:T Zh='暫停或恢復所有防護（不會關閉應用程式）', En='Pause or resume all protection (does not quit the app)'}"
+                                      AutomationProperties.Name="{loc:T Zh='暫停或恢復防護', En='Pause or resume protection'}"
+                                      AutomationProperties.HelpText="{loc:T Zh='暫停或恢復所有防護（不會關閉應用程式）', En='Pause or resume all protection (does not quit the app)'}"
                                       Checked="OnPowerSaveToggled"
                                       Unchecked="OnPowerSaveToggled">
                                 <CheckBox.Template>
@@ -435,11 +439,11 @@
                             <!-- 設定 / Settings -->
                             <Button x:Name="SettingsBtn"
                                     Style="{StaticResource PillButtonStyle}"
-                                    Content="設定 / Settings"
+                                    Content="{loc:T Zh='設定', En='Settings'}"
                                     Margin="0,0,8,0"
                                     Click="OnSettingsClicked"
-                                    AutomationProperties.Name="設定 / Settings"
-                                    ToolTip="設定 / Settings"/>
+                                    AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}"
+                                    ToolTip="{loc:T Zh='設定', En='Settings'}"/>
 
                             <!-- BOTTOM-RIGHT: flip to chat face (↩). -->
                             <Button x:Name="FlipBtn"
@@ -452,8 +456,8 @@
                                     Cursor="Hand"
                                     VerticalAlignment="Center"
                                     Click="OnFlipClicked"
-                                    AutomationProperties.Name="開啟對話 / Open chat"
-                                    ToolTip="跟 SenseEase 說話 / Talk to SenseEase"/>
+                                    AutomationProperties.Name="{loc:T Zh='開啟對話', En='Open chat'}"
+                                    ToolTip="{loc:T Zh='跟 SenseEase 說話', En='Talk to SenseEase'}"/>
                         </StackPanel>
                     </Grid>
 
@@ -493,8 +497,8 @@
                             VerticalAlignment="Center"
                             Margin="0,0,8,0"
                             Click="OnFlipClicked"
-                            AutomationProperties.Name="返回 / Back"
-                            ToolTip="返回 / Back"/>
+                            AutomationProperties.Name="{loc:T Zh='返回', En='Back'}"
+                            ToolTip="{loc:T Zh='返回', En='Back'}"/>
 
                     <TextBox Grid.Row="0" Grid.Column="1"
                              x:Name="ChatInputBox"
@@ -511,7 +515,7 @@
                         <TextBox.Resources>
                             <VisualBrush x:Key="PlaceholderBrush" Stretch="None" AlignmentX="Left">
                                 <VisualBrush.Visual>
-                                    <TextBlock Text="跟 SenseEase 說話" Foreground="{DynamicResource TextTertiary}" FontSize="12" Margin="2,0,0,0"/>
+                                    <TextBlock Text="{loc:T Zh='跟 SenseEase 說話', En='Talk to SenseEase'}" Foreground="{DynamicResource TextTertiary}" FontSize="12" Margin="2,0,0,0"/>
                                 </VisualBrush.Visual>
                             </VisualBrush>
                         </TextBox.Resources>

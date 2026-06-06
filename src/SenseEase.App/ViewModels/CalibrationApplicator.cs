@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using SenseEase.App.Localization;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
@@ -92,29 +93,35 @@ public static class CalibrationApplicator
         return string.Join("、", labels);
     }
 
-    /// <summary>Bilingual advisory text per spec §6. Returns null when no
-    /// advisory applies (i.e. <paramref name="advisoryKey"/> is null or
+    /// <summary>Advisory text per spec §6, in the active UI language. Returns null
+    /// when no advisory applies (i.e. <paramref name="advisoryKey"/> is null or
     /// unrecognised).</summary>
-    internal static string? BuildAdvisory(string? advisoryKey) => advisoryKey switch
+    internal static string? BuildAdvisory(string? advisoryKey)
     {
-        "vestibular" =>
-            "醫療提醒 / Medical advisory:\n"
-          + "您填答有前庭/內耳相關診斷。系統已套用最敏感的防護設定（觸發壓力降至 50，"
-          + "嚴重事件上限設為 1）。若您持續感到不適或正在就醫，"
-          + "請務必諮詢您的醫療專業人員。\n"
-          + "You reported a diagnosed vestibular condition. SenseEase has applied the "
-          + "most sensitive protection (trigger pressure lowered to 50, severe-event "
-          + "limit set to 1). If discomfort persists or you are seeing a doctor, "
-          + "please consult your healthcare provider.",
+        string header = LocalizationManager.Current.Pick("醫療提醒", "Medical advisory");
+        return advisoryKey switch
+        {
+            "vestibular" =>
+                header + ":\n"
+              + LocalizationManager.Current.Pick(
+                    "您填答有前庭/內耳相關診斷。系統已套用最敏感的防護設定（觸發壓力降至 50，"
+                  + "嚴重事件上限設為 1）。若您持續感到不適或正在就醫，"
+                  + "請務必諮詢您的醫療專業人員。",
+                    "You reported a diagnosed vestibular condition. SenseEase has applied the "
+                  + "most sensitive protection (trigger pressure lowered to 50, severe-event "
+                  + "limit set to 1). If discomfort persists or you are seeing a doctor, "
+                  + "please consult your healthcare provider."),
 
-        "high_risk_combo" =>
-            "醫療提醒 / Medical advisory:\n"
-          + "您回報高強度（Q3=5）並具有兩項以上長期風險因子。"
-          + "若這種強度反應經常發生，建議您諮詢醫療專業人員以排除其他原因。\n"
-          + "You reported high intensity (Q3=5) combined with two or more long-term risk "
-          + "factors. If this level of reaction recurs, consider consulting a healthcare "
-          + "provider to rule out other causes.",
+            "high_risk_combo" =>
+                header + ":\n"
+              + LocalizationManager.Current.Pick(
+                    "您回報高強度（Q3=5）並具有兩項以上長期風險因子。"
+                  + "若這種強度反應經常發生，建議您諮詢醫療專業人員以排除其他原因。",
+                    "You reported high intensity (Q3=5) combined with two or more long-term risk "
+                  + "factors. If this level of reaction recurs, consider consulting a healthcare "
+                  + "provider to rule out other causes."),
 
-        _ => null,
-    };
+            _ => null,
+        };
+    }
 }

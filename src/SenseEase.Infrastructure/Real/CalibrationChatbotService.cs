@@ -150,10 +150,14 @@ public sealed class CalibrationChatbotService : IDisposable
             return;
         }
 
-        // Lazy system-prompt selection: detect zh vs en from the first user message.
+        // Lazy system-prompt selection. Primary source (Kirby's decision: "AI
+        // replies follow the language toggle"): the live UI-language toggle, read
+        // via the host-wired ChatbotUiLanguage provider. When that provider is
+        // unwired (headless tests / non-WPF hosts), fall back to detecting zh vs en
+        // from the first user message.
         if (_systemPrompt is null)
         {
-            bool zh = IsHan(userText);
+            bool zh = ChatbotUiLanguage.IsEnglish is bool en ? !en : IsHan(userText);
             _systemPrompt = BuildSystemPrompt(zh, _pendingPreviousSnapshot, _pendingCurrentSensor);
         }
 

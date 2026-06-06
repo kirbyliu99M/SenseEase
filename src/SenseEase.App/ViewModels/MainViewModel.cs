@@ -641,6 +641,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                            $"advisory={bootSnap.MedicalAdvisoryShown?.ToString() ?? "none"}",
             });
         }
+        // Kirby's decision: "AI replies follow the language toggle." Wire the live
+        // UI-language toggle into Infrastructure via the ChatbotUiLanguage static
+        // holder (Infrastructure must NOT reference the App assembly, so the App
+        // pushes the toggle down here — same cross-boundary pattern as
+        // LlamaSessionKey). The lambda reads the singleton at call time, so the
+        // chatbot + calibration prompts pin the reply language to whatever the
+        // toggle is set to at the moment each message is sent.
+        ChatbotUiLanguage.IsEnglishProvider =
+            () => SenseEase.App.Localization.LocalizationManager.Current.IsEnglish;
+
         var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
         ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
 

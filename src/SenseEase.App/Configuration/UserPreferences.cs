@@ -78,15 +78,14 @@ public sealed class UserPreferences
     //       load cleanly; the missing field defaults to "Auto" (follow Windows),
     //       which is the pre-setting behaviour, so upgrading installs keep their
     //       OS-following theme until the user picks Light/Dark explicitly.
-    //   4 — Language setting (2026-06-07) adds language_mode. Old v=1..3 files
-    //       load cleanly; the missing field defaults to "ChineseTraditional"
-    //       (the app's primary language), so upgrading installs keep zh-Hant
-    //       until the user picks English in Settings → 語言 / Language.
+    //       (Also at v=3, additive: language_mode (2026-06-07). The roll-forward
+    //       defaults a missing language_mode to "ChineseTraditional" like any other
+    //       new field, so no version bump was needed — old v=1..3 files load cleanly.)
     [JsonPropertyName("schema_version")]
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     /// <summary>Current canonical schema version this build writes.</summary>
-    internal const int CurrentSchemaVersion = 4;
+    internal const int CurrentSchemaVersion = 3;
 
     /// <summary>Toggle A — auto-expand notification card on tier-up / spike.
     /// Default <c>false</c> per spec §4: passive signal first, active

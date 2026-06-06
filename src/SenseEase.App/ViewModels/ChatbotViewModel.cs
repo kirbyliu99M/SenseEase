@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using SenseEase.App.Configuration;
+using SenseEase.App.Localization;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
@@ -917,8 +918,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 Parameter = "Reset", Source = "reset", Utterance = utterance,
             });
             AdjustmentApplied?.Invoke(this, EventArgs.Empty);
-            string resetMsg = "⚙ 已重設所有個人化設定 / Overlay settings reset to default";
-            return _isOverlayVisible() ? resetMsg : resetMsg + "（開啟 Overlay 以查看 / open the overlay to see it）";
+            string resetMsg = "⚙ " + LocalizationManager.Current.Pick(
+                "已重設所有個人化設定", "Overlay settings reset to default");
+            if (_isOverlayVisible()) return resetMsg;
+            return resetMsg + LocalizationManager.Current.Pick(
+                "（開啟 Overlay 以查看）", "（open the overlay to see it）");
         }
 
         // Each tuple: (label, formatted-change-string). Only populated for non-zero
@@ -982,11 +986,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         labelWidth += 2; // gutter between columns
 
         var sb = new StringBuilder();
-        sb.Append("**系統調整 / System adjustment**\n");
+        sb.Append("**").Append(LocalizationManager.Current.Pick("系統調整", "System adjustment")).Append("**\n");
         foreach (var (label, change) in rows)
             sb.Append('`').Append(label.PadRight(labelWidth)).Append(change).Append("`\n");
         if (!_isOverlayVisible())
-            sb.Append("\n_開啟 Overlay 以查看 / Open the overlay to see it_");
+            sb.Append("\n_").Append(LocalizationManager.Current.Pick(
+                "開啟 Overlay 以查看", "Open the overlay to see it")).Append('_');
         return sb.ToString();
     }
 

@@ -365,7 +365,35 @@ public partial class NotificationCardWindow : Window
         Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
         LocationChanged += OnCardLocationChanged;
-        Closed += (_, _) => _idleTimer.Stop();
+        // LIVE language toggle: the code-set strings (the 5級 headline + the
+        // power-save override title/body) don't auto-update like the XAML
+        // {loc:T} bindings do, so re-run the content setter whenever the user
+        // flips language in Settings. It re-applies from the stored
+        // _lastBand/_lastTier/_lastPressure (and the power-save override).
+        // Unsubscribed on Close so the card can't leak onto the long-lived
+        // LocalizationManager singleton.
+        SenseEase.App.Localization.LocalizationManager.Current.PropertyChanged += OnUiLanguageChanged;
+        Closed += (_, _) =>
+        {
+            _idleTimer.Stop();
+            SenseEase.App.Localization.LocalizationManager.Current.PropertyChanged -= OnUiLanguageChanged;
+        };
+    }
+
+    /// <summary>LIVE language toggle: re-apply the code-set card text (the 5級
+    /// headline / power-save override) when the UI language changes. The XAML
+    /// {loc:T} button labels + a11y names update themselves via their own live
+    /// bindings; only the strings this code-behind assigns need the manual
+    /// re-run. Re-uses the cached _lastBand/_lastTier/_lastPressure so no caller
+    /// has to re-push content.</summary>
+    private void OnUiLanguageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is null
+            || e.PropertyName == nameof(SenseEase.App.Localization.LocalizationManager.Language)
+            || e.PropertyName == nameof(SenseEase.App.Localization.LocalizationManager.IsEnglish))
+        {
+            ApplyContentToUi();
+        }
     }
 
     /// <summary>HUD-card rework item 3: pick an acrylic scrim that suits the
@@ -690,9 +718,11 @@ public partial class NotificationCardWindow : Window
     {
         if (_isPowerSaveActive)
         {
-            TitleText.Text = "VIMS · 已暫停";
+            TitleText.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                "VIMS · 已暫停", "VIMS · Paused");
             TelemetryText.Text = string.Empty;
-            BodyText.Text  = "防護已暫停，點一下即可恢復。";
+            BodyText.Text  = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                "防護已暫停，點一下即可恢復。", "Protection is paused. Tap to resume.");
             return;
         }
 
@@ -711,10 +741,13 @@ public partial class NotificationCardWindow : Window
             // upper bound (real values can exceed 300 under sustained spikes)
             // so a "/100" suffix would mislead users into thinking the scale
             // caps at 100.
-            // BC-1: plain-language, app-action title keyed off the band (what
-            // SenseEase is DOING), with the raw tier/pressure demoted to a small
-            // mono subline rather than headlining the card with telemetry.
-            TitleText.Text = HeadlineForBand(_lastBand);
+            // BC-1: the headline is the LANGUAGE-AWARE 5級「動態感」status label — the ONLY
+            // user-facing status (the screen-motion indicator), self-contained
+            // ("動態感 · 極低" / "Very Calm"). Single source: ComfortBands.FeelLabelLocalized
+            // (tier ≤ 0 → 準備中 / Getting ready). Re-picks live on a language toggle
+            // (the LocalizationManager subscription re-runs this setter).
+            TitleText.Text = SenseEase.App.Converters.ComfortBands.FeelLabelLocalized(
+                _lastTier, SenseEase.App.Localization.LocalizationManager.Current.IsEnglish);
             TelemetryText.Text = $"第 {_lastTier} 級 / 12　·　壓力 {Math.Round(_lastPressure)}";
         }
         else
@@ -727,19 +760,10 @@ public partial class NotificationCardWindow : Window
         BodyText.Text = body;
     }
 
-    // The HUD's primary label is the SCREEN'S PLAIN COMFORT STATUS — the SAME
-    // vocabulary as the Dashboard hero (TierToComfortLabel) and the tray, so all
-    // three always agree. The 5級 bands collapse onto the 3 comfort tokens:
-    // VeryHigh|High → 平穩 (Steady), Medium → 上升 (Rising), Low|VeryLow → 較高 (High).
-    private static string HeadlineForBand(TierColorPalette.TierBand band) => band switch
-    {
-        TierColorPalette.TierBand.VeryHigh => "平穩",
-        TierColorPalette.TierBand.High     => "平穩",
-        TierColorPalette.TierBand.Medium   => "上升",
-        TierColorPalette.TierBand.Low      => "較高",
-        TierColorPalette.TierBand.VeryLow  => "較高",
-        _                                  => "平穩",
-    };
+    // The HUD's primary label is now the LANGUAGE-AWARE 5級 動態感 motion label,
+    // produced inline in ApplyContentToUi via ComfortBands.FeelLabelLocalized
+    // (single source shared with the dashboard hero / pill / tray). The old
+    // band→3-token headline map (平穩/上升/較高) was retired with that switch.
 
     // D4: calm, app-action body copy — what SenseEase is doing, no detective
     // "偵測到…" register, no urgent imperatives (retires the banned phrases).

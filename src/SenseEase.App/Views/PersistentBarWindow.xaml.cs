@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using SenseEase.App.Configuration;
+using SenseEase.App.Localization;
 
 namespace SenseEase.App.Views;
 
@@ -127,6 +128,12 @@ public partial class PersistentBarWindow : Window
         // computed in OnLoaded points at a now-stale work-area and the
         // proximity poller's cursor-distance maths gives the wrong answer.
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+
+        // Live EN / 繁體中文 toggle: the bar carries no visible text, but its
+        // accessible name announces the 5級 level in the active language. Re-pick
+        // it when the language flips so a screen reader follows the toggle without
+        // a restart. Singleton INotifyPropertyChanged ⇒ MUST -= in OnClosed.
+        LocalizationManager.Current.PropertyChanged += OnLanguageChanged;
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -134,6 +141,17 @@ public partial class PersistentBarWindow : Window
         _proximityTimer?.Stop();
         // Detach the static-event subscription so the bar can be GC'd.
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        LocalizationManager.Current.PropertyChanged -= OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(LocalizationManager.Language) or nameof(LocalizationManager.IsEnglish)))
+            return;
+        // Re-pick the bar's accessible name in the new language. Dispatcher.Invoke
+        // because the language toggle may fire from a non-UI context; the guard in
+        // UpdateAutomationName keeps the paused-name precedence intact while sleeping.
+        Dispatcher.BeginInvoke(new Action(() => UpdateAutomationName(_currentTier)));
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -252,10 +270,11 @@ public partial class PersistentBarWindow : Window
 
         // 5級 動態感: derive the user-facing band label from the single-source
         // helpers so the spoken level can't drift from the colour the user sees.
-        // FeelLabel(band) is the 中文 級 text; pair it with FeelLabelEn for the
-        // bilingual a11y name (EN / 中文) convention used elsewhere.
+        // Picked for the active UI language (live EN / 繁體中文 toggle) so the bar's
+        // accessible name announces the 級 in a single language, never "EN / 中文".
         var band = TierColorPalette.BandForTier(tier);
-        string tierText = $"{TierColorPalette.FeelLabelEn(band)} / {TierColorPalette.FeelLabel(band)}";
+        string tierText = LocalizationManager.Current.Pick(
+            TierColorPalette.FeelLabel(band), TierColorPalette.FeelLabelEn(band));
         System.Windows.Automation.AutomationProperties.SetName(
             this, $"{AutomationNameBase}: {tierText}");
     }

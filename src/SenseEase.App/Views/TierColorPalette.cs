@@ -286,29 +286,34 @@ public static class TierColorPalette
         _     => TierBand.VeryLow,  // L11–12 (and defensively ≥ 13)
     };
 
-    /// <summary>The user-facing 5級 動態感 label (中文) for a 級 — the single source
-    /// every surface (bar / tray / card) uses so the intensity language can't drift.
-    /// "動態感" describes the screen (極高 = most natural, 極低 = most stabilized),
-    /// deliberately non-alarming. §6-safe: no diagnosis/treatment/optimisation claims.</summary>
+    /// <summary>The user-facing 5級「畫面動態感」status label (中文) — the ONLY status
+    /// shown to end users, and the single source every surface (bar / tray / card / hero)
+    /// uses so the wording can't drift. ONE axis, correct polarity: a calm / stable screen
+    /// is LOW 動態感, a busy / dynamic screen is HIGH 動態感. Per the unified-measurement
+    /// directive (2026-06-07): L1–2 極低 (Very Calm) … L11–12 極高 (Very Dynamic). The band
+    /// enum is the internal comfort framing — a VeryHigh-comfort band (L1–2) is the most
+    /// natural / stable screen, hence the LOWEST 動態感 (極低). §6-safe (no medical claims).</summary>
     public static string FeelLabel(TierBand band) => band switch
     {
-        TierBand.VeryHigh => "極高",
-        TierBand.High     => "高",
-        TierBand.Medium   => "中",
-        TierBand.Low      => "低",
-        TierBand.VeryLow  => "極低",
-        _                 => "中",
+        TierBand.VeryHigh => "動態感 · 極低",  // L1–2   Very Calm  (most stable screen)
+        TierBand.High     => "動態感 · 低",    // L3–4   Calm
+        TierBand.Medium   => "動態感 · 中",    // L5–7   Moderate
+        TierBand.Low      => "動態感 · 高",    // L8–10  Dynamic
+        TierBand.VeryLow  => "動態感 · 極高",  // L11–12 Very Dynamic (most motion)
+        _                 => "動態感 · 中",
     };
 
-    /// <summary>English 5級 動態感 label (§6-safe). Pairs with <see cref="FeelLabel"/>.</summary>
+    /// <summary>English 5級「screen motion」status (§6-safe). Same root word at both ends
+    /// (Calm ⇄ Dynamic) so continuity + direction read at a glance. Pairs with
+    /// <see cref="FeelLabel"/>; same polarity (VeryHigh-comfort band = Very Calm).</summary>
     public static string FeelLabelEn(TierBand band) => band switch
     {
-        TierBand.VeryHigh => "Most Natural",
-        TierBand.High     => "Light",
-        TierBand.Medium   => "Balanced",
-        TierBand.Low      => "Steady",
-        TierBand.VeryLow  => "Most Steady",
-        _                 => "Balanced",
+        TierBand.VeryHigh => "Very Calm",    // L1–2
+        TierBand.High     => "Calm",         // L3–4
+        TierBand.Medium   => "Moderate",     // L5–7
+        TierBand.Low      => "Dynamic",      // L8–10
+        TierBand.VeryLow  => "Very Dynamic", // L11–12
+        _                 => "Moderate",
     };
 
     /// <summary>Convenience: 1–12 level → 5級 中文 label.</summary>

@@ -218,6 +218,11 @@ public class CalibrationChatbotServiceTests
     [Fact]
     public async Task LanguageDetection_ChineseFirstMessage_UsesZhPrompt()
     {
+        // This test exercises the per-message IsHan fallback, which only runs when
+        // the UI-language toggle provider is unwired. Another test that constructs
+        // MainViewModel wires ChatbotUiLanguage.IsEnglishProvider on a shared static,
+        // so reset it here to keep this test order-independent.
+        ChatbotUiLanguage.IsEnglishProvider = null;
         var llm = new StubLlm();
         llm.Replies.Enqueue(DeltaReply(2, false, new[] { 0.6, 0.6, 0.6, 0.6, 0.6 }));
         using var svc = new CalibrationChatbotService(llm, TempPath());
@@ -236,6 +241,9 @@ public class CalibrationChatbotServiceTests
     [Fact]
     public async Task LanguageDetection_EnglishFirstMessage_UsesEnPrompt()
     {
+        // See LanguageDetection_ChineseFirstMessage_UsesZhPrompt: reset the shared
+        // UI-toggle provider so this test deterministically uses the IsHan fallback.
+        ChatbotUiLanguage.IsEnglishProvider = null;
         var llm = new StubLlm();
         llm.Replies.Enqueue(DeltaReply(2, false, new[] { 0.6, 0.6, 0.6, 0.6, 0.6 }));
         using var svc = new CalibrationChatbotService(llm, TempPath());
@@ -479,6 +487,11 @@ public class CalibrationChatbotServiceTests
     [Fact]
     public async Task SystemPrompt_FirstRun_RendersFirstRunMarker()
     {
+        // The system-prompt language follows the UI toggle when wired; another test
+        // constructs MainViewModel and sets ChatbotUiLanguage.IsEnglishProvider on a
+        // shared static. Reset it so this test deterministically uses the IsHan("hi")
+        // fallback (English, since "hi" has no Han chars) and renders the En marker.
+        ChatbotUiLanguage.IsEnglishProvider = null;
         var llm = new StubLlm();
         llm.Replies.Enqueue(DeltaReply(2, false, new[] { 0.6, 0.6, 0.6, 0.6, 0.6 }));
         using var svc = new CalibrationChatbotService(llm, TempPath());

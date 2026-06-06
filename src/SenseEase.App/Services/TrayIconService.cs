@@ -1,10 +1,12 @@
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using Hardcodet.Wpf.TaskbarNotification;
 using SenseEase.App.Configuration;
+using SenseEase.App.Localization;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
 using SenseEase.Core.Models;
@@ -57,6 +59,7 @@ public sealed class TrayIconService : IDisposable
     private readonly Action<bool> _setBarVisible;
     private readonly MenuItem _statusItem;
     private readonly MenuItem _toggleBarItem;
+    private readonly MenuItem _openDashboardItem;
     private bool _disposed;
     // overlay-bar-redesign diag-4: visibility watchdog. Logs Visibility +
     // IconHandle every 5s so a post-ctor flip to Hidden or a handle change
@@ -122,8 +125,11 @@ public sealed class TrayIconService : IDisposable
         // notification card's Open Dashboard button works too, but a
         // direct tray-menu route is the canonical pattern users expect
         // from tray-resident apps.
-        var openDashboardItem = new MenuItem { Header = "顯示主視窗 / Open Dashboard" };
-        openDashboardItem.Click += (_, _) => OpenDashboardRequested?.Invoke(this, EventArgs.Empty);
+        _openDashboardItem = new MenuItem
+        {
+            Header = LocalizationManager.Current.Pick("顯示主視窗", "Open Dashboard"),
+        };
+        _openDashboardItem.Click += (_, _) => OpenDashboardRequested?.Invoke(this, EventArgs.Empty);
 
         var settingsItem = new MenuItem { Header = "設定" };
         settingsItem.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
@@ -134,7 +140,7 @@ public sealed class TrayIconService : IDisposable
         var menu = new ContextMenu();
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Separator());
-        menu.Items.Add(openDashboardItem);
+        menu.Items.Add(_openDashboardItem);
         menu.Items.Add(_toggleBarItem);
         menu.Items.Add(settingsItem);
         menu.Items.Add(new Separator());
@@ -175,6 +181,13 @@ public sealed class TrayIconService : IDisposable
         // via RefreshAppearance(). Static event ⇒ MUST -= in Dispose or the
         // service is pinned for the process lifetime.
         UserPreferences.Changed += OnPreferencesChanged;
+
+        // Live EN / 繁體中文 toggle: when the language flips, re-pick every
+        // language-dependent tray string (status band label, Open Dashboard
+        // header, toggle-bar header, tooltip) so the menu updates without a
+        // restart. INotifyPropertyChanged ⇒ MUST -= in Dispose or the service
+        // is pinned for the process lifetime by the singleton's invocation list.
+        LocalizationManager.Current.PropertyChanged += OnLanguageChanged;
 
         // overlay-bar-redesign diag: single-line marker confirming TaskbarIcon
         // construction reached completion AND surfacing key state (Icon.Handle,
@@ -252,6 +265,60 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
+    // Live EN / 繁體中文 toggle handler. Marshals to the tray's dispatcher and
+    // re-picks every language-dependent string via RefreshLanguageDependentLabels
+    // (status band label, Open Dashboard header, toggle-bar header, tooltip, and
+    // the bilingual fault indicator) so the menu follows the toggle without a
+    // restart.
+    private void OnLanguageChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_disposed) return;
+        if (e.PropertyName is not (nameof(LocalizationManager.Language) or nameof(LocalizationManager.IsEnglish)))
+            return;
+        try
+        {
+            if (_tray.Dispatcher.CheckAccess())
+                RefreshLanguageDependentLabels();
+            else
+                _tray.Dispatcher.BeginInvoke(new Action(RefreshLanguageDependentLabels));
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [Tray] OnLanguageChanged threw: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // Re-applies every language-dependent tray string for the CURRENT state. The
+    // band-label status + toggle-bar header + tooltip flow through RefreshLabels;
+    // the Open Dashboard header and the (bilingual) fault indicator strings are
+    // re-picked here because they live outside RefreshLabels. The power-save
+    // header is zh-only, so it has nothing to re-pick.
+    private void RefreshLanguageDependentLabels()
+    {
+        _openDashboardItem.Header = LocalizationManager.Current.Pick("顯示主視窗", "Open Dashboard");
+
+        // Refresh the band-label status + toggle-bar header + tooltip first. This
+        // refreshes the stashed power-save snapshot (_preSavedStatusText) too, so a
+        // later SetPowerSaveIndicator(false) restores the band label in the active
+        // language. NOTE: RefreshLabels writes the visible _statusItem.Header /
+        // tooltip whenever power-save is NOT active — so when a FAULT is showing we
+        // must re-apply the fault override AFTER this call or it gets clobbered.
+        RefreshLabels(_vm.CurrentState);
+
+        // Re-pick the fault indicator's visible strings in the new language. Done
+        // last so RefreshLabels' band-label write above can't overwrite them. The
+        // power-save header ("已暫停 · 點此恢復") is zh-only — not a bilingual pair —
+        // so it is intentionally left as-is.
+        if (_preFaultStatusText != null)
+        {
+            _statusItem.Header = LocalizationManager.Current.Pick(
+                "暫時無法偵測畫面 · 點一下重試", "Sensing paused — tap to retry");
+            _tray.ToolTipText = LocalizationManager.Current.Pick(
+                "SenseEase — 暫時無法偵測 · 點一下重試", "SenseEase — sensing paused — tap to retry");
+        }
+    }
+
     private void ApplyState(SenseState state)
     {
         // Toggle B (user pref): when colour-on is OFF, force the calm/VeryHigh
@@ -277,23 +344,26 @@ public sealed class TrayIconService : IDisposable
 
     private void RefreshLabels(SenseState state)
     {
-        // Status menu item shows the current tier band. We intentionally do
-        // NOT pull the habituation profile (RESILIENT / TYPICAL / SENSITIVE)
-        // here even though it would be informative — IInferenceEngine doesn't
-        // expose it and reaching into the concrete MockInferenceEngine would
-        // couple the tray to the engine impl. The chat tab is the place for
-        // that detail. Tier alone is enough for an ambient status indicator.
-        // Aligned with the Dashboard hero's plain-language comfort label so the Main
-        // Console and the tray ALWAYS agree — not the contradictory 5級 動態感 (which
-        // mapped a calm screen to "極高"). Single source: ComfortBands.For, the same
-        // tier→band classifier the hero converters use.
-        string status = SenseEase.App.Converters.ComfortBands.For(state.VimsTier) switch
+        // Status menu item shows the current screen-motion level via the 5級 動態感
+        // vocabulary (極高/高/中/低/極低 · Most Natural…Most Steady), single-sourced
+        // from TierColorPalette.FeelLabel/FeelLabelEn and picked for the active UI
+        // language. We intentionally do NOT pull the habituation profile (RESILIENT /
+        // TYPICAL / SENSITIVE) here even though it would be informative —
+        // IInferenceEngine doesn't expose it and reaching into the concrete
+        // MockInferenceEngine would couple the tray to the engine impl. The chat tab
+        // is the place for that detail. Tier alone is enough for an ambient indicator.
+        // Idle (tier ≤ 0, engine not yet producing a level) shows 準備中 / Getting ready.
+        string status;
+        if (state.VimsTier <= 0)
         {
-            "Idle"   => "準備中",
-            "Rising" => "上升",
-            "High"   => "較高",
-            _        => "平穩",
-        };
+            status = LocalizationManager.Current.Pick("準備中", "Getting ready");
+        }
+        else
+        {
+            var band = TierColorPalette.BandForTier(state.VimsTier);
+            status = LocalizationManager.Current.Pick(
+                TierColorPalette.FeelLabel(band), TierColorPalette.FeelLabelEn(band));
+        }
         string header = status;
         // Path Z bug-fix 1: while in Power Save, refresh the stashed snapshot
         // instead of the visible "Power Save ON" header. Otherwise a tier
@@ -372,8 +442,10 @@ public sealed class TrayIconService : IDisposable
         if (faulted)
         {
             _preFaultStatusText ??= _statusItem.Header as string;
-            _statusItem.Header = "暫時無法偵測畫面 · 點一下重試 / Sensing paused — tap to retry";
-            _tray.ToolTipText  = "SenseEase — 暫時無法偵測 · 點一下重試 / tap to retry";
+            _statusItem.Header = LocalizationManager.Current.Pick(
+                "暫時無法偵測畫面 · 點一下重試", "Sensing paused — tap to retry");
+            _tray.ToolTipText  = LocalizationManager.Current.Pick(
+                "SenseEase — 暫時無法偵測 · 點一下重試", "SenseEase — sensing paused — tap to retry");
         }
         else if (_preFaultStatusText != null)
         {
@@ -767,6 +839,9 @@ public sealed class TrayIconService : IDisposable
         // MenuItems, watchdog timer, cached HICONs) is pinned for the
         // process lifetime by the static invocation list.
         UserPreferences.Changed -= OnPreferencesChanged;
+        // Live-language toggle: singleton INotifyPropertyChanged — MUST -= or the
+        // service (and its transitive graph) is pinned for the process lifetime.
+        LocalizationManager.Current.PropertyChanged -= OnLanguageChanged;
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
         // M12 (TrayDistinct): release the locally code-drawn band icons. The
         // Icon(Stream) ctor takes ownership of the HICON it allocates, so

@@ -254,7 +254,7 @@ public class CalibrationIntegrationTests
         Assert.Equal(2, messages.Count);
         Assert.Contains("Calibration 完成", messages[0].Content);
         Assert.Contains("醫療提醒", messages[1].Content);
-        Assert.Contains("vestibular condition", messages[1].Content);
+        Assert.Contains("前庭", messages[1].Content); // single-language (zh default) advisory body
     }
 
     // ── (f) High-risk combo (Q3=5 + ≥2 risk factors) → advisory posted ──────
@@ -283,7 +283,7 @@ public class CalibrationIntegrationTests
         // Advisory bubble appended after the summary.
         Assert.Equal(2, messages.Count);
         Assert.Contains("高強度", messages[1].Content);
-        Assert.Contains("high intensity", messages[1].Content);
+        Assert.Contains("風險因子", messages[1].Content); // single-language (zh default) advisory body
     }
 
     // ── (g) Symptom-list formatting edge case ───────────────────────────────

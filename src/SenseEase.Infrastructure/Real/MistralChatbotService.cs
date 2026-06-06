@@ -17,6 +17,43 @@ using SenseEase.Infrastructure.Storage;
 namespace SenseEase.Infrastructure.Real;
 
 /// <summary>
+/// Process-lifetime holder for the active UI-language toggle, mirroring the
+/// <see cref="LlamaSessionKey"/> cross-boundary static pattern. SenseEase.App owns
+/// the live EN / 繁體中文 toggle (SenseEase.App.Localization.LocalizationManager),
+/// but Infrastructure must NOT reference the App assembly (App → Infrastructure →
+/// Core is the only allowed direction). So the host wires this provider ONCE at
+/// startup — <c>ChatbotUiLanguage.IsEnglishProvider = () =&gt; LocalizationManager.Current.IsEnglish;</c>
+/// — and the chatbot/calibration services read it at prompt-build time to pin the
+/// model's reply language to the user's toggle choice (Kirby's decision: "AI
+/// replies follow the language toggle").
+///
+/// <para>When the provider is unwired (headless tests, lexicon-only mode, hosts
+/// that never set it) <see cref="IsEnglish"/> returns null and callers fall back
+/// to their existing per-message language heuristic, so behaviour is unchanged
+/// outside the WPF app.</para>
+/// </summary>
+public static class ChatbotUiLanguage
+{
+    /// <summary>Host-supplied lookup for "is the UI language currently English?".
+    /// Set once by SenseEase.App at startup; null until then. A lambda rather than a
+    /// stored bool so it always reflects the LIVE toggle state at call time.</summary>
+    public static Func<bool>? IsEnglishProvider { get; set; }
+
+    /// <summary>true / false from the wired provider, or null when no provider is
+    /// wired (or it throws) — null signals callers to use their own fallback.</summary>
+    public static bool? IsEnglish
+    {
+        get
+        {
+            var p = IsEnglishProvider;
+            if (p is null) return null;
+            try { return p(); }
+            catch { return null; }
+        }
+    }
+}
+
+/// <summary>
 /// Local chatbot driver. Spawns the bundled `llama-server.exe` as a child process
 /// and talks to it over HTTP (OpenAI-compatible /v1/chat/completions). This bypasses
 /// LLamaSharp's in-process inference path, which was incompatible with the b9294
@@ -1065,25 +1102,43 @@ public sealed class MistralChatbotService : IChatbotService
     private static string Sanitize(string s)
         => string.IsNullOrEmpty(s) ? string.Empty : s.Replace('"', '\'').Replace("\r", " ").Replace("\n", " ");
 
+    private const string ZhLanguagePin =
+        "(REPLY ONLY in Traditional Chinese / 繁體中文. Do NOT use Simplified Chinese, English, or any other script.)";
+    private const string EnLanguagePin =
+        "(REPLY ONLY in US English. Do NOT use Chinese or any other script.)";
+
     /// <summary>Returns a single-line language directive to append to the user
-    /// turn. The decision is purely Han-character detection — if the user's text
-    /// contains ANY CJK Unified Ideograph (U+4E00..U+9FFF, the block used by both
-    /// Traditional and Simplified Chinese), pin the reply to Traditional Chinese;
-    /// otherwise pin to US English. This is intentionally simple and
-    /// deterministic: it removes the language choice from the model entirely,
-    /// which a 3 B model otherwise gets wrong on short / ambiguous inputs.
+    /// turn, pinning the model's reply language.
+    ///
+    /// <para>Primary source (Kirby's decision: "AI replies follow the language
+    /// toggle"): the live UI-language toggle, read via
+    /// <see cref="ChatbotUiLanguage.IsEnglish"/>. English toggle → English pin;
+    /// Traditional-Chinese toggle → 繁體中文 pin — regardless of what script the
+    /// user happened to type.</para>
+    ///
+    /// <para>Fallback (provider unwired — headless tests / lexicon-only hosts):
+    /// the original Han-character heuristic. If the user's text contains ANY CJK
+    /// Unified Ideograph (U+4E00..U+9FFF) pin Traditional Chinese, else US English.
+    /// Either way the pin is deterministic, removing the language choice from the
+    /// model — which a 3 B model otherwise gets wrong on short / ambiguous inputs.</para>
     /// </summary>
     internal static string BuildLanguagePin(string? userText)
     {
+        // UI toggle is authoritative when the host has wired it.
+        bool? uiEnglish = ChatbotUiLanguage.IsEnglish;
+        if (uiEnglish is bool en)
+            return en ? EnLanguagePin : ZhLanguagePin;
+
+        // No toggle wired — fall back to per-message Han detection.
         if (!string.IsNullOrEmpty(userText))
         {
             foreach (char c in userText)
             {
                 if (c >= 0x4E00 && c <= 0x9FFF)
-                    return "(REPLY ONLY in Traditional Chinese / 繁體中文. Do NOT use Simplified Chinese, English, or any other script.)";
+                    return ZhLanguagePin;
             }
         }
-        return "(REPLY ONLY in US English. Do NOT use Chinese or any other script.)";
+        return EnLanguagePin;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

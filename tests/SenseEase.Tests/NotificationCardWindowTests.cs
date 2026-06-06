@@ -35,9 +35,9 @@ public class NotificationCardWindowTests
             // Force template instantiation so TitleText is non-null.
             w.ApplyTemplate();
             w.SetContent(TierColorPalette.TierBand.Medium, 3, 27.4);
-            // The HUD title is the plain comfort STATUS (aligned with the Dashboard
-            // hero + tray): Medium collapses to the Rising comfort token → "上升".
-            Assert.Equal("上升", w.TitleText.Text);
+            // The HUD title is the 5級「動態感」status (the only user-facing status).
+            // Tier 3 is L3–4 → "動態感 · 低" (Calm). Polarity: low tier = calm screen.
+            Assert.Equal("動態感 · 低", w.TitleText.Text);
             Assert.Equal("第 3 級 / 12　·　壓力 27", w.TelemetryText.Text);
         });
     }

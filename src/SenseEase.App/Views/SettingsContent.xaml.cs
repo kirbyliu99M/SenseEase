@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using SenseEase.App.Configuration;
+using SenseEase.App.Localization;
 using SenseEase.App.Theme;
 
 namespace SenseEase.App.Views;
@@ -100,6 +101,17 @@ public partial class SettingsContent : UserControl
                 default:                 ThemeAuto.IsChecked  = true; break; // Auto
             }
 
+            // Language setting (2026-06-07): hydrate the 繁體中文 / English segmented
+            // control from the persisted language_mode. Guarded by _wiring so the
+            // Checked handler (OnLanguageModeChanged) does NOT re-enter the
+            // LocalizationManager / Save path during hydration. Tolerant parse
+            // mirrors the ThemeMode posture — unknown values default to Chinese.
+            if (LocalizationManager.Parse(UserPreferences.Current.LanguageModeRaw)
+                == UILanguage.English)
+                LanguageEnglish.IsChecked = true;
+            else
+                LanguageChinese.IsChecked = true;
+
             ToggleAuto.IsChecked           = UserPreferences.Current.AutoExpandNotifications;
             ToggleColor.IsChecked          = UserPreferences.Current.BarTrayColorEnabled;
             ToggleMinimizeToTray.IsChecked = UserPreferences.Current.MinimizeToTrayOnClose;
@@ -126,10 +138,10 @@ public partial class SettingsContent : UserControl
             if (vest)
             {
                 ToggleEscapeHatch.IsEnabled = false;
-                ToggleEscapeHatch.ToolTip =
-                    "因為偵測到前庭敏感，暫時透明功能已停用以維持視覺保護。\n" +
+                ToggleEscapeHatch.ToolTip = LocalizationManager.Current.Pick(
+                    "因為偵測到前庭敏感，暫時透明功能已停用以維持視覺保護。",
                     "Disabled because vestibular sensitivity detected; temporary " +
-                    "transparency would compromise visual protection.";
+                    "transparency would compromise visual protection.");
                 EscapeHatchVestibularNote.Visibility = Visibility.Visible;
             }
             else
@@ -279,6 +291,30 @@ public partial class SettingsContent : UserControl
         ThemeManager.SetMode(mode);
     }
 
+    /// <summary>Language setting (2026-06-07): the 繁體中文 / English segmented
+    /// control changed. Maps the checked segment to a
+    /// <see cref="UILanguage"/>, sets
+    /// <see cref="LocalizationManager.Current"/>.<see cref="LocalizationManager.Language"/>
+    /// (so every <c>{loc:T}</c> binding re-picks its half live, no restart) AND
+    /// persists the choice via <see cref="UserPreferences.LanguageModeRaw"/> +
+    /// <see cref="UserPreferences.Save"/>. The <see cref="_wiring"/> guard skips
+    /// this during hydration so re-checking a segment in
+    /// <see cref="RefreshFromPreferences"/> doesn't loop back into Save.
+    /// <para>RadioButton.Checked fires only for the newly-selected segment, so a
+    /// single user pick raises this exactly once.</para></summary>
+    private void OnLanguageModeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+
+        UILanguage lang = LanguageEnglish.IsChecked == true
+            ? UILanguage.English
+            : UILanguage.ChineseTraditional;
+
+        LocalizationManager.Current.Language = lang;
+        UserPreferences.Current.LanguageModeRaw = lang.ToString();
+        UserPreferences.Current.Save();
+    }
+
     private void OnToggleEscapeHatchChanged(object sender, RoutedEventArgs e)
     {
         if (_wiring) return;
@@ -302,7 +338,9 @@ public partial class SettingsContent : UserControl
     private void OnRestartClicked(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
-            "重啟 SenseEase 以套用變更？\n\nRestart SenseEase to apply changes?",
+            LocalizationManager.Current.Pick(
+                "重啟 SenseEase 以套用變更？",
+                "Restart SenseEase to apply changes?"),
             "SenseEase",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question);
@@ -319,8 +357,9 @@ public partial class SettingsContent : UserControl
             if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
             {
                 MessageBox.Show(
-                    "無法定位 SenseEase 執行檔，請手動重啟。\n\n" +
-                    "Unable to locate the SenseEase executable; please restart manually.",
+                    LocalizationManager.Current.Pick(
+                        "無法定位 SenseEase 執行檔，請手動重啟。",
+                        "Unable to locate the SenseEase executable; please restart manually."),
                     "SenseEase", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -343,7 +382,9 @@ public partial class SettingsContent : UserControl
         catch (Exception ex)
         {
             MessageBox.Show(
-                $"重啟失敗：{ex.Message}\n\nRestart failed: {ex.Message}",
+                LocalizationManager.Current.Pick(
+                    $"重啟失敗：{ex.Message}",
+                    $"Restart failed: {ex.Message}"),
                 "SenseEase", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

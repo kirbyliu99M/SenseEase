@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:inf="clr-namespace:SenseEase.Core.Inference;assembly=SenseEase.Core"
+             xmlns:loc="clr-namespace:SenseEase.App.Localization"
              FontFamily="Segoe UI">
 
     <!-- ============================================================
@@ -149,10 +150,10 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="10" Padding="8,3" Margin="0,0,8,0">
-                        <TextBlock Text="校正 / Calibration"
+                        <TextBlock Text="{loc:T Zh='校正', En='Calibration'}"
                                    FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/>
                     </Border>
-                    <TextBlock Text="請依您剛才看完 demo 的感受作答 / Answer based on how the demo felt"
+                    <TextBlock Text="{loc:T Zh='請依您剛才看完 demo 的感受作答', En='Answer based on how the demo felt'}"
                                FontSize="11" Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center"
                                TextWrapping="Wrap"/>
                 </StackPanel>
@@ -167,29 +168,29 @@
                 <!-- ── Card 1: Q1 — uncomfortable segment ──────────────── -->
                 <StackPanel Visibility="{Binding IsCard1Visible, Converter={StaticResource BoolToVis}}">
                     <TextBlock Style="{StaticResource CalibTitle}"
-                               Text="Q1: 整段影片裡，哪個時段最不舒服？"/>
+                               Text="{loc:T Zh='Q1: 整段影片裡，哪個時段最不舒服？', En='Q1: Which segment felt worst?'}"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
-                               Text="Which segment felt worst? Pick one — or 'all fine' if nothing bothered you."/>
+                               Text="{loc:T Zh='選一個 — 若都沒問題請選「全程都還好」。', En='Which segment felt worst? Pick one — or all fine if nothing bothered you.'}"/>
 
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
-                                 Content="開頭 / Start (first 1/3)"
+                                 Content="{loc:T Zh='開頭 (前 1/3)', En='Start (first 1/3)'}"
                                  Tag="{x:Static inf:UncomfortableSegment.Start}"
                                  Click="OnQ1OptionClicked"/>
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
-                                 Content="中段 / Middle"
+                                 Content="{loc:T Zh='中段', En='Middle'}"
                                  Tag="{x:Static inf:UncomfortableSegment.Middle}"
                                  Click="OnQ1OptionClicked"/>
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
-                                 Content="結尾 / End (last 1/3)"
+                                 Content="{loc:T Zh='結尾 (後 1/3)', En='End (last 1/3)'}"
                                  Tag="{x:Static inf:UncomfortableSegment.End}"
                                  Click="OnQ1OptionClicked"/>
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q1"
-                                 Content="全程都還好 / All fine throughout"
+                                 Content="{loc:T Zh='全程都還好', En='All fine throughout'}"
                                  Tag="{x:Static inf:UncomfortableSegment.None}"
                                  Click="OnQ1OptionClicked"/>
 
                     <TextBlock Style="{StaticResource CalibFreetextLabel}"
-                               Text="補充 (選填) / Notes (optional)"/>
+                               Text="{loc:T Zh='補充 (選填)', En='Notes (optional)'}"/>
                     <TextBox Style="{StaticResource CalibFreetextBox}"
                              Text="{Binding Q1Freetext, UpdateSourceTrigger=PropertyChanged}"/>
                 </StackPanel>
@@ -197,31 +198,31 @@
                 <!-- ── Card 2: Q2 — symptom dominance (multi) ──────────── -->
                 <StackPanel Visibility="{Binding IsCard2Visible, Converter={StaticResource BoolToVis}}">
                     <TextBlock Style="{StaticResource CalibTitle}"
-                               Text="Q2: 您主要感覺到哪些不適？(可複選)"/>
+                               Text="{loc:T Zh='Q2: 您主要感覺到哪些不適？(可複選)', En='Q2: Which symptoms did you notice? (multi-select)'}"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
-                               Text="Which symptoms did you notice? Multi-select."/>
+                               Text="{loc:T Zh='可複選您主要感覺到的不適。', En='Which symptoms did you notice? Multi-select.'}"/>
 
                     <!-- M14(a): muted multi-select hint above the symptom chips. -->
                     <TextBlock Style="{StaticResource CalibMultiSelectHint}"
-                               Text="可複選，或略過 / Pick any, or skip"/>
+                               Text="{loc:T Zh='可複選，或略過', En='Pick any, or skip'}"/>
 
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="頭暈 / Dizziness" IsChecked="{Binding Q2Dizziness}"/>
+                              Content="{loc:T Zh='頭暈', En='Dizziness'}" IsChecked="{Binding Q2Dizziness}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="想吐 / Nausea" IsChecked="{Binding Q2Nausea}"/>
+                              Content="{loc:T Zh='想吐', En='Nausea'}" IsChecked="{Binding Q2Nausea}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="眼睛疲勞 / Eye strain" IsChecked="{Binding Q2EyeStrain}"/>
+                              Content="{loc:T Zh='眼睛疲勞', En='Eye strain'}" IsChecked="{Binding Q2EyeStrain}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="頭痛 / Headache" IsChecked="{Binding Q2Headache}"/>
+                              Content="{loc:T Zh='頭痛', En='Headache'}" IsChecked="{Binding Q2Headache}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="平衡感差 / Imbalance" IsChecked="{Binding Q2Imbalance}"/>
+                              Content="{loc:T Zh='平衡感差', En='Imbalance'}" IsChecked="{Binding Q2Imbalance}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="方向感混亂 / Disorientation" IsChecked="{Binding Q2Disorientation}"/>
+                              Content="{loc:T Zh='方向感混亂', En='Disorientation'}" IsChecked="{Binding Q2Disorientation}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="都沒有 / None of the above" IsChecked="{Binding Q2None}"/>
+                              Content="{loc:T Zh='都沒有', En='None of the above'}" IsChecked="{Binding Q2None}"/>
 
                     <TextBlock Style="{StaticResource CalibFreetextLabel}"
-                               Text="補充 (選填) / Notes (optional)"/>
+                               Text="{loc:T Zh='補充 (選填)', En='Notes (optional)'}"/>
                     <TextBox Style="{StaticResource CalibFreetextBox}"
                              Text="{Binding Q2Freetext, UpdateSourceTrigger=PropertyChanged}"/>
                 </StackPanel>
@@ -229,9 +230,9 @@
                 <!-- ── Card 3: Q3 — intensity 1..5 (mandatory) ─────────── -->
                 <StackPanel Visibility="{Binding IsCard3Visible, Converter={StaticResource BoolToVis}}">
                     <TextBlock Style="{StaticResource CalibTitle}"
-                               Text="Q3: 您感受的整體強度？(必選)"/>
+                               Text="{loc:T Zh='Q3: 您感受的整體強度？(必選)', En='Q3: Overall intensity you felt? (required)'}"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
-                               Text="Overall intensity (1 = none / 5 = severe). Required to continue."/>
+                               Text="{loc:T Zh='整體強度（1 = 無 / 5 = 嚴重）。必須作答才能繼續。', En='Overall intensity (1 = none / 5 = severe). Required to continue.'}"/>
 
                     <!-- 5-level horizontal scale. Each option is a RadioButton
                          styled as a square cell so the scale reads clearly. -->
@@ -250,7 +251,7 @@
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="1" FontSize="18" FontWeight="Bold"
                                                            Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="無 / None" FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                <TextBlock Text="{loc:T Zh='無', En='None'}" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -293,7 +294,7 @@
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="2" FontSize="18" FontWeight="Bold"
                                                            Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="輕微 / Mild" FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                <TextBlock Text="{loc:T Zh='輕微', En='Mild'}" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -336,7 +337,7 @@
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="3" FontSize="18" FontWeight="Bold"
                                                            Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="中等 / Moderate" FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                <TextBlock Text="{loc:T Zh='中等', En='Moderate'}" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -379,7 +380,7 @@
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="4" FontSize="18" FontWeight="Bold"
                                                            Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="明顯 / Strong" FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                <TextBlock Text="{loc:T Zh='明顯', En='Strong'}" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -421,7 +422,7 @@
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="5" FontSize="18" FontWeight="Bold"
                                                            Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="嚴重 / Severe" FontSize="10" Foreground="{DynamicResource TextTertiary}"
+                                                <TextBlock Text="{loc:T Zh='嚴重', En='Severe'}" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -453,7 +454,7 @@
                     </UniformGrid>
 
                     <TextBlock Style="{StaticResource CalibFreetextLabel}"
-                               Text="補充 (選填) / Notes (optional)"/>
+                               Text="{loc:T Zh='補充 (選填)', En='Notes (optional)'}"/>
                     <TextBox Style="{StaticResource CalibFreetextBox}"
                              Text="{Binding Q3Freetext, UpdateSourceTrigger=PropertyChanged}"/>
                 </StackPanel>
@@ -461,28 +462,28 @@
                 <!-- ── Card 4: Q4 — baseline comparison ────────────────── -->
                 <StackPanel Visibility="{Binding IsCard4Visible, Converter={StaticResource BoolToVis}}">
                     <TextBlock Style="{StaticResource CalibTitle}"
-                               Text="Q4: 跟您平常看的影片相比，這次感受如何？"/>
+                               Text="{loc:T Zh='Q4: 跟您平常看的影片相比，這次感受如何？', En='Q4: Compared with what you usually watch, how did this feel?'}"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
-                               Text="Compared with the video content you usually watch, how did this feel?"/>
+                               Text="{loc:T Zh='跟您平常看的影片內容相比，這次感受如何？', En='Compared with the video content you usually watch, how did this feel?'}"/>
 
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q4"
-                                 Content="比平常更不舒服 / Worse than usual"
+                                 Content="{loc:T Zh='比平常更不舒服', En='Worse than usual'}"
                                  Tag="{x:Static inf:BaselineComparison.Worse}"
                                  Click="OnQ4OptionClicked"/>
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q4"
-                                 Content="跟平常差不多 / Similar to usual"
+                                 Content="{loc:T Zh='跟平常差不多', En='Similar to usual'}"
                                  Tag="{x:Static inf:BaselineComparison.Similar}"
                                  Click="OnQ4OptionClicked"/>
                     <RadioButton Style="{StaticResource OptionRadioBtn}" GroupName="Q4"
-                                 Content="比平常還好 / Better than usual"
+                                 Content="{loc:T Zh='比平常還好', En='Better than usual'}"
                                  Tag="{x:Static inf:BaselineComparison.Better}"
                                  Click="OnQ4OptionClicked"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="我平常不看這類動態畫面 / I don't usually watch this kind of content"
+                              Content="{loc:T Zh='我平常不看這類動態畫面', En='I do not usually watch this kind of content'}"
                               IsChecked="{Binding Q4NoBaseline}"/>
 
                     <TextBlock Style="{StaticResource CalibFreetextLabel}"
-                               Text="補充 (選填) / Notes (optional)"/>
+                               Text="{loc:T Zh='補充 (選填)', En='Notes (optional)'}"/>
                     <TextBox Style="{StaticResource CalibFreetextBox}"
                              Text="{Binding Q4Freetext, UpdateSourceTrigger=PropertyChanged}"/>
                 </StackPanel>
@@ -490,38 +491,38 @@
                 <!-- ── Card 5: Q5 — risk factors (multi) ───────────────── -->
                 <StackPanel Visibility="{Binding IsCard5Visible, Converter={StaticResource BoolToVis}}">
                     <TextBlock Style="{StaticResource CalibTitle}"
-                               Text="Q5: 以下是否有符合您的長期狀況？(可複選)"/>
+                               Text="{loc:T Zh='Q5: 以下是否有符合您的長期狀況？(可複選)', En='Q5: Any of these long-term conditions apply to you? (multi-select)'}"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
-                               Text="Any of these long-term risk factors? Multi-select."/>
+                               Text="{loc:T Zh='以下是否有任何長期風險因子？可複選。', En='Any of these long-term risk factors? Multi-select.'}"/>
 
                     <!-- M14(a): muted multi-select hint above the risk-factor chips. -->
                     <TextBlock Style="{StaticResource CalibMultiSelectHint}"
-                               Text="可複選，或略過 / Pick any, or skip"/>
+                               Text="{loc:T Zh='可複選，或略過', En='Pick any, or skip'}"/>
 
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="容易暈車 / 暈船 / Motion sickness"
+                              Content="{loc:T Zh='容易暈車 / 暈船', En='Motion sickness'}"
                               IsChecked="{Binding Q5MotionSickness}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="偏頭痛 / Migraine"
+                              Content="{loc:T Zh='偏頭痛', En='Migraine'}"
                               IsChecked="{Binding Q5Migraine}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="有前庭/內耳相關診斷 / Diagnosed vestibular condition"
+                              Content="{loc:T Zh='有前庭/內耳相關診斷', En='Diagnosed vestibular condition'}"
                               IsChecked="{Binding Q5VestibularDiagnosed}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="使用 VR 容易不適 / VR makes me feel sick"
+                              Content="{loc:T Zh='使用 VR 容易不適', En='VR makes me feel sick'}"
                               IsChecked="{Binding Q5VrSusceptible}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="不明原因頭暈 / Unexplained dizziness"
+                              Content="{loc:T Zh='不明原因頭暈', En='Unexplained dizziness'}"
                               IsChecked="{Binding Q5UnexplainedDizziness}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="都沒有 / None of the above"
+                              Content="{loc:T Zh='都沒有', En='None of the above'}"
                               IsChecked="{Binding Q5None}"/>
                     <CheckBox Style="{StaticResource OptionCheckBox}"
-                              Content="跳過不答 / Prefer not to share"
+                              Content="{loc:T Zh='跳過不答', En='Prefer not to share'}"
                               IsChecked="{Binding Q5Skipped}"/>
 
                     <TextBlock Style="{StaticResource CalibFreetextLabel}"
-                               Text="補充 (選填) / Notes (optional)"/>
+                               Text="{loc:T Zh='補充 (選填)', En='Notes (optional)'}"/>
                     <TextBox Style="{StaticResource CalibFreetextBox}"
                              Text="{Binding Q5Freetext, UpdateSourceTrigger=PropertyChanged}"/>
                 </StackPanel>
@@ -537,14 +538,14 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Style="{StaticResource CalibAlertBtn}"
-                        Content="取消 / Cancel"
+                        Content="{loc:T Zh='取消', En='Cancel'}"
                         Command="{Binding CancelCommand}"/>
                 <Button Grid.Column="2" Style="{StaticResource CalibGhostBtn}"
-                        Content="上一題 / Back" Margin="0,0,8,0"
+                        Content="{loc:T Zh='上一題', En='Back'}" Margin="0,0,8,0"
                         Command="{Binding BackCommand}"/>
                 <!-- Next button — hidden on the last card; visibility flipped by IsLastCard. -->
                 <Button Grid.Column="3"
-                        Content="下一題 / Next"
+                        Content="{loc:T Zh='下一題', En='Next'}"
                         Command="{Binding NextCommand}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
@@ -563,7 +564,7 @@
                      in-card "已儲存 / Saved" confirmation can show briefly before
                      CompleteCommand fires and the host dismisses the card. -->
                 <Button x:Name="CompleteButton" Grid.Column="3"
-                        Content="完成 / Complete"
+                        Content="{loc:T Zh='完成', En='Complete'}"
                         Click="OnCompleteClicked">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
@@ -597,10 +598,8 @@
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="已儲存" FontSize="16" FontWeight="SemiBold"
+                        <TextBlock Text="{loc:T Zh='已儲存', En='Saved'}" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimary}"/>
-                        <TextBlock Text="Saved" FontSize="12"
-                                   Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

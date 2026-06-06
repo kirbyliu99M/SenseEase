@@ -272,7 +272,7 @@ public class CalibrationEndToEndSmoke : IDisposable
         // Two messages: summary + medical advisory (posted exactly once).
         Assert.Equal(2, messages.Count);
         Assert.Contains("Calibration 完成", messages[0].Content);
-        Assert.Contains("vestibular condition", messages[1].Content);
+        Assert.Contains("前庭", messages[1].Content); // single-language (zh default) advisory body
     }
 
     // ── Scenario 6: app-data-wipe recovery ───────────────────────────────────

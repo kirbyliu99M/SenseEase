@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:SenseEase.App.Views"
         xmlns:conv="clr-namespace:SenseEase.App.Converters"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
         Title="SenseEase — Visual Comfort Dashboard"
         Icon="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
         Height="820" Width="1160"
@@ -31,6 +32,7 @@
         <conv:TierToSublineConverter      x:Key="TierToSubline"/>
         <conv:TierToComfortLabelConverter x:Key="TierToComfortLabel"/>
         <conv:TierToComfortBandConverter  x:Key="TierToComfortBand"/>
+        <conv:TierToFeelLabelConverter    x:Key="TierToFeelLabel"/>
 
         <!-- ── Card ──
              Clean rounded surface (myHP / HP Smart look): Radius.md corner,
@@ -202,7 +204,7 @@
                         <Image Source="pack://application:,,,/SenseEase.App;component/Resources/hp-logo.jpg"
                                Width="26" Height="26" Stretch="Uniform"
                                RenderOptions.BitmapScalingMode="HighQuality"
-                               ToolTip="專為 HP 筆電設計 / Designed for HP laptops"/>
+                               ToolTip="{loc:T Zh='專為 HP 筆電設計', En='Designed for HP laptops'}"/>
                     </Border>
                 </StackPanel>
             </Grid>
@@ -252,7 +254,7 @@
             </TabControl.Resources>
 
             <!-- ── Tab 1: Dashboard ── -->
-            <TabItem Header="儀表板 / Dashboard">
+            <TabItem Header="{loc:T Zh='儀表板', En='Dashboard'}">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="24,20,24,24">
 
@@ -271,9 +273,9 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="● 歡迎使用 SenseEase / Welcome to SenseEase"
+                            <TextBlock Text="{loc:T Zh='● 歡迎使用 SenseEase', En='● Welcome to SenseEase'}"
                                        Foreground="{DynamicResource TextPrimary}" FontSize="12" FontWeight="Bold"/>
-                            <TextBlock Text="先跑 60 秒的 setup demo，系統會依您的反應建議個人化預設值 / Run the 60 s setup demo so SenseEase can suggest personalised defaults based on your reaction."
+                            <TextBlock Text="{loc:T Zh='先跑 60 秒的 setup demo，系統會依您的反應建議個人化預設值', En='Run the 60 s setup demo so SenseEase can suggest personalised defaults based on your reaction.'}"
                                        Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
@@ -305,8 +307,17 @@
                         Margin="0,0,0,16"
                         AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Title}"
-                                   Text="{Binding VimsTier, Converter={StaticResource TierToSubline}, Mode=OneWay}"/>
+                        <!-- The 5級「動態感」status is the ONLY user-facing status (live on
+                             tier + language). The label is self-contained
+                             ("動態感 · 極低" / "Very Calm"), so no separate caption. -->
+                        <TextBlock Style="{StaticResource Type.Title}">
+                            <TextBlock.Text>
+                                <MultiBinding Converter="{StaticResource TierToFeelLabel}">
+                                    <Binding Path="VimsTier"/>
+                                    <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
 
                         <!-- Comfort + mode chips -->
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
@@ -333,9 +344,14 @@
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
-                                <TextBlock Text="{Binding VimsTier, Converter={StaticResource TierToComfortLabel}, Mode=OneWay}"
-                                           FontSize="12" FontWeight="SemiBold"
+                                <TextBlock FontSize="12" FontWeight="SemiBold"
                                            AutomationProperties.Name="Comfort band">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource TierToFeelLabel}">
+                                            <Binding Path="VimsTier"/>
+                                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Foreground" Value="{DynamicResource ComfortSteadyText}"/>
@@ -392,14 +408,14 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
                                        Foreground="{DynamicResource TextTertiary}"
-                                       Text="平穩 / calm"/>
+                                       Text="{loc:T Zh='平穩', En='calm'}"/>
                             <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
                                        Foreground="{DynamicResource TextTertiary}"
                                        HorizontalAlignment="Center" TextAlignment="Center"
-                                       Text="相對於你的個人閾值 / Relative to your personal threshold"/>
+                                       Text="{loc:T Zh='相對於你的個人閾值', En='Relative to your personal threshold'}"/>
                             <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
                                        Foreground="{DynamicResource TextTertiary}"
-                                       Text="高 / high"/>
+                                       Text="{loc:T Zh='高', En='high'}"/>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -419,13 +435,13 @@
                      OnChatbotProfilePickerSelected) would make it live. -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="個人化設定檔 / Profile"
+                        <TextBlock Text="{loc:T Zh='個人化設定檔', En='Profile'}"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="RESILIENT"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="RESILIENT"
-                                    AutomationProperties.Name="設定檔 RESILIENT / Profile RESILIENT"
+                                    AutomationProperties.Name="{loc:T Zh='設定檔 RESILIENT', En='Profile RESILIENT'}"
                                     Margin="0,0,8,0">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
@@ -441,7 +457,7 @@
                             <Button Content="TYPICAL"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="TYPICAL"
-                                    AutomationProperties.Name="設定檔 TYPICAL / Profile TYPICAL"
+                                    AutomationProperties.Name="{loc:T Zh='設定檔 TYPICAL', En='Profile TYPICAL'}"
                                     Margin="0,0,8,0">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
@@ -457,7 +473,7 @@
                             <Button Content="SENSITIVE"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="SENSITIVE"
-                                    AutomationProperties.Name="設定檔 SENSITIVE / Profile SENSITIVE"
+                                    AutomationProperties.Name="{loc:T Zh='設定檔 SENSITIVE', En='Profile SENSITIVE'}"
                                     Margin="0">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
@@ -475,12 +491,12 @@
                 </Border>
 
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
-                <Expander Header="進階數據 / Advanced" IsExpanded="False" Margin="0,0,0,16"
+                <Expander Header="{loc:T Zh='進階數據', En='Advanced'}" IsExpanded="False" Margin="0,0,0,16"
                           Foreground="{DynamicResource TextSecondary}">
                 <StackPanel>
                 <TextBlock Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
                            TextWrapping="Wrap" Margin="0,8,0,0"
-                           Text="開發/診斷用的原始數據,日常使用不需查看 / Raw diagnostic values — not needed for everyday use."/>
+                           Text="{loc:T Zh='開發/診斷用的原始數據,日常使用不需查看', En='Raw diagnostic values — not needed for everyday use.'}"/>
                 <!-- ── Status Cards ── -->
                 <UniformGrid Rows="1" Columns="4" Margin="0,12,0,0">
 
@@ -585,7 +601,7 @@
                              strip reads as developer/diagnostic info, not a daily metric. -->
                         <TextBlock Style="{StaticResource Type.Caption}"
                                    Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
-                                   Text="診斷數值,日常使用可忽略 / Diagnostic values — safe to ignore in everyday use."/>
+                                   Text="{loc:T Zh='診斷數值,日常使用可忽略', En='Diagnostic values — safe to ignore in everyday use.'}"/>
                     </StackPanel>
                 </Border>
                 </StackPanel>
@@ -659,7 +675,7 @@
                              intensity. Natural pressure-driven tier still wins when higher,
                              so real motion still darkens the periphery further. -->
                         <Separator Background="{DynamicResource Separator}" Margin="0,16"/>
-                        <TextBlock Text="保持開啟 / Always-on Overlay"
+                        <TextBlock Text="{loc:T Zh='保持開啟', En='Always-on Overlay'}"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -668,11 +684,11 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <CheckBox IsChecked="{Binding PersistentOverlayEnabled}"
-                                          Content="保持遮罩開啟 / Keep overlay visible"
+                                          Content="{loc:T Zh='保持遮罩開啟', En='Keep overlay visible'}"
                                           FontSize="12" Foreground="{DynamicResource TextPrimary}"
                                           VerticalContentAlignment="Center"/>
                                 <TextBlock Margin="22,2,0,0" Style="{StaticResource CardLabel}"
-                                           Text="顯示器周邊維持暗角；偵測到動態時自動加深 / Periphery stays dim; darkens on detected motion."/>
+                                           Text="{loc:T Zh='顯示器周邊維持暗角；偵測到動態時自動加深', En='Periphery stays dim; darkens on detected motion.'}"/>
                             </StackPanel>
                         </Grid>
                         <Grid Margin="0,8,0,0" IsEnabled="{Binding PersistentOverlayEnabled}">
@@ -681,7 +697,7 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="基準強度 / Baseline intensity"
+                            <TextBlock Grid.Column="0" Text="{loc:T Zh='基準強度', En='Baseline intensity'}"
                                        Style="{StaticResource CardLabel}"
                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Slider Grid.Column="1"
@@ -697,7 +713,7 @@
                         </Grid>
 
                         <Separator Background="{DynamicResource Separator}" Margin="0,16"/>
-                        <TextBlock Text="再適應 Habituation Engine"
+                        <TextBlock Text="{loc:T Zh='再適應', En='Habituation Engine'}"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -708,8 +724,12 @@
                                 <ProgressBar Value="{Binding HabituationLevel, Mode=OneWay}" Maximum="100"
                                              Height="6" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource ComfortSteady}"
                                              BorderThickness="0"/>
-                                <TextBlock Margin="0,4,0,0" Style="{StaticResource CardLabel}"
-                                           Text="{Binding HabituationLevel, StringFormat='再適應進度 Progress: {0}%'}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <TextBlock Style="{StaticResource CardLabel}"
+                                               Text="{loc:T Zh='再適應進度', En='Progress'}"/>
+                                    <TextBlock Style="{StaticResource CardLabel}"
+                                               Text="{Binding HabituationLevel, StringFormat=': {0}%'}"/>
+                                </StackPanel>
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource GhostBtn}"
                                     Margin="12,0,0,0" VerticalAlignment="Center"
@@ -731,7 +751,7 @@
             </TabItem>
 
             <!-- ── Tab 2: Eye-Protection Statistics ── -->
-            <TabItem Header="護眼 / Eye Care">
+            <TabItem Header="{loc:T Zh='護眼', En='Eye Care'}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24,20,24,24">
 
@@ -745,8 +765,16 @@
                                 Margin="0,0,0,16"
                                 AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Type.Title}"
-                                           Text="{Binding VimsTier, Converter={StaticResource TierToSubline}, Mode=OneWay}"/>
+                                <!-- The 5級「動態感」status is the ONLY user-facing status (live
+                                     on tier + language); self-contained, no separate caption. -->
+                                <TextBlock Style="{StaticResource Type.Title}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource TierToFeelLabel}">
+                                            <Binding Path="VimsTier"/>
+                                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
                                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                                     <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0"
                                             BorderThickness="1.5">
@@ -771,9 +799,14 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <TextBlock Text="{Binding VimsTier, Converter={StaticResource TierToComfortLabel}, Mode=OneWay}"
-                                                   FontSize="12" FontWeight="SemiBold"
+                                        <TextBlock FontSize="12" FontWeight="SemiBold"
                                                    AutomationProperties.Name="Comfort band">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource TierToFeelLabel}">
+                                                    <Binding Path="VimsTier"/>
+                                                    <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="{DynamicResource ComfortSteadyText}"/>
@@ -825,14 +858,14 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
                                                Foreground="{DynamicResource TextTertiary}"
-                                               Text="平穩 / calm"/>
+                                               Text="{loc:T Zh='平穩', En='calm'}"/>
                                     <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
                                                Foreground="{DynamicResource TextTertiary}"
                                                HorizontalAlignment="Center" TextAlignment="Center"
-                                               Text="相對於你的個人閾值 / Relative to your personal threshold"/>
+                                               Text="{loc:T Zh='相對於你的個人閾值', En='Relative to your personal threshold'}"/>
                                     <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
                                                Foreground="{DynamicResource TextTertiary}"
-                                               Text="高 / high"/>
+                                               Text="{loc:T Zh='高', En='high'}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -840,7 +873,7 @@
                         <!-- H4 (audit): the raw 5-column live metrics demoted into a
                              collapsed Advanced expander — the hero above carries the
                              calm at-a-glance status. Bindings byte-identical. -->
-                        <Expander Header="進階即時數據 / Advanced — live metrics" IsExpanded="False" Margin="0,0,0,16"
+                        <Expander Header="{loc:T Zh='進階即時數據', En='Advanced — live metrics'}" IsExpanded="False" Margin="0,0,0,16"
                                   Visibility="Collapsed"><!-- advanced telemetry lives on the Dashboard only -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
@@ -929,9 +962,9 @@
                              language labels only; raw OFI/Pressure NUMBERS stay on the Dashboard. -->
                         <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                             <StackPanel>
-                                <TextBlock Text="防護活動 / Protection activity"
+                                <TextBlock Text="{loc:T Zh='防護活動', En='Protection activity'}"
                                            Style="{StaticResource SectionTitle}"/>
-                                <TextBlock Text="畫面動態與防護強度的即時軌跡 / Live trace of screen motion and protection"
+                                <TextBlock Text="{loc:T Zh='畫面動態與防護強度的即時軌跡', En='Live trace of screen motion and protection'}"
                                            Style="{StaticResource CardLabel}" Margin="0,0,0,10" TextWrapping="Wrap"/>
                                 <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="14,10" Height="280">
                                     <Canvas x:Name="PressureChartCanvas" ClipToBounds="True"/>
@@ -939,13 +972,13 @@
                                 <!-- Legend -->
                                 <StackPanel Orientation="Horizontal" Margin="2,10,0,0">
                                     <Ellipse Width="8" Height="8" Fill="{DynamicResource TextTertiary}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="畫面動態 / Motion" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
+                                    <TextBlock Text="{loc:T Zh='畫面動態', En='Motion'}" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
                                     <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="防護強度 / Protection" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
+                                    <TextBlock Text="{loc:T Zh='防護強度', En='Protection'}" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
                                     <Rectangle Width="14" Height="2" Fill="{DynamicResource ComfortHigh}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="啟動點 / Activation" Margin="6,0,0,0"
+                                    <TextBlock Text="{loc:T Zh='啟動點', En='Activation'}" Margin="6,0,0,0"
                                                Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </StackPanel>
@@ -955,7 +988,7 @@
                              Eye-Care tab (advanced info lives on the Dashboard). -->
                         <Border Style="{StaticResource Card}" Visibility="Collapsed">
                             <StackPanel>
-                                <TextBlock Text="本次工作階段 / Session Summary" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock Text="{loc:T Zh='本次工作階段', En='Session Summary'}" Style="{StaticResource SectionTitle}"/>
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionFovIntercepts}"
@@ -1001,7 +1034,7 @@
             </TabItem>
 
             <!-- ── Tab 3: Event Log (relocated from Dashboard) ── -->
-            <TabItem Header="事件記錄 / Event Log">
+            <TabItem Header="{loc:T Zh='事件記錄', En='Event Log'}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24,20,24,24">
                         <!-- ── Event Log ── -->
@@ -1027,9 +1060,9 @@
                                             <!-- Raw OFI / Pressure / FOV / Mask columns removed: advanced
                                                  telemetry belongs on the Dashboard, not the Event Log, which
                                                  keeps a plain Time + Action record. -->
-                                            <GridViewColumn Header="時間 / Time"   Width="80"
+                                            <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"   Width="80"
                                                             DisplayMemberBinding="{Binding Time}"/>
-                                            <GridViewColumn Header="事件 / Action"  Width="440"
+                                            <GridViewColumn Header="{loc:T Zh='事件', En='Action'}"  Width="440"
                                                             DisplayMemberBinding="{Binding Message}"/>
                                         </GridView>
                                     </ListView.View>
@@ -1041,7 +1074,7 @@
             </TabItem>
 
             <!-- ── Tab 4: AI Assistant ── -->
-            <TabItem Header="智能助理 / AI Assistant">
+            <TabItem Header="{loc:T Zh='智能助理', En='AI Assistant'}">
                 <Grid DataContext="{Binding ChatbotVm}" Background="{DynamicResource Canvas}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>  <!-- Recalibrate header (Stage 5b) -->
@@ -1061,7 +1094,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Button Grid.Column="1"
-                                Content="重新校準 / Recalibrate"
+                                Content="{loc:T Zh='重新校準', En='Recalibrate'}"
                                 Command="{Binding RecalibrateCommand}"
                                 Style="{StaticResource GhostBtn}"
                                 Padding="14,6" FontSize="12" MinHeight="44"
@@ -1241,23 +1274,20 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                <TextBlock Text="想更新你的設定嗎？跟系統聊聊剛才的感覺。"
+                                <TextBlock Text="{loc:T Zh='想更新你的設定嗎？跟系統聊聊剛才的感覺。', En='Want to refresh your settings? Chat about what you just felt.'}"
                                            Foreground="{DynamicResource TextPrimary}" FontSize="14" FontWeight="SemiBold"
                                            TextWrapping="Wrap"/>
-                                <TextBlock Text="Want to refresh your settings? Chat about what you just felt."
-                                           Foreground="{DynamicResource TextSecondary}" FontSize="12"
-                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal"
                                         VerticalAlignment="Center" Margin="16,0,0,0">
-                                <Button Content="跳過 / Skip"
+                                <Button Content="{loc:T Zh='跳過', En='Skip'}"
                                         Command="{Binding SkipCalibrationInvitationCommand}"
                                         Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
                                         BorderThickness="0"
                                         Padding="14,6" FontSize="12" Cursor="Hand"
                                         Template="{StaticResource RoundBtn}"
                                         Margin="0,0,8,0"/>
-                                <Button Content="開始 calibration / Start calibration"
+                                <Button Content="{loc:T Zh='開始 calibration', En='Start calibration'}"
                                         Command="{Binding StartInvitedCalibrationCommand}"
                                         Background="{DynamicResource Accent}" Foreground="White"
                                         BorderThickness="0"
@@ -1342,7 +1372,7 @@
                  Phase 1.5 user feedback: tab background follows the main
                  console light palette (the Canvas token), not the dark
                  Pop-up sprint theme. -->
-            <TabItem Header="設定 / Settings">
+            <TabItem Header="{loc:T Zh='設定', En='Settings'}">
                 <Grid Background="{DynamicResource Canvas}">
                     <views:SettingsContent x:Name="SettingsTabContent"/>
                 </Grid>

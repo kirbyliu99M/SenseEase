@@ -10,12 +10,14 @@ namespace SenseEase.App.Converters;
 /// Read-only converters that turn the engine's VIMS tier into the SCREEN-MOTION
 /// indicator shown on the Home hero, the comfort pill, the pop-up card and the tray.
 ///
-/// <para>The user-facing wording is the spec-locked <b>5級 動態感</b> set
-/// (Alpha_1_MASTERPLAN §13.6): 極高/高/中/低/極低 · Most Natural/Light/Balanced/Steady/
-/// Most Steady — "動態感" describes the screen (極高 = most natural motion, 極低 = most
-/// stabilized). The single source is <see cref="TierColorPalette.FeelLabel"/> /
-/// <see cref="TierColorPalette.FeelLabelEn"/> so the language can't drift between
-/// surfaces. The legacy 3-band copy (守護你的畫面 / 平穩 / 上升 / 較高) is retired.</para>
+/// <para>The user-facing wording is the unified <b>5級「畫面動態感」</b> status — the ONLY
+/// status shown to end users (unified-measurement directive, 2026-06-07). ONE axis,
+/// correct polarity: a calm / stable screen is LOW 動態感, a busy / dynamic screen is HIGH.
+/// L1–2 動態感·極低 (Very Calm) … L11–12 動態感·極高 (Very Dynamic). The single source is
+/// <see cref="TierColorPalette.FeelLabel"/> / <see cref="TierColorPalette.FeelLabelEn"/>
+/// so the language + polarity can't drift between surfaces. The legacy copy (守護你的畫面 /
+/// 平穩 / 上升 / 較高, and the reversed 極高 = most-natural framing) is retired. Internal terms
+/// (VimsTier / pressure / 12 檔) never appear on a user-facing status surface.</para>
 ///
 /// <para>All copy is SINGLE-LANGUAGE, chosen via <see cref="LocalizationManager"/> (the
 /// bilingual "zh / en" display is gone). Surfaces that must re-pick the instant the user
