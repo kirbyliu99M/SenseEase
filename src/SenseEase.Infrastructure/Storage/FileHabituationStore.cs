@@ -31,6 +31,11 @@ public sealed class FileHabituationStore : IHabituationStore
         {
             try
             {
+                // H50: reject a reparse-pointed / base-escaping data path before
+                // any File.* op. Derives the expected base from the same directory
+                // the store already writes into (no hardcoding). A normal file in
+                // a normal data dir — incl. the test suite's temp sandbox — passes.
+                GuardPath();
                 if (!File.Exists(_path)) return null;
                 string json = File.ReadAllText(_path);
                 if (string.IsNullOrWhiteSpace(json)) return null;
@@ -49,7 +54,20 @@ public sealed class FileHabituationStore : IHabituationStore
         // shape stays byte-identical to existing habituation.json files.
         lock (_gate)
         {
+            GuardPath(); // H50: reject reparse-point / base-escape before writing
             AtomicJsonWriter.TryWrite(_path, state, _opts);
         }
+    }
+
+    /// <summary>H50: guard against a reparse-pointed or out-of-base data path.
+    /// The expected base is the directory this store was constructed to live in
+    /// (<see cref="Path.GetDirectoryName(string)"/> of <c>_path</c>), so a legit
+    /// file inside that dir is untouched; only a symlink/junction or a base
+    /// escape is rejected (<see cref="System.Security.SecurityException"/>).</summary>
+    private void GuardPath()
+    {
+        string? baseDir = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(baseDir))
+            PathValidator.EnsureSafe(_path, baseDir);
     }
 }

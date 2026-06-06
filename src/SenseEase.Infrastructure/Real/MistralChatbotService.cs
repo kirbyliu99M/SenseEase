@@ -1,6 +1,10 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.NetworkInformation;
+using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using SenseEase.Core.Abstractions;
@@ -8,6 +12,7 @@ using SenseEase.Core.Configuration;
 using SenseEase.Core.Models;
 using SenseEase.Core.Safety;
 using SenseEase.Infrastructure.Nlp;
+using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.Infrastructure.Real;
 
@@ -31,7 +36,7 @@ public sealed class MistralChatbotService : IChatbotService
     private Process? _serverProcess;
     // H34: cap the response buffer (512 KiB — chat completions are <<256 tokens)
     // and drop the per-call timeout to 60 s so a wedged server can't hang the
-    // chat turn for minutes. The /health poll during startup is well under 60 s.
+    // chat turn for minutes. The /props readiness poll during startup is well under 60 s.
     private readonly HttpClient _http = new()
     {
         Timeout = TimeSpan.FromSeconds(60),
@@ -39,6 +44,12 @@ public sealed class MistralChatbotService : IChatbotService
     };
     private const int ServerPort = 8181;
     private string ServerUrl => $"http://127.0.0.1:{ServerPort}";
+
+    // H9/H10: per-process random Bearer key minted at LoadAsync. llama-server is
+    // launched with --api-key <this>; both _http (below, via the Authorization
+    // header set at spawn) and the calibration client (via LlamaSessionKey) must
+    // present it. Null until the first successful LoadAsync.
+    private string? _apiKey;
 
     // H34: bound JSON parse recursion so a malformed deeply-nested 200 body
     // can't blow the stack; the OpenAI envelope is only a few levels deep.
@@ -250,10 +261,12 @@ public sealed class MistralChatbotService : IChatbotService
     public string? LoadError { get; private set; }
 
     /// <summary>Spawns llama-server.exe as a child process bound to localhost:8181
-    /// with the model loaded into VRAM (--n-gpu-layers 99). Waits for /health to
-    /// return 200 before marking IsModelLoaded=true. The server runs the same
-    /// b9294 native binaries that already work for `llama-cli`, just exposed via
-    /// the OpenAI-compatible HTTP API so we never call llama.dll directly from C#.
+    /// with the model loaded into VRAM (--n-gpu-layers 99). Mints a per-process
+    /// Bearer key (H9), integrity-verifies the exe (H32), refuses to spawn over an
+    /// existing loopback listener (H39), then waits for /props to report a loaded
+    /// model before marking IsModelLoaded=true. The server runs the same b9294
+    /// native binaries that already work for `llama-cli`, just exposed via the
+    /// OpenAI-compatible HTTP API so we never call llama.dll directly from C#.
     /// </summary>
     public async Task LoadAsync()
     {
@@ -267,13 +280,44 @@ public sealed class MistralChatbotService : IChatbotService
             if (!File.Exists(serverExe))
                 throw new FileNotFoundException($"llama-server.exe not found at: {serverExe}");
 
-            // Tee llama-server's stdout+stderr to a log file via a cmd.exe wrapper.
-            // Direct Process.Start of llama-server.exe with RedirectStandardOutput=true
-            // from a WPF (no-console) parent caused the server stub to exit within a
-            // second of startup (likely a console-attachment heuristic in the stub or
-            // pipe-buffer back-pressure during the verbose load phase). The cmd wrapper
-            // gives the child a proper console + file-backed stdio. Kill(entireProcessTree)
-            // takes both cmd and the llama-server grandchild down together.
+            // H32: per-subprocess integrity gate. Verify the server exe against the
+            // install manifest BEFORE spawning it. On a dev/alpha build with no
+            // manifest this is a no-op pass (see IntegrityVerifier); on a packaged
+            // build a tampered/replaced llama-server.exe fails closed here rather
+            // than being launched with our model + a live HTTP port.
+            if (!IntegrityVerifier.Verify(serverExe))
+            {
+                LoadError = "Integrity check failed for llama-server.exe.";
+                throw new SecurityException(
+                    "llama-server.exe failed integrity verification; refusing to spawn.");
+            }
+
+            // H9: mint a fresh random Bearer key for this server lifetime and
+            // publish it so the calibration client (LlamaServerCalibrationClient)
+            // presents the same credential. The server is launched with
+            // --api-key <key> below, so an unauthenticated local process cannot
+            // drive the model through our loopback port.
+            _apiKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+            LlamaSessionKey.Set(_apiKey);
+            _http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", _apiKey);
+
+            // H39: refuse to spawn if our loopback port is already an active
+            // listener — that would be either a stale orphan server or a
+            // squatting process we'd then talk to with our key. Bind-collision
+            // would otherwise surface only as a confusing readiness timeout.
+            if (IsLoopbackPortListening(ServerPort))
+                throw new InvalidOperationException(
+                    $"Port {ServerPort} already has a loopback listener; refusing to spawn a second llama-server.");
+
+            // Capture llama-server's stderr directly (H10): a DIRECT Process.Start
+            // of the exe (full path, no cmd.exe shell) with RedirectStandardError,
+            // drained on a background thread. The earlier cmd.exe wrapper existed to
+            // give the child a console + file-backed stdio; we no longer shell out,
+            // so a malformed serverArgs string can't be re-parsed by cmd and the
+            // child has exactly the argument vector we pass. stdout is left attached
+            // (not redirected) to avoid the WPF-no-console fast-exit we hit when
+            // redirecting stdout from a windowed parent; only stderr is piped.
             string logPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "SenseEase", "llama-server.log");
@@ -284,6 +328,10 @@ public sealed class MistralChatbotService : IChatbotService
                 $"--model \"{_modelPath}\" " +
                 $"--n-gpu-layers 99 " +
                 $"--host 127.0.0.1 --port {ServerPort} " +
+                // H9: require the minted Bearer key on every request, disable the
+                // built-in web UI (no need for an attack surface), and pin the
+                // context so a model swap can't silently shift behaviour.
+                $"--api-key {_apiKey} --no-webui --no-context-shift " +
                 // Context budget. The expanded SystemPrompt (LANGUAGE RULE + 4
                 // delta fields + 7 worked examples) plus the [RecentAdjustments]/
                 // [RecentEvents] history blocks plus the user turn comes in at
@@ -300,19 +348,26 @@ public sealed class MistralChatbotService : IChatbotService
 
             var psi = new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                // cmd /c "exe args > log 2>&1"
-                Arguments = $"/c \"\"{serverExe}\" {serverArgs} > \"{logPath}\" 2>&1\"",
+                FileName               = serverExe,   // H10: direct exe, no cmd.exe shell
+                Arguments              = serverArgs,
                 WorkingDirectory       = serverDir,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                RedirectStandardOutput = false,
-                RedirectStandardError  = false,
+                RedirectStandardOutput = false,        // leave stdout attached (WPF fast-exit guard)
+                RedirectStandardError  = true,         // H10: capture stderr ourselves
+                StandardErrorEncoding  = Encoding.UTF8,
             };
 
             _serverProcess = Process.Start(psi);
             if (_serverProcess is null)
                 throw new InvalidOperationException("Process.Start returned null.");
+
+            // H10: drain stderr on a background thread to the log file so the
+            // pipe buffer can never fill and back-pressure / stall the server.
+            // PathRedactor (H20) is not present in this build, so paths are
+            // written as-is; if/when that helper lands, redact each line here.
+            StartStderrPump(_serverProcess, logPath);
+
             // Adopt into a Job Object configured with KILL_ON_JOB_CLOSE — Windows
             // reaps the llama-server child whenever we exit (Stop-Process, Task
             // Manager kill, crash, etc.), preventing orphan llama-server.exe
@@ -325,15 +380,87 @@ public sealed class MistralChatbotService : IChatbotService
         }
         catch (Exception ex)
         {
-            LoadError = $"{ex.GetType().Name}: {ex.Message}";
+            // For a SecurityException keep the descriptive LoadError set at the
+            // integrity/spawn-refusal site (fall back to its message if unset);
+            // for any other failure use the generic type:message form.
+            if (ex is SecurityException)
+                LoadError ??= $"{ex.GetType().Name}: {ex.Message}";
+            else
+                LoadError = $"{ex.GetType().Name}: {ex.Message}";
             try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
             _serverProcess = null;
+            // Spawn failed — drop the stale key so a later retry mints a fresh one
+            // and no client keeps presenting a credential to a server that isn't up.
+            _apiKey = null;
+            LlamaSessionKey.Set(null);
+            _http.DefaultRequestHeaders.Authorization = null;
             throw;
         }
     }
 
+    /// <summary>H39: returns true if <paramref name="port"/> already has an active
+    /// IPv4/IPv6 loopback TCP listener. Used to refuse spawning a second server on
+    /// our port (stale orphan, or a squatter we'd then hand our key to).</summary>
+    private static bool IsLoopbackPortListening(int port)
+    {
+        try
+        {
+            var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
+            foreach (var ep in listeners)
+            {
+                if (ep.Port == port &&
+                    System.Net.IPAddress.IsLoopback(ep.Address))
+                    return true;
+            }
+        }
+        catch
+        {
+            // If we can't enumerate listeners, don't block startup on a probe error.
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>H10: drain the server's stderr on a background thread to the log
+    /// file. Keeps the pipe buffer empty so a verbose load phase can't back-pressure
+    /// and stall the child. Best-effort; failures are swallowed.</summary>
+    private static void StartStderrPump(Process proc, string logPath)
+    {
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var reader = proc.StandardError;
+                using var writer = new StreamWriter(
+                    new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    AutoFlush = true,
+                };
+                string? line;
+                while ((line = reader.ReadLine()) is not null)
+                {
+                    // PathRedactor (H20) helper not present in this build — write the
+                    // line verbatim. Wire redaction here if that helper lands.
+                    try { writer.WriteLine(line); } catch { break; }
+                }
+            }
+            catch { /* pipe closed / process gone — nothing to do */ }
+        })
+        {
+            IsBackground = true,
+            Name = "llama-server-stderr-pump",
+        };
+        thread.Start();
+    }
+
     private async Task WaitForServerReadyAsync(TimeSpan timeout)
     {
+        // H9: give the server ~800 ms to bind + begin loading before the first
+        // probe, then verify readiness via /props (which only responds 200 with a
+        // populated model name once the model is fully loaded) rather than the
+        // bare /health endpoint, which can flip to 200 before the model is usable.
+        await Task.Delay(800).ConfigureAwait(false);
+
         DateTime deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
@@ -342,14 +469,55 @@ public sealed class MistralChatbotService : IChatbotService
                     $"llama-server exited during startup (exit code {_serverProcess.ExitCode}).");
             try
             {
-                var resp = await _http.GetAsync($"{ServerUrl}/health").ConfigureAwait(false);
-                if (resp.IsSuccessStatusCode) return;
+                // /props requires the Bearer key (set on _http at spawn). A 200 with
+                // a non-empty model identifier means the model is loaded and ready.
+                using var resp = await _http.GetAsync($"{ServerUrl}/props").ConfigureAwait(false);
+                if (resp.IsSuccessStatusCode)
+                {
+                    string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (PropsReportModelLoaded(body)) return;
+                }
             }
-            catch { /* server not listening yet */ }
+            catch { /* server not listening / not ready yet */ }
             await Task.Delay(500).ConfigureAwait(false);
         }
         throw new TimeoutException("llama-server did not become ready within timeout.");
     }
+
+    /// <summary>H9: parse the /props body and return true when it reports a loaded
+    /// model — i.e. a non-empty model name/path string. llama-server exposes the
+    /// loaded model under "model_path" (and/or "default_generation_settings.model").
+    /// We accept any non-empty model identifier as the readiness signal. Internal
+    /// for unit coverage.</summary>
+    internal static bool PropsReportModelLoaded(string? propsBody)
+    {
+        if (string.IsNullOrWhiteSpace(propsBody)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(propsBody, _jsonDocOpts);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+
+            if (HasNonEmptyString(root, "model_path")) return true;
+            if (HasNonEmptyString(root, "model")) return true;
+
+            if (root.TryGetProperty("default_generation_settings", out var gen)
+                && gen.ValueKind == JsonValueKind.Object
+                && (HasNonEmptyString(gen, "model") || HasNonEmptyString(gen, "model_path")))
+                return true;
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasNonEmptyString(JsonElement obj, string name)
+        => obj.TryGetProperty(name, out var v)
+           && v.ValueKind == JsonValueKind.String
+           && !string.IsNullOrWhiteSpace(v.GetString());
 
     public async Task<NluResult> SendAsync(string userMessage, CancellationToken ct = default)
     {
@@ -924,6 +1092,11 @@ public sealed class MistralChatbotService : IChatbotService
         try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
         try { _serverProcess?.Dispose(); } catch { }
         _serverProcess = null;
+        // H9: clear the shared session key so a torn-down server doesn't leave a
+        // stale credential that a calibration client would keep presenting.
+        if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
+            LlamaSessionKey.Set(null);
+        _apiKey = null;
         try { _http.Dispose(); } catch { }
         try { _lock.Dispose(); } catch { }
     }

@@ -51,6 +51,12 @@ public sealed class FileChatHistoryStore
         var result = new List<ChatMessage>();
         try
         {
+            // H50: reject a reparse-pointed / base-escaping path before reading.
+            // Wrapped in the existing best-effort try so the chat path never
+            // crashes — a normal missing file (or normal existing file) passes
+            // the guard; only a symlink/junction or base escape is rejected,
+            // and even then we degrade to an empty transcript rather than throw.
+            GuardPath();
             if (!File.Exists(_path)) return result;
             foreach (string line in File.ReadLines(_path))
             {
@@ -77,6 +83,7 @@ public sealed class FileChatHistoryStore
         {
             try
             {
+                GuardPath(); // H50: reject reparse-point / base-escape before writing
                 File.AppendAllText(_path, JsonSerializer.Serialize(message, _opts) + Environment.NewLine);
             }
             catch { /* best-effort */ }
@@ -93,6 +100,7 @@ public sealed class FileChatHistoryStore
         {
             try
             {
+                GuardPath(); // H50: reject reparse-point / base-escape before rewrite
                 if (!File.Exists(_path)) return;
                 var all = ReadAllLocked();
                 if (all.Count <= maxKeep) return;
@@ -119,9 +127,25 @@ public sealed class FileChatHistoryStore
         {
             try
             {
+                GuardPath(); // H50: reject reparse-point / base-escape before delete
                 if (File.Exists(_path)) File.Delete(_path);
             }
             catch { /* best-effort */ }
         }
+    }
+
+    /// <summary>H50: guard against a reparse-pointed or out-of-base transcript
+    /// path. Expected base is the directory this store lives in
+    /// (<see cref="Path.GetDirectoryName(string)"/> of <c>_path</c>) — no
+    /// hardcoding. A legit file inside that dir is untouched; only a
+    /// symlink/junction or base escape throws
+    /// <see cref="System.Security.SecurityException"/>.
+    /// All callers already wrap this in a best-effort try, preserving the
+    /// chat-history "never crash the chat path" contract.</summary>
+    private void GuardPath()
+    {
+        string? baseDir = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(baseDir))
+            PathValidator.EnsureSafe(_path, baseDir);
     }
 }

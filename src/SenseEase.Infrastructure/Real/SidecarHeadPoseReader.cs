@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using SenseEase.Core.Abstractions;
+using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.Infrastructure.Real;
 
@@ -224,6 +225,19 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             if (!File.Exists(_sidecarExePath))
             {
                 _log?.Invoke($"[SidecarHeadPoseReader] Frozen sidecar exe not found at '{_sidecarExePath}'. Sidecar disabled; ReadLatest will return null.");
+                Interlocked.Exchange(ref _sidecarDead, 1);
+                return;
+            }
+
+            // H32: per-subprocess integrity gate. Verify the sidecar exe against the
+            // install manifest before spawning. Absent manifest (dev/alpha builds) is
+            // a no-op pass; a tampered/replaced head_tracker.exe on a packaged build
+            // fails closed here. Degrade gracefully — mark the sidecar dead and return
+            // so ReadLatest() yields null and the consumer falls back to the (0.5,0.5)
+            // center default. No crash (OBS-2 hard requirement).
+            if (!IntegrityVerifier.Verify("head_tracker.exe"))
+            {
+                _log?.Invoke("[SidecarHeadPoseReader] head_tracker.exe failed integrity verification. Sidecar disabled; ReadLatest will return null.");
                 Interlocked.Exchange(ref _sidecarDead, 1);
                 return;
             }

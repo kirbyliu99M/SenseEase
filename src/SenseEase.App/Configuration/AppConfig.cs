@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.App.Configuration;
 
@@ -68,6 +69,24 @@ public static class AppConfig
     /// where the app looked.</summary>
     public static IReadOnlyList<string> ModelPathProbes { get; private set; } = Array.Empty<string>();
 
+    /// <summary>H50: reparse-point guard for a resolved model/data/video path.
+    /// Validates the path against its OWN containing directory (the install or
+    /// dev folder it was resolved from — never hardcoded), so a normal file is
+    /// returned byte-for-byte unchanged; only a symlinked / junctioned file (or
+    /// one whose existing parent is a reparse point) is rejected via
+    /// <see cref="PathValidator.EnsureSafe"/> (throws
+    /// <see cref="System.Security.SecurityException"/>). Empty paths are passed
+    /// through untouched (the "not found" diagnostic uses an empty string).</summary>
+    private static string GuardResolvedPath(string resolved)
+    {
+        if (string.IsNullOrEmpty(resolved))
+            return resolved;
+        string? dir = Path.GetDirectoryName(resolved);
+        if (!string.IsNullOrEmpty(dir))
+            PathValidator.EnsureSafe(resolved, dir);
+        return resolved;
+    }
+
     private static string ResolveModelPath()
     {
         var probes = new List<string>();
@@ -81,7 +100,7 @@ public static class AppConfig
         // 1) Alongside the EXE (canonical install location after publish).
         string inBin = Path.Combine(baseDir, rel);
         probes.Add(inBin);
-        if (File.Exists(inBin)) { ModelPathProbes = probes; return inBin; }
+        if (File.Exists(inBin)) { ModelPathProbes = probes; return GuardResolvedPath(inBin); }
 
 #if DEBUG
         // 2) Walk up to 8 levels looking for a sibling models/ folder.
@@ -99,13 +118,15 @@ public static class AppConfig
             if (File.Exists(candidate))
             {
                 ModelPathProbes = probes;
-                return candidate;
+                return GuardResolvedPath(candidate);
             }
         }
 #endif
 
         ModelPathProbes = probes;
-        return inBin; // canonical-install path for the "not found" diagnostic
+        // "not found" diagnostic path: the file does not exist, so the guard
+        // validates the (normal) install directory and returns it unchanged.
+        return GuardResolvedPath(inBin);
     }
 
     // Demo Mode video file. Demo Mode now runs a real vection clip through the
@@ -134,7 +155,7 @@ public static class AppConfig
 
         string inBin = Path.Combine(baseDir, rel);
         probes.Add(inBin);
-        if (File.Exists(inBin)) { DemoVideoProbes = probes; return inBin; }
+        if (File.Exists(inBin)) { DemoVideoProbes = probes; return GuardResolvedPath(inBin); }
 
 #if DEBUG
         // H40: dev-only walk-up (see ResolveModelPath). A shipped build must
@@ -147,7 +168,7 @@ public static class AppConfig
             if (info is null) break;
             string candidate = Path.Combine(info.FullName, rel);
             probes.Add(candidate);
-            if (File.Exists(candidate)) { DemoVideoProbes = probes; return candidate; }
+            if (File.Exists(candidate)) { DemoVideoProbes = probes; return GuardResolvedPath(candidate); }
         }
 #endif
 

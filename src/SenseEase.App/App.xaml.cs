@@ -27,7 +27,33 @@ public partial class App : Application
     // Mutex name uses the same AUMID as the shell registration so the
     // "identity" of an instance is unambiguous across diagnostics.
     private static Mutex? _singleInstanceMutex;
-    private const string SingleInstanceMutexName = "Global\\SenseEase.App.SingleInstance";
+    // H30/H31: per-session ("Local\") mutex, NOT cross-user ("Global\"). A
+    // Global mutex name is shared across every interactive session on the
+    // machine, so a second user logging in (RDP / fast-user-switching) would
+    // have their first SenseEase launch silently treated as a duplicate of
+    // ANOTHER user's instance — and the surface attempt would target a window
+    // in a different session it can't even see. "Local\" scopes the guard to
+    // the current login session, which is the correct boundary for a
+    // single-instance-per-desktop tray app.
+    private const string SingleInstanceMutexName = "Local\\SenseEase.App.SingleInstance";
+
+    /// <summary>H32 integrity gate: set true when
+    /// <see cref="SenseEase.Infrastructure.Storage.IntegrityVerifier"/> reports
+    /// a bundled binary failed its SHA-256 manifest check at startup. When true
+    /// the app degrades — the head-tracking sidecar and the local LLM are NOT
+    /// launched — rather than running tampered executables. Read by the launch
+    /// sites (parity with how <see cref="StartMinimizedToTray"/> is consumed by
+    /// MainWindow). In Alpha-1 the manifest is absent so Verify always returns
+    /// true and this stays false (dormant gate; activates with the packaging
+    /// manifest).</summary>
+    public static bool IntegrityFailed { get; private set; }
+
+    /// <summary>H32: user-facing degrade message set when
+    /// <see cref="IntegrityFailed"/> is raised. Mirrors the existing
+    /// LoadError-style surface (e.g. MistralChatbotService.LoadError) so the UI
+    /// can show a non-fatal banner instead of hard-crashing. Null when no
+    /// integrity failure occurred.</summary>
+    public static string? LoadError { get; private set; }
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr FindWindow(string? lpClassName, string lpWindowName);
@@ -79,12 +105,54 @@ public partial class App : Application
         // no engine. The existing instance keeps owning the tray entry.
         try
         {
-            _singleInstanceMutex = new Mutex(initiallyOwned: true,
-                                             name: SingleInstanceMutexName,
-                                             createdNew: out bool isFirstInstance);
-            if (!isFirstInstance)
+            // H30/H31: construct UNOWNED (initiallyOwned:false), then claim
+            // ownership explicitly via WaitOne(0). Owning-at-construction
+            // conflates "I created the kernel object" with "I hold the lock",
+            // and worse, an owned mutex that is never released because the
+            // owning thread is torn down raises AbandonedMutexException on the
+            // NEXT waiter — which the prior code never handled. Separating
+            // creation from acquisition lets us catch the abandoned case
+            // distinctly below.
+            _singleInstanceMutex = new Mutex(initiallyOwned: false,
+                                             name: SingleInstanceMutexName);
+
+            bool weAreFirst;
+            try
             {
-                TrySurfaceExistingInstance();
+                // WaitOne(0): non-blocking. True  → no other live instance held
+                // the mutex, we now own it → we are the first instance. False →
+                // another instance currently owns it → we are the second.
+                weAreFirst = _singleInstanceMutex.WaitOne(0);
+            }
+            catch (AbandonedMutexException)
+            {
+                // H30/H31: a prior instance acquired the mutex and exited
+                // WITHOUT releasing it (hard kill, crash before OnExit). The
+                // wait that observes this STILL transfers ownership to us — so
+                // we ARE the first (and only) live instance. Treat as such and
+                // proceed to launch normally rather than mis-surfacing toward a
+                // dead window.
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [App.SingleInstance] abandoned mutex reclaimed " +
+                    "(prior instance exited without release) — proceeding as first instance");
+                weAreFirst = true;
+            }
+
+            if (!weAreFirst)
+            {
+                // Second instance: try to surface the existing window. If we
+                // can't find it, leave a diagnostic so a "clicking the icon
+                // does nothing" field report is explainable (e.g. the prior
+                // instance is alive but its window title changed, or it is
+                // mid-startup before the window exists).
+                if (!TrySurfaceExistingInstance())
+                {
+                    string diag =
+                        $"[{DateTime.UtcNow:O}] [App.SingleInstance] second instance: " +
+                        "existing SenseEase window not found to surface — exiting anyway";
+                    SenseEase.Infrastructure.Real.WgcDiagLog.Append(diag);
+                    LogStartupDiagnostic(diag);
+                }
                 Shutdown(exitCode: 0);
                 return;
             }
@@ -98,6 +166,57 @@ public partial class App : Application
             SenseEase.Infrastructure.Real.WgcDiagLog.Append(
                 $"[{DateTime.UtcNow:O}] [App.SingleInstance] mutex create failed: " +
                 $"{ex.GetType().Name}: {ex.Message} — continuing without guard");
+        }
+
+        // H32 integrity gate: verify the bundled executables the app will
+        // launch (head-tracking sidecar + local LLM server) against the
+        // install manifest BEFORE any of them are spawned. Runs immediately
+        // after the single-instance check so a tampered binary never reaches
+        // Process.Start. Alpha-1 builds ship without install.manifest.json, so
+        // IntegrityVerifier.Verify returns true here (logs "integrity check
+        // skipped: no manifest") and this is a no-op — the gate activates only
+        // once the packaging phase emits a manifest. On a real FALSE result we
+        // degrade (set LoadError + suppress sidecar/LLM launch), NOT crash.
+        try
+        {
+            // Use the same path constants AppConfig exposes — pass the bare
+            // file NAMES (Verify keys the manifest by Path.GetFileName and
+            // resolves them next to AppContext.BaseDirectory). head_tracker.exe
+            // comes from AppConfig.SidecarExePath; llama-server.exe is the
+            // server filename MistralChatbotService spawns.
+            string sidecarExeName = Path.GetFileName(Configuration.AppConfig.SidecarExePath);
+            const string llmServerExeName = "llama-server.exe";
+
+            bool sidecarOk = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(sidecarExeName);
+            bool llmOk     = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(llmServerExeName);
+
+            if (!sidecarOk || !llmOk)
+            {
+                IntegrityFailed = true;
+                LoadError = "Installation integrity check failed; please reinstall.";
+
+                // Refuse to launch the sidecar: disabling head-tracking makes
+                // CreateHeadPoseReader return the no-op DefaultHeadPoseReader,
+                // so no head_tracker.exe is ever spawned this session. The LLM
+                // launch sites honor the IntegrityFailed flag (parity with the
+                // StartMinimizedToTray static read elsewhere).
+                Configuration.AppConfig.HeadTrackingEnabled = false;
+
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [App.Integrity] FAILED — sidecarOk={sidecarOk}, " +
+                    $"llmOk={llmOk}; suppressing sidecar + LLM launch, surfacing LoadError " +
+                    "(degraded, not crashed)");
+            }
+        }
+        catch (Exception ex)
+        {
+            // The verifier is pure and does not throw on the absent-manifest
+            // path; any surprise (e.g. an unexpected IO fault) is best-effort
+            // logged and we DO NOT block launch on it — same degrade-not-crash
+            // posture as the rest of OnStartup.
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.Integrity] verify threw: " +
+                $"{ex.GetType().Name}: {ex.Message} — continuing without integrity gate");
         }
 
         // Path Z UX iter 5: detect autostart-from-Windows-login. The
@@ -159,8 +278,14 @@ public partial class App : Application
         // first frame after launch already reflects the user's choice.
         try
         {
-            Configuration.AppConfig.HeadTrackingEnabled =
-                Configuration.UserPreferences.Current.HeadTrackingEnabled;
+            // H32: if the integrity gate failed above, the sidecar must stay
+            // suppressed regardless of the user's saved preference — otherwise
+            // this hydration would silently re-enable head-tracking (and the
+            // head_tracker.exe spawn) after we explicitly disabled it. Only
+            // mirror the saved preference when integrity passed.
+            if (!IntegrityFailed)
+                Configuration.AppConfig.HeadTrackingEnabled =
+                    Configuration.UserPreferences.Current.HeadTrackingEnabled;
             Configuration.AppConfig.HeadTrackingFollowMode =
                 string.Equals(
                     Configuration.UserPreferences.Current.HeadTrackingFollowMode,
@@ -254,18 +379,43 @@ public partial class App : Application
     /// (<c>"SenseEase — Visual Comfort Dashboard"</c>) so FindWindow by
     /// title is reliable. If the window is currently hidden (close-to-tray
     /// state) or minimized, ShowWindow+SetForegroundWindow restores it.
-    /// Best-effort — any failure leaves the existing instance alone.</summary>
-    private static void TrySurfaceExistingInstance()
+    /// Best-effort — any failure leaves the existing instance alone.
+    ///
+    /// <para>H30/H31: returns <c>true</c> when the existing window was found
+    /// (and a surface attempt was made), <c>false</c> when no such window
+    /// exists or an error occurred. The second-instance path uses the result
+    /// to decide whether to leave a "couldn't find existing window" diagnostic
+    /// before exiting.</para></summary>
+    private static bool TrySurfaceExistingInstance()
     {
         try
         {
             IntPtr hwnd = FindWindow(null, "SenseEase — Visual Comfort Dashboard");
-            if (hwnd == IntPtr.Zero) return;
+            if (hwnd == IntPtr.Zero) return false;
             if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
             else                ShowWindow(hwnd, SW_SHOW);
             SetForegroundWindow(hwnd);
+            return true;
         }
-        catch { /* best-effort */ }
+        catch { /* best-effort */ return false; }
+    }
+
+    /// <summary>H30/H31: append a one-line startup diagnostic to crash.log.
+    /// Used for the second-instance "existing window not found" case so the
+    /// failure is visible in the durable crash.log even if the user never
+    /// captures the %TEMP% wgc_diag.txt. Best-effort and never throws — runs
+    /// the same PII redaction + append pattern as <see cref="LogCrash"/>.</summary>
+    private static void LogStartupDiagnostic(string line)
+    {
+        try
+        {
+            string redacted = UserPathRedaction.Replace(line, @"\Users\<redacted>$1");
+            Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
+            File.AppendAllText(CrashLogPath,
+                $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [App.SingleInstance] =====" + Environment.NewLine
+                + redacted + Environment.NewLine + Environment.NewLine);
+        }
+        catch { /* never crash inside a diagnostic path */ }
     }
 
     /// <summary>Idempotent, thread-safe, never throws. Shuts down

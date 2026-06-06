@@ -58,6 +58,11 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     {
         lock (_gate)
         {
+            // H50: reject a reparse-pointed / base-escaping profile path before
+            // any File.* op. Base dir is derived from _path (no hardcoding); a
+            // normal profile file — or a not-yet-created one on first run, incl.
+            // the test suite's temp sandbox — passes the guard unchanged.
+            GuardPath();
             var snap = AtomicJsonWriter.TryRead<HabituationProfileSnapshot>(_path);
             if (snap is null)
             {
@@ -155,6 +160,8 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     {
         lock (_gate)
         {
+            GuardPath(); // H50: reject reparse-point / base-escape before writing
+
             // Stage 6c: WasRecoveredFromWipe is a one-shot flag set by the
             // loader on a synthesized snapshot. We do NOT persist it as true
             // — the next Save writes false (the default) so the on-disk file
@@ -174,6 +181,20 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
                 TryWriteSchemaFloorFlag();
             }
         }
+    }
+
+    /// <summary>H50: guard against a reparse-pointed or out-of-base profile
+    /// path. Expected base is the directory the profile (and its sibling
+    /// schema-floor flag) live in — derived from <c>_path</c> via
+    /// <see cref="Path.GetDirectoryName(string)"/>, no hardcoding. A legit file
+    /// inside that dir (including a not-yet-created first-run profile) is
+    /// untouched; only a symlink/junction or base escape throws
+    /// <see cref="System.Security.SecurityException"/>.</summary>
+    private void GuardPath()
+    {
+        string? baseDir = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(baseDir))
+            PathValidator.EnsureSafe(_path, baseDir);
     }
 
     private void TryWriteSchemaFloorFlag()
