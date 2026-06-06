@@ -752,7 +752,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppConfig.MarkFirstRunComplete();
             ShowFirstRunBanner = false;
-            AppendLog("Setup", "使用者略過首次校正 / User dismissed first-run setup.", CurrentState);
+            AppendLog("Setup", Loc("使用者略過首次校正。", "User dismissed first-run setup."), CurrentState);
         });
         StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
         ResetStateCommand = new RelayCommand(_ => ResetState());
@@ -978,8 +978,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void OnSensingHealthChanged(bool healthy)
     {
         AppendLog(healthy ? "System" : "Error",
-            healthy ? "感測已恢復 / Sensing restored."
-                    : "感測中斷 / Sensing fault — reconnecting.",
+            healthy ? Loc("感測已恢復。", "Sensing restored.")
+                    : Loc("感測中斷，重新連線中。", "Sensing fault — reconnecting."),
             CurrentState);
         SetSensingHealthy(healthy);
     }
@@ -1407,7 +1407,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 PeakPressureAtSec: _demoPeakPressureAtSec);
             ChatbotVm.ShowCalibrationInvitationBanner = true;
             AppendLog("Calibration",
-                "後續校準邀請橫幅已顯示 / Subsequent-calibration invitation banner shown.",
+                Loc("後續校準邀請橫幅已顯示。", "Subsequent-calibration invitation banner shown."),
                 CurrentState);
         }
         }
@@ -1448,7 +1448,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChatbotVm.ActiveCalibrationCard = card;
         ChatbotVm.IsCalibrationCardActive = true;
 
-        AppendLog("Calibration", "校正卡開啟（首次校正）/ Calibration card opened (first run).", CurrentState);
+        AppendLog("Calibration", Loc("校正卡開啟（首次校正）。", "Calibration card opened (first run)."), CurrentState);
     }
 
     private void OnCalibrationCompleted(object? sender, CalibrationResponses responses)
@@ -1492,7 +1492,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (result.Completeness == CalibrationCompleteness.Abandoned)
         {
             AppendLog("Calibration",
-                "校正卡已關閉（未完成 Q3，無紀錄）/ Card dismissed before Q3 — no profile change.",
+                Loc("校正卡已關閉（未完成 Q3，無紀錄）。", "Card dismissed before Q3 — no profile change."),
                 CurrentState);
             return;
         }
@@ -1503,8 +1503,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         bool partial = result.Completeness == CalibrationCompleteness.Partial;
         AppendLog("Calibration",
             partial
-                ? $"校正部分完成 / Calibration partial — profile={result.Profile}, scale={result.PersonalPressureScale:F2}."
-                : $"校正完成 / Calibration complete — profile={result.Profile}, scale={result.PersonalPressureScale:F2}.",
+                ? Loc($"校正部分完成 — profile={result.Profile}, scale={result.PersonalPressureScale:F2}。",
+                      $"Calibration partial — profile={result.Profile}, scale={result.PersonalPressureScale:F2}.")
+                : Loc($"校正完成 — profile={result.Profile}, scale={result.PersonalPressureScale:F2}。",
+                      $"Calibration complete — profile={result.Profile}, scale={result.PersonalPressureScale:F2}."),
             CurrentState);
     }
 
@@ -1770,6 +1772,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // Display Comfort wiring (WireLuxComfort + OnLuxControllerStateChanged)
     // removed at v0.11 (UI Consolidation Sprint Phase 4) — feature
     // decommissioned. See CHANGELOG.md.
+
+    /// <summary>Localize an event-log / status message to the active UI language. New
+    /// entries follow the current language; historical entries keep the language they
+    /// were written in (Pick captures it at write time). Profile names / config values
+    /// passed inside the strings stay as-is per the no-translate exception list.</summary>
+    private static string Loc(string zh, string en)
+        => SenseEase.App.Localization.LocalizationManager.Current.Pick(zh, en);
 
     private void AppendLog(string category, string message, SenseState? state = null)
     {

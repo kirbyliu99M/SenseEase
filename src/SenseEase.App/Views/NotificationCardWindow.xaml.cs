@@ -620,6 +620,12 @@ public partial class NotificationCardWindow : Window
             // re-enable the UI, _chatSendInFlight would be left true and the
             // input/button would stay disabled across Hides. Reset here as a
             // belt-and-suspenders safeguard.
+            // Per-Show: always reopen on the MAIN (controls) face. Without this the card
+            // stays on the chat face after a flip, so reopening it later lands on the chat
+            // box instead of the controls (user-reported: "doesn't return to page 1").
+            if (MainFace is not null) MainFace.Visibility = Visibility.Visible;
+            if (ChatFace is not null) ChatFace.Visibility = Visibility.Collapsed;
+
             _chatSendInFlight = false;
             if (ChatSendBtn is not null)  ChatSendBtn.IsEnabled = true;
             if (ChatInputBox is not null) ChatInputBox.IsEnabled = true;

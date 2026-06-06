@@ -289,15 +289,33 @@
 
                 <!-- ── MAIN FACE (default) ──────────────────────────────────── -->
                 <Grid x:Name="MainFace">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>     <!-- close (×), spans the top -->
+                        <RowDefinition Height="*"/>        <!-- status + controls, aligned -->
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>      <!-- status text -->
                         <ColumnDefinition Width="Auto"/>   <!-- controls -->
                     </Grid.ColumnDefinitions>
 
-                    <!-- LEFT: status text. TitleText (placeholder copy from
-                         SetContent) + static separator + 介入調節/Adjust label,
-                         with TelemetryText as a small sub-line. -->
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
+                    <!-- TOP: close (×) spans the full width, right-aligned, so the status
+                         label + controls below share ONE vertically-centred row (no offset). -->
+                    <Button Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                            x:Name="CloseBtn"
+                            Content="×"
+                            HorizontalAlignment="Right"
+                            Width="22" Height="22"
+                            Padding="0" BorderThickness="0"
+                            Background="Transparent"
+                            Foreground="{DynamicResource TextTertiary}"
+                            FontSize="16" FontWeight="Bold"
+                            Cursor="Hand"
+                            AutomationProperties.Name="{loc:T Zh='關閉通知', En='Close'}"
+                            Click="OnCloseClicked"/>
+
+                    <!-- LEFT (row 1): status text, vertically centred to align with the
+                         controls cluster on the right. -->
+                    <StackPanel Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
                         <!-- The 5級「動態感」status is the ONLY user-facing status; the label
                              ("動態感 · 極低" / "Very Calm") is self-contained, no caption. -->
 
@@ -330,32 +348,10 @@
                                    AutomationProperties.HelpText="{loc:T Zh='通知內容', En='Notification details'}"/>
                     </StackPanel>
 
-                    <!-- RIGHT: controls. Top row = close (X) + flip. Bottom row =
-                         the +/- depth pills, a separator, then 停用 / 設定. -->
-                    <Grid Grid.Column="1">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>  <!-- close + flip -->
-                            <RowDefinition Height="Auto"/>  <!-- control pills -->
-                        </Grid.RowDefinitions>
-
-                        <!-- TOP-RIGHT: close (×). -->
-                        <Button Grid.Row="0"
-                                x:Name="CloseBtn"
-                                Content="×"
-                                HorizontalAlignment="Right"
-                                Width="22" Height="22"
-                                Padding="0" BorderThickness="0"
-                                Background="Transparent"
-                                Foreground="{DynamicResource TextTertiary}"
-                                FontSize="16" FontWeight="Bold"
-                                Cursor="Hand"
-                                AutomationProperties.Name="{loc:T Zh='關閉通知', En='Close'}"
-                                Click="OnCloseClicked"/>
-
-                        <!-- CENTER controls + bottom-right flip. -->
-                        <StackPanel Grid.Row="1" Orientation="Horizontal"
-                                    HorizontalAlignment="Right" VerticalAlignment="Center"
-                                    Margin="0,6,0,0">
+                    <!-- RIGHT (row 1): controls — +/- depth pills, separator, 暫停 / 設定 /
+                         flip — vertically centred so they align with the status label. -->
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal"
+                                HorizontalAlignment="Right" VerticalAlignment="Center">
                             <!-- HUD-card rework: intervention-depth cluster, now
                                  ordered [ − ] [ level ] [ + ] (minus LEFT, plus
                                  RIGHT) with the current level read out BETWEEN
@@ -458,8 +454,7 @@
                                     Click="OnFlipClicked"
                                     AutomationProperties.Name="{loc:T Zh='開啟對話', En='Open chat'}"
                                     ToolTip="{loc:T Zh='跟 SenseEase 說話', En='Talk to SenseEase'}"/>
-                        </StackPanel>
-                    </Grid>
+                    </StackPanel>
 
                     <!-- Hidden legacy action buttons. Kept so the host's
                          EngageClicked / MuteClicked / dashboard wiring still
