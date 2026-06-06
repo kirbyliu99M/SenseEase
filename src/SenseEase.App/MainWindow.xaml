@@ -65,7 +65,7 @@
         </ControlTemplate>
 
         <Style x:Key="PrimaryBtn" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="Background" Value="{DynamicResource Accent}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -77,19 +77,19 @@
         </Style>
 
         <Style x:Key="AlertBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
-            <Setter Property="Background" Value="{StaticResource ComfortHigh}"/>
+            <Setter Property="Background" Value="{DynamicResource ComfortHigh}"/>
         </Style>
 
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
             <Setter Property="Background" Value="#EEF3FF"/>
-            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
         </Style>
 
         <!-- Profile quick-access pill. The ACTIVE profile lights up via a per-pill
              DataTrigger on {Binding CurrentProfile} (set on each Button below). -->
         <Style x:Key="ProfilePill" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource SurfaceMuted}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -101,7 +101,7 @@
 
         <!-- ── Text styles ── -->
         <Style x:Key="CardLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
 
@@ -129,7 +129,7 @@
 
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Background" Value="#EEF3FF"/>
-            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -156,8 +156,8 @@
     <DockPanel>
 
         <!-- ══════════ HEADER ══════════ -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource HeaderSurface}"
-                BorderBrush="{StaticResource Separator}" BorderThickness="0,0,0,1" Padding="28,14">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderSurface}"
+                BorderBrush="{DynamicResource Separator}" BorderThickness="0,0,0,1" Padding="28,14">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -166,9 +166,9 @@
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                     <TextBlock Text="SenseEase"
-                               FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"/>
+                               FontSize="22" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
                     <TextBlock Text="OS-level Preventive Visual Comfort Prototype"
-                               Foreground="{StaticResource TextTertiary}" FontSize="12"/>
+                               Foreground="{DynamicResource TextTertiary}" FontSize="12"/>
                 </StackPanel>
 
                 <Border Grid.Column="1" VerticalAlignment="Center"
@@ -193,12 +193,12 @@
         </Border>
 
         <!-- ══════════ TABS ══════════ -->
-        <TabControl x:Name="MainTabs" Background="{StaticResource Surface}" BorderThickness="0" Padding="0">
+        <TabControl x:Name="MainTabs" Background="{DynamicResource Surface}" BorderThickness="0" Padding="0">
             <TabControl.Resources>
                 <Style TargetType="TabItem">
                     <Setter Property="FontSize" Value="13"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
-                    <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
                     <Setter Property="Padding" Value="20,10"/>
                     <Setter Property="Background" Value="Transparent"/>
                     <Setter Property="BorderThickness" Value="0"/>
@@ -220,7 +220,7 @@
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsSelected" Value="True">
                                         <Setter TargetName="TabBd" Property="BorderBrush"
-                                                Value="{StaticResource Accent}"/>
+                                                Value="{DynamicResource Accent}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -228,7 +228,7 @@
                     </Setter>
                     <Style.Triggers>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
                         </Trigger>
                     </Style.Triggers>
                 </Style>
@@ -245,7 +245,7 @@
                      Setup launches the calibration video demo; Skip just marks
                      the flag so we don't pester next launch. -->
                 <Border CornerRadius="{StaticResource Radius.md}" Padding="20,14" Margin="0,0,0,16"
-                        Background="{StaticResource Surface}" BorderBrush="{StaticResource Separator}" BorderThickness="1"
+                        Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                         Effect="{StaticResource Elev.2}"
                         Visibility="{Binding ShowFirstRunBanner, Converter={StaticResource BoolToVis}}">
                     <Grid>
@@ -255,21 +255,21 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                             <TextBlock Text="● 歡迎使用 SenseEase / Welcome to SenseEase"
-                                       Foreground="{StaticResource TextPrimary}" FontSize="12" FontWeight="Bold"/>
+                                       Foreground="{DynamicResource TextPrimary}" FontSize="12" FontWeight="Bold"/>
                             <TextBlock Text="先跑 60 秒的 setup demo，系統會依您的反應建議個人化預設值 / Run the 60 s setup demo so SenseEase can suggest personalised defaults based on your reaction."
-                                       Foreground="{StaticResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
                             <Button Content="Skip"
                                     Command="{Binding SkipSetupCommand}"
-                                    Background="{StaticResource SurfaceMuted}" Foreground="{StaticResource TextSecondary}"
+                                    Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
                                     BorderThickness="0"
                                     Padding="14,6" FontSize="12" Cursor="Hand"
                                     Template="{StaticResource RoundBtn}"
                                     Margin="0,0,8,0"/>
                             <Button Content="Run Setup Demo"
                                     Command="{Binding StartSetupDemoCommand}"
-                                    Background="{StaticResource Accent}" Foreground="White"
+                                    Background="{DynamicResource Accent}" Foreground="White"
                                     BorderThickness="0"
                                     Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
                                     Template="{StaticResource RoundBtn}"/>
@@ -282,7 +282,7 @@
                      user right now (app-action, never felt-state), keyed off the
                      VIMS tier via read-only converters + Comfort* tokens. Replaces
                      the four raw-telemetry cards (now demoted to Advanced below). -->
-                <Border Background="{StaticResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
                         Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
                         Margin="0,0,0,16"
                         AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
@@ -303,16 +303,16 @@
                                          existing Background DataTrigger pattern; Weak fills
                                          stay as the Background. -->
                                     <Style TargetType="Border">
-                                        <Setter Property="Background" Value="{StaticResource ComfortSteadyWeak}"/>
-                                        <Setter Property="BorderBrush" Value="{StaticResource ComfortSteady}"/>
+                                        <Setter Property="Background" Value="{DynamicResource ComfortSteadyWeak}"/>
+                                        <Setter Property="BorderBrush" Value="{DynamicResource ComfortSteady}"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                <Setter Property="Background" Value="{StaticResource ComfortRisingWeak}"/>
-                                                <Setter Property="BorderBrush" Value="{StaticResource ComfortRising}"/>
+                                                <Setter Property="Background" Value="{DynamicResource ComfortRisingWeak}"/>
+                                                <Setter Property="BorderBrush" Value="{DynamicResource ComfortRising}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                <Setter Property="Background" Value="{StaticResource ComfortHighWeak}"/>
-                                                <Setter Property="BorderBrush" Value="{StaticResource ComfortHigh}"/>
+                                                <Setter Property="Background" Value="{DynamicResource ComfortHighWeak}"/>
+                                                <Setter Property="BorderBrush" Value="{DynamicResource ComfortHigh}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -322,13 +322,13 @@
                                            AutomationProperties.Name="Comfort band">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
-                                            <Setter Property="Foreground" Value="{StaticResource ComfortSteadyText}"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ComfortSteadyText}"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                    <Setter Property="Foreground" Value="{StaticResource ComfortRisingText}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortRisingText}"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                    <Setter Property="Foreground" Value="{StaticResource ComfortHighText}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortHighText}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -336,9 +336,9 @@
                                 </TextBlock>
                             </Border>
                             <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5"
-                                    Background="{StaticResource SurfaceMuted}">
+                                    Background="{DynamicResource SurfaceMuted}">
                                 <TextBlock Text="{Binding Mode}" FontSize="12"
-                                           Foreground="{StaticResource TextSecondary}"/>
+                                           Foreground="{DynamicResource TextSecondary}"/>
                             </Border>
                         </StackPanel>
 
@@ -348,17 +348,17 @@
                              only as real strain rises. Colour keys off the tier band. -->
                         <ProgressBar Value="{Binding DisplayStressPercent, Mode=OneWay}" Maximum="100"
                                      Height="6" Margin="0,16,0,0" BorderThickness="0"
-                                     Background="{StaticResource SurfaceMuted}"
+                                     Background="{DynamicResource SurfaceMuted}"
                                      AutomationProperties.Name="Comfort level">
                             <ProgressBar.Style>
                                 <Style TargetType="ProgressBar">
-                                    <Setter Property="Foreground" Value="{StaticResource ComfortSteady}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource ComfortSteady}"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                            <Setter Property="Foreground" Value="{StaticResource ComfortRising}"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ComfortRising}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                            <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -375,14 +375,14 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        Text="平穩 / calm"/>
                             <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        HorizontalAlignment="Center" TextAlignment="Center"
                                        Text="相對於你的個人閾值 / Relative to your personal threshold"/>
                             <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        Text="高 / high"/>
                         </Grid>
                     </StackPanel>
@@ -415,7 +415,7 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentProfile}" Value="RESILIENT">
-                                                <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -431,7 +431,7 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentProfile}" Value="TYPICAL">
-                                                <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -447,7 +447,7 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentProfile}" Value="SENSITIVE">
-                                                <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -460,7 +460,7 @@
 
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
                 <Expander Header="進階數據 / Advanced" IsExpanded="False" Margin="0,0,0,16"
-                          Foreground="{StaticResource TextSecondary}">
+                          Foreground="{DynamicResource TextSecondary}">
                 <!-- ── Status Cards ── -->
                 <UniformGrid Rows="1" Columns="4" Margin="0,12,0,0">
 
@@ -471,7 +471,7 @@
                             <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding OpticalFlowIndex}" Maximum="150"
-                                         Height="4" Background="#EEF3FF" Foreground="{StaticResource Accent}"
+                                         Height="4" Background="#EEF3FF" Foreground="{DynamicResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="/ 150" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -484,7 +484,7 @@
                             <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding Pressure, Mode=OneWay}" Maximum="200"
-                                         Height="4" Background="{StaticResource ComfortHighWeak}" Foreground="{StaticResource ComfortHigh}"
+                                         Height="4" Background="{DynamicResource ComfortHighWeak}" Foreground="{DynamicResource ComfortHigh}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="Leaky Integrator" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -497,7 +497,7 @@
                             <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding FovRadiusPercent, Mode=OneWay}" Maximum="100"
-                                         Height="4" Background="#EEF3FF" Foreground="{StaticResource Accent}"
+                                         Height="4" Background="#EEF3FF" Foreground="{DynamicResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
                             <TextBlock Text="Clear zone" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
@@ -515,7 +515,7 @@
                                             <Setter Property="Fill" Value="#B0BFD8"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding MaskActive}" Value="True">
-                                                    <Setter Property="Fill" Value="{StaticResource ComfortHigh}"/>
+                                                    <Setter Property="Fill" Value="{DynamicResource ComfortHigh}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -528,7 +528,7 @@
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding MaskActive}" Value="True">
                                                     <Setter Property="Text" Value="Mask ACTIVE"/>
-                                                    <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -608,10 +608,10 @@
                         <Border Background="#F3F6FC" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Text="{Binding FmsScore}" Foreground="{StaticResource TextPrimary}"
+                                <TextBlock Text="{Binding FmsScore}" Foreground="{DynamicResource TextPrimary}"
                                            FontWeight="Bold" FontSize="12"/>
                                 <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
-                                <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="12">
+                                <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Text" Value="Hidden"/>
@@ -663,7 +663,7 @@
                                     VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2"
                                        Text="{Binding PersistentOverlayBaselineTier, StringFormat='L{0}'}"
-                                       Foreground="{StaticResource TextPrimary}" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextPrimary}" FontWeight="Bold"
                                        Width="36" TextAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Grid>
@@ -711,7 +711,7 @@
                              tab with the same calm, plain-language status as the
                              Dashboard instead of a raw-telemetry dump. Same
                              read-only converters + Comfort* tokens. -->
-                        <Border Background="{StaticResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                        <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
                                 Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
                                 Margin="0,0,0,16"
                                 AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
@@ -730,16 +730,16 @@
                                                  mirrors the existing Background DataTrigger pattern;
                                                  Weak fills stay as the Background. -->
                                             <Style TargetType="Border">
-                                                <Setter Property="Background" Value="{StaticResource ComfortSteadyWeak}"/>
-                                                <Setter Property="BorderBrush" Value="{StaticResource ComfortSteady}"/>
+                                                <Setter Property="Background" Value="{DynamicResource ComfortSteadyWeak}"/>
+                                                <Setter Property="BorderBrush" Value="{DynamicResource ComfortSteady}"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                        <Setter Property="Background" Value="{StaticResource ComfortRisingWeak}"/>
-                                                        <Setter Property="BorderBrush" Value="{StaticResource ComfortRising}"/>
+                                                        <Setter Property="Background" Value="{DynamicResource ComfortRisingWeak}"/>
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource ComfortRising}"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                        <Setter Property="Background" Value="{StaticResource ComfortHighWeak}"/>
-                                                        <Setter Property="BorderBrush" Value="{StaticResource ComfortHigh}"/>
+                                                        <Setter Property="Background" Value="{DynamicResource ComfortHighWeak}"/>
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource ComfortHigh}"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -749,13 +749,13 @@
                                                    AutomationProperties.Name="Comfort band">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="{StaticResource ComfortSteadyText}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortSteadyText}"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                            <Setter Property="Foreground" Value="{StaticResource ComfortRisingText}"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource ComfortRisingText}"/>
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                            <Setter Property="Foreground" Value="{StaticResource ComfortHighText}"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource ComfortHighText}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -763,24 +763,24 @@
                                         </TextBlock>
                                     </Border>
                                     <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5"
-                                            Background="{StaticResource SurfaceMuted}">
+                                            Background="{DynamicResource SurfaceMuted}">
                                         <TextBlock Text="{Binding Mode}" FontSize="12"
-                                                   Foreground="{StaticResource TextSecondary}"/>
+                                                   Foreground="{DynamicResource TextSecondary}"/>
                                     </Border>
                                 </StackPanel>
                                 <ProgressBar Value="{Binding DisplayStressPercent, Mode=OneWay}" Maximum="100"
                                              Height="6" Margin="0,16,0,0" BorderThickness="0"
-                                             Background="{StaticResource SurfaceMuted}"
+                                             Background="{DynamicResource SurfaceMuted}"
                                              AutomationProperties.Name="Comfort level">
                                     <ProgressBar.Style>
                                         <Style TargetType="ProgressBar">
-                                            <Setter Property="Foreground" Value="{StaticResource ComfortSteady}"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ComfortSteady}"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                    <Setter Property="Foreground" Value="{StaticResource ComfortRising}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortRising}"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                    <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -797,14 +797,14 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
-                                               Foreground="{StaticResource TextTertiary}"
+                                               Foreground="{DynamicResource TextTertiary}"
                                                Text="平穩 / calm"/>
                                     <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
-                                               Foreground="{StaticResource TextTertiary}"
+                                               Foreground="{DynamicResource TextTertiary}"
                                                HorizontalAlignment="Center" TextAlignment="Center"
                                                Text="相對於你的個人閾值 / Relative to your personal threshold"/>
                                     <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
-                                               Foreground="{StaticResource TextTertiary}"
+                                               Foreground="{DynamicResource TextTertiary}"
                                                Text="高 / high"/>
                                 </Grid>
                             </StackPanel>
@@ -820,20 +820,20 @@
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Optical Flow" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="VIMS Pressure" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
+                                        <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
                                             <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 12"/>
                                         </TextBlock>
@@ -842,13 +842,13 @@
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="FOV Radius" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="22"
+                                        <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
@@ -856,7 +856,7 @@
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding MaskActive}" Value="True">
                                                             <Setter Property="Text" Value="ACTIVE"/>
-                                                            <Setter Property="Foreground" Value="{StaticResource ComfortHigh}"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -911,13 +911,13 @@
                                 </Border>
                                 <!-- Legend -->
                                 <StackPanel Orientation="Horizontal" Margin="2,10,0,0">
-                                    <Ellipse Width="8" Height="8" Fill="{StaticResource TextTertiary}" VerticalAlignment="Center"/>
+                                    <Ellipse Width="8" Height="8" Fill="{DynamicResource TextTertiary}" VerticalAlignment="Center"/>
                                     <TextBlock Text="畫面動態 / Motion" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
-                                    <Ellipse Width="8" Height="8" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                                    <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center"/>
                                     <TextBlock Text="防護強度 / Protection" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
                                                VerticalAlignment="Center"/>
-                                    <Rectangle Width="14" Height="2" Fill="{StaticResource ComfortHigh}" VerticalAlignment="Center"/>
+                                    <Rectangle Width="14" Height="2" Fill="{DynamicResource ComfortHigh}" VerticalAlignment="Center"/>
                                     <TextBlock Text="啟動點 / Activation" Margin="6,0,0,0"
                                                Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -932,35 +932,35 @@
                                 <UniformGrid Rows="1" Columns="5">
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionFovIntercepts}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="FOV Intercepts" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakOfi, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Peak Optical Flow" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakPressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Peak VIMS Pressure" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionMaskActiveText}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Mask Active Time" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionUptimeText}"
-                                                   Foreground="{StaticResource TextPrimary}" FontWeight="Bold" FontSize="26"
+                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
                                         <TextBlock Text="Session Uptime" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
@@ -1067,7 +1067,7 @@
                                                                FontSize="13" Foreground="#0A1F5C"
                                                                TextWrapping="Wrap"/>
                                                     <TextBlock Text="{Binding Timestamp}"
-                                                               FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                               FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                                HorizontalAlignment="Right" Margin="0,4,0,0"/>
                                                 </StackPanel>
                                             </Border>
@@ -1079,7 +1079,7 @@
                                                     Padding="12,8" Margin="0,0,60,0" HorizontalAlignment="Left">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Author}"
-                                                               FontSize="10" Foreground="{StaticResource Accent}"
+                                                               FontSize="10" Foreground="{DynamicResource Accent}"
                                                                FontWeight="SemiBold" Margin="0,0,0,4"/>
 
                                                     <!-- Animated typing-dots indicator (visible only when IsTyping=true).
@@ -1111,11 +1111,11 @@
                                                             </EventTrigger>
                                                         </StackPanel.Triggers>
                                                         <Ellipse x:Name="Dot1" Width="6" Height="6"
-                                                                 Fill="{StaticResource TextTertiary}" Opacity="0.2" Margin="0,0,3,0"/>
+                                                                 Fill="{DynamicResource TextTertiary}" Opacity="0.2" Margin="0,0,3,0"/>
                                                         <Ellipse x:Name="Dot2" Width="6" Height="6"
-                                                                 Fill="{StaticResource TextTertiary}" Opacity="0.2" Margin="0,0,3,0"/>
+                                                                 Fill="{DynamicResource TextTertiary}" Opacity="0.2" Margin="0,0,3,0"/>
                                                         <Ellipse x:Name="Dot3" Width="6" Height="6"
-                                                                 Fill="{StaticResource TextTertiary}" Opacity="0.2"/>
+                                                                 Fill="{DynamicResource TextTertiary}" Opacity="0.2"/>
                                                     </StackPanel>
 
                                                     <!-- Real reply text: rendered as inline runs by MarkdownInlines
@@ -1188,7 +1188,7 @@
                                                     </ItemsControl>
 
                                                     <TextBlock Text="{Binding Timestamp}"
-                                                               FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                               FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                                Margin="0,4,0,0"/>
                                                 </StackPanel>
                                             </Border>
@@ -1206,7 +1206,7 @@
                          (opens the LLM dialog) or Skip (silent dismiss). -->
                     <Border Grid.Row="2" Margin="24,0,24,8"
                             CornerRadius="{StaticResource Radius.md}" Padding="20,14"
-                            Background="{StaticResource Surface}" BorderBrush="{StaticResource Separator}" BorderThickness="1"
+                            Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                             Effect="{StaticResource Elev.2}"
                             Visibility="{Binding ShowCalibrationInvitationBanner, Converter={StaticResource BoolToVis}}">
                         <Grid>
@@ -1216,24 +1216,24 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <TextBlock Text="想更新你的設定嗎？跟系統聊聊剛才的感覺。"
-                                           Foreground="{StaticResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
                                            TextWrapping="Wrap"/>
                                 <TextBlock Text="Want to refresh your settings? Chat about what you just felt."
-                                           Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondary}" FontSize="11"
                                            TextWrapping="Wrap" Margin="0,4,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal"
                                         VerticalAlignment="Center" Margin="16,0,0,0">
                                 <Button Content="跳過 / Skip"
                                         Command="{Binding SkipCalibrationInvitationCommand}"
-                                        Background="{StaticResource SurfaceMuted}" Foreground="{StaticResource TextSecondary}"
+                                        Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
                                         BorderThickness="0"
                                         Padding="14,6" FontSize="12" Cursor="Hand"
                                         Template="{StaticResource RoundBtn}"
                                         Margin="0,0,8,0"/>
                                 <Button Content="開始 calibration / Start calibration"
                                         Command="{Binding StartInvitedCalibrationCommand}"
-                                        Background="{StaticResource Accent}" Foreground="White"
+                                        Background="{DynamicResource Accent}" Foreground="White"
                                         BorderThickness="0"
                                         Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
                                         Template="{StaticResource RoundBtn}"/>
@@ -1259,7 +1259,7 @@
                                               ShadowDepth="1" Opacity="0.10"/>
                         </Border.Effect>
                         <TextBlock Text="{Binding StatusText}"
-                                   FontSize="11" Foreground="{StaticResource TextTertiary}" TextWrapping="Wrap"
+                                   FontSize="11" Foreground="{DynamicResource TextTertiary}" TextWrapping="Wrap"
                                    AutomationProperties.Name="AI assistant status"/>
                     </Border>
 

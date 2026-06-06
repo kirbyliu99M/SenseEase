@@ -142,149 +142,27 @@ public class TierColorPaletteTests
     //   • IsAssignableFrom<BitmapSource> — contract floor
     //   • IsNotType<RenderTargetBitmap>  — pins known-bad type
 
-    // ── Fix 3 contract tests (System.Drawing.Icon path) ─────────────────────
+    // ── Fix 3 contract tests REMOVED (Alpha-1 tray-ICO fix) ──────────────────
     //
-    // These cover the path the tray ACTUALLY uses in production
-    // (Hardcodet.Wpf.TaskbarNotification.TaskbarIcon.Icon after Patch 5).
-    // The ImageSource path (IconForTier above) is back-compat only — the
-    // tray doesn't set IconSource anymore. If a future sprint deletes the
-    // ImageSource path entirely, delete IconForTier_ReturnsTypeAcceptableToTrayLibrary
-    // with it; the assertions below are the load-bearing ones.
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(6)]
-    [InlineData(9)]
-    public void IconForTier_Win_ReturnsIconWithValidHandle(int tier)
-    {
-        // Pop-up sprint Fix 3 (Task 7 patch 3): contract test for the
-        // System.Drawing.Icon path. Non-zero Handle is the minimum the
-        // Win32 Shell_NotifyIcon contract requires — if GetHicon() ever
-        // regresses to returning IntPtr.Zero (unlikely but possible across
-        // GDI+ updates), this fires before reaching production.
-        //
-        // We do NOT dispose the icon — TierColorPalette caches it and owns
-        // the lifecycle. Disposing here would invalidate the cached handle
-        // for the production tray.
-        var icon = TierColorPalette.IconForTier_Win(tier);
-        Assert.NotNull(icon);
-        Assert.NotEqual(IntPtr.Zero, icon.Handle);
-    }
-
-    [Fact]
-    public void IconForTier_Win_ReturnsSameInstancePerBand()
-    {
-        // Two tiers in the same band must return the cached icon. Re-creating
-        // the icon (and HICON) per state-change tick would leak handles
-        // because the cache index, not GC, is what eventually calls
-        // DestroyIcon. Same-band re-fetch MUST hit the cache.
-        Assert.Same(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(2));
-        Assert.Same(TierColorPalette.IconForTier_Win(5),  TierColorPalette.IconForTier_Win(7));
-        Assert.Same(TierColorPalette.IconForTier_Win(8),  TierColorPalette.IconForTier_Win(10));
-    }
-
-    [Fact]
-    public void IconForTier_Win_DifferentBandsReturnDifferentInstances()
-    {
-        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(5));
-        Assert.NotSame(TierColorPalette.IconForTier_Win(5),  TierColorPalette.IconForTier_Win(8));
-        Assert.NotSame(TierColorPalette.IconForTier_Win(8),  TierColorPalette.IconForTier_Win(11));
-        Assert.NotSame(TierColorPalette.IconForTier_Win(1),  TierColorPalette.IconForTier_Win(11));
-    }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(6)]
-    [InlineData(9)]
-    public void IconForTier_Win_ProducesProperIcoFormat(int tier)
-    {
-        // Patch 7 regression guard #1: ICO magic-number check via Icon.Save.
-        // Verifies the icon's Win32-serialised form starts with the ICO
-        // header bytes (00 00 01 00). Catches a regression where someone
-        // reverts IconForTier_Win to Bitmap.GetHicon() (raw HICON, not
-        // ICO-formatted). The stronger byte-by-byte structure test below
-        // (RenderIconWin_HasValidIconDirectoryHeader) reads the EXACT bytes
-        // we wrote — this test reads what Win32's serialiser writes back.
-        var icon = TierColorPalette.IconForTier_Win(tier);
-        using var ms = new System.IO.MemoryStream();
-        icon.Save(ms);
-        ms.Position = 0;
-        var header = new byte[4];
-        int read = ms.Read(header, 0, 4);
-        Assert.Equal(4, read);
-        Assert.Equal(0x00, header[0]);  // Reserved low
-        Assert.Equal(0x00, header[1]);  // Reserved high
-        Assert.Equal(0x01, header[2]);  // Type = 1 (ICO)
-        Assert.Equal(0x00, header[3]);  // Type high
-    }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(6)]
-    [InlineData(9)]
-    public void RenderIconWin_HasValidIconDirectoryHeader(int tier)
-    {
-        // Patch 7 regression guard #2: pin the FULL ICO directory layout so
-        // a future refactor can't quietly break the byte-vs-int landmines:
-        //   - Width / Height are SINGLE BYTES (not int). Writing as int
-        //     would push subsequent fields out of alignment by 6 bytes,
-        //     breaking ImageSize / ImageOffset reads.
-        //   - BitCount is 32 (RGBA) NOT 0 — safer for Win11 shell renderer.
-        //   - ImageOffset must point to byte 22 (= 6 ICONDIR + 16 ICONDIRENTRY).
-        //   - Bytes at ImageOffset must be PNG magic (89 50 4E 47), proving
-        //     we wrote the PNG-in-ICO payload (not raw BMP, not junk).
-        //
-        // Uses internal accessor GetIcoBytesForTesting so the test reads the
-        // EXACT bytes IconForTier_Win wrote — not Icon.Save() output which
-        // could be re-encoded by Win32. Strongest structural assertion we
-        // can express without a real STA shell harness.
-        byte[] icoBytes = TierColorPalette.GetIcoBytesForTesting(tier);
-
-        // ICO must be at least header (22 bytes) + a reasonable PNG payload.
-        // A 32×32 PNG with single-color content is at least ~80 bytes.
-        Assert.True(icoBytes.Length >= 22 + 80,
-            $"ICO too short: got {icoBytes.Length} bytes, expected header+payload");
-
-        // ── ICONDIR (6 bytes) ──
-        Assert.Equal(0, icoBytes[0]);   // Reserved low
-        Assert.Equal(0, icoBytes[1]);   // Reserved high
-        Assert.Equal(1, icoBytes[2]);   // Type = 1 (ICO)
-        Assert.Equal(0, icoBytes[3]);   // Type high
-        Assert.Equal(1, icoBytes[4]);   // Count = 1
-        Assert.Equal(0, icoBytes[5]);   // Count high
-
-        // ── ICONDIRENTRY (16 bytes, starting at offset 6) ──
-        Assert.Equal(32, icoBytes[6]);  // Width  (BYTE — landmine #1)
-        Assert.Equal(32, icoBytes[7]);  // Height (BYTE — landmine #1)
-        Assert.Equal(0,  icoBytes[8]);  // ColorCount = 0 (PNG / ≥256 colors)
-        Assert.Equal(0,  icoBytes[9]);  // Reserved
-        Assert.Equal(1,  icoBytes[10]); // Planes low
-        Assert.Equal(0,  icoBytes[11]); // Planes high
-        Assert.Equal(32, icoBytes[12]); // BitCount low (32 — landmine #2: NOT 0)
-        Assert.Equal(0,  icoBytes[13]); // BitCount high
-
-        // ImageOffset (bytes 18-21) must point to 22 (= 6 + 16).
-        int imageOffset = System.BitConverter.ToInt32(icoBytes, 18);
-        Assert.Equal(22, imageOffset);
-
-        // Bytes at ImageOffset must be PNG magic (89 50 4E 47 = "\x89PNG").
-        // Proves the ICO wraps a PNG payload — not raw HICON bytes, not
-        // garbage. If someone reverts to Bitmap.GetHicon() the bytes at
-        // offset 22 would NOT match PNG magic and this test fires.
-        Assert.Equal(0x89, icoBytes[22]);
-        Assert.Equal(0x50, icoBytes[23]);  // 'P'
-        Assert.Equal(0x4E, icoBytes[24]);  // 'N'
-        Assert.Equal(0x47, icoBytes[25]);  // 'G'
-    }
+    // The System.Drawing.Icon path on this class (IconForTier_Win) and its
+    // single-32px-PNG-in-ICO wrapper were deleted: that single frame forced the
+    // Win11 shell to down-scale 32 px → 16 px, producing the blurred / blank
+    // tray icon. The tray now builds its own MULTI-SIZE ICO (16/24/32/48 px
+    // uncompressed BGRA-DIB frames) in TrayIconService, covered by the new
+    // TrayIconResourceTests (frame count > 1 + a 16×16 / 32-bit ICONDIRENTRY).
+    // The five tests that pinned the deleted single-PNG path
+    // (IconForTier_Win_ReturnsIconWithValidHandle / _ReturnsSameInstancePerBand /
+    // _DifferentBandsReturnDifferentInstances / _ProducesProperIcoFormat and
+    // RenderIconWin_HasValidIconDirectoryHeader) were removed with it.
 
     [Fact(Skip = "Manual STA smoke — instantiates real Hardcodet TaskbarIcon " +
-                  "and exercises IconForTier_Win across all 3 bands + Dispose. " +
+                  "and exercises the tray's multi-size ICO across all 3 bands + Dispose. " +
                   "Runs on net8.0-windows but xUnit's default scheduler isn't STA. " +
                   "Will be promoted to [Fact] once the E2E WPF test infrastructure " +
                   "(FlaUI / StaFact / WpfApplicationFactory pattern) is scoped " +
                   "before Habituation Phase 6/7/8 sprint opens. Until then, the " +
-                  "IconForTier_Win_ReturnsIconWithValidHandle theory above covers " +
-                  "the Win32 HICON contract; the unit-test gap is in the " +
+                  "TrayIconResourceTests cover the ICO structure (multi-frame + 16×16); " +
+                  "the unit-test gap is in the " +
                   "library→Shell_NotifyIcon registration handshake which only " +
                   "fires at app launch (the gap that hid Patch 5's silent reg failure).")]
     public void TrayIconService_FullLifecycle_NoCrash_E2EPlaceholder()
@@ -292,9 +170,9 @@ public class TierColorPaletteTests
         // Future test outline (when STA-capable infra lands):
         //   1. Construct Hardcodet.Wpf.TaskbarNotification.TaskbarIcon on
         //      an STA thread
-        //   2. Assign Icon = TierColorPalette.IconForTier_Win(1) — must not throw
-        //   3. Assign Icon = TierColorPalette.IconForTier_Win(6) — must not throw
-        //   4. Assign Icon = TierColorPalette.IconForTier_Win(9) — must not throw
+        //   2. Assign Icon = TrayIconService's band icon (1) — must not throw
+        //   3. Assign Icon = TrayIconService's band icon (6) — must not throw
+        //   4. Assign Icon = TrayIconService's band icon (9) — must not throw
         //   5. Dispose TaskbarIcon — must not throw
         //   6. Call TierColorPalette.DisposeWinIconCache() — must not throw
         //   7. Assert no DispatcherUnhandledException fired in any step

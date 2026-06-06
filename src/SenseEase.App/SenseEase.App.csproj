@@ -61,6 +61,20 @@
     <Resource Include="Resources\AppIcon.ico" />
   </ItemGroup>
 
+  <!-- Dark palette override layer. The WPF SDK auto-includes every .xaml
+       under the project as <Page>, which would run the XAML through the
+       markup compiler expecting a Page/code-behind pairing. Palette.Dark.xaml
+       is a pure brush-only ResourceDictionary with NO x:Class, so we drop the
+       implicit Page item and re-add it as a <Resource>. That bakes the raw
+       XAML into the assembly as a loose resource, pack-URI-loadable at runtime
+       via pack://application:,,,/SenseEase.App;component/Theme/Palette.Dark.xaml
+       and mergeable ABOVE Theme/SenseEaseTheme.xaml to override the light
+       colour-brush keys. -->
+  <ItemGroup>
+    <Page Remove="Theme\Palette.Dark.xaml" />
+    <Resource Include="Theme\Palette.Dark.xaml" />
+  </ItemGroup>
+
   <!-- Side-load b9294 llama.cpp binaries (Vulkan backend) over the
        LLamaSharp 0.27 NuGet defaults. The NuGet ships pre-b9294 binaries
        that (a) lack llama-server.exe, the subprocess our chatbot drives,

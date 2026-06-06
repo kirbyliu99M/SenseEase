@@ -1,0 +1,38 @@
+<!--
+  Palette.Dark — Windows-11-dark override layer.
+
+  Redefines the SAME colour-brush keys as Theme/SenseEaseTheme.xaml with
+  dark values. Merged ABOVE SenseEaseTheme.xaml at runtime so these keys
+  win over the light defaults; all non-colour tokens (spacing, radius,
+  elevation, typography, focus ring) continue to resolve from the light
+  dictionary underneath. Brushes only — nothing else lives here.
+
+  Loaded via pack URI, e.g.:
+    <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/Palette.Dark.xaml"/>
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="Canvas"        Color="#14161A"/>
+    <SolidColorBrush x:Key="Surface"       Color="#1E2127"/>
+    <SolidColorBrush x:Key="SurfaceMuted"  Color="#262A31"/>
+    <SolidColorBrush x:Key="Separator"     Color="#343A43"/>
+    <SolidColorBrush x:Key="HeaderSurface" Color="#1A1D22"/>
+    <SolidColorBrush x:Key="TextPrimary"   Color="#EAEEF3"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#AEB7C2"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#8A95A2"/>
+    <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Accent"        Color="#2AA8E0"/>
+    <SolidColorBrush x:Key="AccentHover"   Color="#54BBE8"/>
+
+    <SolidColorBrush x:Key="ComfortSteady"     Color="#3FA68F"/>
+    <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#1B3A34"/>
+    <SolidColorBrush x:Key="ComfortSteadyText" Color="#9FE0CF"/>
+    <SolidColorBrush x:Key="ComfortRising"     Color="#C79A4E"/>
+    <SolidColorBrush x:Key="ComfortRisingWeak" Color="#3A2F1A"/>
+    <SolidColorBrush x:Key="ComfortRisingText" Color="#E8C98A"/>
+    <SolidColorBrush x:Key="ComfortHigh"       Color="#D07A6B"/>
+    <SolidColorBrush x:Key="ComfortHighWeak"   Color="#3A2622"/>
+    <SolidColorBrush x:Key="ComfortHighText"   Color="#F0B6AB"/>
+
+</ResourceDictionary>

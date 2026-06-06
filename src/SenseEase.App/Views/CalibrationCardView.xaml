@@ -15,7 +15,7 @@
          IsCardNVisible flags on the VM).
 
          Visual style mirrors the chatbot tab: white card with shadow,
-         {StaticResource TextPrimary} text, #024AD8 primary accents, #EEF3FF ghost surface.
+         {DynamicResource TextPrimary} text, #024AD8 primary accents, #EEF3FF ghost surface.
          No new colours are introduced.
          ============================================================ -->
 
@@ -49,7 +49,7 @@
         </ControlTemplate>
 
         <Style x:Key="CalibPrimaryBtn" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="Background" Value="{DynamicResource Accent}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -61,12 +61,12 @@
 
         <Style x:Key="CalibGhostBtn" TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
             <Setter Property="Background" Value="#EEF3FF"/>
-            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
         </Style>
 
         <Style x:Key="CalibAlertBtn" TargetType="Button" BasedOn="{StaticResource CalibPrimaryBtn}">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
         </Style>
 
         <!-- Generic single-select option button. Use Tag for the value carried
@@ -75,27 +75,27 @@
         <Style x:Key="OptionRadioBtn" TargetType="RadioButton">
             <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="OptionCheckBox" TargetType="CheckBox">
             <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="CalibTitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
 
         <Style x:Key="CalibSubtitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="Margin" Value="0,2,0,12"/>
         </Style>
@@ -111,14 +111,14 @@
 
         <Style x:Key="CalibFreetextLabel" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
             <Setter Property="Margin" Value="0,10,0,4"/>
         </Style>
 
         <Style x:Key="CalibFreetextBox" TargetType="TextBox">
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Background" Value="#F8FAFF"/>
             <Setter Property="BorderBrush" Value="#E8EEFF"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -150,14 +150,14 @@
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Background="#EEF3FF" CornerRadius="10" Padding="8,3" Margin="0,0,8,0">
                         <TextBlock Text="校正 / Calibration"
-                                   FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
+                                   FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/>
                     </Border>
                     <TextBlock Text="請依您剛才看完 demo 的感受作答 / Answer based on how the demo felt"
-                               FontSize="11" Foreground="{StaticResource TextTertiary}" VerticalAlignment="Center"
+                               FontSize="11" Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center"
                                TextWrapping="Wrap"/>
                 </StackPanel>
                 <TextBlock Grid.Column="1" Text="{Binding CardCounterText}"
-                           FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Accent}"
+                           FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"
                            VerticalAlignment="Center"/>
             </Grid>
 
@@ -249,8 +249,8 @@
                                         <Grid>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="1" FontSize="18" FontWeight="Bold"
-                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="無 / None" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="無 / None" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -262,8 +262,8 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="Background" Value="{DynamicResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
                                             <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
                                             <Setter TargetName="Cell" Property="RenderTransform">
@@ -273,7 +273,7 @@
                                             </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -292,8 +292,8 @@
                                         <Grid>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="2" FontSize="18" FontWeight="Bold"
-                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="輕微 / Mild" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="輕微 / Mild" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -305,8 +305,8 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="Background" Value="{DynamicResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
                                             <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
                                             <Setter TargetName="Cell" Property="RenderTransform">
@@ -316,7 +316,7 @@
                                             </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -335,8 +335,8 @@
                                         <Grid>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="3" FontSize="18" FontWeight="Bold"
-                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="中等 / Moderate" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="中等 / Moderate" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -348,8 +348,8 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="Background" Value="{DynamicResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
                                             <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
                                             <Setter TargetName="Cell" Property="RenderTransform">
@@ -359,7 +359,7 @@
                                             </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -378,8 +378,8 @@
                                         <Grid>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="4" FontSize="18" FontWeight="Bold"
-                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="明顯 / Strong" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="明顯 / Strong" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -391,8 +391,8 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="Background" Value="{DynamicResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
                                             <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
                                             <Setter TargetName="Cell" Property="RenderTransform">
@@ -402,7 +402,7 @@
                                             </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -420,8 +420,8 @@
                                         <Grid>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <TextBlock Text="5" FontSize="18" FontWeight="Bold"
-                                                           Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="嚴重 / Severe" FontSize="10" Foreground="{StaticResource TextTertiary}"
+                                                           Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="嚴重 / Severe" FontSize="10" Foreground="{DynamicResource TextTertiary}"
                                                            HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                             <!-- M14(b): selected-state checkmark affordance. -->
@@ -433,8 +433,8 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Cell" Property="Background" Value="{StaticResource Accent}"/>
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="Background" Value="{DynamicResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                             <Setter TargetName="Cell" Property="TextElement.Foreground" Value="White"/>
                                             <Setter TargetName="CellCheck" Property="Visibility" Value="Visible"/>
                                             <Setter TargetName="Cell" Property="RenderTransform">
@@ -444,7 +444,7 @@
                                             </Setter>
                                         </Trigger>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            <Setter TargetName="Cell" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>

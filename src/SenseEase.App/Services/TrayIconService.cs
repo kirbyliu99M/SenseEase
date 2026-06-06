@@ -378,10 +378,14 @@ public sealed class TrayIconService : IDisposable
     // collapsed to near-identical greys for a deuteranope / protanope, and
     // blurred together once the Win11 shell downscales 32 px → 16 px.
     //
-    // Fix: keep the 32 px canvas and the proven PNG-in-ICO wrapper (the only
-    // path that registers reliably with the Hardcodet tray on .NET 8 — GDI+
-    // has no ICO encoder), but make the three bands differ by SHAPE as well as
-    // hue so they are distinguishable without relying on colour:
+    // Fix: render NATIVE frames at {16,24,32,48} px and pack them into one
+    // multi-size ICO (BuildMultiSizeIco — uncompressed 32-bit BGRA DIB frames;
+    // GDI+ has no ICO encoder so we hand-write the container). The old path
+    // shipped ONE 32 px PNG frame and let the Win11 shell down-scale it to the
+    // 16 px tray slot, which blurred/blanked the icon — the same PNG-at-16px bug
+    // the app icon hit. Per-size frames let the shell pick the exact-size frame.
+    // Each band still differs by SHAPE as well as hue so they are
+    // distinguishable without relying on colour:
     //   • Grey  (calm)     — plain filled rounded square.
     //   • Amber (elevated) — saturated amber + a diagonal HATCH overlay. The
     //                        texture reads as "different" even in greyscale.
@@ -407,64 +411,14 @@ public sealed class TrayIconService : IDisposable
     /// <summary>M12: returns the colour-blind-safe, shape-cued tray icon for a
     /// band, cached so repeated same-band ticks reuse one <see
     /// cref="System.Drawing.Icon"/> (and HICON). Released in <see
-    /// cref="Dispose"/>. The 32 px canvas + PNG-in-ICO wrapper match the
-    /// previously-shipping path; only the painting (saturated amber + hatch,
-    /// clay + corner wedge) differs.</summary>
+    /// cref="Dispose"/>. The icon is a multi-size ICO (16/24/32/48 px frames via
+    /// <see cref="BuildMultiSizeIco"/>) so the Win11 shell renders a native
+    /// 16 px frame in the tray instead of down-scaling a single 32 px one.</summary>
     private System.Drawing.Icon BuildDistinctTrayIcon(TierColorPalette.TierBand band)
     {
         if (_distinctIconCache.TryGetValue(band, out var cached)) return cached;
 
-        // 32×32 GDI+ bitmap with a 2 px transparent margin (matches the prior
-        // icon's bounding box so the shell layout is unchanged).
-        using var bmp = new System.Drawing.Bitmap(32, 32);
-        using (var g = System.Drawing.Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(System.Drawing.Color.Transparent);
-
-            // Body rectangle (inside the 2 px margin), same 28×28 footprint the
-            // old flat icon used.
-            var body = new System.Drawing.Rectangle(2, 2, 28, 28);
-
-            // Legacy→5級 semantic mapping (preserve calm↔high intent):
-            // Grey(calm)→VeryHigh, Amber(mid)→Medium, Red(high)→VeryLow.
-            System.Drawing.Color fill = band switch
-            {
-                TierColorPalette.TierBand.Medium  => TrayAmberFill,
-                TierColorPalette.TierBand.VeryLow => TrayClayFill,
-                _                                 => TrayGreyFill,
-            };
-
-            // Rounded "app tile" body (matches the AppIcon glossy-tile language)
-            // instead of a flat square; band cues are clipped to the tile so the
-            // hatch/wedge never bleed past the rounded corners.
-            using (var tile = RoundedRectPath(body, 6))
-            using (var fillBrush = new System.Drawing.SolidBrush(fill))
-            {
-                g.FillPath(fillBrush, tile);
-                g.SetClip(tile);
-                switch (band)
-                {
-                    case TierColorPalette.TierBand.Medium:
-                        DrawDiagonalHatch(g, body, TrayAmberHatchInk);
-                        break;
-                    case TierColorPalette.TierBand.VeryLow:
-                        DrawCornerWedge(g, body, TrayClayWedgeInk);
-                        break;
-                    // VeryHigh / other bands: plain fill — the textural
-                    // "calm / nothing layered on" cue.
-                }
-                g.ResetClip();
-            }
-
-            // SenseEase brand lens (the translucent disc the AppIcon centres over
-            // its tile grid). Painted on EVERY band so the tray carries one
-            // recognizable identity — the calm/VeryHigh band is no longer a flat
-            // coloured square, the missing cue that read as "broken" in the tray.
-            DrawBrandLens(g, body);
-        }
-
-        byte[] icoBytes = BuildPngWrappedIco(bmp);
+        byte[] icoBytes = BuildBandIco(band);
         // Icon(Stream) reads the stream eagerly in the ctor, so disposing the
         // MemoryStream right after is safe — matches the prior TierColorPalette
         // path. The Icon owns the HICON it allocates; we Dispose() it in Dispose.
@@ -472,6 +426,109 @@ public sealed class TrayIconService : IDisposable
         var icon = new System.Drawing.Icon(stream);
         _distinctIconCache[band] = icon;
         return icon;
+    }
+
+    /// <summary>Renders the band at every shell-relevant size and packs the
+    /// frames into one multi-size ICO. The previous path wrote a SINGLE 32 px
+    /// PNG frame; the Win11 shell then down-scaled that 32 px PNG to the 16 px
+    /// tray slot and produced a blurred / blank icon (the same "PNG-at-16px"
+    /// bug the app icon hit). Shipping a native 16 px frame (plus 24/32/48) lets
+    /// the shell pick the exact-size frame instead of resampling one.</summary>
+    private static byte[] BuildBandIco(TierColorPalette.TierBand band)
+    {
+        // {16,24,32,48}: 16 = primary tray slot, 24 = 150% DPI tray, 32 =
+        // 200% DPI / overflow flyout, 48 = jumbo / high-DPI fallback. PaintBand
+        // simplifies the lens below 24 px so the ring/highlight don't vanish.
+        int[] sizes = { 16, 24, 32, 48 };
+        var frames = new System.Collections.Generic.List<System.Drawing.Bitmap>(sizes.Length);
+        try
+        {
+            foreach (int size in sizes)
+            {
+                var bmp = new System.Drawing.Bitmap(size, size);
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.Clear(System.Drawing.Color.Transparent);
+                    // A proportional ~6% transparent margin so the tile never
+                    // touches the shell's icon bounding box at any size.
+                    int margin = System.Math.Max(1, size / 16);
+                    var body = new System.Drawing.Rectangle(
+                        margin, margin, size - 2 * margin, size - 2 * margin);
+                    PaintBand(g, body, band);
+                }
+                frames.Add(bmp);
+            }
+            return BuildMultiSizeIco(frames);
+        }
+        finally
+        {
+            foreach (var f in frames) f.Dispose();
+        }
+    }
+
+    /// <summary>Internal test hook: returns the raw multi-size ICO bytes for a
+    /// band so TrayIconResourceTests can assert frame count &gt; 1 and the
+    /// presence of a 16×16 / 32-bit ICONDIRENTRY — without round-tripping
+    /// through Win32's icon serialiser (which may normalise). Internal +
+    /// InternalsVisibleTo("SenseEase.Tests") (already wired in the csproj).</summary>
+    internal static byte[] GetBandIcoBytesForTesting(TierColorPalette.TierBand band)
+        => BuildBandIco(band);
+
+    /// <summary>Paints one tray frame: the rounded band-tinted "app tile", its
+    /// colour-blind-safe shape cue (diagonal hatch for Medium, corner wedge for
+    /// VeryLow), and the SenseEase brand lens — all scaled to <paramref
+    /// name="body"/>. The lens DETAIL scales with size: at ≥24 px the full lens
+    /// (translucent disc + ring + top-left highlight) is drawn; at 16–20 px the
+    /// thin 1.6 px ring and the 3.4 px highlight both collapse to sub-pixel
+    /// noise after the shell blends them, so only a simpler filled translucent
+    /// disc is drawn. The band hue + shape cue are kept at every size so the
+    /// Medium / VeryLow bands stay distinguishable even in the tiny tray slot.</summary>
+    private static void PaintBand(
+        System.Drawing.Graphics g,
+        System.Drawing.Rectangle body,
+        TierColorPalette.TierBand band)
+    {
+        // Legacy→5級 semantic mapping (preserve calm↔high intent):
+        // Grey(calm)→VeryHigh, Amber(mid)→Medium, Clay(high)→VeryLow.
+        System.Drawing.Color fill = band switch
+        {
+            TierColorPalette.TierBand.Medium  => TrayAmberFill,
+            TierColorPalette.TierBand.VeryLow => TrayClayFill,
+            _                                 => TrayGreyFill,
+        };
+
+        // Corner radius proportional to the body so the tile keeps the same
+        // "app tile" silhouette at every size (≈19% of the body width — the
+        // 6 px radius on the old 28 px body).
+        int radius = System.Math.Max(2, body.Width * 6 / 28);
+
+        using (var tile = RoundedRectPath(body, radius))
+        using (var fillBrush = new System.Drawing.SolidBrush(fill))
+        {
+            g.FillPath(fillBrush, tile);
+            g.SetClip(tile);
+            switch (band)
+            {
+                case TierColorPalette.TierBand.Medium:
+                    DrawDiagonalHatch(g, body, TrayAmberHatchInk);
+                    break;
+                case TierColorPalette.TierBand.VeryLow:
+                    DrawCornerWedge(g, body, TrayClayWedgeInk);
+                    break;
+                // VeryHigh / other bands: plain fill — the textural
+                // "calm / nothing layered on" cue.
+            }
+            g.ResetClip();
+        }
+
+        // Brand lens. At ≥24 px draw the full lens (ring + highlight); at the
+        // tiny 16–20 px tray sizes those thin features vanish, so draw a single
+        // filled translucent disc on the band-tinted tile instead.
+        if (body.Width >= 24)
+            DrawBrandLens(g, body);
+        else
+            DrawSimpleBrandDisc(g, body);
     }
 
     /// <summary>Rounded-rectangle path for the tray tile body.</summary>
@@ -495,16 +552,36 @@ public sealed class TrayIconService : IDisposable
     /// recognizable (never a flat coloured square).</summary>
     private static void DrawBrandLens(System.Drawing.Graphics g, System.Drawing.Rectangle body)
     {
-        const float dia = 16f;
+        // Lens diameter ≈57% of the body (16 px on the old 28 px body), scaled
+        // so the mark keeps its proportions at 24 / 32 / 48 px frames.
+        float dia = body.Width * 16f / 28f;
         float cx = body.X + body.Width / 2f;
         float cy = body.Y + body.Height / 2f;
         var lens = new System.Drawing.RectangleF(cx - dia / 2f, cy - dia / 2f, dia, dia);
         using (var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(200, 255, 255, 255)))
             g.FillEllipse(disc, lens);
-        using (var ring = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 255, 255, 255), 1.6f))
+        float ringWidth = System.Math.Max(1f, dia / 10f);
+        using (var ring = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 255, 255, 255), ringWidth))
             g.DrawEllipse(ring, lens);
+        float hiDia = dia * 3.4f / 16f;
+        float hiInset = dia * 2.6f / 16f;
         using (var hi = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(235, 255, 255, 255)))
-            g.FillEllipse(hi, cx - dia / 2f + 2.6f, cy - dia / 2f + 2.6f, 3.4f, 3.4f);
+            g.FillEllipse(hi, cx - dia / 2f + hiInset, cy - dia / 2f + hiInset, hiDia, hiDia);
+    }
+
+    /// <summary>Simplified brand mark for the tiny 16–20 px tray frames: a
+    /// single filled translucent disc (no thin ring, no 3.4 px highlight — both
+    /// collapse to sub-pixel noise at 16 px after the shell blends them). The
+    /// band hue still shows through the translucent disc, so the band stays
+    /// readable and the mark keeps a recognizable round silhouette.</summary>
+    private static void DrawSimpleBrandDisc(System.Drawing.Graphics g, System.Drawing.Rectangle body)
+    {
+        float dia = body.Width * 16f / 28f;
+        float cx = body.X + body.Width / 2f;
+        float cy = body.Y + body.Height / 2f;
+        var lens = new System.Drawing.RectangleF(cx - dia / 2f, cy - dia / 2f, dia, dia);
+        using var disc = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(210, 255, 255, 255));
+        g.FillEllipse(disc, lens);
     }
 
     /// <summary>M12 amber shape cue: evenly-spaced diagonal stripes clipped to
@@ -512,13 +589,19 @@ public sealed class TrayIconService : IDisposable
     /// amber is distinguishable from the plain grey band by shape, not hue.</summary>
     private static void DrawDiagonalHatch(System.Drawing.Graphics g, System.Drawing.Rectangle body, System.Drawing.Color ink)
     {
-        const int spacing = 7;   // px between stripes — coarse enough to survive 16 px downscale
-        const float stroke = 3f; // stripe width
+        // Stripe spacing / width scale with the body (7 px / 3 px on the old
+        // 28 px body) so the hatch reads as the same texture at 16 / 32 / 48 px
+        // rather than a few stray lines on the small frames.
+        int spacing = System.Math.Max(3, body.Width * 7 / 28); // px between stripes
+        float stroke = System.Math.Max(1.5f, body.Width * 3f / 28f); // stripe width
         using var pen = new System.Drawing.Pen(ink, stroke);
         var oldClip = g.Clip;
         try
         {
-            g.SetClip(body);
+            // INTERSECT (not Replace) so the hatch stays inside the rounded-tile
+            // clip PaintBand already set — otherwise the stripes would bleed into
+            // the rounded corners (more visible at the small 16 px frame).
+            g.SetClip(body, System.Drawing.Drawing2D.CombineMode.Intersect);
             // Sweep 45° lines from top-left to bottom-right across the body so
             // a few full-length diagonals land inside the clip region.
             for (int d = -body.Height; d < body.Width; d += spacing)
@@ -550,40 +633,135 @@ public sealed class TrayIconService : IDisposable
         g.FillPolygon(wedgeBrush, pts);
     }
 
-    /// <summary>M12: builds an in-memory ICO wrapping the bitmap as a PNG
-    /// (Win Vista+ accepts PNG-in-ICO). Mirrors the proven wrapper that ships
-    /// the tray icon today — GDI+ on .NET 8 has no ICO encoder, so we write the
-    /// 6-byte ICONDIR + 16-byte ICONDIRENTRY ourselves and lean on the working
-    /// PNG encoder for the payload. Width/Height are single BYTES; BitCount is
-    /// 32 (not 0) for the Win11 shell renderer.</summary>
-    private static byte[] BuildPngWrappedIco(System.Drawing.Bitmap bmp)
+    /// <summary>Builds a proper MULTI-SIZE ICO from the supplied frames, each
+    /// encoded as an UNCOMPRESSED 32-bit BGRA DIB (BITMAPINFOHEADER, no PNG).
+    /// <para>This replaces the old single-32px-PNG wrapper. That wrapper shipped
+    /// exactly one 32 px frame, so the Win11 shell had nothing to do but
+    /// resample it down to the 16 px tray slot — producing the blurred / blank
+    /// tray icon. Packing native 16 / 24 / 32 / 48 px frames lets the shell pick
+    /// the exact-size frame for the slot instead of down-scaling one.</para>
+    /// <para>Layout: ICONDIR(reserved=0, type=1, count=N) + N×ICONDIRENTRY
+    /// (16 bytes each) + N payloads. Each payload is a DIB: a
+    /// BITMAPINFOHEADER whose <c>biHeight = 2*height</c> (the doubled height is
+    /// the ICO convention covering the XOR colour rows plus the AND mask), then
+    /// the bottom-up 32-bit BGRA XOR rows, then an all-zero 1-bpp AND mask whose
+    /// rows are padded to a 4-byte boundary. We hand-write the container because
+    /// GDI+ on .NET 8 has no ICO encoder.</para></summary>
+    private static byte[] BuildMultiSizeIco(
+        System.Collections.Generic.IReadOnlyList<System.Drawing.Bitmap> frames)
     {
-        byte[] pngBytes;
-        using (var pngStream = new MemoryStream())
-        {
-            bmp.Save(pngStream, System.Drawing.Imaging.ImageFormat.Png);
-            pngBytes = pngStream.ToArray();
-        }
+        if (frames == null) throw new ArgumentNullException(nameof(frames));
+        if (frames.Count == 0) throw new ArgumentException("At least one frame is required.", nameof(frames));
+
+        // Encode each frame's DIB payload up front so we know the byte sizes
+        // before writing the ICONDIRENTRY offsets.
+        var payloads = new byte[frames.Count][];
+        for (int i = 0; i < frames.Count; i++)
+            payloads[i] = BuildBgraDibPayload(frames[i]);
+
+        // Offset of the first payload = ICONDIR (6) + N × ICONDIRENTRY (16).
+        int headerSize = 6 + frames.Count * 16;
 
         using var icoStream = new MemoryStream();
         using (var writer = new BinaryWriter(icoStream, System.Text.Encoding.UTF8, leaveOpen: true))
         {
             // ── ICONDIR (6 bytes) ──
-            writer.Write((ushort)0);   // Reserved
-            writer.Write((ushort)1);   // Type = 1 (ICO)
-            writer.Write((ushort)1);   // ImageCount = 1
-            // ── ICONDIRENTRY (16 bytes) ──
-            writer.Write((byte)32);    // Width  (BYTE; 0 = 256)
-            writer.Write((byte)32);    // Height (BYTE; 0 = 256)
-            writer.Write((byte)0);     // ColorCount: 0 for PNG / ≥256 colours
-            writer.Write((byte)0);     // Reserved
-            writer.Write((ushort)1);   // Planes
-            writer.Write((ushort)32);  // BitCount: 32 (RGBA), not 0
-            writer.Write((uint)pngBytes.Length); // ImageSize
-            writer.Write((uint)22);    // ImageOffset = 6 + 16
+            writer.Write((ushort)0);                 // Reserved
+            writer.Write((ushort)1);                 // Type = 1 (ICO)
+            writer.Write((ushort)frames.Count);      // ImageCount = N
+
+            // ── N × ICONDIRENTRY (16 bytes each) ──
+            int offset = headerSize;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                int w = frames[i].Width;
+                int h = frames[i].Height;
+                writer.Write((byte)(w >= 256 ? 0 : w)); // Width  (BYTE; 0 = 256)
+                writer.Write((byte)(h >= 256 ? 0 : h)); // Height (BYTE; 0 = 256)
+                writer.Write((byte)0);                  // ColorCount: 0 for ≥256 colours
+                writer.Write((byte)0);                  // Reserved
+                writer.Write((ushort)1);                // Planes
+                writer.Write((ushort)32);               // BitCount: 32 (BGRA)
+                writer.Write((uint)payloads[i].Length); // bytesInRes
+                writer.Write((uint)offset);             // imageOffset
+                offset += payloads[i].Length;
+            }
         }
-        icoStream.Write(pngBytes, 0, pngBytes.Length);
+        // ── N payloads, in the same order as the entries ──
+        foreach (var payload in payloads)
+            icoStream.Write(payload, 0, payload.Length);
         return icoStream.ToArray();
+    }
+
+    /// <summary>Encodes one frame as an uncompressed 32-bit BGRA DIB for ICO
+    /// embedding: a BITMAPINFOHEADER with <c>biHeight = 2*height</c>, then the
+    /// bottom-up BGRA XOR rows, then an all-zero 1-bpp AND mask (rows padded to
+    /// 4 bytes). The doubled <c>biHeight</c> is the ICO convention — it spans
+    /// the colour rows AND the mask; readers halve it back to the real height.
+    /// The 32-bit alpha channel carries real transparency, so the AND mask is
+    /// all-zero (fully opaque where alpha decides) and present only to satisfy
+    /// the format.</summary>
+    private static byte[] BuildBgraDibPayload(System.Drawing.Bitmap bmp)
+    {
+        int width  = bmp.Width;
+        int height = bmp.Height;
+
+        // XOR rows: 32-bit BGRA, already 4-byte aligned (4 bytes/pixel).
+        int xorRowBytes = width * 4;
+        // AND mask rows: 1 bit/pixel, each row padded up to a 4-byte boundary.
+        int andRowBytes = ((width + 31) / 32) * 4;
+
+        var data = new System.Drawing.Imaging.BitmapData();
+        var rect = new System.Drawing.Rectangle(0, 0, width, height);
+        // Lock as 32bppArgb so we read premultiplied-free straight BGRA bytes
+        // in memory order B,G,R,A — exactly the DIB pixel layout.
+        var locked = bmp.LockBits(
+            rect,
+            System.Drawing.Imaging.ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb,
+            data);
+
+        byte[] xorTopDown = new byte[height * xorRowBytes];
+        try
+        {
+            for (int y = 0; y < height; y++)
+            {
+                IntPtr src = locked.Scan0 + y * locked.Stride;
+                System.Runtime.InteropServices.Marshal.Copy(
+                    src, xorTopDown, y * xorRowBytes, xorRowBytes);
+            }
+        }
+        finally
+        {
+            bmp.UnlockBits(locked);
+        }
+
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            // ── BITMAPINFOHEADER (40 bytes) ──
+            writer.Write((uint)40);            // biSize
+            writer.Write(width);               // biWidth
+            writer.Write(height * 2);          // biHeight = 2*height (XOR + AND)
+            writer.Write((ushort)1);           // biPlanes
+            writer.Write((ushort)32);          // biBitCount
+            writer.Write((uint)0);             // biCompression = BI_RGB
+            writer.Write((uint)(xorRowBytes * height)); // biSizeImage (colour rows)
+            writer.Write(0);                   // biXPelsPerMeter
+            writer.Write(0);                   // biYPelsPerMeter
+            writer.Write((uint)0);             // biClrUsed
+            writer.Write((uint)0);             // biClrImportant
+
+            // ── XOR colour data: bottom-up rows ──
+            for (int y = height - 1; y >= 0; y--)
+                writer.Write(xorTopDown, y * xorRowBytes, xorRowBytes);
+
+            // ── AND mask: all-zero, 1bpp, rows padded to 4 bytes ──
+            byte[] andZeroRow = new byte[andRowBytes];
+            for (int y = 0; y < height; y++)
+                writer.Write(andZeroRow, 0, andRowBytes);
+        }
+        return ms.ToArray();
     }
 
     public void Dispose()

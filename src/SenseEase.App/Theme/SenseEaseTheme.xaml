@@ -29,8 +29,8 @@
     <SolidColorBrush x:Key="TextPrimary"   Color="#16202E"/>
     <SolidColorBrush x:Key="TextSecondary" Color="#475569"/>
     <SolidColorBrush x:Key="TextTertiary"  Color="#51606F"/>
-    <SolidColorBrush x:Key="Accent"        Color="#3B6FC4"/>
-    <SolidColorBrush x:Key="AccentHover"   Color="#305AA3"/>
+    <SolidColorBrush x:Key="Accent"        Color="#0096D6"/>
+    <SolidColorBrush x:Key="AccentHover"   Color="#00558C"/>
     <!-- Light top-chrome surface (near-white) — the header is a hairline-divided
          light bar, never a painted blue band. -->
     <SolidColorBrush x:Key="HeaderSurface" Color="#FBFCFD"/>
@@ -70,7 +70,10 @@
          Font props only here; Foreground via DynamicResource so it resolves
          across the merged scope regardless of dictionary order. Floor: 14 body,
          12 caption — no 10/11px text anywhere. -->
+    <FontFamily x:Key="Font.UI">Segoe UI Variable Text, Segoe UI, Microsoft JhengHei UI, Microsoft JhengHei, Noto Sans CJK TC, sans-serif</FontFamily>
+    <FontFamily x:Key="Font.Mono">Cascadia Mono, Cascadia Code, Consolas, monospace</FontFamily>
     <Style x:Key="Type.Display" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
         <Setter Property="FontSize" Value="28"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="LineHeight" Value="34"/>
@@ -78,6 +81,7 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
     </Style>
     <Style x:Key="Type.Title" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
         <Setter Property="FontSize" Value="20"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="LineHeight" Value="28"/>
@@ -85,6 +89,7 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
     </Style>
     <Style x:Key="Type.Heading" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
         <Setter Property="FontSize" Value="16"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="LineHeight" Value="22"/>
@@ -92,12 +97,14 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
     </Style>
     <Style x:Key="Type.Body" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="LineHeight" Value="20"/>
         <Setter Property="TextWrapping" Value="Wrap"/>
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
     </Style>
     <Style x:Key="Type.Caption" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="LineHeight" Value="16"/>
         <Setter Property="TextWrapping" Value="Wrap"/>

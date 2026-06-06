@@ -11,7 +11,8 @@
         SizeToContent="Height"
         Width="560"
         WindowStartupLocation="Manual"
-        ShowActivated="False">
+        ShowActivated="False"
+        FontFamily="{DynamicResource Font.UI}">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -24,7 +25,7 @@
              the Trigger Background swaps render (the default Aero template paints
              its own hover/pressed background and ignores Style.Triggers). -->
         <Style x:Key="PrimaryDeepBlueButtonStyle" TargetType="Button">
-            <Setter Property="Background"      Value="{StaticResource Accent}"/>
+            <Setter Property="Background"      Value="{DynamicResource Accent}"/>
             <Setter Property="Foreground"      Value="White"/>
             <Setter Property="FontSize"        Value="12"/>
             <Setter Property="FontWeight"      Value="SemiBold"/>
@@ -48,10 +49,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHover}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5"/>
@@ -67,14 +68,14 @@
              SurfaceMuted fill + 1px Separator hairline reads as a soft chip.
              Border-based template so per-instance Background actually paints. -->
         <Style x:Key="PillButtonStyle" TargetType="Button">
-            <Setter Property="Background"      Value="{StaticResource SurfaceMuted}"/>
-            <Setter Property="Foreground"      Value="{StaticResource Accent}"/>
+            <Setter Property="Background"      Value="{DynamicResource SurfaceMuted}"/>
+            <Setter Property="Foreground"      Value="{DynamicResource Accent}"/>
             <Setter Property="FontSize"        Value="12"/>
             <Setter Property="FontWeight"      Value="SemiBold"/>
             <Setter Property="Padding"         Value="14,6"/>
             <Setter Property="MinHeight"       Value="30"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush"     Value="{StaticResource Separator}"/>
+            <Setter Property="BorderBrush"     Value="{DynamicResource Separator}"/>
             <Setter Property="Cursor"          Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
             <Setter Property="Template">
@@ -93,7 +94,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
@@ -115,7 +116,7 @@
             <Setter Property="MinHeight" Value="30"/>
             <Setter Property="Padding"  Value="0"/>
             <Setter Property="FontSize" Value="18"/>
-            <Setter Property="Background" Value="{StaticResource Surface}"/>
+            <Setter Property="Background" Value="{DynamicResource Surface}"/>
         </Style>
 
         <!-- C2 (audit): shared keyboard-focus ring for any focusable control that
@@ -136,10 +137,10 @@
          soft drop shadow. The card grows ABOVE the bar when ActiveProposal != null
          (ProposalPanel row). MouseMove anywhere resets the idle-collapse timer. -->
     <Border x:Name="CardBorder"
-            Background="{StaticResource Surface}"
+            Background="{DynamicResource Surface}"
             CornerRadius="14"
             Padding="14,10"
-            BorderBrush="{StaticResource Separator}"
+            BorderBrush="{DynamicResource Separator}"
             BorderThickness="1"
             MouseMove="OnCardMouseMove"
             MouseLeave="OnCardMouseLeave">
@@ -170,7 +171,7 @@
                                Text="SenseEase 建議"
                                FontSize="12"
                                FontWeight="SemiBold"
-                               Foreground="{StaticResource Accent}"
+                               Foreground="{DynamicResource Accent}"
                                Margin="0,0,0,6"/>
                     <TextBlock x:Name="ProposalSummaryText"
                                Text=""
@@ -195,8 +196,8 @@
                          Border's Visibility tracks the inner TextBlock's so the
                          existing code-behind (which toggles ProposalSafetyNoteText
                          .Visibility) shows/hides the whole callout. -->
-                    <Border Background="{StaticResource ComfortHighWeak}"
-                            BorderBrush="{StaticResource ComfortHigh}"
+                    <Border Background="{DynamicResource ComfortHighWeak}"
+                            BorderBrush="{DynamicResource ComfortHigh}"
                             BorderThickness="1"
                             CornerRadius="6"
                             Padding="8,6"
@@ -206,14 +207,14 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#x26A0;"
                                        FontSize="13"
-                                       Foreground="{StaticResource ComfortHighText}"
+                                       Foreground="{DynamicResource ComfortHighText}"
                                        VerticalAlignment="Top"
                                        Margin="0,0,6,0"/>
                             <TextBlock x:Name="ProposalSafetyNoteText"
                                        Text=""
                                        Visibility="Collapsed"
                                        FontSize="11"
-                                       Foreground="{StaticResource ComfortHighText}"
+                                       Foreground="{DynamicResource ComfortHighText}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
@@ -227,7 +228,7 @@
                             <Button x:Name="ProposalAcceptBtn"
                                     Content="接受"
                                     Click="OnProposalAcceptClicked"
-                                    Background="{StaticResource Accent}"
+                                    Background="{DynamicResource Accent}"
                                     Foreground="White"
                                     BorderThickness="0"
                                     Padding="14,6"
@@ -295,16 +296,16 @@
                         <TextBlock x:Name="TitleText"
                                    Text=""
                                    FontSize="15" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextPrimary}"
+                                   Foreground="{DynamicResource TextPrimary}"
                                    VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis"
                                    AutomationProperties.HelpText="通知標題 / Notification title"/>
                         <TextBlock x:Name="TelemetryText" Text="" Visibility="Collapsed"
                                    FontFamily="Consolas, 'Cascadia Mono', monospace" FontSize="11"
-                                   Foreground="{StaticResource TextSecondary}"
+                                   Foreground="{DynamicResource TextSecondary}"
                                    AutomationProperties.HelpText="感測讀數 / Sensing readout"/>
                         <TextBlock x:Name="BodyText" Text="" Visibility="Collapsed"
-                                   FontSize="11" Foreground="{StaticResource TextSecondary}"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondary}"
                                    TextWrapping="Wrap"
                                    AutomationProperties.HelpText="通知內容 / Notification details"/>
                     </StackPanel>
@@ -325,7 +326,7 @@
                                 Width="22" Height="22"
                                 Padding="0" BorderThickness="0"
                                 Background="Transparent"
-                                Foreground="{StaticResource TextTertiary}"
+                                Foreground="{DynamicResource TextTertiary}"
                                 FontSize="16" FontWeight="Bold"
                                 Cursor="Hand"
                                 AutomationProperties.Name="關閉通知 / Close"
@@ -353,7 +354,7 @@
 
                             <!-- thin separator -->
                             <Border Width="1" Height="22"
-                                    Background="{StaticResource Separator}"
+                                    Background="{DynamicResource Separator}"
                                     Margin="0,0,8,0" VerticalAlignment="Center"/>
 
                             <!-- 暫停 / 恢復 — a CheckBox restyled as a pill that
@@ -365,7 +366,7 @@
                                       VerticalAlignment="Center"
                                       Margin="0,0,6,0"
                                       Cursor="Hand"
-                                      Foreground="{StaticResource Accent}"
+                                      Foreground="{DynamicResource Accent}"
                                       ToolTip="暫停或恢復所有防護（不會關閉應用程式）"
                                       AutomationProperties.Name="暫停或恢復防護 / Pause or resume protection"
                                       AutomationProperties.HelpText="暫停或恢復所有防護（不會關閉應用程式）"
@@ -374,8 +375,8 @@
                                 <CheckBox.Template>
                                     <ControlTemplate TargetType="CheckBox">
                                         <Border x:Name="Bd"
-                                                Background="{StaticResource SurfaceMuted}"
-                                                BorderBrush="{StaticResource Separator}"
+                                                Background="{DynamicResource SurfaceMuted}"
+                                                BorderBrush="{DynamicResource Separator}"
                                                 BorderThickness="1"
                                                 CornerRadius="{StaticResource Radius.pill}"
                                                 Padding="12,6"
@@ -388,13 +389,13 @@
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                                 <Setter TargetName="PowerSaveLabel" Property="Text" Value="恢復"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -416,7 +417,7 @@
                                     Width="28" Height="28"
                                     Padding="0" BorderThickness="0"
                                     Background="Transparent"
-                                    Foreground="{StaticResource Accent}"
+                                    Foreground="{DynamicResource Accent}"
                                     FontSize="16"
                                     Cursor="Hand"
                                     VerticalAlignment="Center"
@@ -456,7 +457,7 @@
                             Width="28" Height="28"
                             Padding="0" BorderThickness="0"
                             Background="Transparent"
-                            Foreground="{StaticResource Accent}"
+                            Foreground="{DynamicResource Accent}"
                             FontSize="16"
                             Cursor="Hand"
                             VerticalAlignment="Center"
@@ -467,9 +468,9 @@
 
                     <TextBox Grid.Row="0" Grid.Column="1"
                              x:Name="ChatInputBox"
-                             Background="{StaticResource SurfaceMuted}"
-                             Foreground="{StaticResource TextPrimary}"
-                             BorderBrush="{StaticResource Separator}"
+                             Background="{DynamicResource SurfaceMuted}"
+                             Foreground="{DynamicResource TextPrimary}"
+                             BorderBrush="{DynamicResource Separator}"
                              BorderThickness="1"
                              Padding="8,6"
                              FontSize="12"
@@ -506,7 +507,7 @@
                                x:Name="ChatStatusText"
                                Text=""
                                FontSize="10"
-                               Foreground="{StaticResource TextSecondary}"
+                               Foreground="{DynamicResource TextSecondary}"
                                Margin="2,4,0,0"
                                TextWrapping="Wrap"
                                MaxHeight="32"/>

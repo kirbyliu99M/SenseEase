@@ -127,11 +127,12 @@ public static class TierColorPalette
     //     ICONDIRENTRY ourselves. Icon(Stream) ctor takes ownership, so
     //     Icon.Dispose() is sufficient — no manual DestroyIcon needed.
     //
-    // _winIconBytesCache parallel-stores the raw ICO bytes so tests can
-    // verify the exact structure we wrote, without round-tripping through
-    // Win32's icon serialiser (which may normalise).
+    // NOTE (Alpha-1 tray-ICO fix): the producer (IconForTier_Win) and its
+    // byte-cache (_winIconBytesCache) were removed — the tray now builds its
+    // own multi-size ICO in TrayIconService. _winIconCache is retained only so
+    // DisposeWinIconCache() (still called from TrayIconService.Dispose) can
+    // best-effort clear any stray entry a future caller might add.
     private static readonly Dictionary<int, System.Drawing.Icon> _winIconCache = new();
-    private static readonly Dictionary<int, byte[]> _winIconBytesCache = new();
 
     private static SolidColorBrush MakeFrozen(Color rgb, byte alpha)
     {
@@ -193,122 +194,14 @@ public static class TierColorPalette
         return bmp;
     }
 
-    /// <summary>Returns a <see cref="System.Drawing.Icon"/> for the 級.
-    /// This is the path the tray uses in production (via Hardcodet
-    /// <c>TaskbarIcon.Icon</c>, not <c>TaskbarIcon.IconSource</c>). Cached per
-    /// 級; cached Icons are released by <see cref="DisposeWinIconCache"/>
-    /// at app shutdown.
-    /// <para><b>Icon construction</b> (Patch 7): the bitmap is rendered to a
-    /// PNG byte stream, then wrapped in a hand-built ICO container
-    /// (6-byte ICONDIR + 16-byte ICONDIRENTRY pointing at the PNG payload).
-    /// Win Vista+ shell accepts PNG-in-ICO. We do this manually because
-    /// System.Drawing.Common on .NET 8 has no ICO encoder — its
-    /// <c>ImageFormat.Icon</c> path throws <c>ArgumentNullException</c>
-    /// (Patch 6's failed attempt). The PNG encoder works, so we lean on
-    /// that for the pixel data and write the ICO header bytes ourselves.</para>
-    /// <para><c>Icon(Stream)</c> constructor takes ownership of any handles
-    /// it allocates, so <c>Icon.Dispose()</c> alone is sufficient — no
-    /// manual <c>DestroyIcon</c> P/Invoke required.</para></summary>
-    public static System.Drawing.Icon IconForTier_Win(int tier)
-    {
-        int bandKey = (int)BandForTier(tier);
-        if (_winIconCache.TryGetValue(bandKey, out var cached)) return cached;
-
-        Color hue = HueForTier(tier);
-
-        // 32×32 GDI+ Bitmap. We do NOT round the corners — at 32 px the
-        // 2-px radius the WPF version uses is barely visible after the
-        // shell scales the icon down to 16×16, and FillRoundedRectangle
-        // isn't built into GDI+ (would require manual GraphicsPath arcs).
-        // The level signal is the colour, not the corner radius.
-        using var bmp = new System.Drawing.Bitmap(32, 32);
-        using (var g = System.Drawing.Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(System.Drawing.Color.Transparent);
-            using var brush = new System.Drawing.SolidBrush(
-                System.Drawing.Color.FromArgb(255, hue.R, hue.G, hue.B));
-            // 2 px transparent margin so the shape doesn't touch the shell's
-            // icon bounding box edges.
-            g.FillRectangle(brush, 2, 2, 28, 28);
-        }
-
-        byte[] icoBytes = BuildPngWrappedIco(bmp);
-        using var stream = new MemoryStream(icoBytes);
-        var icon = new System.Drawing.Icon(stream);
-        _winIconCache[bandKey]      = icon;
-        _winIconBytesCache[bandKey] = icoBytes;
-        return icon;
-    }
-
-    /// <summary>Patch 7: builds an in-memory ICO file wrapping the bitmap
-    /// as a PNG image (Win Vista+ accepts this format). The ICO structure:
-    /// <list type="bullet">
-    ///   <item>ICONDIR (6 bytes): Reserved + Type=1 + Count=1</item>
-    ///   <item>ICONDIRENTRY (16 bytes): Width + Height + ColorCount + Reserved
-    ///         + Planes + BitCount + ImageSize + ImageOffset</item>
-    ///   <item>Image data: the raw PNG bytes</item>
-    /// </list>
-    /// <para>Two byte-vs-int landmines this code is careful to avoid:</para>
-    /// <list type="bullet">
-    ///   <item>Width / Height are written as single BYTES (not ints).
-    ///         Writing as int would push subsequent fields out of alignment
-    ///         by 6 bytes total and the shell would reject the ICO.</item>
-    ///   <item>BitCount is 32 (RGBA, matching the PNG's actual pixel
-    ///         format) — explicitly NOT 0, which some older Windows shell
-    ///         renderers would reject.</item>
-    /// </list></summary>
-    private static byte[] BuildPngWrappedIco(System.Drawing.Bitmap bmp)
-    {
-        // Step 1: encode the bitmap as PNG. The GDI+ PNG encoder IS
-        // present on .NET 8 / Windows (unlike the ICO encoder).
-        byte[] pngBytes;
-        using (var pngStream = new MemoryStream())
-        {
-            bmp.Save(pngStream, System.Drawing.Imaging.ImageFormat.Png);
-            pngBytes = pngStream.ToArray();
-        }
-
-        // Step 2: write the ICO container around the PNG.
-        using var icoStream = new MemoryStream();
-        using (var writer = new BinaryWriter(
-            icoStream, System.Text.Encoding.UTF8, leaveOpen: true))
-        {
-            // ── ICONDIR (6 bytes) ────────────────────────────────────
-            writer.Write((ushort)0);   // Reserved
-            writer.Write((ushort)1);   // Type = 1 (ICO; 2 = CUR cursor)
-            writer.Write((ushort)1);   // ImageCount = 1
-
-            // ── ICONDIRENTRY (16 bytes) ──────────────────────────────
-            writer.Write((byte)32);    // Width  (BYTE; 0 = 256)
-            writer.Write((byte)32);    // Height (BYTE; 0 = 256)
-            writer.Write((byte)0);     // ColorCount: 0 for ≥ 256 colors / PNG
-            writer.Write((byte)0);     // Reserved
-            writer.Write((ushort)1);   // Planes
-            writer.Write((ushort)32);  // BitCount: 32 (RGBA), not 0 — safer for Win11
-            writer.Write((uint)pngBytes.Length); // ImageSize
-            writer.Write((uint)22);    // ImageOffset = 6 (ICONDIR) + 16 (ICONDIRENTRY)
-        }
-        icoStream.Write(pngBytes, 0, pngBytes.Length);
-        return icoStream.ToArray();
-    }
-
-    /// <summary>Test-only accessor: returns the raw ICO bytes for a 級
-    /// so structure-contract tests can verify the exact bytes we
-    /// wrote (without round-tripping through Win32's Icon serialiser
-    /// which may normalise). Forces icon creation if the 級 hasn't
-    /// been used yet. Internal + InternalsVisibleTo SenseEase.Tests
-    /// (already wired in the csproj).</summary>
-    internal static byte[] GetIcoBytesForTesting(int tier)
-    {
-        int bandKey = (int)BandForTier(tier);
-        if (!_winIconBytesCache.ContainsKey(bandKey))
-        {
-            // Force population by creating the Icon (also caches the bytes).
-            _ = IconForTier_Win(tier);
-        }
-        return _winIconBytesCache[bandKey];
-    }
+    // ── Removed (Alpha-1 tray-ICO fix): IconForTier_Win + BuildPngWrappedIco +
+    // GetIcoBytesForTesting. They hand-built a SINGLE 32 px PNG-in-ICO frame,
+    // which the Win11 shell down-scaled to the 16 px tray slot and rendered
+    // blurred / blank (the PNG-at-16px bug). The tray no longer uses this path —
+    // TrayIconService draws its own multi-size ICO (16/24/32/48 px BGRA-DIB
+    // frames) via BuildMultiSizeIco. The _winIconCache + DisposeWinIconCache
+    // below are kept so TrayIconService.Dispose()'s defensive cleanup of any
+    // stray cache entry still compiles and runs as a no-op.
 
     /// <summary>App-shutdown cleanup. Disposes every cached Icon. Safe to
     /// call multiple times; subsequent calls are no-ops (cache cleared
@@ -324,7 +217,6 @@ public static class TierColorPalette
             try { icon.Dispose(); } catch { /* best-effort */ }
         }
         _winIconCache.Clear();
-        _winIconBytesCache.Clear();
     }
 
     private static ImageSource RenderIconBitmap(Color hue)

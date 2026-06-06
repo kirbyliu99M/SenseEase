@@ -1,6 +1,7 @@
 <UserControl x:Class="SenseEase.App.Views.SettingsContent"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="{DynamicResource Font.UI}"
              Background="Transparent">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -20,7 +21,7 @@
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
-                <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="CheckBox">
@@ -31,8 +32,8 @@
                                         <Border x:Name="Track"
                                                 Width="40" Height="24"
                                                 CornerRadius="12"
-                                                Background="{StaticResource SurfaceMuted}"
-                                                BorderBrush="{StaticResource Separator}"
+                                                Background="{DynamicResource SurfaceMuted}"
+                                                BorderBrush="{DynamicResource Separator}"
                                                 BorderThickness="1"/>
                                         <Border x:Name="Thumb"
                                                 Width="18" Height="18"
@@ -51,8 +52,8 @@
                             <ControlTemplate.Triggers>
                                 <!-- Checked: track fills Accent, thumb slides right -->
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource Accent}"/>
-                                    <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}"/>
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
                                     <Setter TargetName="Thumb" Property="Margin" Value="0,0,3,0"/>
                                 </Trigger>
@@ -62,19 +63,19 @@
                                         <Condition Property="IsMouseOver" Value="True"/>
                                         <Condition Property="IsChecked" Value="False"/>
                                     </MultiTrigger.Conditions>
-                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource Separator}"/>
+                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource Separator}"/>
                                 </MultiTrigger>
                                 <MultiTrigger>
                                     <MultiTrigger.Conditions>
                                         <Condition Property="IsMouseOver" Value="True"/>
                                         <Condition Property="IsChecked" Value="True"/>
                                     </MultiTrigger.Conditions>
-                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentHover}"/>
-                                    <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource AccentHover}"/>
+                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentHover}"/>
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
                                 </MultiTrigger>
                                 <!-- Keyboard focus: Accent ring around the track (in addition to FocusVisualStyle) -->
                                 <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                     <Setter TargetName="Track" Property="BorderThickness" Value="2"/>
                                 </Trigger>
                                 <!-- Disabled: dim whole control to 0.4 opacity -->
@@ -123,7 +124,7 @@
                  binding is byte-identical to the previous flat layout. -->
             <StackPanel>
                 <!-- ═══ Section 1 · 通知與顯示 / Notifications & display ═══ -->
-                <Border Background="{StaticResource Surface}"
+                <Border Background="{DynamicResource Surface}"
                         CornerRadius="{StaticResource Radius.md}"
                         Effect="{StaticResource Elev.2}"
                         Padding="20,18"
@@ -138,52 +139,52 @@
                             <CheckBox x:Name="ToggleAuto"
                                       Style="{StaticResource SettingSwitch}"
                                       Content="讓 SenseEase 主動展開通知卡"
-                                      Foreground="{StaticResource TextPrimary}"
+                                      Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleAutoChanged"
                                       Unchecked="OnToggleAutoChanged"/>
                             <TextBlock Text="偵測到中度以上不適時自動展開通知卡。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <Expander Header="了解更多 / Learn more"
                                       FontSize="11"
-                                      Foreground="{StaticResource TextTertiary}"
+                                      Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <TextBlock Text="開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。"
                                            FontSize="11"
-                                           Foreground="{StaticResource TextTertiary}"
+                                           Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
                                            Margin="0,4,0,0"/>
                             </Expander>
                         </StackPanel>
 
-                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
 
                         <!-- Toggle B: bar/tray colour -->
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleColor"
                                       Style="{StaticResource SettingSwitch}"
                                       Content="Bar 與 Tray 顏色隨 tier 變化"
-                                      Foreground="{StaticResource TextPrimary}"
+                                      Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleColorChanged"
                                       Unchecked="OnToggleColorChanged"/>
                             <TextBlock Text="bar 與 tray icon 顏色依視覺壓力 tier 變化。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <Expander Header="了解更多 / Learn more"
                                       FontSize="11"
-                                      Foreground="{StaticResource TextTertiary}"
+                                      Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <TextBlock Text="開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。"
                                            FontSize="11"
-                                           Foreground="{StaticResource TextTertiary}"
+                                           Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
                                            Margin="0,4,0,0"/>
                             </Expander>
@@ -192,7 +193,7 @@
                 </Border>
 
                 <!-- ═══ Section 2 · 背景常駐 / Background & startup ═══ -->
-                <Border Background="{StaticResource Surface}"
+                <Border Background="{DynamicResource Surface}"
                         CornerRadius="{StaticResource Radius.md}"
                         Effect="{StaticResource Elev.2}"
                         Padding="20,18"
@@ -206,51 +207,51 @@
                             <CheckBox x:Name="ToggleMinimizeToTray"
                                       Style="{StaticResource SettingSwitch}"
                                       Content="關閉視窗時最小化到工作匣 (不結束程式)"
-                                      Foreground="{StaticResource TextPrimary}"
+                                      Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleMinimizeToTrayChanged"
                                       Unchecked="OnToggleMinimizeToTrayChanged"/>
                             <TextBlock Text="按下主視窗的 X 只會收到工作匣，背景持續偵測。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <Expander Header="了解更多 / Learn more"
                                       FontSize="11"
-                                      Foreground="{StaticResource TextTertiary}"
+                                      Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <TextBlock Text="開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。"
                                            FontSize="11"
-                                           Foreground="{StaticResource TextTertiary}"
+                                           Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
                                            Margin="0,4,0,0"/>
                             </Expander>
                         </StackPanel>
 
-                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
 
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleRunAtStartup"
                                       Style="{StaticResource SettingSwitch}"
                                       Content="登入 Windows 時自動啟動 SenseEase"
-                                      Foreground="{StaticResource TextPrimary}"
+                                      Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleRunAtStartupChanged"
                                       Unchecked="OnToggleRunAtStartupChanged"/>
                             <TextBlock Text="跟著 Windows 登入自動啟動並最小化到工作匣。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <Expander Header="了解更多 / Learn more"
                                       FontSize="11"
-                                      Foreground="{StaticResource TextTertiary}"
+                                      Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <TextBlock Text="開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。"
                                            FontSize="11"
-                                           Foreground="{StaticResource TextTertiary}"
+                                           Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
                                            Margin="0,4,0,0"/>
                             </Expander>
@@ -259,7 +260,7 @@
                 </Border>
 
                 <!-- ═══ Section 3 · 頭部追蹤與隱私 / Head tracking & privacy ═══ -->
-                <Border Background="{StaticResource Surface}"
+                <Border Background="{DynamicResource Surface}"
                         CornerRadius="{StaticResource Radius.md}"
                         Effect="{StaticResource Elev.2}"
                         Padding="20,18"
@@ -274,7 +275,7 @@
                                 <CheckBox x:Name="ToggleHeadTrackingEnabled"
                                           Style="{StaticResource SettingSwitch}"
                                           Content="啟用頭部追蹤 / Enable Head Tracking"
-                                          Foreground="{StaticResource TextPrimary}"
+                                          Foreground="{DynamicResource TextPrimary}"
                                           FontSize="13"
                                           VerticalAlignment="Center"
                                           Checked="OnToggleHeadTrackingEnabledChanged"
@@ -301,18 +302,18 @@
                             </StackPanel>
                             <TextBlock Text="啟動 Python sidecar 並讀取 webcam，讓 FOV 遮罩跟著視線。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <Expander Header="了解更多 / Learn more"
                                       FontSize="11"
-                                      Foreground="{StaticResource TextTertiary}"
+                                      Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <StackPanel Margin="0,4,0,0">
                                     <TextBlock Text="開啟時，啟動會啟動 Python sidecar 並讀取 webcam（MediaPipe 推論臉部姿態）讓 FOV 遮罩跟著你的視線移動。預設關閉以保護隱私。"
                                                FontSize="11"
-                                               Foreground="{StaticResource TextTertiary}"
+                                               Foreground="{DynamicResource TextTertiary}"
                                                TextWrapping="Wrap"/>
                                     <TextBlock Text="When on, app launch spawns a Python sidecar and reads the webcam (MediaPipe face-landmark inference) so the FOV mask follows your gaze. Default off for privacy. See docs/HEAD-TRACKING-PRIVACY.md."
                                                FontSize="11"
@@ -323,52 +324,52 @@
                             </Expander>
                         </StackPanel>
 
-                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
 
                         <StackPanel Orientation="Vertical">
                             <TextBlock Text="跟隨模式 / Follow Mode"
                                        FontSize="12" FontWeight="Bold"
-                                       Foreground="{StaticResource TextPrimary}"
+                                       Foreground="{DynamicResource TextPrimary}"
                                        Margin="22,0,0,4"/>
                             <RadioButton x:Name="FollowModeBalanced"
                                          GroupName="HeadTrackingFollowMode"
                                          Content="平衡 Balanced (建議 / recommended)"
-                                         Foreground="{StaticResource TextPrimary}"
+                                         Foreground="{DynamicResource TextPrimary}"
                                          FontSize="13"
                                          Margin="22,2,0,0"
                                          Checked="OnFollowModeChanged"/>
                             <TextBlock Text="遮罩中心限制在螢幕中央 80% 區域，周邊永遠維持部分遮蔽（臨床預設、減輕視覺動暈）。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="42,2,0,0"/>
                             <RadioButton x:Name="FollowModeFull"
                                          GroupName="HeadTrackingFollowMode"
                                          Content="完整跟隨 Full follow (邊緣較完整，可能感覺較不穩定)"
-                                         Foreground="{StaticResource TextPrimary}"
+                                         Foreground="{DynamicResource TextPrimary}"
                                          FontSize="13"
                                          Margin="22,8,0,0"
                                          Checked="OnFollowModeChanged"/>
                             <TextBlock Text="遮罩中心可走到螢幕角落，可以完整看到邊緣內容；周邊變化較大、可能感覺較不穩定。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="42,2,0,0"/>
                         </StackPanel>
 
-                        <Border Height="1" Background="{StaticResource Separator}" Margin="0,14"/>
+                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
 
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleEscapeHatch"
                                       Style="{StaticResource SettingSwitch}"
                                       Content="啟用暫時透明 / Enable temporary transparency"
-                                      Foreground="{StaticResource TextPrimary}"
+                                      Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleEscapeHatchChanged"
                                       Unchecked="OnToggleEscapeHatchChanged"/>
                             <TextBlock Text="連點兩下 Ctrl / Double-tap Ctrl — 短暫降低 FOV 遮罩到 30% 透明度 3 秒，方便偷瞄螢幕角落。"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextTertiary}"
+                                       Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <TextBlock x:Name="EscapeHatchVestibularNote"
@@ -408,11 +409,11 @@
                 <StackPanel Margin="0,8,0,0" Visibility="Collapsed">
                     <TextBlock Text="開發者測試快捷鍵 / Developer Test Hotkeys"
                                FontSize="14" FontWeight="Bold"
-                               Foreground="{StaticResource TextPrimary}"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,6"/>
                     <TextBlock Text="以下快捷鍵為開發 / QA 測試用途，非一般使用流程的一部分。These are for development / QA testing only, not part of the normal user flow."
                                FontSize="11"
-                               Foreground="{StaticResource TextTertiary}"
+                               Foreground="{DynamicResource TextTertiary}"
                                TextWrapping="Wrap"
                                Margin="0,0,0,10"/>
                     <Border Background="#F8FAFF" BorderBrush="#E8EEFF" BorderThickness="1" CornerRadius="6" Padding="14,10">
@@ -428,21 +429,21 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Hotkey / 快捷鍵"
-                                       FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource Accent}" Margin="0,0,0,6"/>
+                                       FontWeight="SemiBold" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="Effect / 作用"
-                                       FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource Accent}" Margin="0,0,0,6"/>
+                                       FontWeight="SemiBold" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + Shift + H"
-                                       FontFamily="Consolas" FontSize="12" Foreground="{StaticResource TextPrimary}" Margin="0,2,0,2"/>
+                                       FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="1" Grid.Column="1"
                                        Text="觸發 20 秒模擬頭部姿勢掃描 (橫向→縱向→圓形→中心持住)。G4 head-tracking UVHS 用於無 webcam 機器驗證 wiring 端到端。Independent of AppConfig.HeadTrackingEnabled."
-                                       FontSize="11" Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                       FontSize="11" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="連點兩下 Ctrl"
-                                       FontFamily="Consolas" FontSize="12" Foreground="{StaticResource TextPrimary}" Margin="0,2,0,2"/>
+                                       FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="2" Grid.Column="1"
                                        Text="(400 ms 內) 觸發 FOV 遮罩 3 秒透明度 30% 的「偷瞄」逃生口。受上方「開啟臨時透明度」開關控制；前庭敏感者強制停用。Same as the toggle above; listed here for hotkey discoverability."
-                                       FontSize="11" Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                       FontSize="11" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
                         </Grid>
                     </Border>
                     <TextBlock Text="提示：所有快捷鍵僅在主控台視窗有焦點時觸發 (PreviewKeyDown 範圍)。Note: all hotkeys fire only when the main console window has focus."

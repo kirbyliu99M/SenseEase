@@ -271,6 +271,25 @@ public partial class App : Application
 
         base.OnStartup(e);
 
+        // Follow the Windows light/dark system setting. ThemeManager registers
+        // a Window class-handler so every window merges the dark palette
+        // view-locally when the OS is in dark mode (and removes it on a flip
+        // back to light), mirroring SenseEaseTheme.xaml's "never App-level"
+        // rule so the bare-Application smoke tests — which never reach this
+        // path — keep their light defaults. Wrapped in try/catch for the same
+        // degrade-not-crash posture as the rest of OnStartup: a registry/IO
+        // failure inside the manager leaves the light default and never throws.
+        try
+        {
+            SenseEase.App.Theme.ThemeManager.Initialize();
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.OnStartup] ThemeManager.Initialize FAILED: " +
+                $"{ex.GetType().Name}: {ex.Message} — staying on light default");
+        }
+
         // Head-tracking sprint M8: mirror persisted UserPreferences into
         // AppConfig static props BEFORE any MainViewModel / MainWindow
         // construction. AppConfig is the per-process source of truth read by
