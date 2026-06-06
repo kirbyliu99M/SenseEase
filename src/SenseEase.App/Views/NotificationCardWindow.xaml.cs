@@ -179,8 +179,9 @@ public partial class NotificationCardWindow : Window
         // itself is already injection-stripped + length-capped at parse time
         // (HabituationOverrideParser.SanitizeRationale).
         ProposalRationaleText.Text = string.IsNullOrWhiteSpace(proposal.Rationale)
-            ? "AI 建議 / AI suggests: —"
-            : $"AI 建議 / AI suggests: {proposal.Rationale}";
+            ? SenseEase.App.Localization.LocalizationManager.Current.Pick("AI 建議：—", "AI suggests: —")
+            : SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                  $"AI 建議：{proposal.Rationale}", $"AI suggests: {proposal.Rationale}");
         ProposalSafetyNoteText.Text = string.Empty;
         ProposalSafetyNoteText.Visibility = Visibility.Collapsed;
         ProposalAcceptBtn.IsEnabled = true;

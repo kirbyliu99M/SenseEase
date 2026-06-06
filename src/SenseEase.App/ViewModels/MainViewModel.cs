@@ -1028,7 +1028,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string HabituationButtonText => HabituationPaused ? "恢復再適應 / Resume" : "暫停再適應 / Pause";
+    public string HabituationButtonText => HabituationPaused
+        ? SenseEase.App.Localization.LocalizationManager.Current.Pick("恢復再適應", "Resume")
+        : SenseEase.App.Localization.LocalizationManager.Current.Pick("暫停再適應", "Pause");
 
     private bool _overlayVisible;
     public bool OverlayVisible

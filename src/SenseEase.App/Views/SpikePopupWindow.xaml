@@ -1,6 +1,7 @@
 <Window x:Class="SenseEase.App.Views.SpikePopupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
         Title="SenseEase — VIMS Alert"
         FontFamily="{DynamicResource Font.UI}"
         WindowStyle="None"
@@ -96,7 +97,7 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="點選選項後將自動寫入聊天助理 / Selected answer is sent to AI Assistant."
+            <TextBlock Text="{loc:T Zh='點選選項後將自動寫入聊天助理', En='Selected answer is sent to AI Assistant.'}"
                        FontSize="10" Foreground="{DynamicResource TextSecondary}"
                        TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>

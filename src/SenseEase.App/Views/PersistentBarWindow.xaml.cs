@@ -251,7 +251,8 @@ public partial class PersistentBarWindow : Window
     // the accessible name is the only channel assistive tech has to announce
     // "paused". EnterSleepMode sets this; ExitSleepMode restores the live
     // tier-based comfort-level name.
-    private const string PausedAutomationName = "已暫停 · 點此恢復 / Paused — tap to resume";
+    private static string PausedAutomationName =>
+        SenseEase.App.Localization.LocalizationManager.Current.Pick("已暫停 · 點此恢復", "Paused — tap to resume");
 
     /// <summary>L4 (a11y): refresh the window's accessible name with the live
     /// VIMS tier so assistive tech announces the current comfort level (the

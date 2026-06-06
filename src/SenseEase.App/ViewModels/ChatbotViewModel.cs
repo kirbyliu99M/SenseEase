@@ -396,7 +396,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // one should too rather than clearing the box into the void.
             InputText = string.Empty;
             _dispatcher.Invoke(() => Messages.Add(new ChatMessageViewModel(
-                "我無法處理這則訊息，請重新輸入。/ I couldn't process that message — please try rephrasing.",
+                SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                    "我無法處理這則訊息，請重新輸入。",
+                    "I couldn't process that message — please try rephrasing."),
                 ChatRole.Assistant)));
             return;
         }
