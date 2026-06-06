@@ -855,8 +855,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void OnSensingHealthChanged(bool healthy)
     {
         AppendLog(healthy ? "System" : "Error",
-            healthy ? "感測已恢復 / Sensing recovered."
-                    : "感測中斷 / Sensing fault — attempting recovery.",
+            healthy ? "感測已恢復 / Sensing restored."
+                    : "感測中斷 / Sensing fault — reconnecting.",
             CurrentState);
         SetSensingHealthy(healthy);
     }

@@ -68,7 +68,7 @@ public static class CalibrationApplicator
         string symptoms = FormatSymptoms(responses.Q2Symptoms);
         int q3 = responses.Q3Intensity ?? 0;
         string leading = partial ? "Calibration 已部分完成" : "Calibration 完成";
-        return $"{leading}。本次強度 {q3}/5，主要症狀：{symptoms}。\n"
+        return $"{leading}。本次強度 {q3}/5，主要不適：{symptoms}。\n"
              + $"系統已調整為 {result.Profile} profile。";
     }
 
@@ -100,11 +100,11 @@ public static class CalibrationApplicator
         "vestibular" =>
             "醫療提醒 / Medical advisory:\n"
           + "您填答有前庭/內耳相關診斷。系統已套用最敏感的防護設定（觸發壓力降至 50，"
-          + "嚴重事件容忍度設為 1）。若您持續感到不適或有相關治療中，"
+          + "嚴重事件上限設為 1）。若您持續感到不適或正在就醫，"
           + "請務必諮詢您的醫療專業人員。\n"
           + "You reported a diagnosed vestibular condition. SenseEase has applied the "
           + "most sensitive protection (trigger pressure lowered to 50, severe-event "
-          + "tolerance set to 1). If discomfort persists or you are under treatment, "
+          + "limit set to 1). If discomfort persists or you are seeing a doctor, "
           + "please consult your healthcare provider.",
 
         "high_risk_combo" =>

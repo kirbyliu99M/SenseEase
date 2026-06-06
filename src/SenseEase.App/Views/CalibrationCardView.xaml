@@ -188,7 +188,7 @@
                 <!-- ── Card 2: Q2 — symptom dominance (multi) ──────────── -->
                 <StackPanel Visibility="{Binding IsCard2Visible, Converter={StaticResource BoolToVis}}">
                     <TextBlock Style="{StaticResource CalibTitle}"
-                               Text="Q2: 您主要感覺到哪些症狀？(可複選)"/>
+                               Text="Q2: 您主要感覺到哪些不適？(可複選)"/>
                     <TextBlock Style="{StaticResource CalibSubtitle}"
                                Text="Which symptoms did you notice? Multi-select."/>
 
