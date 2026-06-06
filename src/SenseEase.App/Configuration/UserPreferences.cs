@@ -78,11 +78,15 @@ public sealed class UserPreferences
     //       load cleanly; the missing field defaults to "Auto" (follow Windows),
     //       which is the pre-setting behaviour, so upgrading installs keep their
     //       OS-following theme until the user picks Light/Dark explicitly.
+    //   4 — Language setting (2026-06-07) adds language_mode. Old v=1..3 files
+    //       load cleanly; the missing field defaults to "ChineseTraditional"
+    //       (the app's primary language), so upgrading installs keep zh-Hant
+    //       until the user picks English in Settings → 語言 / Language.
     [JsonPropertyName("schema_version")]
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     /// <summary>Current canonical schema version this build writes.</summary>
-    internal const int CurrentSchemaVersion = 3;
+    internal const int CurrentSchemaVersion = 4;
 
     /// <summary>Toggle A — auto-expand notification card on tier-up / spike.
     /// Default <c>false</c> per spec §4: passive signal first, active
@@ -223,6 +227,14 @@ public sealed class UserPreferences
             : AppThemeMode.Auto;
         set => ThemeModeRaw = value.ToString();
     }
+
+    /// <summary>User-selected UI language (Settings → 語言 / Language, 2026-06-07).
+    /// A plain string (not enum-typed) so an unrecognised stored value degrades to the
+    /// default rather than throwing inside deserialisation. Parsed tolerantly by
+    /// <see cref="Localization.LocalizationManager.Parse"/>. Default
+    /// "ChineseTraditional" — the app's primary language.</summary>
+    [JsonPropertyName("language_mode")]
+    public string LanguageModeRaw { get; set; } = "ChineseTraditional";
 
     // ── Static singleton + persistence ──────────────────────────────────────
 

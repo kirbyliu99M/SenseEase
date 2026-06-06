@@ -277,6 +277,14 @@ public partial class App : Application
             $"build={typeof(App).Assembly.Location}, " +
             $"AUMID='{AumidString}' {aumidStatus}");
 
+        // Live EN / 繁體中文 language toggle: hydrate the process-wide language from
+        // persisted prefs BEFORE base.OnStartup parses MainWindow, so localized surfaces
+        // ({loc:T} bindings + language-aware tier converters) render in the chosen
+        // language from the first frame instead of flashing the default then re-picking.
+        SenseEase.App.Localization.LocalizationManager.Current.Language =
+            SenseEase.App.Localization.LocalizationManager.Parse(
+                SenseEase.App.Configuration.UserPreferences.Current.LanguageModeRaw);
+
         base.OnStartup(e);
 
         // Follow the Windows light/dark system setting. ThemeManager registers
