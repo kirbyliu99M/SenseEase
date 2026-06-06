@@ -56,8 +56,10 @@ public class SafetyFloorTests
     [InlineData("the screen is killing me")]   // idiom, not in the phrase list
     [InlineData("好多了，謝謝")]
     [InlineData("I walked 5 kms today and felt dizzy")]   // review #6 — km abbreviation
+    [InlineData("I love my whiskys after a long day")]    // review #6 — "kys" must NOT trip as a substring (word-boundary)
     [InlineData("想死你了，好久不見")]                       // review #7 — affectionate greeting
     [InlineData("百貨公司跳樓大拍賣")]                        // review #7 — fire-sale idiom
+    [InlineData("跳樓價清倉特賣中")]                          // review #7 — sale markers (清倉/特賣) keep "跳樓" benign
     [InlineData("")]
     [InlineData("   ")]
     [InlineData(null)]
@@ -72,6 +74,18 @@ public class SafetyFloorTests
     {
         // review #1: U+2019 curly apostrophe (phone/desktop autocorrect of "don't").
         Assert.True(SafetyFloor.Trips("I don’t want to live anymore", out string r));
+        Assert.Equal(SafetyFloor.CrisisResponseEn, r);
+    }
+
+    [Theory]
+    // review #1: every apostrophe variant the floor folds to ASCII must trip, so
+    // phone/desktop autocorrect of "don't" can never silently bypass the floor.
+    [InlineData("I don’t want to live anymore")]   // U+2019 right single quote
+    [InlineData("I don‘t want to live anymore")]   // U+2018 left single quote
+    [InlineData("I donʼt want to live anymore")]   // U+02BC modifier letter apostrophe (ʼ)
+    public void Trips_AllApostropheVariantsSelfHarm_FoldToAsciiAndTrip(string text)
+    {
+        Assert.True(SafetyFloor.Trips(text, out string r));
         Assert.Equal(SafetyFloor.CrisisResponseEn, r);
     }
 
