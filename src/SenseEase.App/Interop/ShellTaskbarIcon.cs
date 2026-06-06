@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -7,18 +8,23 @@ using System.Windows.Interop;
 namespace SenseEase.App.Interop;
 
 /// <summary>
-/// Fixes the blank taskbar button for a process that sets an explicit
-/// AppUserModelID (see App.OnStartup) but is NOT installed with a Start-menu
-/// shortcut registering that AUMID. Windows groups the taskbar button under the
-/// AUMID and, finding no icon registered for it, paints a blank button — even
-/// though <see cref="Window.Icon"/> correctly draws the title-bar / Alt-Tab icon
-/// (which is why the title bar looks right while the taskbar stays dead).
+/// Fixes the blank / default taskbar button on Windows 11 for an app with a heavy
+/// startup. Per <see href="https://github.com/dotnet/wpf/issues/11308">dotnet/wpf#11308</see>,
+/// the Win11 taskbar object initialises EARLIER than on Win10, so when a window is
+/// created after a lengthy startup (SenseEase loads the ML model / WGC pipeline) the
+/// taskbar has already captured a default icon before WPF applies <see cref="Window.Icon"/>.
+/// The title-bar / Alt-Tab icon (driven by <c>Window.Icon</c>) looks right while the
+/// taskbar button stays blank — exactly the observed symptom.
 ///
-/// <para>Setting <c>PKEY_AppUserModel_RelaunchIconResource</c> on the window's
-/// shell property store tells the taskbar which icon to use for the AUMID group:
-/// our own EXE, icon index 0 (the embedded <c>ApplicationIcon</c>). Entirely
-/// best-effort — any failure is a silent no-op that leaves the (already correct)
-/// title-bar icon untouched; it never throws on the startup path.</para>
+/// <para>The maintainer-recommended workaround: during <c>OnSourceInitialized</c>, push
+/// the app's OWN embedded icon onto the window via the Win32 class icons
+/// (<c>SetClassLongPtr GCLP_HICON / GCLP_HICONSM</c> — what the taskbar reads) plus
+/// <c>WM_SETICON</c>, so it overwrites the default the early taskbar grabbed. The icon
+/// is extracted from the apphost EXE (<c>SenseEase.App.exe</c>, which embeds
+/// <c>ApplicationIcon</c>), resolved NEXT TO the running assembly so it is correct even
+/// under <c>dotnet run</c> (where the process module may be the SDK host). Entirely
+/// best-effort: any failure is a silent no-op that leaves the already-correct
+/// <c>Window.Icon</c> untouched and never throws on the startup path.</para>
 /// </summary>
 internal static class ShellTaskbarIcon
 {
@@ -29,84 +35,58 @@ internal static class ShellTaskbarIcon
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
             if (hwnd == IntPtr.Zero) return;
 
-            string? exe = Process.GetCurrentProcess().MainModule?.FileName;
-            if (string.IsNullOrEmpty(exe)) return;
+            // The apphost EXE embeds ApplicationIcon. Resolve it next to the running
+            // assembly (…\SenseEase.App.exe) so the icon source is correct even when
+            // the process module is the SDK host under `dotnet run`. Fall back to the
+            // current process module if the sibling EXE is somehow absent.
+            string exe = Path.ChangeExtension(typeof(ShellTaskbarIcon).Assembly.Location, ".exe");
+            if (!File.Exists(exe))
+                exe = Process.GetCurrentProcess().MainModule?.FileName ?? string.Empty;
+            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return;
 
-            Guid iid = IID_IPropertyStore;
-            if (SHGetPropertyStoreForWindow(hwnd, ref iid, out IPropertyStore? store) != 0 || store is null)
-                return;
+            // Pull the large (32px) + small (16px) variants of icon group 0 — the
+            // multi-size indigo ApplicationIcon baked into the EXE.
+            ExtractIconEx(exe, 0, out IntPtr hiconBig, out IntPtr hiconSmall, 1);
+            if (hiconBig == IntPtr.Zero && hiconSmall == IntPtr.Zero) return;
 
-            try
-            {
-                if (InitPropVariantFromString($"{exe},0", out PROPVARIANT pv) != 0) return;
-                try
-                {
-                    PROPERTYKEY key = PKEY_AppUserModel_RelaunchIconResource;
-                    store.SetValue(ref key, ref pv);
-                    store.Commit();
-                }
-                finally { PropVariantClear(ref pv); }
-            }
-            finally { Marshal.ReleaseComObject(store); }
+            // Class icons: what the Win11 taskbar reads. Overwrites the default the
+            // early taskbar captured. WPF gives each top-level window its own class,
+            // so this affects only this window.
+            if (hiconBig != IntPtr.Zero)   SetClassLongPtr(hwnd, GCLP_HICON,   hiconBig);
+            if (hiconSmall != IntPtr.Zero) SetClassLongPtr(hwnd, GCLP_HICONSM, hiconSmall);
+
+            // WM_SETICON: the window's own icons (title bar + Alt-Tab + taskbar
+            // fallback), belt-and-suspenders alongside the class icons.
+            if (hiconSmall != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_SMALL, hiconSmall);
+            if (hiconBig != IntPtr.Zero)   SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_BIG,   hiconBig);
+
+            // The HICONs are now referenced by the window/class; the shell owns their
+            // lifetime for the window's duration, so we intentionally do not destroy
+            // them here (destroying them would blank the icon again).
         }
         catch
         {
-            // Best-effort: the title-bar / Alt-Tab icon is already correct via
-            // Window.Icon; a property-store failure simply leaves the taskbar
-            // button as-is rather than crashing startup.
+            // Best-effort: Window.Icon already paints the title-bar / Alt-Tab icon, so
+            // a failure here simply leaves the taskbar button as Windows drew it rather
+            // than crashing the startup path.
         }
     }
 
-    [DllImport("shell32.dll")]
-    private static extern int SHGetPropertyStoreForWindow(
-        IntPtr hwnd, ref Guid riid,
-        [MarshalAs(UnmanagedType.Interface)] out IPropertyStore? propertyStore);
+    private const int GCLP_HICON   = -14;   // class big icon
+    private const int GCLP_HICONSM = -34;   // class small icon
+    private const int WM_SETICON   = 0x0080;
+    private const int ICON_SMALL   = 0;
+    private const int ICON_BIG     = 1;
 
-    [DllImport("propsys.dll")]
-    private static extern int InitPropVariantFromString(
-        [MarshalAs(UnmanagedType.LPWStr)] string psz, out PROPVARIANT ppropvar);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int ExtractIconEx(
+        string lpszFile, int nIconIndex,
+        out IntPtr phiconLarge, out IntPtr phiconSmall, int nIcons);
 
-    [DllImport("ole32.dll")]
-    private static extern int PropVariantClear(ref PROPVARIANT pvar);
+    // SetClassLongPtrW is the 64-bit export (the app + apphost are x64).
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
-    private static Guid IID_IPropertyStore = new("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99");
-
-    // PKEY_AppUserModel_RelaunchIconResource — {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, PID 3.
-    private static readonly PROPERTYKEY PKEY_AppUserModel_RelaunchIconResource = new()
-    {
-        fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
-        pid = 3,
-    };
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PROPERTYKEY
-    {
-        public Guid fmtid;
-        public uint pid;
-    }
-
-    // PROPVARIANT laid out for x64 (24 bytes): VARTYPE + 3 reserved WORDs + an
-    // 8-byte union (the LPWSTR pointer) + 8-byte tail padding. InitPropVariantFromString
-    // populates it; PropVariantClear frees it.
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PROPVARIANT
-    {
-        public ushort vt;
-        public ushort wReserved1;
-        public ushort wReserved2;
-        public ushort wReserved3;
-        public IntPtr unionValue;
-        public IntPtr unionTail;
-    }
-
-    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"),
-     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IPropertyStore
-    {
-        int GetCount(out uint cProps);
-        int GetAt(uint iProp, out PROPERTYKEY pkey);
-        int GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);
-        int SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);
-        int Commit();
-    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 }

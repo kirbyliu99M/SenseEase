@@ -203,12 +203,13 @@ public partial class MainWindow : Window
         // the Hide() lands before any deferred render passes.
         SourceInitialized += (_, _) =>
         {
-            // Taskbar-icon fix: this process sets an explicit AppUserModelID
-            // (App.OnStartup), so the taskbar groups the button under it. With no
-            // installed shortcut registering an icon for that AUMID, the taskbar
-            // button paints blank even though Window.Icon draws the title-bar /
-            // Alt-Tab icon correctly. Register our EXE's embedded icon for the
-            // AUMID group via the window's shell property store (best-effort).
+            // Taskbar-icon fix (dotnet/wpf#11308): on Windows 11 the taskbar object
+            // initialises BEFORE a window created after a heavy startup (SenseEase
+            // loads ML / WGC), so the taskbar captures a DEFAULT icon while Window.Icon
+            // still paints the correct title-bar / Alt-Tab icon — exactly the blank-
+            // taskbar symptom. Push our own embedded icon onto the window's Win32 class
+            // icons (SetClassLongPtr) + WM_SETICON here so the taskbar uses it instead
+            // of the default. Best-effort; the HWND exists by SourceInitialized.
             SenseEase.App.Interop.ShellTaskbarIcon.RegisterForWindow(this);
 
             if (App.StartMinimizedToTray)
@@ -219,6 +220,12 @@ public partial class MainWindow : Window
                 Hide();
             }
         };
+
+        // Belt-and-suspenders: re-apply once content has rendered and the taskbar
+        // button definitely exists, covering the race where the button is created a
+        // hair after SourceInitialized. Idempotent — re-sets the same embedded icon.
+        ContentRendered += (_, _) =>
+            SenseEase.App.Interop.ShellTaskbarIcon.RegisterForWindow(this);
 
         // Display Comfort decommissioned at v0.11 (UI Consolidation Sprint
         // Phase 4). The historical TODO(lux-removal) revive seam is removed

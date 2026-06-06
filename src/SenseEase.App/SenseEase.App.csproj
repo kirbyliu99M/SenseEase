@@ -59,6 +59,9 @@
 
   <ItemGroup>
     <Resource Include="Resources\AppIcon.ico" />
+    <!-- HP co-brand mark (SenseEase ships as a companion app for HP laptops).
+         Baked in as a pack-URI-loadable Resource for the header chip + splash. -->
+    <Resource Include="Resources\hp-logo.jpg" />
   </ItemGroup>
 
   <!-- Dark palette override layer. The WPF SDK auto-includes every .xaml
