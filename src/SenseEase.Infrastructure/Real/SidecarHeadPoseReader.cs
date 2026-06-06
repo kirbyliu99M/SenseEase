@@ -235,7 +235,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             // fails closed here. Degrade gracefully — mark the sidecar dead and return
             // so ReadLatest() yields null and the consumer falls back to the (0.5,0.5)
             // center default. No crash (OBS-2 hard requirement).
-            if (!IntegrityVerifier.Verify("head_tracker.exe"))
+            // Verify the FULL resolved path (not a bare "head_tracker.exe", which
+            // IntegrityVerifier would resolve next to BaseDirectory and miss — the
+            // sidecar ships nested). Keyed in the manifest by Path.GetFileName.
+            if (!IntegrityVerifier.Verify(_sidecarExePath))
             {
                 _log?.Invoke("[SidecarHeadPoseReader] head_tracker.exe failed integrity verification. Sidecar disabled; ReadLatest will return null.");
                 Interlocked.Exchange(ref _sidecarDead, 1);

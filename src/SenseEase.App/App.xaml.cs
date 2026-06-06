@@ -179,16 +179,20 @@ public partial class App : Application
         // degrade (set LoadError + suppress sidecar/LLM launch), NOT crash.
         try
         {
-            // Use the same path constants AppConfig exposes — pass the bare
-            // file NAMES (Verify keys the manifest by Path.GetFileName and
-            // resolves them next to AppContext.BaseDirectory). head_tracker.exe
-            // comes from AppConfig.SidecarExePath; llama-server.exe is the
-            // server filename MistralChatbotService spawns.
-            string sidecarExeName = Path.GetFileName(Configuration.AppConfig.SidecarExePath);
-            const string llmServerExeName = "llama-server.exe";
+            // Pass the FULL nested paths the app actually launches: the bundled
+            // exes ship under tools/.../head_tracker/ and runtimes/.../vulkan/,
+            // NOT next to BaseDirectory. IntegrityVerifier hashes the rooted path
+            // and keys the manifest by Path.GetFileName, so a full path verifies
+            // the real file while still matching the bare-name manifest entry.
+            // (A bare "head_tracker.exe"/"llama-server.exe" resolved to
+            // baseDir\<name>, which the packaged build does not contain — the gate
+            // would fail closed on every launch once a manifest ships.)
+            string sidecarExePath   = Configuration.AppConfig.SidecarExePath;
+            string llmServerExePath =
+                SenseEase.Infrastructure.Real.MistralChatbotService.ResolveServerExePath();
 
-            bool sidecarOk = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(sidecarExeName);
-            bool llmOk     = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(llmServerExeName);
+            bool sidecarOk = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(sidecarExePath);
+            bool llmOk     = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(llmServerExePath);
 
             if (!sidecarOk || !llmOk)
             {

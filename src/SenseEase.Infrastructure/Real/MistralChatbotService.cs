@@ -260,6 +260,19 @@ public sealed class MistralChatbotService : IChatbotService
     public IReadOnlyList<ChatMessage> History => _history.AsReadOnly();
     public string? LoadError { get; private set; }
 
+    /// <summary>Resolves the absolute path to the bundled <c>llama-server.exe</c>
+    /// (under <c>runtimes/win-x64/native/vulkan/</c>, next to the host EXE).
+    /// Shared by <see cref="LoadAsync"/> (spawn + per-process H32 gate) and the
+    /// App startup H32 gate so both verify/launch the SAME file — passing a bare
+    /// "llama-server.exe" to the verifier would resolve next to BaseDirectory and
+    /// miss the nested exe, failing the gate closed once a manifest ships.</summary>
+    public static string ResolveServerExePath()
+    {
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return Path.Combine(baseDir, "runtimes", "win-x64", "native", "vulkan", "llama-server.exe");
+    }
+
     /// <summary>Spawns llama-server.exe as a child process bound to localhost:8181
     /// with the model loaded into VRAM (--n-gpu-layers 99). Mints a per-process
     /// Bearer key (H9), integrity-verifies the exe (H32), refuses to spawn over an
@@ -273,10 +286,11 @@ public sealed class MistralChatbotService : IChatbotService
         if (!IsModelAvailable || IsModelLoaded) return;
         try
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory
-                                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string serverDir = Path.Combine(baseDir, "runtimes", "win-x64", "native", "vulkan");
-            string serverExe = Path.Combine(serverDir, "llama-server.exe");
+            // Resolve via the shared helper so App's startup H32 gate and this
+            // per-spawn gate verify the SAME absolute path (the exe ships nested
+            // under runtimes/.../vulkan/, not next to BaseDirectory).
+            string serverExe = ResolveServerExePath();
+            string serverDir = Path.GetDirectoryName(serverExe) ?? string.Empty;
             if (!File.Exists(serverExe))
                 throw new FileNotFoundException($"llama-server.exe not found at: {serverExe}");
 
