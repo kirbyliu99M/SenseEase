@@ -327,7 +327,21 @@ Replace `SenseState.VimsTier` 1–10 with the native 12-state; rescale the discr
 1. **M1 real-data time-floor:** M1 is bound by *real WGC capture under real motion*, not by coding effort. It needs labelled optical-flow samples across the comfort range (idle/scroll/video/game/scene-cut) plus per-user recalibrate sessions to anchor `WgcMadNormFactor`/`CursorVelocityNormFactor` (both still carry the live "tune after first real WGC data" TODO). Realistically that is **multi-session capture over days**, not hours — it cannot be manufactured inside a 2-day window. This is the binding constraint behind Q1=A.
 2. **Two-day reach without full calibration data:** P0 (spec rebase + copy + §6 lint — DONE/doable today, no data) → **Stage 1** native rebuild (no data needed; needs the 2nd confirm) → **P2** Disable + vestibular full-disable (no data) → the Q8/Q3 doc rewrites (DONE). Stage 2 (selector/intensity meaning) stays Alpha-2, M1-gated. **P0 + Stage 1 + P2 is the realistic 2-day target.**
 
-> **Status:** P0 design is in progress (Q8/Q3 doc fixes landed, no engine code). **No engine code lands until Kirby confirms the §13.5 Stage-1 plan + the Reading-A/B habituation scope.** Stage 2 (P3/P4) is Alpha-2, gated on M1 (P1). P5 is gated/later.
+### 13.6 5級 動態感 strings + colour ramp — plugin-grounded P0 copy (2026-06-06)
+
+Kirby delegated both the colour ramp and the labels to the **ui-ux-pro-max** plugin. Consulted its palette DB (`cli/assets/data/colors.csv`): every anxiety-relevant product — Mental Health (#22), Meditation & Mindfulness (#98), Senior Care (#57), Medical Clinic (#58), Healthcare (#8) — uses **calm blue / teal / lavender** and reserves red **only for `Destructive`**, never for a state signal. Verdict: a calm cool ramp, **no alarm red**, harmonised with the app's Crisp-Cool Accent `#3B6FC4`. This supersedes the legacy grey→amber→**red** 3-band for the user-facing surfaces.
+
+| 級 (動態感, spec-locked) | 檔位 | EN label (§6-safe) | proposed hue | resting α | hover α |
+|---|---|---|---|---|---|
+| **極高** | L1–2 | Most Natural | `#9BB4D4` airy blue-grey | 0.15 | 0.65 |
+| **高** | L3–4 | Light | `#6F93C2` light calm blue | 0.22 | 0.74 |
+| **中** (default L5) | L5–7 | Balanced | `#4A77B5` mid calm blue | 0.30 | 0.83 |
+| **低** | L8–10 | Steady | `#345E97` deeper blue | 0.38 | 0.92 |
+| **極低** | L11–12 | Most Steady | `#243F6B` deep calm slate | 0.45 | 1.00 |
+
+Polarity (spec): "動態感" describes the **screen** — 極高 = most natural (least intervention), 極低 = most stabilized — the deliberately non-alarming framing. Labels are §6-safe (no diagnosis/treatment/optimisation claims); the §6 banned-phrase lint runs as part of 1-a-ii. **Colours are a proposal pending a visual hard-stop (UVHS)** — implemented in 1-a-ii, then signed off on a rendered screenshot before final.
+
+> **Status (2026-06-06):** P0 docs committed (dd3e35d). **Stage 1-a-i shipped green** (dd8f458 — native 12-level scale replaces VimsTier 1–10; 848✓). Next: **1-a-ii** (3-band → 5級 per §13.6, plugin-grounded, visual hard-stop) → **1-b** (habituation sever, Reading A — remove live chatbot profile-switch, keep FOV offset earning). Stage 2 (P3/P4) is Alpha-2, gated on M1 (P1). P5 is gated/later.
 
 ---
 
