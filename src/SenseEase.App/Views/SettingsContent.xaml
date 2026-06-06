@@ -40,7 +40,7 @@
                                                 CornerRadius="9"
                                                 HorizontalAlignment="Left"
                                                 Margin="3,0,0,0"
-                                                Background="White"/>
+                                                Background="{DynamicResource TextOnComfort}"/>
                                     </Grid>
                                     <ContentPresenter x:Name="Label"
                                                       Margin="10,0,0,0"
@@ -166,8 +166,16 @@
          UserPreferences.Changed event re-hydrates peer instances.
 
          Phase 1.5 polish (post-smoke-test, user feedback):
-           • Light theme matching main console palette (#E2ECFF / White
-             cards / {StaticResource TextPrimary} dark navy text / #024AD8 accent).
+           • Fully token-driven palette — every card surface, text, border,
+             separator, toggle track and accent resolves via {DynamicResource}
+             from the merged theme tokens (Surface / CardBorder / Separator /
+             TextPrimary / TextSecondary / TextTertiary / Accent …), so the
+             whole panel tracks BOTH light and dark. Dark-mode correctness
+             relies on ThemeManager.TrackElement(this) (see code-behind):
+             this UserControl merges the light theme into its OWN Resources for
+             the non-colour StaticResource tokens, which would otherwise shadow
+             the Window-level dark palette, so the dark override is merged into
+             this control's own resources too.
            • "需重新啟動" badge replaced with an actual "立即重啟" Button
              that restarts the app via a delayed cmd handoff (releases
              single-instance mutex before relaunching).
@@ -177,11 +185,8 @@
          it's window-chrome; the Settings tab has no Close affordance. -->
     <Border Background="{DynamicResource Canvas}"
             CornerRadius="{StaticResource Radius.md}"
+            Effect="{StaticResource Elev.3}"
             Padding="24" Margin="6">
-        <Border.Effect>
-            <DropShadowEffect Color="#000000" Direction="270" BlurRadius="14"
-                              ShadowDepth="2" Opacity="0.08"/>
-        </Border.Effect>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <!-- M3 regroup (2026-06-06): the formerly flat single scroll is now
                  organised into three visually-grouped {StaticResource Surface}

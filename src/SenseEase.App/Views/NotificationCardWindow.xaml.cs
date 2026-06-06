@@ -346,31 +346,70 @@ public partial class NotificationCardWindow : Window
     public NotificationCardWindow()
     {
         InitializeComponent();
-        // Top-center revision: a non-activating, frosted HP-blue acrylic pill.
-        // EnableNoActivate keeps the card from stealing foreground when it
-        // appears (its own controls stay clickable); EnableAcrylic frosts the
-        // background with a ~20% HP-blue tint (0x33D69600 = ABGR). Both must run
-        // after the HWND exists, hence SourceInitialized.
+        // HUD-card rework: a non-activating, frosted acrylic pill whose tint is
+        // THEME-AWARE. EnableNoActivate keeps the card from stealing foreground
+        // when it appears (its own controls stay clickable); EnableAcrylic frosts
+        // the background behind the (now token-coloured) Surface. The previous
+        // hardcoded HP-blue tint (0x33D69600) made the card read blue-white in
+        // BOTH themes — wrong in dark. We instead pick a near-neutral light or
+        // dark scrim that complements the {DynamicResource Surface} fill so the
+        // card holds together in either theme. Both must run after the HWND
+        // exists, hence SourceInitialized.
         this.SourceInitialized += (_, _) =>
         {
             SenseEase.App.Interop.ClickThrough.EnableNoActivate(this);
-            SenseEase.App.Interop.AcrylicGlass.EnableAcrylic(this, 0x33D69600u);
+            ApplyThemeAwareAcrylic();
         };
         _idleTimer = new DispatcherTimer { Interval = IdleTimeout };
         _idleTimer.Tick += OnIdleTimerTick;
         Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
+        LocationChanged += OnCardLocationChanged;
         Closed += (_, _) => _idleTimer.Stop();
     }
 
+    /// <summary>HUD-card rework item 3: pick an acrylic scrim that suits the
+    /// current theme. In dark mode the card surface is a deep slate, so the
+    /// blur-behind tint is a dark near-black scrim (keeps the token text at
+    /// &gt;=4.5:1); in light mode it's a soft near-white scrim so the card stays
+    /// light. ABGR order (0xAABBGGRR). Re-applied on theme flips so a runtime
+    /// light&#8596;dark change repaints the frost too.</summary>
+    private void ApplyThemeAwareAcrylic()
+    {
+        // 0x.. = AA BB GG RR. Dark: ~85% #1B1E24-ish slate scrim; Light: ~85%
+        // near-white scrim. The Surface token paints the actual fill on top of
+        // this frost; the scrim only governs what bleeds through the blur.
+        uint tint = SenseEase.App.Theme.ThemeManager.ShouldUseDark()
+            ? 0xD9241E1Bu   // dark slate scrim
+            : 0xD9FFFFFFu;  // soft near-white scrim
+        SenseEase.App.Interop.AcrylicGlass.EnableAcrylic(this, tint);
+    }
+
+    // HUD-card rework item 4: draggable + remember-position state.
+    //  _hasRememberedPosition — true once we've placed the card at a persisted
+    //    Left/Top (or the user has dragged it). While true the late SizeChanged
+    //    re-anchor is SUPPRESSED so a SizeToContent=Height settle never yanks a
+    //    user-placed card back to top-center.
+    //  _suppressPositionPersist — guards LocationChanged against persisting our
+    //    OWN programmatic placement (AnchorTopCenter / restore), so we only save
+    //    positions the USER chose.
+    private bool _hasRememberedPosition;
+    private bool _suppressPositionPersist;
+    // True for the duration of an in-flight DragMove. While dragging, WPF fires
+    // LocationChanged on every move tick — we mark the position dirty but DON'T
+    // hit disk per-tick; the single Save() runs once when DragMove returns (drag
+    // end). The host's own LocationChanged subscription still re-pushes the WGC
+    // exclude rect per tick so the overlay follows the card live.
+    private bool _dragInProgress;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Top-center revision: the card is a calm narrow pill anchored to the
-        // TOP-CENTER of the working area (12 dip down from the top edge), where
-        // a system notification reads as ambient rather than tray-adjacent.
-        // SizeToContent=Height means the final height isn't known until layout,
-        // so we re-anchor on SizeChanged too.
-        AnchorTopCenter();
+        // HUD-card rework item 4: restore the saved card position if the user has
+        // dragged the card before (Game-Bar "remember where I put it"); otherwise
+        // fall back to the top-center first-run anchor. SizeToContent=Height means
+        // the final height isn't known until layout, so we re-anchor on
+        // SizeChanged too — but ONLY while the card has no remembered position.
+        RestoreOrAnchorPosition();
         SizeChanged -= OnCardSizeChanged;   // idempotent across repeated Loads
         SizeChanged += OnCardSizeChanged;
         // Initial fade-in + timers handled by OnIsVisibleChanged below so
@@ -379,16 +418,142 @@ public partial class NotificationCardWindow : Window
         // fire, so re-showing the card produced an invisible window).
     }
 
-    private void OnCardSizeChanged(object? sender, SizeChangedEventArgs e) => AnchorTopCenter();
+    private void OnCardSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        // Only the top-center fallback needs the late re-anchor (its X depends on
+        // the settled width). A remembered/dragged position is absolute and must
+        // be left exactly where the user put it.
+        if (!_hasRememberedPosition) AnchorTopCenter();
+    }
+
+    /// <summary>HUD-card rework item 4: place the card. If UserPreferences has a
+    /// saved HudLeft/HudTop, restore there (clamped on-screen); else fall back to
+    /// the top-center first-run anchor. Programmatic placement is wrapped in the
+    /// persist-suppress guard so it doesn't echo back into a save.</summary>
+    private void RestoreOrAnchorPosition()
+    {
+        double? savedLeft = null, savedTop = null;
+        try
+        {
+            var prefs = SenseEase.App.Configuration.UserPreferences.Current;
+            savedLeft = prefs.HudLeft;
+            savedTop = prefs.HudTop;
+        }
+        catch { /* prefs unavailable (e.g. bare test app) → fall back to anchor */ }
+
+        if (savedLeft is double l && savedTop is double t && IsOnAnyScreen(l, t))
+        {
+            _suppressPositionPersist = true;
+            try
+            {
+                Left = l;
+                Top = t;
+            }
+            finally { _suppressPositionPersist = false; }
+            _hasRememberedPosition = true;
+        }
+        else
+        {
+            AnchorTopCenter();
+        }
+    }
+
+    /// <summary>Sanity-clamp: a saved position is only honoured if its top-left
+    /// still lands inside the current virtual screen (a monitor could have been
+    /// unplugged since the position was saved). Otherwise we fall back to the
+    /// top-center anchor so the card never opens off-screen.</summary>
+    private static bool IsOnAnyScreen(double left, double top)
+    {
+        double vl = SystemParameters.VirtualScreenLeft;
+        double vt = SystemParameters.VirtualScreenTop;
+        double vr = vl + SystemParameters.VirtualScreenWidth;
+        double vb = vt + SystemParameters.VirtualScreenHeight;
+        // Require at least a 48x48 dip corner to remain visible.
+        return left >= vl - 8 && top >= vt - 8 && left + 48 <= vr && top + 48 <= vb;
+    }
 
     /// <summary>Top-center revision: anchor the card horizontally centered at the
     /// TOP of the working area (12 dip down from the top edge). Re-run on
     /// SizeChanged so the SizeToContent=Height measurement keeps the pill
-    /// centered as its width is the only fixed dimension.</summary>
+    /// centered as its width is the only fixed dimension. Wrapped in the
+    /// persist-suppress guard so the programmatic move isn't saved as a user
+    /// drag.</summary>
     private void AnchorTopCenter()
     {
-        Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2.0;
-        Top = SystemParameters.WorkArea.Top + 12;
+        _suppressPositionPersist = true;
+        try
+        {
+            Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2.0;
+            Top = SystemParameters.WorkArea.Top + 12;
+        }
+        finally { _suppressPositionPersist = false; }
+    }
+
+    /// <summary>HUD-card rework item 4: drag the whole window from any non-control
+    /// part of the card surface (Game-Bar style). MouseLeftButtonDown on a child
+    /// Button/CheckBox/TextBox is handled by that control and never bubbles here,
+    /// so the controls stay clickable; only a press on the bare surface drags.
+    /// DragMove persists the new position via the LocationChanged handler (the
+    /// final settle) — we also save once here on the drag's mouse-up as a
+    /// belt-and-suspenders for the rare case LocationChanged is coalesced.</summary>
+    private void OnCardDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        // Any interaction counts as activity — keep the card alive while dragging.
+        RestartIdleTimer();
+        _dragInProgress = true;
+        try
+        {
+            // Blocks until the drag completes (mouse-up). LocationChanged fires
+            // per tick during this call but is throttled off disk by _dragInProgress.
+            DragMove();
+        }
+        catch
+        {
+            // DragMove throws if the button was already released (fast click) —
+            // harmless, ignore.
+        }
+        finally
+        {
+            _dragInProgress = false;
+        }
+        // Drag finished — remember + persist the final resting position once.
+        _hasRememberedPosition = true;
+        SaveCurrentPosition();
+    }
+
+    /// <summary>HUD-card rework item 4: persist the card's Left/Top whenever the
+    /// window actually moves (drag end / programmatic settle). Suppressed during
+    /// our own AnchorTopCenter / restore placement so only USER moves are saved,
+    /// and throttled off disk DURING an in-flight DragMove (the single Save runs
+    /// when DragMove returns). The host re-pushes the WGC exclude rect on its own
+    /// LocationChanged subscription, so the overlay keeps following the card.</summary>
+    private void OnCardLocationChanged(object? sender, EventArgs e)
+    {
+        if (_suppressPositionPersist) return;
+        // A real move the user caused. Remember it so SizeChanged won't re-center.
+        _hasRememberedPosition = true;
+        // While a drag is mid-flight, don't hammer the disk every tick — the
+        // OnCardDragStart finally-block persists once on drag end. Persist here
+        // only for moves that arrive OUTSIDE a drag (e.g. a future keyboard nudge
+        // or a programmatic move that isn't suppressed).
+        if (_dragInProgress) return;
+        SaveCurrentPosition();
+    }
+
+    private void SaveCurrentPosition()
+    {
+        // Don't persist NaN (can occur before first layout) or an off-screen
+        // position that slipped through.
+        if (double.IsNaN(Left) || double.IsNaN(Top)) return;
+        try
+        {
+            var prefs = SenseEase.App.Configuration.UserPreferences.Current;
+            prefs.HudLeft = Left;
+            prefs.HudTop = Top;
+            prefs.Save();
+        }
+        catch { /* best-effort persistence; never throw out of a move handler */ }
     }
 
     // Top-center revision: per-Show state reset + slide-from-top entrance.
@@ -409,6 +574,15 @@ public partial class NotificationCardWindow : Window
             SlideTransform?.BeginAnimation(TranslateTransform.YProperty, null);
             _activeFadeStoryboard?.Stop(this);
             _activeFadeStoryboard = null;
+
+            // HUD-card rework item 3: the card window is constructed once and
+            // re-Shown across the session, so the theme could have flipped
+            // (Settings → Appearance, or an OS Auto flip) since the one-time
+            // SourceInitialized acrylic call. Re-pick the theme-matching scrim on
+            // every Show so a card opened after a light↔dark switch frosts
+            // correctly. The {DynamicResource Surface} fill already swaps via the
+            // ThemeManager palette merge on Loaded.
+            ApplyThemeAwareAcrylic();
 
             // Recover from a stuck in-flight chat send. If the previous
             // SendChatMessage callback threw before the finally block could
@@ -484,6 +658,18 @@ public partial class NotificationCardWindow : Window
         _lastPressure = pressure;
         _hasContent = true;
         ApplyContentToUi();
+    }
+
+    /// <summary>HUD-card rework item 2: set the level read-out that sits BETWEEN
+    /// the [ − ] and [ + ] intervention pills (e.g. "L5"). The host calls this
+    /// from the current VimsTier before Show() so the cluster reads
+    /// [ − ] [ L5 ] [ + ]. Clamped to the native 12-level scale for display
+    /// sanity; the value is purely cosmetic (the +/- buttons drive the engine,
+    /// not this label).</summary>
+    public void SetLevel(int level)
+    {
+        int clamped = Math.Max(1, Math.Min(12, level));
+        if (LevelText is not null) LevelText.Text = $"L{clamped}";
     }
 
     private void ApplyContentToUi()

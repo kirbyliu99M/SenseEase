@@ -179,6 +179,22 @@ public sealed class UserPreferences
     [JsonPropertyName("head_tracking_escape_hatch_enabled")]
     public bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
 
+    // ── Notification HUD card position (2026-06-07) ─────────────────────────
+
+    /// <summary>HUD-card rework: persisted X (Left) of the draggable notification
+    /// card, in device-independent pixels in virtual-screen coordinates. Null =
+    /// never dragged; the card falls back to its top-center first-run anchor on
+    /// Show. Saved on drag-end / LocationChanged (Game-Bar-style "remember where
+    /// I put it"). Stored as a nullable so an absent field on older v=1/v=2/v=3
+    /// files cleanly means "unset" without a sentinel value.</summary>
+    [JsonPropertyName("hud_left")]
+    public double? HudLeft { get; set; }
+
+    /// <summary>HUD-card rework: persisted Y (Top) of the draggable notification
+    /// card, paired with <see cref="HudLeft"/>. Null = unset → top-center anchor.</summary>
+    [JsonPropertyName("hud_top")]
+    public double? HudTop { get; set; }
+
     // ── Appearance setting (2026-06-07) ─────────────────────────────────────
 
     /// <summary>User-selected theme mode, string-serialised for forward-compat

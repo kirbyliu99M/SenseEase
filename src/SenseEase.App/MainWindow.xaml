@@ -289,9 +289,7 @@
                         Margin="0,0,0,16"
                         AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Display}"
-                                   Text="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}"/>
-                        <TextBlock Style="{StaticResource Type.Caption}" Margin="0,6,0,0"
+                        <TextBlock Style="{StaticResource Type.Title}"
                                    Text="{Binding VimsTier, Converter={StaticResource TierToSubline}, Mode=OneWay}"/>
 
                         <!-- Comfort + mode chips -->
@@ -731,9 +729,7 @@
                                 Margin="0,0,0,16"
                                 AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Type.Display}"
-                                           Text="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}"/>
-                                <TextBlock Style="{StaticResource Type.Caption}" Margin="0,6,0,0"
+                                <TextBlock Style="{StaticResource Type.Title}"
                                            Text="{Binding VimsTier, Converter={StaticResource TierToSubline}, Mode=OneWay}"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                                     <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="0,0,8,0"

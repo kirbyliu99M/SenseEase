@@ -133,16 +133,23 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <!-- bar-redesign: light, rounded horizontal BAR. White surface, soft border,
-         soft drop shadow. The card grows ABOVE the bar when ActiveProposal != null
-         (ProposalPanel row). MouseMove anywhere resets the idle-collapse timer. -->
+    <!-- HUD-card rework: rounded horizontal BAR, THEME-AWARE surface. The
+         Background is now {DynamicResource Surface} (white in light, deep slate
+         in dark) instead of a hardcoded translucent white — so the card reads
+         correctly in BOTH themes (the dark-mode "white card" bug). The acrylic
+         tint behind it is re-picked per theme in code-behind. The card grows
+         ABOVE the bar when ActiveProposal != null (ProposalPanel row). MouseMove
+         anywhere resets the idle-collapse timer; MouseLeftButtonDown on this
+         surface (NOT on a child button) drags the whole window (Game-Bar style),
+         and its new position is persisted to UserPreferences. -->
     <Border x:Name="CardBorder"
-            Background="#F2FFFFFF"
-            CornerRadius="11"
+            Background="{DynamicResource Surface}"
+            CornerRadius="{StaticResource Radius.md}"
             Padding="14,10"
-            BorderBrush="{DynamicResource Separator}"
+            BorderBrush="{DynamicResource CardBorder}"
             BorderThickness="1"
-            MouseMove="OnCardMouseMove">
+            MouseMove="OnCardMouseMove"
+            MouseLeftButtonDown="OnCardDragStart">
         <Border.RenderTransform>
             <TranslateTransform x:Name="SlideTransform"/>
         </Border.RenderTransform>
@@ -285,23 +292,25 @@
                          SetContent) + static separator + 介入調節/Adjust label,
                          with TelemetryText as a small sub-line. -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
-                        <!-- ui-ux-pro-max principles applied (content-priority,
-                             visual-hierarchy, whitespace-balance, progressive-disclosure,
-                             truncation-strategy): ONE plain-language status line. The
-                             engineering telemetry (第 N 級 / 壓力) and the band-description
-                             body are kept ONLY so the test contract (SetContent /
-                             power-save) can read their .Text — they are HIDDEN on the calm
-                             bar (telemetry lives in the dashboard's Advanced view, never on
-                             this primary surface). The +/- pills are self-labelled by their
-                             tooltip + AutomationProperties, so no separate "介入調節" label
-                             clutters the left. -->
+                        <!-- HUD-card rework item 1: the LEFT primary label is the
+                             PLAIN-LANGUAGE SCREEN STATUS (the band feel — what the
+                             screen is doing right now), set by the host via
+                             SetContent. It is the prominent headline of the card and
+                             must NOT truncate to "守護…": the strings are short, so
+                             we drop CharacterEllipsis and allow a single clean line
+                             with a sensible MinWidth so the controls cluster can't
+                             starve it. The engineering telemetry (第 N 級 / 壓力) and
+                             the band-description body stay present (test contract reads
+                             their .Text) but HIDDEN on the calm bar — telemetry lives
+                             in the dashboard's Advanced view, never on this surface. -->
                         <TextBlock x:Name="TitleText"
                                    Text=""
-                                   FontSize="15" FontWeight="SemiBold"
+                                   MinWidth="96"
+                                   FontSize="16" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimary}"
                                    VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis"
-                                   AutomationProperties.HelpText="通知標題 / Notification title"/>
+                                   TextTrimming="None"
+                                   AutomationProperties.HelpText="畫面狀態 / Screen status"/>
                         <TextBlock x:Name="TelemetryText" Text="" Visibility="Collapsed"
                                    FontFamily="Consolas, 'Cascadia Mono', monospace" FontSize="11"
                                    Foreground="{DynamicResource TextSecondary}"
@@ -338,21 +347,35 @@
                         <StackPanel Grid.Row="1" Orientation="Horizontal"
                                     HorizontalAlignment="Right" VerticalAlignment="Center"
                                     Margin="0,6,0,0">
-                            <!-- intervention-depth +/- (replaces the 4 quick buttons) -->
-                            <Button x:Name="InterventionUpBtn"
-                                    Style="{StaticResource RoundPillButtonStyle}"
-                                    Content="+"
-                                    Margin="0,0,6,0"
-                                    Click="OnInterventionUpClicked"
-                                    AutomationProperties.Name="加強介入 / Adjust up"
-                                    ToolTip="加強介入 / Ease more"/>
+                            <!-- HUD-card rework: intervention-depth cluster, now
+                                 ordered [ − ] [ level ] [ + ] (minus LEFT, plus
+                                 RIGHT) with the current level read out BETWEEN
+                                 them. The level is set by the host via SetLevel()
+                                 from the current VimsTier before Show(). -->
                             <Button x:Name="InterventionDownBtn"
                                     Style="{StaticResource RoundPillButtonStyle}"
                                     Content="&#x2212;"
-                                    Margin="0,0,8,0"
+                                    Margin="0,0,6,0"
                                     Click="OnInterventionDownClicked"
                                     AutomationProperties.Name="減弱介入 / Adjust down"
                                     ToolTip="減弱介入 / Ease less"/>
+                            <TextBlock x:Name="LevelText"
+                                       Text="L1"
+                                       MinWidth="26"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Accent}"
+                                       TextAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0"
+                                       AutomationProperties.Name="目前介入級別 / Current level"
+                                       ToolTip="目前介入級別 / Current intervention level"/>
+                            <Button x:Name="InterventionUpBtn"
+                                    Style="{StaticResource RoundPillButtonStyle}"
+                                    Content="+"
+                                    Margin="0,0,8,0"
+                                    Click="OnInterventionUpClicked"
+                                    AutomationProperties.Name="加強介入 / Adjust up"
+                                    ToolTip="加強介入 / Ease more"/>
 
                             <!-- thin separator -->
                             <Border Width="1" Height="22"

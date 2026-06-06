@@ -229,9 +229,63 @@ public static class ThemeManager
         }
     }
 
-    /// <summary>Re-apply the effective theme to every open window. Safe to call
-    /// repeatedly (ApplyTo is idempotent). Wrapped so an enumeration/teardown
-    /// race never throws.</summary>
+    // View-local surfaces (NOT Windows) that merge SenseEaseTheme.xaml into
+    // their OWN resources and therefore need the dark override merged into the
+    // same collection — a Window-level merge can't reach them. Held WEAKLY so a
+    // surface that's gone out of scope without unregistering never keeps the
+    // visual tree alive; dead refs are pruned on each repaint pass.
+    private static readonly System.Collections.Generic.List<WeakReference<FrameworkElement>>
+        _trackedElements = new();
+    private static readonly object _trackedLock = new();
+
+    /// <summary>
+    /// Register a view-local surface so the theme is (re)applied to its OWN
+    /// resources on every theme change — including a live OS light/dark flip in
+    /// Auto mode. Use for controls that merge <c>SenseEaseTheme.xaml</c> into
+    /// their own <c>Resources</c> (e.g. <c>SettingsContent</c>). Applies the
+    /// current theme immediately. Idempotent (a surface registers at most once),
+    /// and pairs with <see cref="UntrackElement"/> on unload to avoid leaks.
+    /// </summary>
+    public static void TrackElement(FrameworkElement element)
+    {
+        if (element is null) return;
+
+        lock (_trackedLock)
+        {
+            // Prune dead refs and skip if already tracked.
+            bool already = false;
+            for (int i = _trackedElements.Count - 1; i >= 0; i--)
+            {
+                if (!_trackedElements[i].TryGetTarget(out var t))
+                    _trackedElements.RemoveAt(i);
+                else if (ReferenceEquals(t, element))
+                    already = true;
+            }
+            if (!already)
+                _trackedElements.Add(new WeakReference<FrameworkElement>(element));
+        }
+
+        ApplyTo(element);
+    }
+
+    /// <summary>Stop tracking a previously-registered surface (call on Unloaded).</summary>
+    public static void UntrackElement(FrameworkElement element)
+    {
+        if (element is null) return;
+
+        lock (_trackedLock)
+        {
+            for (int i = _trackedElements.Count - 1; i >= 0; i--)
+            {
+                if (!_trackedElements[i].TryGetTarget(out var t) || ReferenceEquals(t, element))
+                    _trackedElements.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>Re-apply the effective theme to every open window AND every
+    /// tracked view-local surface. Safe to call repeatedly (ApplyTo is
+    /// idempotent). Wrapped so an enumeration/teardown race never throws.</summary>
     private static void ApplyToAllWindows()
     {
         try
@@ -246,6 +300,29 @@ public static class ThemeManager
         {
             // Best-effort; leave windows as-is on failure.
         }
+
+        // Tracked non-window surfaces (e.g. SettingsContent). Snapshot under the
+        // lock, prune dead refs, then apply outside the lock.
+        try
+        {
+            System.Collections.Generic.List<FrameworkElement> live = new();
+            lock (_trackedLock)
+            {
+                for (int i = _trackedElements.Count - 1; i >= 0; i--)
+                {
+                    if (_trackedElements[i].TryGetTarget(out var el))
+                        live.Add(el);
+                    else
+                        _trackedElements.RemoveAt(i);
+                }
+            }
+            foreach (var el in live)
+                ApplyTo(el);
+        }
+        catch
+        {
+            // Best-effort; leave surfaces as-is on failure.
+        }
     }
 
     /// <summary>
@@ -259,15 +336,45 @@ public static class ThemeManager
     public static void ApplyTo(Window w)
     {
         if (w is null) return;
+        ApplyTo(w.Resources);
+    }
+
+    /// <summary>
+    /// Idempotently brings an arbitrary <paramref name="element"/>'s own
+    /// resources into sync with the effective theme. Use this for surfaces that
+    /// merge <c>SenseEaseTheme.xaml</c> into their OWN
+    /// <c>FrameworkElement.Resources</c> (e.g. <c>SettingsContent</c>): a
+    /// view-local light dictionary shadows the dark palette merged at the Window
+    /// level, so those elements must merge the dark override into their own
+    /// collection too. Delegates to the same merge/unmerge core as
+    /// <see cref="ApplyTo(Window)"/>; the dark palette redefines brushes only,
+    /// so the light dictionary's non-colour tokens (radius, elevation,
+    /// typography) keep resolving from underneath.
+    /// </summary>
+    public static void ApplyTo(FrameworkElement element)
+    {
+        if (element is null) return;
+        ApplyTo(element.Resources);
+    }
+
+    /// <summary>Shared merge/unmerge core: ensures the dark palette is present
+    /// in <paramref name="resources"/>' merged dictionaries when dark is in
+    /// effect and absent otherwise. Idempotent and self-contained (never throws
+    /// into the WPF message loop).</summary>
+    private static void ApplyTo(ResourceDictionary resources)
+    {
+        if (resources is null) return;
 
         try
         {
-            var merged = w.Resources.MergedDictionaries;
+            var merged = resources.MergedDictionaries;
             ResourceDictionary? existing = FindDarkPalette(merged);
 
             if (ShouldUseDark())
             {
-                // Ensure present (add only if missing — idempotent).
+                // Ensure present (add only if missing — idempotent). Added LAST
+                // so it sits ABOVE any light SenseEaseTheme.xaml merged earlier
+                // in the same collection and wins the brush-key lookup.
                 if (existing is null)
                 {
                     merged.Add(new ResourceDictionary
@@ -286,7 +393,7 @@ public static class ThemeManager
         catch
         {
             // Loading the palette / mutating the dictionary failed: leave the
-            // window on its light default. Never throw.
+            // surface on its light default. Never throw.
         }
     }
 

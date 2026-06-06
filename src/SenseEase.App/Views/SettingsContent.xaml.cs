@@ -59,12 +59,22 @@ public partial class SettingsContent : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // This UserControl merges the LIGHT SenseEaseTheme.xaml into its OWN
+        // Resources (for the non-colour StaticResource tokens — radius, elevation,
+        // typography). That view-local light dictionary shadows the dark palette
+        // ThemeManager merges at the Window level, so we must merge the dark
+        // override into OUR OWN resources too. Tracking it applies the current
+        // theme now AND re-applies on every later theme change (incl. a live OS
+        // light/dark flip in Auto mode). Unregistered in OnUnloaded.
+        ThemeManager.TrackElement(this);
+
         RefreshFromPreferences();
         UserPreferences.Changed += OnPreferencesChangedExternally;
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        ThemeManager.UntrackElement(this);
         UserPreferences.Changed -= OnPreferencesChangedExternally;
     }
 

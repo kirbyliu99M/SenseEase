@@ -1053,6 +1053,11 @@ public partial class MainWindow : Window
             };
         }
         _cardWindow.SetContent(band, _viewModel.VimsTier, _viewModel.CurrentState.Pressure);
+        // HUD-card rework item 2: surface the current intervention level BETWEEN
+        // the [ − ] and [ + ] pills (e.g. "L5"). VimsTier is the native level on
+        // the same 12-level scale the card clamps to; set it before Show() so the
+        // cluster reads [ − ] [ L? ] [ + ] from the first paint.
+        _cardWindow.SetLevel(_viewModel.VimsTier);
         // M3 7e: if a chatbot proposal is pending (user clicked Later
         // earlier, or the proposal is fresh from a chatbot turn), wire +
         // re-surface it on this Card open. Filter expired proposals
