@@ -941,6 +941,27 @@ public partial class MainWindow : Window
                     $"[notification-card] muted band={currentBand} until {_cardController.MutedUntilUtc(currentBand):o}");
             };
             _cardWindow.PowerSaveToggled += (_, on) => ApplyPowerSave(on);
+            // bar-redesign: the new compact bar's +/- intervention-depth control.
+            // +1 = ease MORE (deeper) → reuse the Engage path: ensure WGC + overlay
+            // are live, then EaseView() tightens the FOV a notch (D5 deliberate
+            // preference, does NOT erode habituation). -1 = ease LESS (widen) →
+            // apply a positive deliberate FOV delta through the same engine feedback
+            // surface, then refresh VM state so the overlay re-renders at once.
+            // The card stays OPEN across +/- so the user can keep nudging.
+            _cardWindow.InterventionAdjustRequested += (_, dir) =>
+            {
+                if (dir >= 0)
+                {
+                    _viewModel.SetSensingModeToWgc();
+                    _viewModel.OverlayVisible = true;
+                    _viewModel.EaseView();
+                }
+                else
+                {
+                    // Widen (ease less) — the deliberate-preference mirror of EaseView.
+                    _viewModel.WidenView();
+                }
+            };
             // Path Z bug-fix 7: when the user opens Settings via the card's
             // gear icon and changes a preference, repaint the bar immediately
             // so the colour toggle (and any future quick-toggle) feels

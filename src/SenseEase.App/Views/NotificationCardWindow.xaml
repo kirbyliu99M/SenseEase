@@ -9,8 +9,7 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         SizeToContent="Height"
-        Width="480"
-        MinHeight="220"
+        Width="560"
         WindowStartupLocation="Manual"
         ShowActivated="False">
     <Window.Resources>
@@ -19,20 +18,11 @@
                 <!-- D0 design tokens, merged view-locally (never App.Resources). -->
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
-        <!-- overlay-bar-redesign D4: light-theme primary action button.
-             Replaces the dark-theme PrimaryHpBlueButtonStyle. Deep blue fill
-             with a darker hover/pressed state matches the new white card
-             surface. Vertical stacked label (zh + en) lives inside the
-             button content, not the style — see OpenDashboardBtn below. -->
-        <!-- Path Z bug-fix 6: explicit ControlTemplate. The default Aero
-             Button template paints its own hover/pressed background via
-             VisualStateManager and ignores outer Style.Triggers on the
-             Background property — meaning the Style triggers we used to
-             have here were silently no-op'd at runtime. The Border-based
-             template below ensures the Trigger Background swaps actually
-             render. CornerRadius=3 matches the card's overall radius
-             vocabulary; the ContentPresenter uses TemplateBinding so the
-             vertical-stacked label inside OpenDashboardBtn keeps centering. -->
+
+        <!-- bar-redesign: deep-blue primary action button (Accent fill).
+             Used by the chat-face "send" button. Border-based ControlTemplate so
+             the Trigger Background swaps render (the default Aero template paints
+             its own hover/pressed background and ignores Style.Triggers). -->
         <Style x:Key="PrimaryDeepBlueButtonStyle" TargetType="Button">
             <Setter Property="Background"      Value="{StaticResource Accent}"/>
             <Setter Property="Foreground"      Value="White"/>
@@ -49,7 +39,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3"
+                                CornerRadius="8"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
@@ -72,26 +62,19 @@
             </Setter>
         </Style>
 
-        <!-- H7: single-hue SEQUENTIAL discomfort ramp.
-             The four severity cells (輕微/中等/明顯/嚴重) used to be four
-             DIFFERENT hues (teal / amber / clay-weak / clay) which read as
-             four unrelated categories rather than a rising scale. They now
-             share ONE calm clay hue (the ComfortHigh family) stepped
-             light→deep across the four, so increasing depth = increasing
-             severity. Each cell also carries a non-colour POSITION cue
-             (▁▃▅▇ ramp glyph + a 1-4 numeral) so severity is legible
-             without relying on colour — important for an anxiety audience
-             and for colour-vision differences. The depth is set per-button
-             via the Border Background (ramp fill tokens) + a per-step
-             Foreground; this shared style only carries the geometry
-             (≥44px tall, rounded, centred two-line content) and the
-             render-correct ControlTemplate so the per-button Background
-             actually paints (see PrimaryDeepBlueButtonStyle note above for
-             why the default Aero template would swallow it). -->
-        <Style x:Key="DiscomfortRampButtonStyle" TargetType="Button">
-            <Setter Property="MinHeight"       Value="44"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding"         Value="2,6"/>
+        <!-- bar-redesign: white/SurfaceMuted PILL button with Accent text. Used by
+             介入 +/-, 停用 (restyled checkbox), 設定. Calm, no alarm-red; the rounded
+             SurfaceMuted fill + 1px Separator hairline reads as a soft chip.
+             Border-based template so per-instance Background actually paints. -->
+        <Style x:Key="PillButtonStyle" TargetType="Button">
+            <Setter Property="Background"      Value="{StaticResource SurfaceMuted}"/>
+            <Setter Property="Foreground"      Value="{StaticResource Accent}"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Padding"         Value="14,6"/>
+            <Setter Property="MinHeight"       Value="30"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush"     Value="{StaticResource Separator}"/>
             <Setter Property="Cursor"          Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
             <Setter Property="Template">
@@ -101,7 +84,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6"
+                                CornerRadius="{StaticResource Radius.pill}"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
@@ -110,10 +93,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5"/>
@@ -124,11 +107,19 @@
             </Setter>
         </Style>
 
-        <!-- C2 (audit): shared keyboard-focus ring. These implicit styles give
-             every focusable control in the card the Accent focus ring; buttons
-             that carry an explicit Style (PrimaryDeepBlueButtonStyle) get it via
-             that style's own FocusVisualStyle setter, since an implicit style
-             never reaches a control that already has an explicit Style. -->
+        <!-- bar-redesign: round +/- intervention-depth pill. Fixed 30x30 circle,
+             Accent glyph on a white surface with a Separator hairline. -->
+        <Style x:Key="RoundPillButtonStyle" TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
+            <Setter Property="Width"    Value="30"/>
+            <Setter Property="Height"   Value="30"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Padding"  Value="0"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="Background" Value="{StaticResource Surface}"/>
+        </Style>
+
+        <!-- C2 (audit): shared keyboard-focus ring for any focusable control that
+             doesn't carry an explicit style. -->
         <Style TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
         </Style>
@@ -140,17 +131,15 @@
         </Style>
         </ResourceDictionary>
     </Window.Resources>
-    <!-- overlay-bar-redesign D1: light card theme.
-         White surface, light grey border, soft drop shadow. The previous
-         dark-on-dark scheme blended into the bar — switching to a near-pure
-         white card with the same WGC mask seam (Topmost + AllowsTransparency)
-         gives strong contrast against any background. MouseMove anywhere in
-         the Border resets the 60 s idle-collapse timer. -->
+
+    <!-- bar-redesign: light, rounded horizontal BAR. White surface, soft border,
+         soft drop shadow. The card grows ABOVE the bar when ActiveProposal != null
+         (ProposalPanel row). MouseMove anywhere resets the idle-collapse timer. -->
     <Border x:Name="CardBorder"
-            Background="#FFFFFF"
-            CornerRadius="10"
-            Padding="16"
-            BorderBrush="#E0E4EA"
+            Background="{StaticResource Surface}"
+            CornerRadius="14"
+            Padding="14,10"
+            BorderBrush="{StaticResource Separator}"
             BorderThickness="1"
             MouseMove="OnCardMouseMove">
         <Border.Effect>
@@ -159,74 +148,22 @@
         </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/> <!-- title row -->
-                <RowDefinition Height="Auto"/> <!-- M3 7e: chatbot proposal (Flow A) -->
-                <RowDefinition Height="Auto"/> <!-- body -->
-                <RowDefinition Height="Auto"/> <!-- v0.9.1 round-4: discomfort quick-response -->
-                <RowDefinition Height="Auto"/> <!-- buttons -->
-                <RowDefinition Height="Auto"/> <!-- v0.9.1 round-3: chatbot input -->
+                <RowDefinition Height="Auto"/> <!-- proposal (grows the card above the bar) -->
+                <RowDefinition Height="Auto"/> <!-- the bar (main face / chat face) -->
             </Grid.RowDefinitions>
 
-            <!-- Title + settings (gear) + close (X). DockPanel docks right-side
-                 buttons first so the title TextBlock takes the remaining space. -->
-            <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,10">
-                <Button DockPanel.Dock="Right"
-                        x:Name="CloseBtn"
-                        Content="×"
-                        Width="22" Height="22"
-                        Padding="0" BorderThickness="0"
-                        Background="Transparent"
-                        Foreground="#7A8499"
-                        FontSize="16" FontWeight="Bold"
-                        Cursor="Hand"
-                        AutomationProperties.Name="關閉通知 / Close"
-                        Click="OnCloseClicked"/>
-                <Button DockPanel.Dock="Right"
-                        x:Name="SettingsBtn"
-                        Content="&#x2699;"
-                        Width="22" Height="22"
-                        Padding="0" BorderThickness="0"
-                        Background="Transparent"
-                        Foreground="#7A8499"
-                        FontSize="18"
-                        Cursor="Hand"
-                        Margin="0,0,4,0"
-                        Click="OnSettingsClicked"
-                        AutomationProperties.Name="設定 / Settings"
-                        ToolTip="設定 / Settings"/>
-                <!-- BC-1: plain-language band title + demoted telemetry mono
-                     subline. The DockPanel's LastChild fills the remaining space. -->
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock x:Name="TitleText"
-                               Text=""
-                               FontSize="16" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimary}"
-                               TextWrapping="Wrap"
-                               AutomationProperties.HelpText="通知標題 / Notification title"/>
-                    <TextBlock x:Name="TelemetryText"
-                               Text=""
-                               FontFamily="Consolas, 'Cascadia Mono', monospace"
-                               FontSize="11"
-                               Foreground="{StaticResource TextSecondary}"
-                               Margin="0,2,0,0"
-                               AutomationProperties.HelpText="感測讀數 / Sensing readout"/>
-                </StackPanel>
-            </DockPanel>
-
             <!-- M3 7e: chatbot proposal section (Flow A, spec §4.3.5).
-                 Visible only when ProposalPanel.Visibility = Visible (set by
-                 code-behind when ActiveProposal is non-null). Sits ABOVE the
-                 tier-band body text so user sees the recommendation first
-                 when the card auto-pops on a proposal. -->
-            <Border Grid.Row="1"
+                 Unchanged behaviour — sits ABOVE the bar when ActiveProposal is
+                 non-null. Restyled margins only so it sits above the new bar. -->
+            <Border Grid.Row="0"
                     x:Name="ProposalPanel"
                     Visibility="Collapsed"
                     Background="#F2F6FE"
                     BorderBrush="#C3D2EE"
                     BorderThickness="1"
-                    CornerRadius="6"
+                    CornerRadius="8"
                     Padding="12,10"
-                    Margin="0,0,0,12">
+                    Margin="0,0,0,10">
                 <StackPanel>
                     <TextBlock x:Name="ProposalHeaderText"
                                Text="SenseEase 建議"
@@ -251,17 +188,12 @@
                                Foreground="#5A6478"
                                TextWrapping="Wrap"
                                Margin="0,0,0,8"/>
-                    <!-- M8: safety-note callout. Wrapped in a calm clay
-                         ComfortHighWeak card with a 1px ComfortHigh hairline
-                         and a warning glyph so a system-intervention note
-                         reads as an advisory, not an alarm-red banner. The
-                         Border's Visibility tracks the inner TextBlock's so
-                         the existing code-behind (which toggles
-                         ProposalSafetyNoteText.Visibility) shows/hides the
-                         whole callout; the TextBlock x:Name + its Text are
-                         untouched. The leading ⚠ glyph here is the visual
-                         anchor (the code-set string also carries one for
-                         screen-reader/clipboard fidelity). -->
+                    <!-- M8: safety-note callout. Calm clay ComfortHighWeak card with
+                         a ComfortHigh hairline + ⚠ glyph so a system-intervention
+                         note reads as an advisory, not an alarm-red banner. The
+                         Border's Visibility tracks the inner TextBlock's so the
+                         existing code-behind (which toggles ProposalSafetyNoteText
+                         .Visibility) shows/hides the whole callout. -->
                     <Border Background="{StaticResource ComfortHighWeak}"
                             BorderBrush="{StaticResource ComfortHigh}"
                             BorderThickness="1"
@@ -333,252 +265,255 @@
                 </StackPanel>
             </Border>
 
-            <!-- Body text -->
-            <TextBlock Grid.Row="2"
-                       x:Name="BodyText"
-                       Text=""
-                       FontSize="13"
-                       Foreground="#3A4252"
-                       TextWrapping="Wrap"
-                       VerticalAlignment="Top"
-                       Margin="0,0,0,10"
-                       AutomationProperties.HelpText="通知內容 / Notification details"/>
+            <!-- ═══ THE BAR ════════════════════════════════════════════════════
+                 Two faces stacked in the same cell; only one is visible at a
+                 time. FlipBtn toggles MainFace ⇄ ChatFace. -->
+            <Grid Grid.Row="1">
 
-            <!-- v0.9.1 round-4: discomfort quick-response. Four buttons
-                 along a single "程度漸強" axis: 輕微 → 中等 → 明顯 → 嚴重.
-                 Each sends a localised phrase the chatbot interprets as a
-                 ReportDiscomfort with the matching severity, applying
-                 the same FOV/mask/grid deltas as a typed message. Severity
-                 mapping is by button Tag (1-4) → index into
-                 QuickDiscomfortPhrases; labels are purely cosmetic. -->
-            <StackPanel Grid.Row="3" Margin="0,0,0,10">
-                <TextBlock Text="視覺不適程度"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="#5A6478"
-                           Margin="0,0,0,6"/>
-                <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <!-- H7: single clay hue (ComfortHigh token) stepped light→deep
-                     via increasing Background opacity over the white card.
-                     Steps 1-3 keep the dark ComfortHighText foreground for AA
-                     contrast on the lighter fills; step 4 (full clay) flips to
-                     TextOnComfort. The ▁▃▅▇ glyph + numeral give a non-colour
-                     position cue so severity reads without relying on hue. -->
-                <Button Grid.Column="0"
-                        x:Name="QuickDiscomfort1Btn"
-                        Tag="1"
-                        Style="{StaticResource DiscomfortRampButtonStyle}"
-                        Click="OnQuickDiscomfortClicked"
-                        Foreground="{StaticResource ComfortHighText}"
-                        Margin="0,0,4,0"
-                        AutomationProperties.Name="輕微不適 / Mild discomfort"
-                        AutomationProperties.HelpText="回報視覺不適程度：輕微 / Report mild visual discomfort">
-                    <Button.Background>
-                        <SolidColorBrush Color="{Binding Color, Source={StaticResource ComfortHigh}}" Opacity="0.16"/>
-                    </Button.Background>
-                    <StackPanel>
-                        <TextBlock Text="輕微" FontSize="12" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="&#x2581; 1" FontSize="11" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                <!-- ── MAIN FACE (default) ──────────────────────────────────── -->
+                <Grid x:Name="MainFace">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>      <!-- status text -->
+                        <ColumnDefinition Width="Auto"/>   <!-- controls -->
+                    </Grid.ColumnDefinitions>
+
+                    <!-- LEFT: status text. TitleText (placeholder copy from
+                         SetContent) + static separator + 介入調節/Adjust label,
+                         with TelemetryText as a small sub-line. -->
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="TitleText"
+                                       Text=""
+                                       FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       AutomationProperties.HelpText="通知標題 / Notification title"/>
+                            <!-- static separator -->
+                            <Border Width="1" Height="13"
+                                    Background="{StaticResource Separator}"
+                                    Margin="8,0,8,0" VerticalAlignment="Center"/>
+                            <!-- 介入調節 / Adjust label (tiering WIP — placeholder copy) -->
+                            <TextBlock Text="介入調節 / Adjust"
+                                       FontSize="12"
+                                       Foreground="{StaticResource TextSecondary}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TelemetryText"
+                                   Text=""
+                                   FontFamily="Consolas, 'Cascadia Mono', monospace"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   Margin="0,2,0,0"
+                                   AutomationProperties.HelpText="感測讀數 / Sensing readout"/>
+                        <!-- Power-save body copy (kept so Test 2 can read BodyText).
+                             Visible only as a tiny sub-line; carries the exact
+                             power-save string the contract requires. -->
+                        <TextBlock x:Name="BodyText"
+                                   Text=""
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,0"
+                                   AutomationProperties.HelpText="通知內容 / Notification details"/>
                     </StackPanel>
-                </Button>
-                <Button Grid.Column="1"
-                        x:Name="QuickDiscomfort2Btn"
-                        Tag="2"
-                        Style="{StaticResource DiscomfortRampButtonStyle}"
-                        Click="OnQuickDiscomfortClicked"
-                        Foreground="{StaticResource ComfortHighText}"
-                        Margin="2,0,2,0"
-                        AutomationProperties.Name="中等不適 / Moderate discomfort"
-                        AutomationProperties.HelpText="回報視覺不適程度：中等 / Report moderate visual discomfort">
-                    <Button.Background>
-                        <SolidColorBrush Color="{Binding Color, Source={StaticResource ComfortHigh}}" Opacity="0.34"/>
-                    </Button.Background>
-                    <StackPanel>
-                        <TextBlock Text="中等" FontSize="12" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="&#x2583; 2" FontSize="11" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+
+                    <!-- RIGHT: controls. Top row = close (X) + flip. Bottom row =
+                         the +/- depth pills, a separator, then 停用 / 設定. -->
+                    <Grid Grid.Column="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>  <!-- close + flip -->
+                            <RowDefinition Height="Auto"/>  <!-- control pills -->
+                        </Grid.RowDefinitions>
+
+                        <!-- TOP-RIGHT: close (×). -->
+                        <Button Grid.Row="0"
+                                x:Name="CloseBtn"
+                                Content="×"
+                                HorizontalAlignment="Right"
+                                Width="22" Height="22"
+                                Padding="0" BorderThickness="0"
+                                Background="Transparent"
+                                Foreground="{StaticResource TextTertiary}"
+                                FontSize="16" FontWeight="Bold"
+                                Cursor="Hand"
+                                AutomationProperties.Name="關閉通知 / Close"
+                                Click="OnCloseClicked"/>
+
+                        <!-- CENTER controls + bottom-right flip. -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Margin="0,6,0,0">
+                            <!-- intervention-depth +/- (replaces the 4 quick buttons) -->
+                            <Button x:Name="InterventionUpBtn"
+                                    Style="{StaticResource RoundPillButtonStyle}"
+                                    Content="+"
+                                    Margin="0,0,6,0"
+                                    Click="OnInterventionUpClicked"
+                                    AutomationProperties.Name="加強介入 / Adjust up"
+                                    ToolTip="加強介入 / Ease more"/>
+                            <Button x:Name="InterventionDownBtn"
+                                    Style="{StaticResource RoundPillButtonStyle}"
+                                    Content="&#x2212;"
+                                    Margin="0,0,8,0"
+                                    Click="OnInterventionDownClicked"
+                                    AutomationProperties.Name="減弱介入 / Adjust down"
+                                    ToolTip="減弱介入 / Ease less"/>
+
+                            <!-- thin separator -->
+                            <Border Width="1" Height="22"
+                                    Background="{StaticResource Separator}"
+                                    Margin="0,0,8,0" VerticalAlignment="Center"/>
+
+                            <!-- 停用 / Disable — a CheckBox restyled as a pill that
+                                 drives PowerSaveToggle (keeps x:Name + event). -->
+                            <CheckBox x:Name="PowerSaveToggle"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,6,0"
+                                      Cursor="Hand"
+                                      Foreground="{StaticResource Accent}"
+                                      ToolTip="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
+                                      AutomationProperties.Name="停用 / Disable"
+                                      AutomationProperties.HelpText="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
+                                      Checked="OnPowerSaveToggled"
+                                      Unchecked="OnPowerSaveToggled">
+                                <CheckBox.Template>
+                                    <ControlTemplate TargetType="CheckBox">
+                                        <Border x:Name="Bd"
+                                                Background="{StaticResource SurfaceMuted}"
+                                                BorderBrush="{StaticResource Separator}"
+                                                BorderThickness="1"
+                                                CornerRadius="{StaticResource Radius.pill}"
+                                                Padding="12,6"
+                                                SnapsToDevicePixels="True">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </CheckBox.Template>
+                                <TextBlock Text="停用 / Disable" FontSize="12" FontWeight="SemiBold"/>
+                            </CheckBox>
+
+                            <!-- 設定 / Settings -->
+                            <Button x:Name="SettingsBtn"
+                                    Style="{StaticResource PillButtonStyle}"
+                                    Content="設定 / Settings"
+                                    Margin="0,0,8,0"
+                                    Click="OnSettingsClicked"
+                                    AutomationProperties.Name="設定 / Settings"
+                                    ToolTip="設定 / Settings"/>
+
+                            <!-- BOTTOM-RIGHT: flip to chat face (↩). -->
+                            <Button x:Name="FlipBtn"
+                                    Content="&#x21A9;"
+                                    Width="28" Height="28"
+                                    Padding="0" BorderThickness="0"
+                                    Background="Transparent"
+                                    Foreground="{StaticResource Accent}"
+                                    FontSize="16"
+                                    Cursor="Hand"
+                                    VerticalAlignment="Center"
+                                    Click="OnFlipClicked"
+                                    AutomationProperties.Name="開啟對話 / Open chat"
+                                    ToolTip="跟 SenseEase 說話 / Talk to SenseEase"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Hidden legacy action buttons. Kept so the host's
+                         EngageClicked / MuteClicked / dashboard wiring still
+                         compiles; no longer surfaced in the new bar. The +
+                         pill ALSO raises EngageClicked (see code-behind). -->
+                    <StackPanel Visibility="Collapsed" IsHitTestVisible="False">
+                        <Button x:Name="OpenDashboardBtn" Click="OnOpenDashboardClicked" Content="開啟主視窗"/>
+                        <Button x:Name="EngageBtn" Click="OnEngageClicked" Content="緩和畫面"/>
+                        <Button x:Name="MuteBtn" Click="OnMuteClicked" Content="6 小時內不再提示"/>
                     </StackPanel>
-                </Button>
-                <Button Grid.Column="2"
-                        x:Name="QuickDiscomfort3Btn"
-                        Tag="3"
-                        Style="{StaticResource DiscomfortRampButtonStyle}"
-                        Click="OnQuickDiscomfortClicked"
-                        Foreground="{StaticResource ComfortHighText}"
-                        Margin="2,0,2,0"
-                        AutomationProperties.Name="明顯不適 / Marked discomfort"
-                        AutomationProperties.HelpText="回報視覺不適程度：明顯 / Report marked visual discomfort">
-                    <Button.Background>
-                        <SolidColorBrush Color="{Binding Color, Source={StaticResource ComfortHigh}}" Opacity="0.58"/>
-                    </Button.Background>
-                    <StackPanel>
-                        <TextBlock Text="明顯" FontSize="12" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="&#x2585; 3" FontSize="11" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-                <Button Grid.Column="3"
-                        x:Name="QuickDiscomfort4Btn"
-                        Tag="4"
-                        Style="{StaticResource DiscomfortRampButtonStyle}"
-                        Click="OnQuickDiscomfortClicked"
-                        Background="{StaticResource ComfortHigh}"
-                        Foreground="{StaticResource TextOnComfort}"
-                        Margin="4,0,0,0"
-                        AutomationProperties.Name="嚴重不適 / Severe discomfort"
-                        AutomationProperties.HelpText="回報視覺不適程度：嚴重 / Report severe visual discomfort">
-                    <StackPanel>
-                        <TextBlock Text="嚴重" FontSize="12" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="&#x2587; 4" FontSize="11" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
                 </Grid>
-            </StackPanel>
 
-            <!-- Button row: Grid with two columns so PowerSaveToggle sits
-                 hard-left and the action buttons sit hard-right at 480 dip.
-                 Layout: [PowerSaveToggle] | [Dashboard][Engage][Mute] -->
-            <Grid Grid.Row="4">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>  <!-- left: toggle -->
-                    <ColumnDefinition Width="*"/>     <!-- stretch -->
-                    <ColumnDefinition Width="Auto"/>  <!-- right: actions -->
-                </Grid.ColumnDefinitions>
+                <!-- ── CHAT FACE (shown after flip) ─────────────────────────── -->
+                <Grid x:Name="ChatFace" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>  <!-- back arrow -->
+                        <ColumnDefinition Width="*"/>     <!-- input -->
+                        <ColumnDefinition Width="Auto"/>  <!-- send -->
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                <!-- Path Z UX iter 2: replaced text label "省電模式 / Power Save"
-                     with a universal power glyph (U+23FB). Old label was both
-                     getting clipped at 480 dip AND mis-framed the action as
-                     "energy saving" when it's actually a sensing on/off
-                     toggle. ToolTip makes the actual semantic clear. -->
-                <CheckBox x:Name="PowerSaveToggle"
-                          Grid.Column="0"
-                          VerticalAlignment="Center"
-                          Foreground="#3A4252"
-                          Cursor="Hand"
-                          ToolTip="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
-                          AutomationProperties.Name="暫停感測 / Pause sensing"
-                          AutomationProperties.HelpText="暫停 / 恢復 SenseEase 感測（不會關閉應用程式）"
-                          Checked="OnPowerSaveToggled"
-                          Unchecked="OnPowerSaveToggled">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="&#x23FB;" FontSize="18" FontWeight="SemiBold"/>
-                        <TextBlock Text="省電" FontSize="12" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </CheckBox>
+                    <!-- flip-back affordance (back arrow). -->
+                    <Button Grid.Row="0" Grid.Column="0"
+                            x:Name="FlipBackBtn"
+                            Content="&#x2190;"
+                            Width="28" Height="28"
+                            Padding="0" BorderThickness="0"
+                            Background="Transparent"
+                            Foreground="{StaticResource Accent}"
+                            FontSize="16"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0"
+                            Click="OnFlipClicked"
+                            AutomationProperties.Name="返回 / Back"
+                            ToolTip="返回 / Back"/>
 
-                <StackPanel Grid.Column="2"
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Right">
-                    <Button x:Name="OpenDashboardBtn"
+                    <TextBox Grid.Row="0" Grid.Column="1"
+                             x:Name="ChatInputBox"
+                             Background="{StaticResource SurfaceMuted}"
+                             Foreground="{StaticResource TextPrimary}"
+                             BorderBrush="{StaticResource Separator}"
+                             BorderThickness="1"
+                             Padding="8,6"
+                             FontSize="12"
+                             MaxLength="240"
+                             VerticalContentAlignment="Center"
+                             KeyDown="OnChatInputKeyDown"
+                             Margin="0,0,8,0">
+                        <TextBox.Resources>
+                            <VisualBrush x:Key="PlaceholderBrush" Stretch="None" AlignmentX="Left">
+                                <VisualBrush.Visual>
+                                    <TextBlock Text="跟 SenseEase 說話" Foreground="#9AA3B0" FontSize="12" Margin="2,0,0,0"/>
+                                </VisualBrush.Visual>
+                            </VisualBrush>
+                        </TextBox.Resources>
+                        <TextBox.Style>
+                            <Style TargetType="TextBox">
+                                <Style.Triggers>
+                                    <Trigger Property="Text" Value="">
+                                        <Setter Property="Background" Value="{StaticResource PlaceholderBrush}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <Button Grid.Row="0" Grid.Column="2"
+                            x:Name="ChatSendBtn"
+                            Content="send"
+                            Click="OnChatSendClicked"
                             Style="{StaticResource PrimaryDeepBlueButtonStyle}"
-                            Click="OnOpenDashboardClicked"
-                            Content="開啟主視窗"
-                            Margin="0,0,8,0"
-                            AutomationProperties.Name="開啟主視窗 / Open dashboard"/>
-                    <Button x:Name="EngageBtn"
-                            Content="緩和畫面"
-                            Click="OnEngageClicked"
-                            Background="{StaticResource Accent}"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Padding="12,6"
-                            Margin="0,0,8,0"
-                            FontSize="12"
-                            FontWeight="Bold"
-                            Cursor="Hand"
-                            AutomationProperties.Name="緩和畫面 / Ease the screen"/>
-                    <Button x:Name="MuteBtn"
-                            Content="6 小時內不再提示"
-                            Click="OnMuteClicked"
-                            Background="#EEF1F5"
-                            Foreground="#3A4252"
-                            BorderThickness="0"
-                            Padding="12,6"
-                            FontSize="12"
-                            Cursor="Hand"
-                            AutomationProperties.Name="6 小時內不再提示 / Mute for 6 hours"/>
-                </StackPanel>
-            </Grid>
+                            Padding="14,6"/>
 
-            <!-- v0.9.1 round-3: inline chatbot input. Lets the user adjust
-                 comfort settings via natural-language ("worse", "tighten",
-                 "more open") without opening the dashboard. The reply
-                 (and any deltas applied) flow into the dashboard's chat
-                 tab via the host's ChatbotViewModel pipeline; the card
-                 itself only shows a one-line acknowledgement so the
-                 card stays compact. Enter key sends; Send button sends. -->
-            <!-- C4 (audit): the in-card chat input is deferred to Alpha-2 per spec;
-                 collapse the whole row so the card offers one effortless action set
-                 rather than "talk to the bot" choice-overload for a user who feels
-                 worst. Code-behind (SendChatMessage / OnChatInputKeyDown) still
-                 compiles; only the affordance is hidden. -->
-            <Grid Grid.Row="5" Margin="0,10,0,0" Visibility="Collapsed" IsHitTestVisible="False">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <TextBox Grid.Row="0" Grid.Column="0"
-                         x:Name="ChatInputBox"
-                         Background="#F7F8FA"
-                         Foreground="#1A1F2E"
-                         BorderBrush="#D6DBE3"
-                         BorderThickness="1"
-                         Padding="8,6"
-                         FontSize="12"
-                         MaxLength="240"
-                         VerticalContentAlignment="Center"
-                         KeyDown="OnChatInputKeyDown"
-                         Margin="0,0,8,0">
-                    <TextBox.Resources>
-                        <VisualBrush x:Key="PlaceholderBrush" Stretch="None" AlignmentX="Left">
-                            <VisualBrush.Visual>
-                                <TextBlock Text="跟 SenseEase 說話" Foreground="#9AA3B0" FontSize="12" Margin="2,0,0,0"/>
-                            </VisualBrush.Visual>
-                        </VisualBrush>
-                    </TextBox.Resources>
-                    <TextBox.Style>
-                        <Style TargetType="TextBox">
-                            <Style.Triggers>
-                                <Trigger Property="Text" Value="">
-                                    <Setter Property="Background" Value="{StaticResource PlaceholderBrush}"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBox.Style>
-                </TextBox>
-
-                <Button Grid.Row="0" Grid.Column="1"
-                        x:Name="ChatSendBtn"
-                        Content="送出"
-                        Click="OnChatSendClicked"
-                        Style="{StaticResource PrimaryDeepBlueButtonStyle}"
-                        Padding="12,6"/>
-
-                <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
-                           x:Name="ChatStatusText"
-                           Text=""
-                           FontSize="10"
-                           Foreground="#7A8499"
-                           Margin="2,4,0,0"
-                           TextWrapping="Wrap"
-                           MaxHeight="32"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                               x:Name="ChatStatusText"
+                               Text=""
+                               FontSize="10"
+                               Foreground="{StaticResource TextSecondary}"
+                               Margin="2,4,0,0"
+                               TextWrapping="Wrap"
+                               MaxHeight="32"/>
+                </Grid>
             </Grid>
         </Grid>
     </Border>

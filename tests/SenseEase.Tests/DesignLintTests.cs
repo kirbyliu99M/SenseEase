@@ -22,8 +22,9 @@ public class DesignLintTests
     // and CalibrationCardView (#024AD8) to theme tokens. Lower this each time a
     // surface migrates to tokens → 150 after the final UI-polish wave → 104 after
     // the A-D batch (M3/M14 regroup) retired #0A1F5C→TextPrimary and the banned
-    // #7B8DB0→TextTertiary across SettingsContent + CalibrationCardView.
-    private const int OrphanHexBaseline = 104;
+    // #7B8DB0→TextTertiary across SettingsContent + CalibrationCardView → 91 after
+    // the pop-up two-face compact-bar redesign (fewer, token-driven elements).
+    private const int OrphanHexBaseline = 91;
 
     private static readonly Regex HexColor =
         new(@"#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})", RegexOptions.Compiled);

@@ -64,6 +64,15 @@ public partial class NotificationCardWindow : Window
     /// <c>false</c> for OFF (resume sensing).</summary>
     public event EventHandler<bool>? PowerSaveToggled;
 
+    /// <summary>bar-redesign: raised when the user nudges the intervention-depth
+    /// control on the new compact bar. Payload is <c>+1</c> (the "+" pill — ease
+    /// MORE / deeper intervention) or <c>-1</c> (the "−" pill — ease LESS / widen).
+    /// The host routes this to the engine's ease path (see
+    /// <c>MainViewModel.EaseView</c> / <c>ApplyUserFeedback</c>). Unlike Engage /
+    /// Mute / Close, a +/- nudge does NOT hide the card — the user can keep
+    /// adjusting in place.</summary>
+    public event EventHandler<int>? InterventionAdjustRequested;
+
     /// <summary>overlay-bar-redesign D3: provided by the host so the gear
     /// button can construct a <see cref="SettingsWindow"/> with the
     /// same vestibular-diagnosis lookup the host uses elsewhere. Falls
@@ -610,6 +619,59 @@ public partial class NotificationCardWindow : Window
         Hide();
     }
 
+    /// <summary>bar-redesign: "+" intervention-depth pill — ease MORE (deeper).
+    /// Raises <see cref="InterventionAdjustRequested"/> with +1. Per spec a +/-
+    /// nudge keeps the card OPEN (no Hide) so the user can keep adjusting; the
+    /// host routes the event to the same engine ease path Engage uses. We do NOT
+    /// also raise <see cref="EngageClicked"/> here — that handler hides the card
+    /// and would double-apply the ease — keeping the +/- contract single-shot.</summary>
+    private void OnInterventionUpClicked(object sender, RoutedEventArgs e)
+    {
+        _userHasInteracted = true;
+        RestartIdleTimer();
+        InterventionAdjustRequested?.Invoke(this, +1);
+    }
+
+    /// <summary>bar-redesign: "−" intervention-depth pill — ease LESS (widen).
+    /// Raises <see cref="InterventionAdjustRequested"/> with -1. Keeps the card
+    /// open.</summary>
+    private void OnInterventionDownClicked(object sender, RoutedEventArgs e)
+    {
+        _userHasInteracted = true;
+        RestartIdleTimer();
+        InterventionAdjustRequested?.Invoke(this, -1);
+    }
+
+    /// <summary>bar-redesign: flip the bar between its main face (status +
+    /// controls) and its chat face (the deliberate route to the chatbot). Both
+    /// the main-face flip glyph (↩) and the chat-face back arrow (←) call this —
+    /// it simply toggles which face is visible. The flip is gated behind
+    /// ReducedMotion so a user who feels unwell never gets an animation; we keep
+    /// the swap instant either way (no animation is applied here), but route the
+    /// branch so a future cross-fade would only run when motion is allowed.</summary>
+    private void OnFlipClicked(object sender, RoutedEventArgs e)
+    {
+        _userHasInteracted = true;
+        RestartIdleTimer();
+        bool toChat = MainFace.Visibility == Visibility.Visible;
+
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            // Reduce Motion: swap instantly, no transition.
+            MainFace.Visibility = toChat ? Visibility.Collapsed : Visibility.Visible;
+            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Collapsed;
+        }
+        else
+        {
+            // Motion allowed: same instant swap today; a cross-fade could be
+            // attached here behind this branch without touching the a11y path.
+            MainFace.Visibility = toChat ? Visibility.Collapsed : Visibility.Visible;
+            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (toChat) ChatInputBox.Focus();
+    }
+
     private void OnMuteClicked(object sender, RoutedEventArgs e)
     {
         MuteClicked?.Invoke(this, EventArgs.Empty);
@@ -729,35 +791,10 @@ public partial class NotificationCardWindow : Window
 
     private bool _chatSendInFlight;
 
-    // v0.9.1 round-4: localized phrases the four quick-response buttons send.
-    // The chatbot pipeline (FeedbackLexicon + Mistral NLU) interprets these
-    // as ReportDiscomfort with the matching severity, producing the same
-    // FOV/mask/grid deltas a typed equivalent would. zh phrasing matches
-    // FeedbackLexicon's known triggers so the deterministic lexicon path
-    // applies before any LLM round-trip — quick-response stays snappy.
-    private static readonly string[] QuickDiscomfortPhrases =
-    {
-        string.Empty,                  // 0: unused
-        "我有點不舒服",                // 1: slight
-        "我不舒服",                    // 2: mild
-        "我很不舒服",                  // 3: strong
-        "我非常不舒服，請大力調整",     // 4: severe
-    };
-
-    /// <summary>v0.9.1 round-4: quick-response handler. Stuffs the matching
-    /// localized phrase into the chat input and fires Send, so the existing
-    /// chatbot pipeline interprets the discomfort and applies adjustments.
-    /// Severity comes from the button's <c>Tag</c> ("1"–"4"). Reuses the
-    /// SendChatMessage callback so the same status surface + double-send
-    /// guard + idle-timer reset all apply.</summary>
-    private async void OnQuickDiscomfortClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.Button btn) return;
-        if (!int.TryParse(btn.Tag?.ToString(), out int severity)) return;
-        if (severity < 1 || severity >= QuickDiscomfortPhrases.Length) return;
-        ChatInputBox.Text = QuickDiscomfortPhrases[severity];
-        await TrySendChatAsync();
-    }
+    // bar-redesign: the four QuickDiscomfort buttons (and their localized-phrase
+    // table + OnQuickDiscomfortClicked handler) were removed when the card became
+    // a compact bar — the intervention-depth +/- pills (InterventionAdjustRequested)
+    // now carry the "adjust how much" control, and the chat face carries free-text.
 
     /// <summary>v0.9.1 round-3: send the typed message through the host's
     /// chatbot pipeline. Guards against double-send while one is in flight,

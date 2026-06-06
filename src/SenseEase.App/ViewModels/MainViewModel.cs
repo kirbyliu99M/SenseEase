@@ -94,6 +94,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         UpdateFromState(_engine.Current);
     }
 
+    private const int WidenViewFovStep = 12;
+
+    /// <summary>The compact pop-up bar's "−" (ease less / widen) intervention nudge
+    /// — the deliberate-preference mirror of <see cref="EaseView"/>. Loosens the FOV
+    /// a notch via the D5 path (no discomfort recurrence, no habituation-offset
+    /// erosion, Q4.5), then refreshes so the overlay re-renders the looser field.</summary>
+    public void WidenView()
+    {
+        _engine.ApplyUserFeedback(WidenViewFovStep, isDeliberatePreference: true);
+        UpdateFromState(_engine.Current);
+    }
+
     /// <summary>Pop-up sprint Task 5: true iff the user's most recent
     /// calibration recorded a vestibular diagnosis (Q5 risk factor).
     /// Drives the SettingsWindow safety warning when the user tries to
