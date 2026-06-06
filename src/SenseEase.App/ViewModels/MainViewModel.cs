@@ -159,6 +159,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// proposal after a Later click. Null when no proposal is pending.</summary>
     public ProfileOverrideProposal? ActiveProposal => _activeProposal;
 
+    /// <summary>The engine's current habituation profile as the canonical upper-case
+    /// string ("RESILIENT"/"TYPICAL"/"SENSITIVE"), for the Dashboard profile-pill
+    /// active-state highlight. Reads the REAL engine profile (null-safe cast), so a
+    /// safety-blocked switch correctly leaves the prior pill lit. Notified from
+    /// UpdateFromState.</summary>
+    public string CurrentProfile =>
+        (_engine as MockInferenceEngine)?.HabituationProfile.ToString().ToUpperInvariant()
+        ?? "RESILIENT";
+
     /// <summary>M3 7e: host calls this when the user clicked Accept on the
     /// in-Card proposal. Routes through the applicator (defensive-intercept
     /// re-check + engine write), records the outcome in the action log,
@@ -919,7 +928,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // floored to PersistentOverlayBaselineTier. Natural pressure-driven tier still
     // wins when it's higher — so a calm screen shows the baseline dim, and a
     // motion-driven spike still darkens the periphery further.
-    private bool _persistentOverlayEnabled;
+    // D6 (master plan M7): day-1 protection — the calm field defaults ON. Paired
+    // ATOMICALLY with baseline tier 1 below (0% alpha at rest) so nothing visibly
+    // dims until real motion raises the tier. NEVER flip this true without the
+    // tier=1 pairing (risk R-B: a tier-4 baseline would over-dim every new user
+    // ~43%). The "0.00 alpha at rest" gate is D6DayOneProtectionTests.
+    private bool _persistentOverlayEnabled = true;
     public bool PersistentOverlayEnabled
     {
         get => _persistentOverlayEnabled;
@@ -932,9 +946,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private int _persistentOverlayBaselineTier = 4;
-    /// <summary>Baseline VIMS tier (1–10) when PersistentOverlayEnabled is true. 4 is
-    /// "subtle but noticeable" (~43% peak alpha at L4). Natural higher tiers override.</summary>
+    private int _persistentOverlayBaselineTier = 1;
+    /// <summary>Baseline VIMS tier (1–10) when PersistentOverlayEnabled is true.
+    /// D6 day-1 default is 1 = 0% alpha at rest (nothing visibly dims; the field is
+    /// "ready", not "always dark"). Natural higher tiers still override, so a real
+    /// motion spike darkens the periphery. The user can raise this baseline.</summary>
     public int PersistentOverlayBaselineTier
     {
         get => _persistentOverlayBaselineTier;
@@ -1490,6 +1506,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HabituationPaused = state.HabituationPaused;
         VimsTier          = state.VimsTier;
         DisplayStressPercent = state.DisplayStressPercent; // P1
+        OnPropertyChanged(nameof(CurrentProfile)); // profile-pill active highlight
 
         // D3: MaskActive just updated above — refresh the liveness scalar so
         // Protecting/Steady-watching track the mask in lock-step with the tier.

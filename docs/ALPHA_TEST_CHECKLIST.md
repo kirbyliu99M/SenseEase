@@ -35,7 +35,7 @@ consistent** — *"would this calm a nauseated person, or tax them?"*
 - [ ] Header is a **light bar** with a hairline divider — **no** royal-blue band; wordmark is dark, subtitle muted.
 - [ ] Canvas is cool near-white; cards are white with a soft (non-blue) shadow.
 - [ ] The D1 comfort **hero** reads calm; the **ComfortMeter** is near-empty at rest and fills only under real strain.
-- [ ] **Profile quick-access pills** (RESILIENT / TYPICAL / SENSITIVE) appear under the hero. **Click each** → it routes through the safety-checked profile path (watch the chat/Event Log for the switch + any safety message). *(New `SelectProfileCommand` — confirm it actually switches.)*
+- [ ] **Profile quick-access pills** (RESILIENT / TYPICAL / SENSITIVE) appear under the hero, and the **currently-active profile is highlighted** (filled accent pill). **Click each** → it routes through the safety-checked profile path and the highlight moves to it (watch the chat/Event Log for the switch + any safety message). *(`SelectProfileCommand` + `CurrentProfile` highlight.)*
 - [ ] Data numerals are **dark** (not blue); blue appears only on the hero/primary buttons/active-tab underline.
 - [ ] **Comfort chip** now has a full-colour 1.5px border (readable without relying on fill colour). *(C3-chip — new; eyeball the colour.)*
 - [ ] **ComfortMeter caption** "相對於你的個人閾值 / Relative to your personal threshold" + low/high hints read clearly. *(M1 — new.)*
@@ -101,7 +101,7 @@ inputs in the dev tests only.
 ## C. Needs your decision / sign-off  ✅
 
 - [ ] **Palette** — is "Crisp Cool — calm-tuned" right, or do you want a tweak (warmer? a different accent)? It's all tokens, so a change is a few lines.
-- [ ] **D6 — Day-1 protection default-ON** *(not flipped — needs your call):* the master plan M7 wants the calm field ON by default at baseline tier 1 (0% alpha at rest). This changes resting behaviour, so I left it for you. Say the word and I'll do the atomic two-flip + the "0.00 alpha at rest" test.
+- [x] **D6 — Day-1 protection default-ON** *(DONE this run — please verify the feel):* the calm field now defaults **ON** at baseline tier **1** (0% alpha at rest), per master plan M7. **Verify:** at rest **nothing visibly dims** (the overlay is "ready", not "always dark"); the always-on overlay toggle on the Advanced panel now starts **checked**; a real motion spike still darkens the periphery. Locked by `D6DayOneProtectionTests` (atomic two-flip + 0.00-alpha-at-rest).
 - [ ] **Comfort-chip / ramp colours** — eyeball the new chip borders + single-hue ramp; tell me if any colour feels off.
 - [ ] **Settings grouping (M3)** + **calibration template dedup (M14)** — larger restructures I deferred; want them?
 
@@ -118,7 +118,6 @@ These need an external action or a machine I can't drive. Tracked in
 - 🔒 **Integrity manifest (H32)**, **symlink guards (H50)** — implementable; want them in a "runtime-risk security" wave (with a smoke checklist)?
 - 🔒 **Dependency bumps (H33 llama.cpp / H47 opencv / H48 pyinstaller)** — need re-downloading binaries + rebuilding the PyInstaller sidecar bundle.
 - 🔒 **Installer hygiene (H25/H28/H49)** — trim ~500 MB unused backends; uninstall removes `%LOCALAPPDATA%\SenseEase\` + the HKCU Run key. Needs a clean-VM install smoke.
-- 🔒 **Expert copy review** — OT 葉淨維 (mechanism copy) + ophthalmology 陳韵臻 (eye-safety copy). The doc they read (`HABITUATION-PROFILE.md §1.2`) was citation-corrected this run (commit 1137185).
 - 🔒 **User test on dGPU + iGPU** — the §7 scenario suite on both hardware classes, with the benefit-legibility comprehension test (no tester may read the copy as a medical claim).
 
 ---

@@ -85,6 +85,20 @@
             <Setter Property="Foreground" Value="{StaticResource Accent}"/>
         </Style>
 
+        <!-- Profile quick-access pill. The ACTIVE profile lights up via a per-pill
+             DataTrigger on {Binding CurrentProfile} (set on each Button below). -->
+        <Style x:Key="ProfilePill" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource SurfaceMuted}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+            <Setter Property="Template" Value="{StaticResource RoundBtn}"/>
+        </Style>
+
         <!-- ── Text styles ── -->
         <Style x:Key="CardLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
@@ -395,30 +409,51 @@
                             <Button Content="RESILIENT"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="RESILIENT"
-                                    Background="{StaticResource SurfaceMuted}"
-                                    Foreground="{StaticResource TextSecondary}"
-                                    FontSize="12" FontWeight="SemiBold"
-                                    BorderThickness="0" Padding="16,7" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}"
-                                    Margin="0,0,8,0"/>
+                                    AutomationProperties.Name="設定檔 RESILIENT / Profile RESILIENT"
+                                    Margin="0,0,8,0">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentProfile}" Value="RESILIENT">
+                                                <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Button Content="TYPICAL"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="TYPICAL"
-                                    Background="{StaticResource SurfaceMuted}"
-                                    Foreground="{StaticResource TextSecondary}"
-                                    FontSize="12" FontWeight="SemiBold"
-                                    BorderThickness="0" Padding="16,7" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}"
-                                    Margin="0,0,8,0"/>
+                                    AutomationProperties.Name="設定檔 TYPICAL / Profile TYPICAL"
+                                    Margin="0,0,8,0">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentProfile}" Value="TYPICAL">
+                                                <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Button Content="SENSITIVE"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="SENSITIVE"
-                                    Background="{StaticResource SurfaceMuted}"
-                                    Foreground="{StaticResource TextSecondary}"
-                                    FontSize="12" FontWeight="SemiBold"
-                                    BorderThickness="0" Padding="16,7" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}"
-                                    Margin="0"/>
+                                    AutomationProperties.Name="設定檔 SENSITIVE / Profile SENSITIVE"
+                                    Margin="0">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentProfile}" Value="SENSITIVE">
+                                                <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                         </WrapPanel>
                     </StackPanel>
                 </Border>

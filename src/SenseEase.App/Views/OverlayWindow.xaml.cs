@@ -51,7 +51,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// Engine hysteresis (state.VimsTier) controls discrete tier identity;
     /// OverlayWindow's per-tick smoothing cross-fades color+alpha between tiers.
     /// </summary>
-    private static readonly (byte R, byte G, byte B, double Alpha)[] VimsLevels =
+    // internal (not private) so D6DayOneProtectionTests can assert L1 == 0% alpha.
+    internal static readonly (byte R, byte G, byte B, double Alpha)[] VimsLevels =
     {
         (102, 102, 102, 0.00), // L1  #666666  0%   neutral gray
         (102, 102, 102, 0.17), // L2  #666666  17%
