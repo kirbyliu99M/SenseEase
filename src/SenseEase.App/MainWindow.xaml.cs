@@ -203,6 +203,14 @@ public partial class MainWindow : Window
         // the Hide() lands before any deferred render passes.
         SourceInitialized += (_, _) =>
         {
+            // Taskbar-icon fix: this process sets an explicit AppUserModelID
+            // (App.OnStartup), so the taskbar groups the button under it. With no
+            // installed shortcut registering an icon for that AUMID, the taskbar
+            // button paints blank even though Window.Icon draws the title-bar /
+            // Alt-Tab icon correctly. Register our EXE's embedded icon for the
+            // AUMID group via the window's shell property store (best-effort).
+            SenseEase.App.Interop.ShellTaskbarIcon.RegisterForWindow(this);
+
             if (App.StartMinimizedToTray)
             {
                 // ShowInTaskbar stays true so once the user does open the
