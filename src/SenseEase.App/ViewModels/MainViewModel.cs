@@ -996,12 +996,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // floored to PersistentOverlayBaselineTier. Natural pressure-driven tier still
     // wins when it's higher — so a calm screen shows the baseline dim, and a
     // motion-driven spike still darkens the periphery further.
-    // D6 (master plan M7): day-1 protection — the calm field defaults ON. Paired
-    // ATOMICALLY with baseline tier 1 below (0% alpha at rest) so nothing visibly
-    // dims until real motion raises the tier. NEVER flip this true without the
-    // tier=1 pairing (risk R-B: a tier-4 baseline would over-dim every new user
-    // ~43%). The "0.00 alpha at rest" gate is D6DayOneProtectionTests.
-    private bool _persistentOverlayEnabled = true;
+    // D6 (master plan M7): day-1 protection originally defaulted the always-on calm
+    // field ON (paired with baseline tier 1 = 0% alpha at rest). Kirby override
+    // (2026-06-06): default the always-on overlay toggle OFF for a more immersive,
+    // zero-intervention start (aligns with the Alpha-2 "auto-profiling replaces explicit
+    // calibration" direction). The D6 "0.00 alpha at rest" floor (VimsLevels[0].Alpha)
+    // stays pinned. If this is re-enabled, KEEP the baseline-tier-1 pairing below
+    // (risk R-B: a tier-4 baseline would over-dim every new user ~43%).
+    private bool _persistentOverlayEnabled = false;
     public bool PersistentOverlayEnabled
     {
         get => _persistentOverlayEnabled;

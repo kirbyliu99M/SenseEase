@@ -316,6 +316,7 @@ public partial class NotificationCardWindow : Window
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     private DispatcherTimer? _foregroundCheckTimer;
+    private DispatcherTimer? _mouseLeaveTimer;   // pop-up revision: hover-style dismiss grace
     private static readonly uint OurProcessId = (uint)Process.GetCurrentProcess().Id;
 
     // overlay-bar-redesign D2/D3: cache the last content the card was set to
@@ -372,15 +373,30 @@ public partial class NotificationCardWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Position just below the bar: top-centre, 12 dip below the bar's
-        // bottom edge. Bar is 4 dip tall at y=0 → card top at y=16.
-        var work = SystemParameters.WorkArea;
-        Left = work.Left + (work.Width - Width) / 2.0;
-        Top  = work.Top + 16;
+        // Pop-up revision (Kirby 2026-06-06): the card is a hover-style flyout anchored
+        // to the BOTTOM-RIGHT of the working area — near the tray, its sole summon point
+        // — not below the now-disabled top bar. SizeToContent=Height means the final
+        // height isn't known until layout, so we re-anchor on SizeChanged too.
+        AnchorBottomRight();
+        SizeChanged -= OnCardSizeChanged;   // idempotent across repeated Loads
+        SizeChanged += OnCardSizeChanged;
         // Initial fade-in + timers handled by OnIsVisibleChanged below so
         // second/third/Nth Show() also resets state (v0.9.1 round-4 fix:
         // previously the idle-fade left Opacity=0 and OnLoaded didn't re-
         // fire, so re-showing the card produced an invisible window).
+    }
+
+    private void OnCardSizeChanged(object? sender, SizeChangedEventArgs e) => AnchorBottomRight();
+
+    /// <summary>Pop-up revision: anchor the card to the bottom-right of the working
+    /// area (12 dip inset), near the tray that summons it. Re-run on SizeChanged so the
+    /// SizeToContent=Height measurement lands the bottom edge correctly.</summary>
+    private void AnchorBottomRight()
+    {
+        var work = SystemParameters.WorkArea;
+        double h = ActualHeight > 0 ? ActualHeight : (double.IsNaN(Height) ? 0 : Height);
+        Left = work.Right  - Width - 12;
+        Top  = work.Bottom - h     - 12;
     }
 
     // v0.8 hotfix: keep the foreground-check timer aligned with the card's
@@ -573,6 +589,22 @@ public partial class NotificationCardWindow : Window
             Opacity = 1.0;
         }
         RestartIdleTimer();
+    }
+
+    private void OnCardMouseLeave(object sender, MouseEventArgs e)
+    {
+        // Pop-up revision (Kirby 2026-06-06): hover-style auto-dismiss. When the cursor
+        // leaves the card, hide it after a short grace period; re-entering cancels it via
+        // the IsMouseOver re-check. MouseLeave only fires after the cursor was OVER the
+        // card, so an auto-surfaced spike card the user is ignoring (cursor elsewhere)
+        // still survives to the 60 s idle-fade. Complements the foreground-poll auto-close.
+        if (_mouseLeaveTimer is null)
+        {
+            _mouseLeaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+            _mouseLeaveTimer.Tick += (_, _) => { _mouseLeaveTimer!.Stop(); if (!IsMouseOver) Hide(); };
+        }
+        _mouseLeaveTimer.Stop();
+        _mouseLeaveTimer.Start();
     }
 
     private void RestartIdleTimer()

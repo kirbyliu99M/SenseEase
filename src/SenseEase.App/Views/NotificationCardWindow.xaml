@@ -141,7 +141,8 @@
             Padding="14,10"
             BorderBrush="{StaticResource Separator}"
             BorderThickness="1"
-            MouseMove="OnCardMouseMove">
+            MouseMove="OnCardMouseMove"
+            MouseLeave="OnCardMouseLeave">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="14"
                               ShadowDepth="3" Opacity="0.18"/>

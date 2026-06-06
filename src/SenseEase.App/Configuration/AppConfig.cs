@@ -247,6 +247,12 @@ public static class AppConfig
     // ON because the previous behavior was a false-positive source.
     public static bool RejectCursorDragOfi { get; set; } = true;
 
+    // Pop-up revision (Kirby 2026-06-06): the persistent ambient BAR is disabled — the
+    // tray icon is the sole access point (it already carries the 5級 ambient colour +
+    // paused/faulted status) and the card is summoned from the tray as a bottom hover
+    // flyout. Default OFF; flip to re-enable the bar (the bar code is retained, dormant).
+    public static bool PersistentBarEnabled { get; set; } = false;
+
     // Auto Driver / Passenger mode (user feedback "自動 passenger & Driver mode 或可實裝").
     // Master switch for UserActivityModeDetector. When true (default), MainViewModel
     // subscribes to the detector at startup so MainViewModel.Mode automatically tracks

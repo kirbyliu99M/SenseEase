@@ -715,6 +715,14 @@ public partial class MainWindow : Window
 
     private void StartPersistentBar()
     {
+        // Pop-up revision (Kirby 2026-06-06): the persistent bar is DISABLED — the tray
+        // icon is the sole access point (it carries the 5級 ambient + paused/faulted
+        // signals) and the card is summoned from the tray as a bottom hover flyout.
+        // _persistentBar stays null; every host reference is null-guarded → safe no-ops.
+        // The bar code below is retained, dormant; flip AppConfig.PersistentBarEnabled
+        // to re-enable. (Static flag, not a const → no unreachable-code warning.)
+        if (!AppConfig.PersistentBarEnabled) return;
+
         // Same gate as StartTrayIcon (centralised in PopupSurfaceGate).
         // Bar + tray spawn together or not at all.
         string? envVar = Environment.GetEnvironmentVariable(PopupSurfaceGate.ValidationEnvVar);
@@ -1037,7 +1045,8 @@ public partial class MainWindow : Window
             _cardWindow.ActiveProposal = pending;
         }
         _cardWindow.Show();
-        _cardWindow.Activate();
+        // Pop-up revision (Kirby 2026-06-06): non-activating hover flyout — do NOT steal
+        // focus (the window is ShowActivated=False; the chat face takes focus on click).
     }
 
     // overlay-bar-redesign D3: process-wide power-save state. The card,
