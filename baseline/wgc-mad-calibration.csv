@@ -1,1 +1,13 @@
+# wgc-mad-calibration.csv — reduced WGC MAD->OFI calibration table.
+# Source: real capture on Kirby's hardware 2026-06-08 via SENSEEASE_MAD_CALIBRATION=1
+#   (single ~457 s run; %TEMP%/wgc_mad_calibration_trace.csv). Reduced with the
+#   MadCalibrationReducer math (mean; nearest-rank p95 = sorted[ceil(0.95n)-1];
+#   derived_ofi = clamp(mad * normFactor, 0, 150)) at the current normFactor = 4.0.
+# PARTIAL capture: only idle_desktop + video_1080p were performed. word_scroll /
+#   fullscreen_game / scene_cut are NOT yet captured, so the factor is constrained by a
+#   single mid-band motion scene; the upper band (game / scene-cut saturation) is unvalidated.
+# idle_desktop mean MAD ~= 0 (does not constrain the factor). video_1080p segment =
+#   t=90..160 s of the trace (the sustained-motion plateau).
 scene_label,duration_s,mean_mad,p95_mad,derived_ofi_mean,derived_ofi_p95
+idle_desktop,140.0,0.027,0.000,0.1,0.0
+video_1080p,70.0,8.528,24.668,34.1,98.7
