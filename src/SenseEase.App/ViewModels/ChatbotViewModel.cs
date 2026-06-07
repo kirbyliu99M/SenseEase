@@ -487,47 +487,30 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             return;
         }
 
-        // M3 7e+: short-circuit on profile-picker request. User typed
-        // something like "我想換 profile" / "show me profiles" without
-        // specifying which → push a chat bubble with 3 option cards and
-        // skip the LLM round-trip entirely. The bubble's option-click
-        // callback fires ProfilePickerSelected, which the host wires to
-        // HabituationOverrideApplicator (safety intercept + audit + apply).
+        // M3 7e+ / Alpha-2 audit fix: the user typed something like "我想換 profile" /
+        // "show me profiles". The chatbot can NO LONGER live-switch the habituation profile
+        // (Reading A, 2026-06-06: the SwitchProfile override path is deliberately severed —
+        // profile changes must be a deliberate dashboard action, not chatbot-driven). The old
+        // in-chat picker routed every selection into that severed no-op and surfaced "切換失敗"
+        // to the user (a guaranteed-fail UI; flagged "defunct — product follow-up" in
+        // Phase8AcceptanceTests.ScenarioE). So instead of a doomed picker, acknowledge and
+        // redirect to the dashboard's working profile pills (OnUserProfileSelected →
+        // SetHabituationProfile). No LLM round-trip. NOTE: this leaves the (now-unfired)
+        // ProfilePickerSelected event + OnChatbotProfilePickerSelected handler as harmless dead
+        // code, to be removed with the broader LLM-calibration-subsystem cleanup.
         if (HabituationProposalLexicon.TryDetectProfilePickerRequest(text))
         {
             InputText = string.Empty;
-            string? currentProfile = LoadHabituationSnapshot?.Invoke()?.Profile;
+            bool en = LocalizationManager.Current.IsEnglish;
+            string reply = en
+                ? "You can switch your comfort profile (Resilient / Typical / Sensitive) in the main window's Settings — the assistant doesn't change it directly."
+                : "舒適度 profile（Resilient / Typical / Sensitive）請到主視窗的「設定」切換 — 小幫手不會直接幫你更改。";
             _dispatcher.Invoke(() =>
             {
                 Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
                 PersistMessage(ChatRole.User, text);
-
-                var options = new List<ProfileOption>();
-                foreach (var (profile, desc) in HabituationProposalLexicon.ProfileDescriptions)
-                {
-                    string canonical = profile.ToString().ToUpperInvariant();
-                    string label = string.Equals(canonical, currentProfile, StringComparison.OrdinalIgnoreCase)
-                        ? $"{canonical}（目前）"
-                        : canonical;
-                    options.Add(new ProfileOption(label, desc));
-                }
-                string prompt = currentProfile is null
-                    ? "請選擇您想切換的 profile："
-                    : $"目前是 {currentProfile}。請選擇您想切換的 profile：";
-                Messages.Add(new ChatMessageViewModel(
-                    content: prompt,
-                    role: ChatRole.Assistant,
-                    profileOptions: options,
-                    onProfileSelected: picked =>
-                    {
-                        // The label may include "（目前）" — strip suffix to
-                        // get the canonical profile name before forwarding.
-                        string canon = picked;
-                        int paren = canon.IndexOf('（');
-                        if (paren > 0) canon = canon.Substring(0, paren).Trim();
-                        ProfilePickerSelected?.Invoke(this, canon);
-                    }));
-                PersistMessage(ChatRole.Assistant, prompt);
+                Messages.Add(new ChatMessageViewModel(reply, ChatRole.Assistant));
+                PersistMessage(ChatRole.Assistant, reply);
             });
             return; // skip LLM call entirely
         }

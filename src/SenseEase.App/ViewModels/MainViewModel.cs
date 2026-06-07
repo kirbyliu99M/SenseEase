@@ -780,11 +780,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // Stage 5a/5b: wire the LLM calibration session factory. The factory
         // constructs a CalibrationChatbotService and kicks StartAsync — the VM
         // just surfaces the active session for the chat tab to render.
-        ChatbotVm.LlmCalibrationFactory = BuildLlmCalibrationSession;
-        // v0.9.1 hotfix: route the banner's Start button (and the Recalibrate
-        // entry) through the working button-card UI rather than the LLM
-        // session that has no UI binding. See ChatbotViewModel.StartInvitedCalibration.
-        ChatbotVm.OpenCalibrationCardCallback = TriggerCalibrationCard;
+        // Alpha-2 audit: under AutoProfilingEnabled the entire explicit-calibration flow
+        // is cancelled (Recalibrate / invitation banner / post-demo card are all suppressed),
+        // so these two wires would dangle for a flow that can never fire. Only attach them in
+        // the legacy (flag-OFF) world; flag-ON leaves them null and the entry methods already
+        // hard-return. (The LLM-calibration session UI was never built anyway — see the
+        // OpenCalibrationCardCallback hotfix note — so the factory is doubly inert when ON.)
+        if (!AppConfig.AutoProfilingEnabled)
+        {
+            ChatbotVm.LlmCalibrationFactory = BuildLlmCalibrationSession;
+            // v0.9.1 hotfix: route the banner's Start button (and the Recalibrate
+            // entry) through the working button-card UI rather than the LLM
+            // session that has no UI binding. See ChatbotViewModel.StartInvitedCalibration.
+            ChatbotVm.OpenCalibrationCardCallback = TriggerCalibrationCard;
+        }
         _nlu = new ChatbotNluService(mistral);
 
         _sensing = ProviderFor(AppConfig.Mode);
