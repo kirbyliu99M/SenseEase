@@ -65,4 +65,30 @@ public class WgcSensingProviderTests
 
         Assert.False(provider.IsPaused);
     }
+
+    /// <summary>Alpha-1 W3 gate (orchestration §3 / MASTERPLAN M3): 100× Power-Save
+    /// toggle, 0 crash. Each Pause() runs a full WGC Stop() teardown and each Resume()
+    /// a fresh Start(), so rapid cycling stresses the EM3 Stop/OnTick teardown
+    /// serialization, the NE11 watchdog-timer disposal/reuse, and the
+    /// <c>_watchdogScheduled</c> re-arm guard. No teardown / re-init may throw across
+    /// the run, and IsPaused must track the last call. (The COM use-after-free RACE
+    /// itself still needs a live WGC session + GPU and is verified at runtime.)</summary>
+    [Fact]
+    public void WgcSensingProvider_RapidPowerSaveToggle_100x_NoCrash()
+    {
+        using var provider = new WgcSensingProvider();
+
+        for (int i = 0; i < 100; i++)
+        {
+            provider.Pause();                 // → Stop() teardown
+            Assert.True(provider.IsPaused);
+            provider.Resume();                // → Start() re-init
+            Assert.False(provider.IsPaused);
+        }
+
+        Assert.False(provider.IsPaused);
+        // Teardown after a long toggle run stays clean + idempotent.
+        provider.Stop();
+        provider.Dispose();
+    }
 }
