@@ -245,6 +245,43 @@ public class AdaptiveFitGridTests
         }
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // 2b. PER-SET PARAM UNIFORMITY PINS — Scale + GridVisibility are now CONSUMED
+    //     (2026-06-08 wiring): Scale by the UpdateVimsTier discretizer, GridVisibility
+    //     by the shader-grid baseline re-seeded on every set move. They are uniform
+    //     across all 50 sets today, which is EXACTLY what keeps flag-ON byte-identical
+    //     to flag-OFF (the discretizer gain and grid baseline never change with the set).
+    //     If a future deformed set ever carries a DIFFERENT Scale / GridVisibility, these
+    //     pins fail LOUD — the deliberate signal to re-verify the now-live consumers
+    //     (the latent drift the conformance audit flagged is closed, and guarded here).
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void EverySet_SharesTheNativeDiscretizerScale_SoFlagParityHolds()
+    {
+        for (int band = GridCoord.MinBand; band <= GridCoord.MaxBand; band++)
+        for (int shape = GridCoord.MinShape; shape <= GridCoord.MaxShape; shape++)
+        {
+            SetCurve curve = SetGrid.Curve(new GridCoord(band, shape));
+            foreach (var lp in curve.Levels)
+                // 11.0 — the native 12-rung span the flag-OFF discretizer hardcodes.
+                Assert.Equal((double)(SetCurve.LevelCount - 1), lp.Scale, 6);
+        }
+    }
+
+    [Fact]
+    public void EverySet_SharesTheDefaultGridVisibility_SoTheReSeedIsANoOpToday()
+    {
+        for (int band = GridCoord.MinBand; band <= GridCoord.MaxBand; band++)
+        for (int shape = GridCoord.MinShape; shape <= GridCoord.MaxShape; shape++)
+        {
+            SetCurve curve = SetGrid.Curve(new GridCoord(band, shape));
+            foreach (var lp in curve.Levels)
+                // 0.75 — equals what _shader.ResetToDefault() sets, so seeding it is a no-op.
+                Assert.Equal(ShaderParams.DefaultGridVisibility, lp.GridVisibility, 6);
+        }
+    }
+
     [Fact]
     public void ResolveLevel_AtSet0_ReturnsPeakMaskAlphaEqualToVimsLevels()
     {

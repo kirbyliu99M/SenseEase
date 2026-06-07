@@ -101,6 +101,17 @@ public class AdaptiveFitWiringTests
         return stream;
     }
 
+    /// <summary>Drive <paramref name="ticks"/> Update() ticks at a fixed <paramref name="ofi"/>
+    /// and capture only the discrete VimsTier per tick — the discretizer's output. Used to
+    /// prove the per-set Scale wiring is byte-identical at Set0.</summary>
+    private static List<int> DriveTierStream(MockInferenceEngine engine, double ofi, int ticks)
+    {
+        var tiers = new List<int>();
+        for (int i = 0; i < ticks; i++)
+            tiers.Add(engine.Update(ofi, "Passenger", ClockBase.AddSeconds(i * TickSeconds)).VimsTier);
+        return tiers;
+    }
+
     /// <summary>True iff the engine's active set still resolves to the pinned Set0 curve
     /// (== today's VimsLevels) for every one of the 12 rungs — i.e. NO set move took
     /// effect.</summary>
@@ -206,6 +217,85 @@ public class AdaptiveFitWiringTests
             SenseState s = engine.Update(60.0, "Passenger", ClockBase);
             // -1 ⇒ overlay falls back to its static tier-keyed VimsLevels alpha (byte-identical).
             Assert.Equal(-1.0, s.MaskPeakAlphaOverride);
+        }
+        finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // 1c. PER-SET Scale + GridVisibility — the two params the conformance audit found
+    //     "computed but ignored." Now CONSUMED (2026-06-08): the discretizer GAIN reads
+    //     the active set's Scale; the peripheral-grid baseline re-seeds from the active
+    //     set's GridVisibility on a set move (via _shader → Current.Shader). Both are a
+    //     no-op at Set0 (Scale 11.0, GridVisibility 0.75 == the engine defaults), which
+    //     is what these tests pin — the wiring exists and is byte-identical at Set0.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void FlagOn_AtSet0_DiscretizerScaleIsNoOp_TierStreamMatchesFlagOff()
+    {
+        bool original = AppConfig.AdaptiveFitSelectorEnabled;
+        try
+        {
+            // 20 ticks × 2 s = 40 s < SettlingMinSeconds (60 s), so the flag-ON selector never
+            // evaluates and the active set stays pinned at Set0. The ONLY thing the flag could
+            // change across this window is the discretizer GAIN (now the active set's Scale).
+            // Set0.Scale == 11.0, so the flag-ON tier stream must equal the flag-OFF stream
+            // tick-for-tick — proof the Scale wiring is byte-identical at Set0.
+            const int Ticks = 20;
+            const double Ofi = 140.0; // sustained high OFI → pressure climbs through the tiers
+
+            AppConfig.AdaptiveFitSelectorEnabled = false;
+            var off = new MockInferenceEngine();                // instance flag OFF
+            List<int> offStream = DriveTierStream(off, Ofi, Ticks);
+
+            AppConfig.AdaptiveFitSelectorEnabled = true;
+            var on = new MockInferenceEngine { AdaptiveFitSelectorEnabled = true };
+            List<int> onStream = DriveTierStream(on, Ofi, Ticks);
+
+            Assert.True(ResolvesToSet0(on),
+                "flag-ON engine must still be pinned at Set0 within the settling window");
+            Assert.Equal(offStream, onStream);
+            // Sanity: the ramp genuinely exercised the discretizer across more than one tier
+            // (otherwise a flat stream would make the parity assertion vacuous).
+            Assert.True(onStream.Distinct().Count() > 1,
+                "the OFI ramp should span more than one tier so the parity check is meaningful");
+        }
+        finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
+    }
+
+    [Fact]
+    public void FlagOn_AfterSilentSetMove_GridVisibilityBaselineEqualsActiveSetCurve()
+    {
+        bool original = AppConfig.AdaptiveFitSelectorEnabled;
+        try
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = true;
+
+            var log = new InMemoryEventLogStore();
+            SeedDurable(log, pressure: 5.0, spike: false); // calm window → silent move to (4,2)
+            var engine = new MockInferenceEngine(null, null, null, log)
+            {
+                AdaptiveFitSelectorEnabled = true,
+            };
+
+            DriveCalm(engine);
+
+            var moved = new GridCoord(4, 2);
+            Assert.True(ResolvesToSet(engine, moved),
+                "the calm window should silently move the set to (4,2)");
+
+            // One more calm tick to read the post-move state the overlay would see.
+            SenseState s = engine.Update(0.0, "Passenger", ClockBase.AddSeconds(DriveTicks * TickSeconds));
+
+            // CONTRACT: after a set move the peripheral-grid baseline equals the NEW set's
+            // GridVisibility (re-seeded from lp.GridVisibility, flowing via Current.Shader).
+            // Today every set carries 0.75, so this also equals the shader default — but if a
+            // future per-set GridVisibility diverged AND the re-seed were dropped, _shader would
+            // hold the hardcoded 0.75 from ResetToDefault and this would fail. That pairing with
+            // EverySet_SharesTheDefaultGridVisibility is the latent-drift guard.
+            double expected = SetGrid.Curve(moved).ForLevel(s.VimsTier).GridVisibility;
+            Assert.Equal(expected, s.Shader.GridVisibility, 6);
+            Assert.Equal(ShaderParams.DefaultGridVisibility, s.Shader.GridVisibility, 6);
         }
         finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
     }

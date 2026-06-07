@@ -43,20 +43,21 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private const double BrushRadiusCornerMargin = SenseDefaults.OverlayBrushRadiusCornerMargin; // F2: single-source
 
     /// <summary>
-    /// VIMS 10-level table (方案 A). Each row is (R, G, B, peak-alpha fraction 0–1).
-    /// L1-L6 are pure gray (#666 → #444 → #222). L7-L10 carry a subtle cool tint
-    /// (Blue channel up to +20) — pure black mask reads as "uniform overlay" on bright
-    /// backgrounds, but a cool-shifted near-black reads as a deliberate "out-of-focus
-    /// dimming" effect, drawing the eye to the clear center even on white content.
-    /// Engine hysteresis (state.VimsTier) controls discrete tier identity;
-    /// OverlayWindow's per-tick smoothing cross-fades color+alpha between tiers.
+    /// VIMS 12-level table (native scale, Adaptive Fit Q2=B). Each row is
+    /// (R, G, B, peak-alpha fraction 0–1). L1–L7 are pure gray (#666 → #222); the
+    /// cool-shift begins at L8 (a subtle blue tint, Blue channel up to +6 above R/G) —
+    /// a pure-black mask reads as a "uniform overlay" on bright backgrounds, but a
+    /// cool-shifted near-black reads as a deliberate "out-of-focus dimming" effect,
+    /// drawing the eye to the clear center even on white content. Engine hysteresis
+    /// (state.VimsTier) controls discrete tier identity; OverlayWindow's per-tick
+    /// smoothing cross-fades color+alpha between tiers.
     /// </summary>
     // internal (not private) so D6DayOneProtectionTests can assert L1 == 0% alpha.
     // Native 12-level scale (Adaptive Fit Q2=B) — was 10 rungs, extended to 12.
     // L1 stays 0% alpha (D6 day-1 protection floor; pinned by
-    // D6DayOneProtectionTests.OverlayWindow_VimsLevels_L1AlphaIsZero). Alpha climbs
-    // monotonically 0.00 → ~0.92; hue shifts neutral gray → cool-shifted near-black
-    // (+blue tint at the top so the mask reads as deliberate dimming on bright bg).
+    // D6DayOneProtectionTests.BaselineTier1_FloorsToOne_AndIsZeroAlphaAtRest). Alpha
+    // climbs monotonically 0.00 → 0.92; hue shifts neutral gray → cool-shifted near-black
+    // (+blue tint from L8 up so the mask reads as deliberate dimming on bright bg).
     internal static readonly (byte R, byte G, byte B, double Alpha)[] VimsLevels =
     {
         (102, 102, 102, 0.00), // L1  #666666  0%   neutral gray (day-1 floor)

@@ -812,6 +812,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // re-renders the active set's alpha immediately (out-of-tick path). Gated on the
             // flag — OFF ⇒ -1 ⇒ overlay falls back to its static tier alpha (byte-identical).
             Current.MaskPeakAlphaOverride = _adaptiveFitSelectorEnabled ? lp.PeakMaskAlpha : -1.0;
+            // Alpha-2 (selector→renderer): on a snap that reset the shader to default (above),
+            // re-seed the grid baseline from the active set (mirrors ApplySetMove). Gated on the
+            // snap cause so a non-snap SetLevel never overwrites a live chatbot grid adjustment.
+            // The flag is already guaranteed ON here (early-return at the top). set0 ⇒ 0.75
+            // (a no-op today); a future per-set GridVisibility would re-baseline here.
+            if (cause is LevelChangeCause.SetChangeSnap or LevelChangeCause.FeltIntensitySnap)
+                _shader.GridVisibility = lp.GridVisibility;
         }
     }
 
@@ -961,6 +968,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // Alpha-2 (selector→renderer): the NEW set's mask depth reaches the overlay
         // immediately on a silent move (this runs inside the flag-on selector tick).
         Current.MaskPeakAlphaOverride = lp.PeakMaskAlpha;
+        // Alpha-2 (selector→renderer): re-seed the peripheral-grid baseline from the NEW set's
+        // curve. The Q5 _shader.ResetToDefault() above already reset GridVisibility to the
+        // hardcoded 0.75 default; replacing it with lp.GridVisibility makes the per-set value
+        // the live baseline the chatbot then modulates. GridVisibility is a SHADER param, so it
+        // flows to the overlay via Current.Shader (== _shader) — no separate override field is
+        // needed, unlike mask depth (a tier-table value the overlay reads directly). set0 ⇒
+        // 0.75 == ShaderParams.DefaultGridVisibility (a no-op today); a future per-set
+        // GridVisibility re-baselines the grid on a set move — previously lp.GridVisibility was
+        // resolved into every curve but read nowhere (the second latent drift the audit flagged).
+        _shader.GridVisibility = lp.GridVisibility;
     }
 
     /// <summary>Vestibular guard (SPEC item 4): for a user carrying the vestibular
@@ -1807,7 +1824,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // FOV is preserved as a PREFERENCE that takes effect when pressure DOES spike,
         // but it no longer makes the mask appear on its own.
         double t      = Math.Clamp(Current.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
-        double levelF = 1.0 + (11.0 * t); // 1..12 (native 12-level scale — Adaptive Fit Q2=B)
+        // Alpha-2 (selector→renderer): the discretizer GAIN comes from the ACTIVE set's curve
+        // when the selector is ON. set0.Scale == 11.0, so flag-ON at set0 stays byte-identical
+        // to the old literal; a future per-set Scale would (now) actually change the
+        // pressure→level mapping. Previously lp.Scale was resolved into every curve but the
+        // discretizer ignored it (hardcoded 11.0), so a non-default set silently kept the native
+        // span — the latent drift the conformance audit flagged. Flag-OFF keeps the native
+        // 12-rung span literal, so every flag-off path is unchanged.
+        double scale  = _adaptiveFitSelectorEnabled
+            ? SetGrid.Curve(_activeSet).ForLevel(_vimsTier).Scale
+            : (SetCurve.LevelCount - 1);     // 11.0 — native 12-level span
+        double levelF = 1.0 + (scale * t);   // 1..12 (native 12-level scale — Adaptive Fit Q2=B)
 
         // ── Fast-onset bypass ────────────────────────────────────────────────
         // A genuine pressure surge can jump levelF by several units in one Update tick.
