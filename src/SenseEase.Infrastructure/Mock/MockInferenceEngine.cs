@@ -224,6 +224,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 savedSnapshot.PersonalPressureScale,
                 CalibrationProcessor.PersonalPressureScaleMin,
                 CalibrationProcessor.PersonalPressureScaleMax);
+            // Alpha-2 audit fix: re-DERIVE the engine trigger from the restored scale.
+            // Restoring the FIELD alone wasn't enough — EffectiveTrigger is what the engine
+            // actually reads, and nothing on the LOAD path re-applied it (only the runtime
+            // ApplyCalibrationResult / ApplyChatbotOverride did). So a user who personalized
+            // their sensitivity last session booted back at the DEFAULT trigger and silently
+            // lost it until their next chatbot turn. Same arithmetic as both runtime paths
+            // (effective_trigger = default / scale). The additive TriggerThresholdAdjustment
+            // is not persisted (the snapshot carries only the scale), so the scale is the
+            // best-effort reconstruction; scale==1.0 — which also covers the absolute-override
+            // case that resets scale to 1.0 — leaves the engine default untouched. The
+            // vestibular branch below runs AFTER this, so its TriggerPressure-50 hard-override
+            // correctly wins for vestibular users.
+            if (_personalPressureScale != 1.0)
+                _habituation.EffectiveTrigger = SenseDefaults.TriggerPressure / _personalPressureScale;
             if (!string.IsNullOrEmpty(savedSnapshot.LastCalibrationAtIso) &&
                 DateTime.TryParse(savedSnapshot.LastCalibrationAtIso,
                     System.Globalization.CultureInfo.InvariantCulture,

@@ -36,10 +36,14 @@ public sealed class FileHabituationStore : IHabituationStore
                 // the store already writes into (no hardcoding). A normal file in
                 // a normal data dir — incl. the test suite's temp sandbox — passes.
                 GuardPath();
-                if (!File.Exists(_path)) return null;
-                string json = File.ReadAllText(_path);
-                if (string.IsNullOrWhiteSpace(json)) return null;
-                return JsonSerializer.Deserialize<HabituationState>(json, _opts);
+                // Alpha-2 audit fix: read via AtomicJsonWriter.TryRead, which RETRIES a
+                // transient IOException/lock (e.g. an on-access AV scanner momentarily holding
+                // habituation.json at launch) before giving up. The old raw File.ReadAllText
+                // returned null on the first lock, so the user's earned habituation _offset
+                // (weeks of therapy) was treated as 0 for that whole session — the same
+                // launch-time lock that previously reset user-preferences. Null on
+                // genuinely-missing/corrupt is preserved (TryRead returns default = null).
+                return AtomicJsonWriter.TryRead<HabituationState>(_path, _opts);
             }
             catch { return null; }
         }
