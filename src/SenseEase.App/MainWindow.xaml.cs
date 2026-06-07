@@ -1055,17 +1055,15 @@ public partial class MainWindow : Window
             // The card stays OPEN across +/- so the user can keep nudging.
             _cardWindow.InterventionAdjustRequested += (_, dir) =>
             {
-                if (dir >= 0)
-                {
-                    _viewModel.SetSensingModeToWgc();
-                    _viewModel.OverlayVisible = true;
-                    _viewModel.EaseView();
-                }
-                else
-                {
-                    // Widen (ease less) — the deliberate-preference mirror of EaseView.
-                    _viewModel.WidenView();
-                }
+                // #3: BOTH directions force the real-measurement provider + the overlay
+                // visible so the FOV nudge is actually perceptible on screen (previously
+                // only the + path did, so "−" looked dead). EaseView/WidenView route
+                // through the D5 deliberate-preference path (no discomfort recurrence,
+                // Q4.5 — earned habituation offset preserved).
+                _viewModel.SetSensingModeToWgc();
+                _viewModel.OverlayVisible = true;
+                if (dir >= 0) _viewModel.EaseView();   // + : tighten the clear field (more protection)
+                else          _viewModel.WidenView();  // − : widen the clear field (less)
             };
             // Path Z bug-fix 7: when the user opens Settings via the card's
             // gear icon and changes a preference, repaint the bar immediately

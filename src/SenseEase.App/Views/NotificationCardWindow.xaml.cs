@@ -301,6 +301,19 @@ public partial class NotificationCardWindow : Window
     private readonly DispatcherTimer _idleTimer;
     private Storyboard? _activeFadeStoryboard;
 
+    // #4 auto-dismiss: the card is a no-activate HUD, so it never gets a Deactivated
+    // event when the user clicks another app. Poll the OS foreground window; when it
+    // CHANGES from whatever was foreground at Show (the user clicked/switched to another
+    // app or window) the card dismisses itself. Deferred while a chatbot proposal is
+    // pending (same rule as the idle-fade) so a decision the user must see is never
+    // silently dropped. Interacting with the card itself does NOT change the foreground
+    // (no-activate), so the card stays put while the user uses its +/- / buttons.
+    private readonly DispatcherTimer _foregroundPollTimer;
+    private IntPtr _foregroundAtShow;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
     // NE24: single-instance guard for the gear-icon Settings window. Holds the
     // currently-open SettingsWindow (if any) so repeated gear clicks reuse +
     // re-activate the existing window instead of stacking duplicate instances.
@@ -363,6 +376,10 @@ public partial class NotificationCardWindow : Window
         };
         _idleTimer = new DispatcherTimer { Interval = IdleTimeout };
         _idleTimer.Tick += OnIdleTimerTick;
+        // #4: foreground-change watcher (350 ms). Cheap GetForegroundWindow poll; runs
+        // only while the card is visible (started/stopped in OnIsVisibleChanged).
+        _foregroundPollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _foregroundPollTimer.Tick += OnForegroundPollTick;
         Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
         LocationChanged += OnCardLocationChanged;
@@ -377,6 +394,7 @@ public partial class NotificationCardWindow : Window
         Closed += (_, _) =>
         {
             _idleTimer.Stop();
+            _foregroundPollTimer.Stop();
             SenseEase.App.Localization.LocalizationManager.Current.PropertyChanged -= OnUiLanguageChanged;
         };
     }
@@ -642,6 +660,11 @@ public partial class NotificationCardWindow : Window
             IdleTimeout = UserOpened ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(5);
             RestartIdleTimer();
 
+            // #4: remember the foreground window at Show, then watch for a change so the
+            // card dismisses when the user clicks/switches to another app.
+            _foregroundAtShow = GetForegroundWindow();
+            _foregroundPollTimer.Start();
+
             // Slide-from-top entrance. C1 (a11y): Reduce Motion → appear
             // instantly (no slide / no fade); the card pops for a user who may
             // already feel unwell, so respect their setting.
@@ -655,6 +678,28 @@ public partial class NotificationCardWindow : Window
             {
                 BeginSlideIn();
             }
+        }
+        else
+        {
+            // #4: stop the foreground watcher whenever the card is hidden.
+            _foregroundPollTimer.Stop();
+        }
+    }
+
+    /// <summary>#4 auto-dismiss: hide the card once the user clicks/switches to another
+    /// app or window (the OS foreground changes away from what it was at Show). Deferred
+    /// while a chatbot proposal is pending (<see cref="ShouldBeginIdleFade"/>) so an
+    /// explicit accept/decline is never silently dropped. The card is no-activate, so
+    /// clicking the card's own controls does NOT change the foreground and won't trip this.</summary>
+    private void OnForegroundPollTick(object? sender, EventArgs e)
+    {
+        if (!IsVisible) { _foregroundPollTimer.Stop(); return; }
+        if (!ShouldBeginIdleFade()) return; // proposal pending → defer (user must decide)
+        IntPtr fg = GetForegroundWindow();
+        if (fg != IntPtr.Zero && fg != _foregroundAtShow)
+        {
+            _foregroundPollTimer.Stop();
+            HideWithSlide();
         }
     }
 
