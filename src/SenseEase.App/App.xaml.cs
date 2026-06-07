@@ -402,6 +402,18 @@ public partial class App : Application
         };
         AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeShutdownActivityFilter();
         SessionEnding += (_, _) => SafeShutdownActivityFilter();
+
+        // UM4: kick off the silent retrospective user-model analysis (2-minute delay,
+        // cancellable on exit). Invoked here in App.OnStartup so it NEVER runs under
+        // unit tests (which construct MainViewModel directly). The VM owns the shared
+        // habituation-profile store, so the analyser's observation writes stay atomic
+        // against the engine's persist (W2.0-C). Best-effort: never block startup.
+        try
+        {
+            (MainWindow?.DataContext as SenseEase.App.ViewModels.MainViewModel)
+                ?.StartBackgroundUserModelAnalysis();
+        }
+        catch { /* background analysis is best-effort */ }
     }
 
     protected override void OnExit(ExitEventArgs e)

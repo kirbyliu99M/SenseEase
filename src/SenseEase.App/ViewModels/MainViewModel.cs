@@ -1878,8 +1878,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // ?? INotifyPropertyChanged ?????????????????????????????????????????????
 
     /// <summary>Stop auxiliary services (timers, hooks) on window close.</summary>
+    private System.Threading.CancellationTokenSource? _userModelAnalysisCts;
+
+    /// <summary>UM4: start the silent background retrospective user-model analysis
+    /// after a 2-minute idle delay. Fire-and-forget + cancellable (DisposeServices
+    /// cancels it). Called from <see cref="SenseEase.App.App.OnStartup"/> ONLY, so it
+    /// never runs under unit tests (which construct this VM directly). Reuses the
+    /// SHARED _observationWriter (backed by _habituationProfileStore) so the analyser's
+    /// observation writes stay atomic against the engine's persist (W2.0-C per-instance
+    /// lock); the index store shares the same profile-store instance for the same reason.</summary>
+    public void StartBackgroundUserModelAnalysis()
+    {
+        if (_userModelAnalysisCts is not null) return; // idempotent — start once
+        _userModelAnalysisCts = new System.Threading.CancellationTokenSource();
+        var ct = _userModelAnalysisCts.Token;
+
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(TimeSpan.FromMinutes(2), ct).ConfigureAwait(false);
+                var analyzer = new UserModelRetrospectiveAnalyzer(
+                    new LlamaServerCalibrationClient(),
+                    new FileChatHistoryStore(AppConfig.ChatHistoryPath),
+                    _observationWriter, // shared-store writer (atomic vs engine persist)
+                    new UserModelIndexStore(
+                        AppConfig.UserModelIndexPath, AppConfig.BehaviorLogPath, _habituationProfileStore));
+                await analyzer.RunAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { /* app exiting / superseded */ }
+            catch { /* silent — retrospective analysis must never disturb the user */ }
+        }, ct);
+    }
+
     public void DisposeServices()
     {
+        try { _userModelAnalysisCts?.Cancel(); _userModelAnalysisCts?.Dispose(); } catch { }
         try { _activityDetector.Dispose(); } catch { }
         // M4 head-tracking sprint: gracefully stop the sidecar process if it
         // was spawned. The JobObject reaper would catch a hard exit anyway,
