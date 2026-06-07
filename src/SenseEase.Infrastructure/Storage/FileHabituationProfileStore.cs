@@ -24,7 +24,15 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
 {
     private readonly string _path;
     private readonly string? _wipeProbePath;
-    private readonly object _gate = new();
+
+    // W2.0-C hardening (DIM-3 review): the read-modify-write lock is keyed by FILE
+    // PATH, not per-instance, so EVERY FileHabituationProfileStore for the same file
+    // serialises — the engine's shared instance, the analyser's, AND a fresh instance
+    // created elsewhere (e.g. the Settings "clear all my data" button). A per-instance
+    // lock would let those race on habituation_profile.json (lost update / partial wipe).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _pathGates
+        = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _gate;
     private const int SupportedSchemaVersion = 3; // UM2: monthly observation buckets
     private const int SchemaVersionV2 = 2;        // flat longitudinal_observations FIFO
     private const int LegacyV1SchemaVersion = 1;
@@ -46,6 +54,7 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     public FileHabituationProfileStore(string path, string? wipeProbeArtifactPath = null)
     {
         _path = path;
+        _gate = _pathGates.GetOrAdd(GateKey(path), static _ => new object());
         _wipeProbePath = wipeProbeArtifactPath;
         // Sibling of the profile file (one profile per install) so the flag is
         // co-located with the data it guards.
@@ -176,7 +185,14 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
                 snap.LongitudinalObservationsV2[month] = bucket;
             }
             foreach (string text in snap.LongitudinalObservations)
-                bucket.Add(new ObservationEntry { Ts = DateTime.UtcNow.ToString("o"), Text = text });
+                // DIM-2 review: strip the legacy "yyyy-MM-dd: " stamp so a migrated entry's
+                // Text matches the clean body new entries store (the date was redundant
+                // with the new Ts field and would otherwise double-stamp the LLM context).
+                bucket.Add(new ObservationEntry
+                {
+                    Ts = DateTime.UtcNow.ToString("o"),
+                    Text = LongitudinalObservationWriter.StripDateStamp(text),
+                });
             while (bucket.Count > LongitudinalObservationWriter.MaxObservationsPerBucket)
                 bucket.RemoveAt(0);
             snap.LongitudinalObservations.Clear();
@@ -246,6 +262,14 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
                 TryWriteSchemaFloorFlag();
             }
         }
+    }
+
+    /// <summary>Canonical key for the per-path read-modify-write lock: the full path,
+    /// case-insensitive (Windows). Falls back to the raw path if it cannot be
+    /// canonicalised. All callers pass the same AppConfig path, so they share one lock.</summary>
+    private static string GateKey(string path)
+    {
+        try { return Path.GetFullPath(path); } catch { return path; }
     }
 
     /// <summary>H50: guard against a reparse-pointed or out-of-base profile

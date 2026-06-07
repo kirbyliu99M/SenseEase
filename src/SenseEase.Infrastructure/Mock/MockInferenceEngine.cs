@@ -1231,10 +1231,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
         if (existing is null && _profileExistedAtLoad) return null;
         return new HabituationProfileSnapshot
         {
-            // SchemaVersion intentionally omitted — the property's default
-            // initialiser (= 2 after Stage 6) is the single source of truth
-            // for the writer's emitted schema_version. Don't add an explicit
-            // literal here; it would silently desync from the snapshot DTO.
+            // UM2: carry the loaded schema version FORWARD. The store hands us a
+            // post-load `existing`: a v1 file is null-filled to v2, a v2 file is
+            // migrated to v3, a v3 file stays v3 — so this preserves the documented
+            // v1 → v2 → v3 progression instead of jumping a v1-loaded profile straight
+            // to v3 on the engine's next persist. For a genuine first write (no existing
+            // file) fall back to the DTO's current default (no hard-coded literal, so it
+            // can't silently desync from the snapshot DTO).
+            SchemaVersion           = existing?.SchemaVersion ?? new HabituationProfileSnapshot().SchemaVersion,
             UpdatedAtIso            = DateTime.UtcNow.ToString("o"),
             Profile                 = _habituation.CurrentProfile.ToString().ToUpperInvariant(),
             ProfileSource           = _habituation.ProfileSource,

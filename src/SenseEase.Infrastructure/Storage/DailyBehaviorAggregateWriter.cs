@@ -77,16 +77,25 @@ public sealed class DailyBehaviorAggregateWriter
     private List<DailyBehaviorAggregate> ReadAllNoLock()
     {
         var list = new List<DailyBehaviorAggregate>();
-        if (!File.Exists(_path)) return list;
-        foreach (string line in File.ReadAllLines(_path))
+        try
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            try
+            if (!File.Exists(_path)) return list;
+            foreach (string line in File.ReadAllLines(_path))
             {
-                var r = JsonSerializer.Deserialize<DailyBehaviorAggregate>(line, _opts);
-                if (r is not null) list.Add(r);
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var r = JsonSerializer.Deserialize<DailyBehaviorAggregate>(line, _opts);
+                    if (r is not null) list.Add(r);
+                }
+                catch { /* skip a malformed line, keep the rest */ }
             }
-            catch { /* skip a malformed line, keep the rest */ }
+        }
+        catch
+        {
+            // File locked / permission denied / unreadable → fail CLOSED with whatever
+            // parsed so far. This read feeds the chatbot's [behavior_trend] block; it
+            // must never throw into the chat turn (would surface as a raw "[Error]").
         }
         return list;
     }

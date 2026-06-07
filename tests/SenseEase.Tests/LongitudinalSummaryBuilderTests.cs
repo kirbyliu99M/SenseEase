@@ -78,6 +78,28 @@ public class LongitudinalSummaryBuilderTests
     }
 
     [Fact]
+    public void BuildBlock_FallingOfi_ReportedFalling()
+    {
+        var rows = new List<DailyBehaviorAggregate>();
+        for (int i = 0; i < 4; i++) rows.Add(Row($"2026-06-0{i + 1}", ofiP90: 70));
+        for (int i = 0; i < 4; i++) rows.Add(Row($"2026-06-0{i + 5}", ofiP90: 40));
+
+        string block = LongitudinalSummaryBuilder.BuildBlock(rows);
+        Assert.Contains("ofi_p90_trend: -30 (falling)", block);
+    }
+
+    [Fact]
+    public void BuildBlock_IncreasingSpikes_ReportedWorsening()
+    {
+        var rows = new List<DailyBehaviorAggregate>();
+        for (int i = 0; i < 4; i++) rows.Add(Row($"2026-06-0{i + 1}", spikes: 0));
+        for (int i = 0; i < 4; i++) rows.Add(Row($"2026-06-0{i + 5}", spikes: 2));
+
+        string block = LongitudinalSummaryBuilder.BuildBlock(rows);
+        Assert.Contains("worsening", block);
+    }
+
+    [Fact]
     public void BuildBlock_ToleranceCeiling_UsesMaxTierModal()
     {
         var rows = Days(8);

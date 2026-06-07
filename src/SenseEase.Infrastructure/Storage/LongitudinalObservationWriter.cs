@@ -165,10 +165,11 @@ public sealed class LongitudinalObservationWriter
         for (int i = 0; i < drop; i++) buckets.Remove(ordered[i]);
     }
 
-    /// <summary>Strip the "yyyy-MM-dd: " prefix written by <see cref="Append"/>
-    /// so dedup compares observation bodies, not date stamps. Returns the input
-    /// unchanged if it doesn't carry the expected stamp.</summary>
-    private static string StripDateStamp(string entry)
+    /// <summary>Strip the "yyyy-MM-dd: " prefix written by the legacy v2 writer so
+    /// dedup compares observation bodies, not date stamps. Returns the input unchanged
+    /// if it doesn't carry the expected stamp. Internal so the v2→v3 migration in
+    /// <see cref="FileHabituationProfileStore"/> reuses the exact same strip logic.</summary>
+    internal static string StripDateStamp(string entry)
     {
         // Stamp is exactly "yyyy-MM-dd: " → 10 date chars + ": " (12 total).
         const int stampLength = 12;

@@ -426,6 +426,58 @@ public class HabituationProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Load_V2File_MigrationStripsLegacyDateStamp()
+    {
+        // DIM-2 review: a migrated entry's Text must match the clean body new entries
+        // store — the legacy "yyyy-MM-dd: " prefix is stripped (it was redundant with
+        // the new Ts field and would double-stamp the LLM context).
+        const string v2Json = """
+            {
+              "schema_version": 2,
+              "profile": "TYPICAL",
+              "longitudinal_observations": ["2026-05-28: user reports mornings are worse"]
+            }
+            """;
+        File.WriteAllText(_path, v2Json);
+
+        var store = new FileHabituationProfileStore(_path);
+        var loaded = store.Load();
+
+        string month = DateTime.UtcNow.ToString("yyyy-MM");
+        var entry = Assert.Single(loaded!.LongitudinalObservationsV2[month]);
+        Assert.Equal("user reports mornings are worse", entry.Text);
+        Assert.DoesNotContain("2026-05-28:", entry.Text);
+    }
+
+    [Fact]
+    public void Update_AcrossTwoInstancesSamePath_NoLostUpdates()
+    {
+        // DIM-3 review: the read-modify-write lock is keyed by PATH, so two SEPARATE
+        // store instances for the same file still serialise (the Settings wipe button's
+        // fresh instance vs the engine/analyser's shared instance). Without the per-path
+        // lock these would race and the final count would fall short of the op count.
+        IHabituationProfileStore a = new FileHabituationProfileStore(_path);
+        IHabituationProfileStore b = new FileHabituationProfileStore(_path);
+        var seed = MakeSnapshot();
+        seed.SevereStrikeCount = 0.0;
+        a.Save(seed);
+
+        const int ops = 200;
+        System.Threading.Tasks.Parallel.For(0, ops, i =>
+        {
+            var store = (i % 2 == 0) ? a : b; // alternate the two instances
+            store.Update(s =>
+            {
+                if (s is null) return null;
+                s.SevereStrikeCount += 1.0;
+                return s;
+            });
+        });
+
+        Assert.Equal((double)ops, a.Load()!.SevereStrikeCount);
+    }
+
+    [Fact]
     public void Load_V3File_ReturnedAsIs_NoMigration()
     {
         var store = new FileHabituationProfileStore(_path);
