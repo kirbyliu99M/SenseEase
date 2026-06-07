@@ -135,9 +135,14 @@ begin
     DataDir := ExpandConstant('{localappdata}\SenseEase');
     if DirExists(DataDir) then
     begin
-      if MsgBox('Also delete your SenseEase personal data (settings, chat history,'
-              + ' calibration, and logs)?' + #13#10 + #13#10
-              + 'Choose No to keep it for a future reinstall.',
+      // H25: default Yes (recommended). zh-Hant primary (the app's primary locale)
+      // + English. NOTE: this script must be saved as UTF-8 WITH BOM so Inno Setup
+      // renders the Chinese correctly in the compiled uninstaller.
+      if MsgBox('刪除您的 SenseEase 個人資料？（建議）' + #13#10 + #13#10
+              + '這會移除設定、對話與校正紀錄、個人化模型與記錄檔。' + #13#10
+              + 'Also delete your SenseEase personal data (settings, chat & calibration'
+              + ' history, the user model, and logs)?' + #13#10
+              + '選「否」可保留資料供日後重新安裝。 / Choose No to keep it for a reinstall.',
                 mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES then
       begin
         DelTree(DataDir, True, True, True);
