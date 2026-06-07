@@ -309,8 +309,10 @@ public static class CalibrationProcessor
 
         // Internal-contradiction check: low intensity report combined with
         // multiple risk factors suggests user is either downplaying or hasn't
-        // calibrated their self-report scale. Flag as low confidence so the
-        // chatbot can probe in subsequent sessions.
+        // calibrated their self-report scale. Flag as low confidence; this is
+        // surfaced to the chatbot as the neutral "calibration_confidence: low"
+        // data-quality line in the [habituation_state] block (see
+        // HabituationStateBlockBuilder), letting the LLM hedge accordingly.
         int riskCount = CountActiveRiskFactors(r.Q5RiskFactors);
         if (r.Q3Intensity == 1 && riskCount >= 2) return CalibrationConfidence.Low;
 

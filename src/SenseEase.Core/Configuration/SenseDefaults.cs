@@ -20,6 +20,36 @@ public static class SenseDefaults
     /// 「中」, the Set0 median — from which the AdaptiveFit selector converges. Used only by
     /// <c>MockInferenceEngine.ApplyAutoProfilingStartDefaults</c> (flag-gated).</summary>
     public const int AutoProfilingStartLevel = 5;
+
+    // ── C7: single-source step-magnitude table + per-call delta clamps ────────────
+    /// <summary>C7: per-severity (1..5) FOV-tightening step magnitudes (pp; negative =
+    /// tighter). Single source consumed by FeedbackLexicon.DeriveAdjustments.</summary>
+    public static readonly int[] FovStepBySeverity = { -6, -10, -15, -22, -30 };
+    /// <summary>C7: per-severity (1..5) mask-depth step magnitudes.</summary>
+    public static readonly double[] MaskDepthStepBySeverity = { 0.05, 0.08, 0.12, 0.18, 0.25 };
+    /// <summary>C7: max FOV delta per single chatbot/NLU call (pp; negative bound).</summary>
+    public const int MaxFovDeltaPerCall = -30;
+    /// <summary>C7: max accumulated user FOV offset (pp; negative floor for _userFovOffset).</summary>
+    public const int MaxUserFovOffsetAccumulated = -60;
+    /// <summary>C7: max shader-knob delta per single call (mask/grid/feather, ± this).</summary>
+    public const double MaxShaderDeltaPerCall = 0.3;
+    /// <summary>C7/G1: minimum composed FOV radius (pp) — tightest the FOV can compose to.
+    /// Equal to <see cref="TightestNaturalFovRadiusPercent"/>; named separately for the
+    /// composed-radius clamp + the G1 <c>/fov</c> absolute-set lower bound.</summary>
+    public const int MinComposedFovRadius = 15;
+
+    // ── F2: tuning constants referenced by 2+ files (SSOT rule: any tuning constant
+    //        used by 2+ files MUST live here, not as a per-file literal) ─────────────
+    /// <summary>F2: dashboard chart trigger-line — duplicates <see cref="TriggerPressure"/>;
+    /// reference this so the chart cannot drift from the engine trigger.</summary>
+    public const double ChartTriggerLine = TriggerPressure;
+    /// <summary>F2: overlay mask smoothing EMA factor (OverlayWindow cross-fade).</summary>
+    public const double MaskSmoothingFactor = 0.25;
+    /// <summary>F2: overlay radial brush baseline radius (RelativeToBoundingBox).</summary>
+    public const double OverlayBrushRadius = 0.85;
+    /// <summary>F2: overlay brush corner-margin multiplier for the dynamic radius.</summary>
+    public const double OverlayBrushRadiusCornerMargin = 1.10;
+
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;
     // Base decay alpha for a 100 ms step (tau ~= 2.81s).

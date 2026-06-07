@@ -209,8 +209,9 @@ internal static class FeedbackLexicon
 
         if (intent == "ReportDiscomfort")
         {
-            fov = severity switch { 1 => -6, 2 => -10, 3 => -15, 4 => -22, _ => -30 };
-            md  = severity switch { 1 => 0.05, 2 => 0.08, 3 => 0.12, 4 => 0.18, _ => 0.25 };
+            // C7: single-source step-magnitude table (severity clamped to 1..5 above ⇒ index 0..4).
+            fov = SenseDefaults.FovStepBySeverity[severity - 1];
+            md  = SenseDefaults.MaskDepthStepBySeverity[severity - 1];
             gv  = severity >= 3 ? 0.06 : 0.03;
         }
         // ReportComfort / ResetRequest / Unknown -> all zero.
@@ -221,10 +222,11 @@ internal static class FeedbackLexicon
         if (hintGv != 0) gv = hintGv;
         if (hintFw != 0) fw = hintFw;
 
-        return (Math.Clamp(fov, -30, 0),
-                Math.Clamp(md, -0.3, 0.3),
-                Math.Clamp(gv, -0.3, 0.3),
-                Math.Clamp(fw, -0.3, 0.3));
+        // C7: clamps reference the single-source per-call bounds in SenseDefaults.
+        return (Math.Clamp(fov, SenseDefaults.MaxFovDeltaPerCall, 0),
+                Math.Clamp(md, -SenseDefaults.MaxShaderDeltaPerCall, SenseDefaults.MaxShaderDeltaPerCall),
+                Math.Clamp(gv, -SenseDefaults.MaxShaderDeltaPerCall, SenseDefaults.MaxShaderDeltaPerCall),
+                Math.Clamp(fw, -SenseDefaults.MaxShaderDeltaPerCall, SenseDefaults.MaxShaderDeltaPerCall));
     }
 
     public static bool HasContextTrigger(string? text)

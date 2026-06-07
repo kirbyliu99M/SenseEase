@@ -18,6 +18,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private DateTime _lastUpdate     = DateTime.MinValue;
     private int _userFovOffset;   // accumulated from chatbot feedback, clamped ≤ 0
     private readonly ShaderParams _shader = ShaderParams.Default;
+    // A7: true once the user has personalised the shader knobs via ApplyShaderAdjustment.
+    // While false, a profile CHANGE re-seeds _shader to the new profile's defaults
+    // (SeedShaderFromProfile); once the user has tweaked them, their choices win.
+    private bool _shaderUserModified;
     private readonly object _gate = new();
     private readonly HabituationEngine _habituation = new();
     private readonly IAdjustmentLog? _adjustmentLog;
@@ -489,6 +493,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             _shader.GridVisibility += gridVisibilityDelta;
             _shader.FeatherWidth   += featherWidthDelta;
             _shader.Clamp();
+            _shaderUserModified = true; // A7: user owns the shader knobs from here on
         }
     }
 
@@ -498,6 +503,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             _userFovOffset = 0;
             _shader.ResetToDefault();
+            // A7: reset returns to the CURRENT profile's defaults (not just the global
+            // default) and clears the personalisation flag so a later profile change re-seeds.
+            SeedShaderFromProfile(_habituation.CurrentProfile);
+            _shaderUserModified = false;
             // Q4.5: a shader / personalization reset clears transient session state
             // but MUST preserve the earned habituation offset (weeks of progress).
             // Use ResetTransientState, NOT the full ResetPostCalibration; the
@@ -893,10 +902,29 @@ public sealed class MockInferenceEngine : IInferenceEngine
     {
         lock (_gate)
         {
+            var prev = _habituation.CurrentProfile;
             _habituation.SetProfile(profile, source);
+            // A7: re-seed the shader to the new profile's defaults on a profile CHANGE,
+            // UNLESS the user has personalised the shader knobs (then their choices win).
+            if (profile != prev && !_shaderUserModified)
+                SeedShaderFromProfile(profile);
             Current.HabituationPaused = _habituation.IsPaused;
             MaybePersistProfileSnapshot();
         }
+    }
+
+    /// <summary>A7 (per-profile shader defaults): copy a profile's default shader knobs into
+    /// the live (readonly) <c>_shader</c> instance and mirror onto <c>Current.Shader</c>.
+    /// RESILIENT/TYPICAL keep today's <c>ShaderParams.Default</c>; SENSITIVE gets tightened
+    /// defaults (see <c>HabituationProfileParams.ResolveDefaultsFor</c>). Caller holds _gate.</summary>
+    private void SeedShaderFromProfile(HabituationProfile profile)
+    {
+        var d = HabituationProfileParams.ResolveDefaultsFor(profile);
+        _shader.MaskDepth      = d.MaskDepth;
+        _shader.GridVisibility = d.GridVisibility;
+        _shader.FeatherWidth   = d.FeatherWidth;
+        _shader.Clamp();
+        Current.Shader = _shader;
     }
 
     /// <summary>Resume from <see cref="EngineState.PausedAwaitingUserConfirm"/>.

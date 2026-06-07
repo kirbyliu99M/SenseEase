@@ -98,6 +98,16 @@ public static class HabituationStateBlockBuilder
               .Append('\n');
         }
 
+        // C4: surface a Low-confidence calibration as a neutral data-quality
+        // signal so the LLM can hedge / probe gently rather than treat the
+        // profile as firmly established. Emitted ONLY for Low — High/Medium
+        // need no caveat and the (null) never-calibrated case is silent.
+        // This is a §6-compliant quality annotation, NOT a medical claim.
+        if (snapshot.CalibrationConfidence == CalibrationConfidence.Low)
+        {
+            sb.Append("calibration_confidence: low\n");
+        }
+
         // PersonalPressureScale default is 1.0; include only when calibration
         // shifted it. Saves a line for never-calibrated users.
         if (System.Math.Abs(snapshot.PersonalPressureScale - 1.0) > 0.01)

@@ -13,20 +13,26 @@ demonstration. The real product will ship with a licensed model.
 SETUP — 4 steps
 ------------------------------------------------------------------
 
-1. Extract the zip to any folder, e.g. C:\SenseEase\
+1. ★ Verify the download (integrity check). Each release publishes a
+   companion .sha256 text file next to the installer. Confirm the file
+   you downloaded matches the published hash BEFORE running it:
 
-2. ★ Unblock the .exe (required on Windows real-time AV / SmartScreen
-   first launch — otherwise you will see "Access is denied"):
+   Open PowerShell in your download folder and run:
 
-   Open PowerShell in the extracted folder and run:
+       Get-FileHash .\SenseEase-Setup-v0.11.1.exe -Algorithm SHA256
 
-       Get-ChildItem -Recurse | Unblock-File
+   Compare the printed hash against the contents of the published
+   SenseEase-Setup-v0.11.1.exe.sha256 file (case-insensitive). They
+   must match exactly. If they differ, the download is corrupt or
+   tampered — delete it and download again from the official source.
 
-   OR right-click SenseEase.App.exe -> Properties -> tick "Unblock"
-   at the bottom -> OK.
+   NOTE: this Pre-Alpha build is not yet code-signed, so Windows
+   SmartScreen / your AV may warn that the publisher is unknown. The
+   SHA-256 check above is how you confirm authenticity in the meantime;
+   Authenticode signing is planned for a later milestone.
 
-   If Windows SmartScreen pops a "Windows protected your PC" dialog,
-   click "More info" -> "Run anyway".
+2. Run the installer (SenseEase-Setup-v0.11.1.exe). It is a per-user
+   install (no admin prompt) into %LOCALAPPDATA%\Programs\SenseEase.
 
 3. Double-click SenseEase.App.exe to launch. First launch:
      - Cold start ~25-40s while Mistral loads on background thread
@@ -156,8 +162,9 @@ REPORT BACK
 
 For Pre-Alpha cross-machine smoke testing, please report:
 
-  - Setup step where any prompt / error appeared (Unblock-File needed?
-    SmartScreen needed? GPU detected?)
+  - Setup step where any prompt / error appeared (did the SHA-256 hash
+    match? did SmartScreen / AV warn about an unknown publisher? GPU
+    detected?)
   - Cold start time from double-click to MainWindow visible
   - Whether the chatbot loaded (status text in main window)
   - Any entries in crash.log after first ~5 minutes of use

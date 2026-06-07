@@ -1,4 +1,5 @@
 using System;
+using SenseEase.Core.Models;
 
 namespace SenseEase.Core.Inference;
 
@@ -182,6 +183,50 @@ public sealed class HabituationProfileParams
         HabituationProfile.Sensitive => Sensitive,
         _ => throw new ArgumentOutOfRangeException(nameof(profile)),
     };
+
+    /// <summary>Resolve the per-profile starting <see cref="ShaderParams"/> the
+    /// engine should re-seed when a user is (re)classified into a profile —
+    /// backlog A7, the "what overlay do we open with?" question.
+    /// <list type="bullet">
+    ///   <item>RESILIENT / TYPICAL → the neutral calibrated baseline
+    ///         (<see cref="ShaderParams.Default"/>): MaskDepth 0.74,
+    ///         GridVisibility 0.75, FeatherWidth 0.50. These are read straight
+    ///         from <see cref="ShaderParams"/> so the literals live in exactly
+    ///         one place; if the baseline retunes, both profiles follow.</item>
+    ///   <item>SENSITIVE → a tightened start: lower MaskDepth (0.80 mask
+    ///         opacity… see note), reduced GridVisibility 0.60, and a softer
+    ///         FeatherWidth 0.55. The intent is a calmer, less stimulating
+    ///         opening overlay for high-reactivity users; long-term habituation
+    ///         still relaxes from here per the engine state machine.</item>
+    /// </list>
+    /// All values are pushed through <see cref="ShaderParams.Clamp"/> so the
+    /// result is guaranteed in-range [0,1] even if the spec literals drift.
+    /// This method is PURE: it returns a fresh, mutable instance the caller owns
+    /// and never mutates any shared static state.</summary>
+    /// <param name="profile">The reactivity profile to seed defaults for.</param>
+    /// <returns>A fresh, clamped <see cref="ShaderParams"/> the engine may seed
+    /// directly. Never returns a shared singleton — safe for the caller to keep
+    /// and mutate.</returns>
+    public static ShaderParams ResolveDefaultsFor(HabituationProfile profile)
+    {
+        // RESILIENT / TYPICAL inherit the neutral baseline verbatim. Reading from
+        // ShaderParams.Default (rather than re-stating 0.74 / 0.75 / 0.50) keeps a
+        // single source of truth for the baseline numerics.
+        if (profile != HabituationProfile.Sensitive)
+        {
+            return ShaderParams.Default;
+        }
+
+        // SENSITIVE — tightened opening overlay for high-reactivity users.
+        var sensitive = new ShaderParams
+        {
+            MaskDepth      = 0.80,
+            GridVisibility = 0.60,
+            FeatherWidth   = 0.55,
+        };
+        sensitive.Clamp(); // defensive: keep in [0,1] even if literals later drift
+        return sensitive;
+    }
 
     /// <summary>Level-aware post-spike pause selector (native 12-level scale,
     /// rescaled from the prior 1..10 thresholds — same top-3 / mid-3 proportions).

@@ -175,6 +175,14 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private bool   _ofiTraceEnabled;
     private string _ofiTracePath = string.Empty;
 
+    // M1 calibration: dev-gated raw-MAD capture. When env SENSEEASE_MAD_CALIBRATION=1,
+    // append "epoch_ms,raw_mad" per tick to %TEMP%/wgc_mad_calibration_trace.csv. raw_mad
+    // is the PRE-norm-factor, PRE-clamp pixel-diff — the genuine measurement M1's
+    // MadCalibrationReducer / NormFactorRecommender (SenseEase.Core.Sensing) consume to
+    // re-derive WgcMadNormFactor from real scenes. Zero overhead in production (env read once).
+    private bool   _madCalibrationEnabled;
+    private string _madCalibrationPath = string.Empty;
+
     // ── Fix #7: cached SendOrPostCallback to avoid per-tick closure allocation ─────────────
     private OpticalFlowSample _pendingSample;
     private System.Threading.SendOrPostCallback? _raiseSampleCallback;
@@ -451,6 +459,18 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                 "epoch_ms,smoothed_ofi,mask_left,mask_top,mask_w,mask_h\n");
         }
 
+        // M1 calibration capture (dev-gated; read once at Start like the OFI trace above).
+        _madCalibrationEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("SENSEEASE_MAD_CALIBRATION"),
+            "1", StringComparison.Ordinal);
+        if (_madCalibrationEnabled)
+        {
+            _madCalibrationPath = Path.Combine(Path.GetTempPath(), "wgc_mad_calibration_trace.csv");
+            WgcDiagLog.ResetSessionFile(_madCalibrationPath,
+                $"# wgc_mad_calibration start {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z\n" + // H41: UTC
+                "epoch_ms,raw_mad\n");
+        }
+
         if (!GraphicsCaptureSession.IsSupported())
         {
             WgcLog("GraphicsCaptureSession not supported on this OS.");
@@ -697,9 +717,26 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                 MarkHealthy(); // D3: a fresh real frame clears any prior fault (edge-triggered)
             }
 
+            double rawMad = 0;
             double rawOfi = 0;
-            if (_prevFrame != null && current.Length == _prevFrame.Length)
-                rawOfi = ComputeMad(current, _prevFrame) * SenseDefaults.WgcMadNormFactor;
+            bool haveMad = _prevFrame != null && current.Length == _prevFrame.Length;
+            if (haveMad)
+            {
+                rawMad = ComputeMad(current, _prevFrame!);
+                rawOfi = rawMad * SenseDefaults.WgcMadNormFactor;
+            }
+
+            // M1 calibration: capture the raw (pre-norm-factor, pre-clamp) MAD per tick when
+            // SENSEEASE_MAD_CALIBRATION=1. Best-effort; a transient IO error drops one sample.
+            if (_madCalibrationEnabled && haveMad)
+            {
+                try
+                {
+                    File.AppendAllText(_madCalibrationPath,
+                        $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},{rawMad:F4}\n");
+                }
+                catch { /* calibration trace is best-effort */ }
+            }
 
             _prevFrame   = current;
 
@@ -945,8 +982,11 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         return result;
     }
 
-    // Mean absolute difference per pixel (input range 0-255).
-    private static double ComputeMad(byte[] a, byte[] b)
+    // Mean absolute difference per pixel (input range 0-255). Internal (not private)
+    // so M1 WgcSensingProviderCalibrationTests can feed canned greyscale frames and
+    // assert the MAD → OFI band mapping without a live capture session
+    // (InternalsVisibleTo SenseEase.Tests). Pure + static — no instance state touched.
+    internal static double ComputeMad(byte[] a, byte[] b)
     {
         long sum = 0;
         for (int i = 0; i < a.Length; i++)

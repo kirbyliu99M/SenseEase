@@ -117,6 +117,19 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; by the running app, not by this installer, and MUST persist across reinstalls.
 ; Do not list {localappdata}\SenseEase here under any circumstances.
 
+[Registry]
+; H49: clean up the autostart Run-key value on uninstall.
+; The app's AutoStartRegistry helper (src\SenseEase.App\Configuration\AutoStartRegistry.cs)
+; writes HKCU\Software\Microsoft\Windows\CurrentVersion\Run value name "SenseEase"
+; when the user enables "start on login". Setup itself never creates this value,
+; so without this entry an uninstall would leave an orphan Run value pointing at a
+; now-deleted EXE (a broken/ghost autostart on every login).
+; Flags:
+;   uninsdeletevalue  -- delete this value when the app is uninstalled
+;   dontcreatevalue   -- Setup must NOT create the value at install time
+;                        (autostart stays user-opt-in, owned by the running app)
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "SenseEase"; Flags: uninsdeletevalue dontcreatevalue
+
 [Code]
 // H25 (PII): on uninstall, OFFER to delete the user's personal data directory.
 // [UninstallDelete] is intentionally empty so a normal reinstall preserves data;

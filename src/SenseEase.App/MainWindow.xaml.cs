@@ -8,6 +8,7 @@ using SenseEase.App.Configuration;
 using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
+using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 
@@ -1462,7 +1463,7 @@ public partial class MainWindow : Window
 
     // ── Eye-Protection live chart rendering ───────────────────────────────────
     private const double ChartYMax = 200.0;
-    private const double ChartTriggerLine = 85.0;
+    private const double ChartTriggerLine = SenseDefaults.ChartTriggerLine; // F2: single-source (== TriggerPressure)
     private System.Windows.Shapes.Polyline? _ofiPolyline;
     private System.Windows.Shapes.Polyline? _pressurePolyline;
     private System.Windows.Shapes.Line? _triggerLine;

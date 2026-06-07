@@ -17,7 +17,7 @@ namespace SenseEase.App.Views;
 /// </summary>
 public partial class OverlayWindow : Window, IOverlayRenderer
 {
-    private const double BrushRadius = 0.85;
+    private const double BrushRadius = SenseDefaults.OverlayBrushRadius; // F2: single-source
 
     // M5 UX-iteration 3 (2026-05-29): replace static clamp + fixed expanded
     // radius with state-driven dynamic radius. User reported the [0.15, 0.85]
@@ -40,7 +40,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     //
     // The radius scales exactly to need with a 10% safety margin so the
     // farthest corner sits at smoothstep ~0.91, not at the gradient edge.
-    private const double BrushRadiusCornerMargin = 1.10;
+    private const double BrushRadiusCornerMargin = SenseDefaults.OverlayBrushRadiusCornerMargin; // F2: single-source
 
     /// <summary>
     /// VIMS 10-level table (方案 A). Each row is (R, G, B, peak-alpha fraction 0–1).
@@ -82,7 +82,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private double _displayedR, _displayedG, _displayedB;
     private double _displayedAlpha;
     private bool   _displayedSeeded;
-    private const double MaskSmoothingFactor = 0.25;
+    private const double MaskSmoothingFactor = SenseDefaults.MaskSmoothingFactor; // F2: single-source
 
     // Peripheral cell-fill: deep near-black at moderate alpha. Final on-screen strength
     // is further modulated by GridCanvas.Opacity (pressure) and its radial OpacityMask.

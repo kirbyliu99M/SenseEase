@@ -106,11 +106,48 @@ Get-ChildItem -Path $Dist -Recurse -File -Filter "createdump.exe" -ErrorAction S
     $nativeRemoved++
 }
 Write-Host "  ($nativeRemoved trimmed)"
-# NOTE (H28, deferred): the vulkan/ keep-list trim (delete unused llama-*.exe,
-# keeping only llama-server.exe + llama-server-impl.dll + ggml*.dll [minus
-# ggml-rpc.dll] + llama.dll + libomp140.x86_64.dll) is intentionally NOT done
-# here -- a delete-with-exceptions pass is unsafe to author blind, so run it once
-# against the real staged native tree to avoid removing a required dependency.
+
+# -----------------------------------------------------------------------------
+# 1c. Trim vulkan/ to the server keep-list (H28)
+# -----------------------------------------------------------------------------
+Write-Section "Trim vulkan/ to server keep-list (H28)"
+# The chatbot launches ONLY llama-server.exe (see MistralChatbotService); the
+# other llama-*.exe CLIs (llama-cli, llama-bench, llama-quantize, ...) and the
+# RPC backend (ggml-rpc.dll) are never invoked at runtime and are pure bloat.
+# Keep-list = everything llama-server.exe needs to load:
+#   - llama-server.exe          the server binary we spawn
+#   - *.dll                     all backend / framework DLLs EXCEPT ggml-rpc.dll
+#                               (llama.dll, ggml*.dll [vulkan/base/cpu], the MSVC
+#                               libomp / vcruntime redists, etc.)
+# Everything else in vulkan/ (the extra llama-*.exe tools + ggml-rpc.dll) is
+# deleted. Forward-additive: any *.dll not on the explicit drop-list survives, so
+# a future backend DLL is kept by default rather than silently dropped.
+# Idempotent + guarded: the whole pass is a no-op when vulkan/ is absent, and a
+# second run finds nothing left to remove.
+$vulkanDir = Join-Path $Dist "runtimes/win-x64/native/vulkan"
+$vulkanRemoved = 0
+if (Test-Path $vulkanDir) {
+    # Drop every .exe that is not llama-server.exe (llama-cli, llama-bench,
+    # llama-quantize, llama-tokenize, ...).
+    Get-ChildItem -Path $vulkanDir -File -Filter "*.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne "llama-server.exe" } |
+        ForEach-Object {
+            Remove-Item $_.FullName -Force
+            Write-Host "  removed: vulkan/$($_.Name)"
+            $vulkanRemoved++
+        }
+    # Drop the RPC backend DLL -- only used for distributed/remote ggml, never
+    # in a single-process local server.
+    $rpcDll = Join-Path $vulkanDir "ggml-rpc.dll"
+    if (Test-Path $rpcDll) {
+        Remove-Item $rpcDll -Force
+        Write-Host "  removed: vulkan/ggml-rpc.dll"
+        $vulkanRemoved++
+    }
+} else {
+    Write-Host "  (vulkan/ not present -- skipping)"
+}
+Write-Host "  ($vulkanRemoved trimmed)"
 
 # -----------------------------------------------------------------------------
 # 2. Bundle Mistral 3B Q4_K_M GGUF
@@ -199,6 +236,66 @@ if (-not (Test-Path $readmeSrc)) {
     Copy-Item $readmeSrc (Join-Path $Dist "README.txt") -Force
     Write-Host "  copied: README.txt"
 }
+
+# -----------------------------------------------------------------------------
+# 6. Generate install.manifest.json (H32) -- engine-integrity manifest
+# -----------------------------------------------------------------------------
+Write-Section "Generate install.manifest.json (H32)"
+# Consumed by SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(fileName).
+# Contract (read from IntegrityVerifier.cs):
+#   - File name MUST be "install.manifest.json", placed at the dist ROOT (next to
+#     SenseEase.App.exe == AppContext.BaseDirectory).
+#   - The verifier accepts EITHER a flat { "key": "hash" } object OR a
+#     { "files": { ... } } wrapper. We emit the flat form.
+#   - Keys are matched two ways (case-insensitive): exact key == fileName, AND
+#     Path.GetFileName(key) == Path.GetFileName(fileName). Keying by RELATIVE path
+#     satisfies both (a relative key still resolves under the bare-name lookup),
+#     so we key by the dist-relative path with FORWARD slashes -- Path.GetFileName
+#     treats '/' as a separator on Windows, so the bare-name fallback still works.
+#   - Values are SHA-256 hex. The verifier compares case-insensitively
+#     (Convert.ToHexString yields uppercase; we emit lowercase, conventionally
+#     matching the published .sha256 sidecar).
+# This step MUST run LAST (after every trim/copy) so hashes describe the final
+# shipped bytes. It is what makes the H32 "absent-manifest = pass" no-op turn
+# into a real, enforced gate on packaged builds.
+#
+# Security-critical surface = the native code + model weights an attacker would
+# tamper to alter inference / run code: the llama.cpp server + backend DLLs, the
+# GGUF weights, the head-tracker sidecar EXE, and the MediaPipe face model.
+$manifestPatterns = @(
+    "llama-server.exe",
+    "head_tracker.exe",
+    "ggml*.dll",
+    "*.gguf",
+    "face_landmarker.task"
+)
+
+$distFull = (Resolve-Path $Dist).Path
+$manifest = [ordered]@{}
+$hashedCount = 0
+foreach ($pat in $manifestPatterns) {
+    Get-ChildItem -Path $Dist -Recurse -File -Filter $pat -ErrorAction SilentlyContinue |
+        Sort-Object FullName |
+        ForEach-Object {
+            # Dist-relative path with forward slashes (stable across machines).
+            $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')
+            if (-not $manifest.Contains($rel)) {
+                $sha = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                $manifest[$rel] = $sha
+                $hashedCount++
+                Write-Host "  hashed: $rel"
+            }
+        }
+}
+
+if ($hashedCount -eq 0) {
+    Write-Warning "No security-critical assets matched; install.manifest.json will be empty."
+}
+
+$manifestPath = Join-Path $Dist "install.manifest.json"
+# Depth 2 is ample for a flat string->string map; ASCII-only hex + relative paths.
+$manifest | ConvertTo-Json -Depth 2 | Set-Content -Path $manifestPath -Encoding UTF8
+Write-Host "  wrote: install.manifest.json ($hashedCount entr$(if ($hashedCount -eq 1) { 'y' } else { 'ies' }))"
 
 # -----------------------------------------------------------------------------
 # Final summary
