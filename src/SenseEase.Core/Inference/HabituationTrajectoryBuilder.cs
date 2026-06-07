@@ -11,10 +11,11 @@ namespace SenseEase.Core.Inference;
 /// log for the <c>Habituation.*</c> category entries emitted by M1
 /// (<see cref="SenseEase.Infrastructure.Mock.MockInferenceEngine"/>).
 ///
-/// <para>Pure logic — takes a snapshot view of the log (no live event
-/// subscription, no IO beyond the in-memory <c>IEventLogStore.Recent()</c>
-/// call). Output is a one-line string the chatbot LLM can paste into a
-/// natural reply without further parsing.</para>
+/// <para>Reads the DURABLE event history via <c>IEventLogStore.ReadDurable</c> so the
+/// trajectory spans PRIOR sessions (bounded by the store's retention), not just the current
+/// session's in-memory window. Output is a one-line string the chatbot LLM can paste into a
+/// natural reply without further parsing. (Long-term memory beyond the event-log retention is
+/// carried separately by the profile's longitudinal observations, which the chatbot also sees.)</para>
 ///
 /// <para>Examples of generated output:</para>
 /// <list type="bullet">
@@ -49,11 +50,14 @@ public static class HabituationTrajectoryBuilder
 
         DateTime cutoff = (now ?? DateTime.UtcNow).AddDays(-windowDays);
 
-        // IEventLogStore.Recent() yields most-recent-first per existing
-        // contract. Filter to habituation events within window.
-        var events = eventLog.Recent()
+        // Read the DURABLE history (ReadDurable already filters to >= cutoff), not the
+        // in-memory Recent() window. For FileEventLogStore this reads the persisted rolling
+        // JSONL, so the trajectory spans PRIOR sessions (bounded by the store's retention)
+        // instead of only the current session's capped in-memory window — the multi-session
+        // progress narrative the chatbot needs. For InMemoryEventLogStore (tests) ReadDurable's
+        // default impl is Recent().Where(>= since), so behaviour there is unchanged.
+        var events = eventLog.ReadDurable(cutoff)
             .Where(e => e.Category.StartsWith("Habituation.", StringComparison.Ordinal))
-            .Where(e => e.Timestamp >= cutoff)
             .OrderBy(e => e.Timestamp)
             .ToList();
 

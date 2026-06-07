@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
@@ -103,5 +104,33 @@ public class HabituationTrajectoryBuilderTests
 
         string result = HabituationTrajectoryBuilder.BuildSummary(log, windowDays: 30, now: now);
         Assert.Contains("habituation events", result);
+    }
+
+    [Fact]
+    public void Build_ReadsDurableHistoryAcrossSessions_NotJustInMemoryWindow()
+    {
+        // Write-gap C: the trajectory must span PRIOR sessions via ReadDurable, not only the
+        // current session's in-memory Recent() window. Session 1 persists durable Habituation
+        // events; a FRESH store (empty in-memory window, as after a restart) must still surface
+        // them through the rolling JSONL. The old Recent()-based builder would report "no
+        // activity" for the fresh store — this pins the cross-session fix.
+        string dir = Path.Combine(Path.GetTempPath(), "senseease-traj-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var now = DateTime.UtcNow;
+
+            var session1 = new FileEventLogStore(dir);
+            session1.Append(new EventLogEntry { Category = "Habituation.LevelChanged", Timestamp = now.AddDays(-2), Message = "level rose 5.0 → 9.0" });
+            session1.Append(new EventLogEntry { Category = "Habituation.Spike",        Timestamp = now.AddDays(-1), Message = "spike" });
+
+            var session2 = new FileEventLogStore(dir);     // restart: fresh in-memory window
+            Assert.Empty(session2.Recent());               // in-memory window is genuinely empty
+
+            string result = HabituationTrajectoryBuilder.BuildSummary(session2, windowDays: 30, now: now);
+            Assert.DoesNotContain("no habituation activity", result);
+            Assert.Contains("level change", result);
+            Assert.Contains("spike", result);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 }
