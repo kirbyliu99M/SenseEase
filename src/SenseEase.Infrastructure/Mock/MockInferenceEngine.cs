@@ -41,6 +41,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // exactly (set0 ≡ today), so even with the flag ON the mask/FOV are unchanged.
     private GridCoord _activeSet = GridCoord.Set0;
 
+    // ── Adaptive Fit P5 (propose-confirm) ────────────────────────────────────
+    // A cross-segment (felt-intensity) set move the selector wants to make but
+    // CANNOT apply silently — it needs the user's explicit confirm. Queued here,
+    // IN-MEMORY ONLY (never persisted, per locked constraint). The engine NEVER
+    // opens a window for this; the App surfaces it only behind a userInitiated
+    // card-open and routes Accept / Decline / expiry back through the Confirm /
+    // Decline / Clear methods below. The selector tick owns expiry via the injected
+    // clock (the suppression guard in MaybeRunAdaptiveFitSelector); the App filters
+    // by wall-clock at display time.
+    private (GridCoord Target, int TargetLevel, DateTime ExpiresAtUtc)? _pendingSetMove;
+
     // Engine-local mirror of AppConfig.AdaptiveFitSelectorEnabled. SenseEase.
     // Infrastructure does NOT (and must not) reference SenseEase.App, so the App
     // layer cannot be read here directly — the same architectural rule that keeps
@@ -483,6 +494,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
             {
                 _lastManualLevelDeltaSign = -Math.Sign(fovDelta);
                 _lastManualFeedbackAtUtc  = DateTime.UtcNow;
+                // P5: a manual FOV nudge (EaseView / WidenView / chatbot FOV delta) defers
+                // the selector AND retracts any stale pending suggestion. Fenced behind the
+                // flag so the flag-off path stays byte-identical. This is the missing
+                // OnManualAdjust wiring for the ApplyUserFeedback FOV-delta path.
+                if (_adaptiveFitSelectorEnabled)
+                {
+                    _adaptiveFitMachine.OnManualAdjust();
+                    _pendingSetMove = null;
+                }
             }
 
             _userFovOffset = Math.Clamp(_userFovOffset + fovDelta, -60, 0);
@@ -835,6 +855,18 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _adaptiveFitMachine.Advance(evalDt, stats.SampleCount, haveConfidentPick);
         if (!_adaptiveFitMachine.CanEvaluate) return;
 
+        // P5 (propose-confirm) suppression + expiry. While a cross-segment proposal
+        // is pending the user's confirm, emit NO new move (don't overwrite/race the
+        // queued one). The selector tick owns expiry via the injected clock: once
+        // the 24h TTL elapses (the user never opened the card) clear it and allow
+        // re-evaluation this same tick. The engine never surfaces it — that is
+        // strictly an App-side, user-initiated concern.
+        if (_pendingSetMove is { } pend)
+        {
+            if (now < pend.ExpiresAtUtc) return;   // a proposal is pending the user's confirm — emit no new move
+            _pendingSetMove = null;                // expired (24h, user never opened the card) — clear + allow re-eval
+        }
+
         // Re-run under the now-eligible machine (peek above may predate the
         // Advance that promoted us to Active). Pure; cheap.
         SelectorDecision decision = DeterministicSetSelector.Select(
@@ -847,20 +879,33 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // proposes distance-1 cells, but we re-assert before applying).
         if (GridCoord.ManhattanDistance(_activeSet, target) != 1) return;
 
-        // CROSS-SEGMENT (5級) move ⇒ HOLD. A silent auto-move may only happen
-        // WITHIN the current 5級 segment; a segment change is a felt-intensity
-        // change the user must confirm.
-        // P5 TODO: route cross-segment proposals through the propose-confirm
-        // (LevelChangeCause.ProposalConfirm) flow instead of silently holding.
-        if (FiveBandSegmentForSet(target) != FiveBandSegmentForSet(_activeSet)) return;
-
-        // Vestibular guard: block any move toward a WEAKER band (propose-stronger-
-        // only) for advisory users. A blocked move HOLDs this tick.
+        // Vestibular propose-stronger-only applies to BOTH the silent same-segment
+        // move AND the queued cross-segment proposal — a weaker-band target is never
+        // moved-to OR queued. A blocked move HOLDs this tick. (Re-ordered ahead of the
+        // segment branch in P5 so the guard gates the queue too.)
         if (!PassesVestibularGuard(_activeSet, target)) return;
 
-        // All gates passed → apply the move silently and notify the machine so it
-        // enters Cooldown (soft-定型) before the next evaluation. Capture the source
-        // before ApplySetMove repoints _activeSet so the log reads source→target.
+        if (FiveBandSegmentForSet(target) != FiveBandSegmentForSet(_activeSet))
+        {
+            // CROSS-SEGMENT (felt-intensity change) ⇒ QUEUE a proposal; do NOT apply,
+            // do NOT surface (the engine cannot open a window — locked constraint).
+            // Only overwrite an existing pending with a STRONGER (higher-Band) target
+            // (propose-stronger + decline-memory friendly). The App surfaces it only
+            // behind a userInitiated card-open; Accept/Decline/expiry route back here.
+            if (_pendingSetMove is not { } existing || target.Band >= existing.Target.Band)
+            {
+                _pendingSetMove = (target, FiveBandNominalLevel(target),
+                                   now.AddSeconds(SenseDefaults.SetMoveProposalTtlSeconds));
+                AppendAdaptiveFitEvent("AdaptiveFit.SetMoveProposed",
+                    $"queued cross-segment proposal {FormatSet(_activeSet)} → {FormatSet(target)} (L{_pendingSetMove.Value.TargetLevel}, samples={stats.SampleCount})");
+            }
+            return;
+        }
+
+        // SAME-SEGMENT silent auto-move (UNCHANGED from today): apply the move silently
+        // and notify the machine so it enters Cooldown (soft-定型) before the next
+        // evaluation. Capture the source before ApplySetMove repoints _activeSet so the
+        // log reads source→target.
         GridCoord from = _activeSet;
         ApplySetMove(target);
         _adaptiveFitMachine.OnSetChange();
@@ -929,6 +974,113 @@ public sealed class MockInferenceEngine : IInferenceEngine
         return target.Band >= current.Band;
     }
 
+    // ── Adaptive Fit P5 (propose-confirm) public surface ─────────────────────
+    // The App reads the pending proposal ONLY behind a userInitiated card-open and
+    // routes the user's Accept / Decline / defer / expiry back here. The engine
+    // NEVER opens a window (locked constraint). All in-memory; nothing persisted.
+
+    /// <summary>P5: pure read of the pending cross-segment proposal (null if none).
+    /// Does NOT mutate or expire — the selector tick owns expiry via the injected
+    /// clock; the App filters by wall-clock at display time. Caller does not need
+    /// the flag set; a null pending just returns null.</summary>
+    public (int Band, int Shape, int TargetLevel, DateTime ExpiresAtUtc)? PeekPendingSetMove()
+    {
+        lock (_gate)
+        {
+            if (_pendingSetMove is not { } p) return null;
+            return (p.Target.Band, p.Target.Shape, p.TargetLevel, p.ExpiresAtUtc);
+        }
+    }
+
+    /// <summary>P5: the user ACCEPTED the pending proposal. Re-asserts adjacency +
+    /// the vestibular guard (defensive — state may have moved since the queue),
+    /// applies the move via the offset-preserving <see cref="ApplySetMove"/> (Q4.5:
+    /// never zeroes <c>_offset</c>), then snaps the felt level UP to the target
+    /// level — RESPECTING the L9 floor for vestibular users — and enters Cooldown.
+    /// Returns false (clearing the pending) if there is nothing pending or the
+    /// re-assert fails.</summary>
+    public bool ConfirmPendingSetMove()
+    {
+        lock (_gate)
+        {
+            if (_pendingSetMove is not { } pend) return false;
+            GridCoord target = pend.Target;
+            int targetLevel  = pend.TargetLevel;
+
+            // Re-assert the move is still valid (adjacency + propose-stronger-only).
+            if (GridCoord.ManhattanDistance(_activeSet, target) != 1
+                || !PassesVestibularGuard(_activeSet, target))
+            {
+                _pendingSetMove = null;
+                return false;
+            }
+
+            GridCoord from = _activeSet;
+            ApplySetMove(target); // offset-preserving (Q4.5); never zeroes _offset
+
+            // Snap the felt level UP to the target, respecting the vestibular L9 floor.
+            // SetLevel also locks _gate — re-entrant, so this is safe.
+            int confirmLevel = IsVestibularActive ? Math.Max(targetLevel, 9) : targetLevel;
+            SetLevel(confirmLevel, LevelChangeCause.ProposalConfirm);
+
+            _adaptiveFitMachine.OnSetChange();
+            _pendingSetMove = null;
+            AppendAdaptiveFitEvent("AdaptiveFit.SetMoveConfirmed",
+                $"user-confirmed cross-segment move {FormatSet(from)} → {FormatSet(target)} (L{confirmLevel})");
+            return true;
+        }
+    }
+
+    /// <summary>P5: the user DECLINED the pending proposal. Backs the selector off via
+    /// <see cref="AdaptiveFitStateMachine.OnProposalDeclined"/> (doubles the remaining
+    /// cooldown) and clears the pending. Idempotent (no-op if nothing pending).</summary>
+    public void DeclinePendingSetMove()
+    {
+        lock (_gate)
+        {
+            if (_pendingSetMove is null) return;
+            _adaptiveFitMachine.OnProposalDeclined();
+            GridCoord target = _pendingSetMove.Value.Target;
+            _pendingSetMove = null;
+            AppendAdaptiveFitEvent("AdaptiveFit.SetMoveDeclined",
+                $"user-declined cross-segment proposal → {FormatSet(target)}");
+        }
+    }
+
+    /// <summary>P5: clear the pending proposal WITHOUT any back-off — used for the
+    /// card's 15s in-card expiry / defer path (neutral; the user may engage next
+    /// time). Idempotent (no-op if nothing pending).</summary>
+    public void ClearPendingSetMove()
+    {
+        lock (_gate) { _pendingSetMove = null; }
+    }
+
+    /// <summary>P5: a manual +/- nudge from the card path (which never reaches
+    /// <see cref="ApplyUserFeedback"/>) defers the selector AND retracts a stale
+    /// suggestion. Gated on the selector flag so it is inert while OFF.</summary>
+    public void NotifyManualLevelNudge()
+    {
+        lock (_gate)
+        {
+            if (!_adaptiveFitSelectorEnabled) return;
+            _adaptiveFitMachine.OnManualAdjust();
+            _pendingSetMove = null;
+        }
+    }
+
+    /// <summary>The set's NOMINAL 1-based level (1..12): its grid
+    /// <see cref="GridCoord.Band"/> (0..9) mapped linearly onto the 12-rung ladder
+    /// (round(1 + band·11/9), clamped 1..LevelCount). Factored out so both
+    /// <see cref="FiveBandSegmentForSet"/> (segment bucketing) and the P5
+    /// propose-confirm queue (the confirmed felt level) share one definition.</summary>
+    private static int FiveBandNominalLevel(GridCoord set)
+    {
+        // Band 0..9 → nominal level 1..12 (linear, monotonic). round(1 + band·11/9).
+        int nominalLevel = (int)Math.Round(
+            1.0 + set.Band * (SetCurve.LevelCount - 1) / (double)GridCoord.MaxBand);
+        return Math.Clamp(nominalLevel, 1, SetCurve.LevelCount);
+    }
+
     /// <summary>Map a set to its 5級 segment via the set's nominal level (SPEC item
     /// 2 fallback — no <c>SetGrid.Segment</c> helper exists, and the canonical
     /// <c>TierColorPalette.BandForTier</c> lives in the App layer which
@@ -939,10 +1091,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// Medium 動態感.</summary>
     private static int FiveBandSegmentForSet(GridCoord set)
     {
-        // Band 0..9 → nominal level 1..12 (linear, monotonic). round(1 + band·11/9).
-        int nominalLevel = (int)Math.Round(
-            1.0 + set.Band * (SetCurve.LevelCount - 1) / (double)GridCoord.MaxBand);
-        nominalLevel = Math.Clamp(nominalLevel, 1, SetCurve.LevelCount);
+        int nominalLevel = FiveBandNominalLevel(set);
         return nominalLevel switch
         {
             <= 2  => 0, // 極高

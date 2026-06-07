@@ -60,6 +60,13 @@ public partial class SettingsContent : UserControl
     /// MainViewModel.ResetStateCommand (Q4.5-safe — preserves the habituation offset).</summary>
     public Action? ResetRequested { get; set; }
 
+    /// <summary>Host-provided action that opens the dedicated Event Log window
+    /// (2026-06-07: the Event Log moved out of a top-level tab into Settings).
+    /// Wired by the host that owns the MainViewModel; when null (e.g. the quick
+    /// Settings popup from the notification card) the Event Log card hides itself
+    /// in <see cref="OnLoaded"/>.</summary>
+    public Action? OpenEventLog { get; set; }
+
     /// <summary>Raised after any persisted toggle change so the host can
     /// repaint dependent surfaces (bar colour, tray icon) immediately
     /// instead of waiting for the next StateChanged push. Mirrors the
@@ -85,6 +92,11 @@ public partial class SettingsContent : UserControl
         // theme now AND re-applies on every later theme change (incl. a live OS
         // light/dark flip in Auto mode). Unregistered in OnUnloaded.
         ThemeManager.TrackElement(this);
+
+        // Event Log card (2026-06-07): only shown where the host wired OpenEventLog
+        // (it needs the MainViewModel-backed window). Hidden in the notification
+        // card's quick-Settings popup, which has no MainViewModel.
+        EventLogCard.Visibility = OpenEventLog is null ? Visibility.Collapsed : Visibility.Visible;
 
         RefreshFromPreferences();
         UserPreferences.Changed += OnPreferencesChangedExternally;
@@ -448,6 +460,10 @@ public partial class SettingsContent : UserControl
         if (confirm != MessageBoxResult.OK) return;
         ResetRequested?.Invoke();
     }
+
+    /// <summary>Open the dedicated Event Log window (2026-06-07). Delegates to the
+    /// host-wired action; no-op if unwired (the card is hidden in that case).</summary>
+    private void OnOpenEventLogClicked(object sender, RoutedEventArgs e) => OpenEventLog?.Invoke();
 
     private void OnClearAllDataClicked(object sender, RoutedEventArgs e)
     {

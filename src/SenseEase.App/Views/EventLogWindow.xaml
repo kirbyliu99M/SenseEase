@@ -1,0 +1,98 @@
+<Window x:Class="SenseEase.App.Views.EventLogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
+        Title="SenseEase — 事件記錄"
+        Width="900" Height="640"
+        MinWidth="560" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Canvas}"
+        FontFamily="Segoe UI">
+    <!-- Dedicated Event Log window (UI/UX fine-tune 2026-06-07): the read-only
+         event/diagnostic log moved OUT of a top-level tab into its own window,
+         opened from a button in Settings. This keeps the full-page list the tab
+         had (it can fill the window) without crowding the Settings scroll.
+
+         Styled with theme TOKENS rather than the MainWindow-local Card /
+         SectionTitle / LogListView styles (those aren't in scope here). The theme
+         dictionary is merged view-locally and ThemeManager.TrackElement(this) in
+         the code-behind keeps light/dark correct (incl. a live OS flip in Auto).
+         DataContext is the MainViewModel so the {Binding EventLog} markup is the
+         same as the former tab. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <!-- Column-header chrome (the MainWindow-local implicit GridViewColumnHeader
+                 style isn't in scope here; re-declared with the same token-driven look). -->
+            <Style TargetType="GridViewColumnHeader">
+                <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Padding" Value="8,6"/>
+                <Setter Property="BorderThickness" Value="0"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{DynamicResource Surface}"
+                BorderBrush="{DynamicResource CardBorder}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource Radius.md}"
+                Effect="{StaticResource Elev.2}"
+                Padding="20,18">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Style="{StaticResource Type.Heading}"
+                               Text="{loc:T Zh='事件記錄', En='Event Log'}"/>
+                    <!-- Localized "最新 N 筆 / Latest N entries": loc:T returns a Binding so
+                         it works on Run.Text; the count Run updates live. Runs are adjacent
+                         (no inter-element whitespace) so only the spaces in the loc strings render. -->
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                               FontSize="12" Foreground="{DynamicResource TextTertiary}"><Run Text="{loc:T Zh='最新 ', En='Latest '}"/><Run Text="{Binding EventLog.Count, Mode=OneWay}"/><Run Text="{loc:T Zh=' 筆', En=' entries'}"/></TextBlock>
+                </Grid>
+
+                <ListView x:Name="EventLogList"
+                          ItemsSource="{Binding EventLog}"
+                          Background="Transparent" BorderThickness="0"
+                          FontSize="12" Foreground="{DynamicResource TextSecondary}"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          SizeChanged="OnEventLogListSizeChanged">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"  Width="90"
+                                            DisplayMemberBinding="{Binding Time}"/>
+                            <GridViewColumn x:Name="EventLogActionColumn"
+                                            Header="{loc:T Zh='事件', En='Action'}" Width="440"
+                                            DisplayMemberBinding="{Binding Message}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </DockPanel>
+        </Border>
+
+        <Button Grid.Row="1"
+                Content="{loc:T Zh='關閉', En='Close'}"
+                HorizontalAlignment="Right"
+                Padding="18,8" Margin="0,12,0,0"
+                Background="{DynamicResource Accent}"
+                Foreground="{DynamicResource TextOnComfort}"
+                BorderThickness="0" FontSize="12" FontWeight="SemiBold"
+                Cursor="Hand"
+                Click="OnCloseClicked"/>
+    </Grid>
+</Window>

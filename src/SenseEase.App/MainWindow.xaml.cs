@@ -105,6 +105,10 @@ public partial class MainWindow : Window
         SettingsTabContent.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
         SettingsTabContent.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
         SettingsTabContent.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
+        // Event Log relocated into Settings (2026-06-07): the 設定 tab's button opens
+        // the dedicated EventLogWindow. Wired only where a MainViewModel exists (here +
+        // the tray SettingsWindow below); the card hides itself when this is unwired.
+        SettingsTabContent.OpenEventLog            = ShowEventLogWindow;
         SettingsTabContent.PreferencesChanged    += (_, _) => RefreshSettingsDependentSurfaces();
 
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
@@ -153,8 +157,13 @@ public partial class MainWindow : Window
                         var (q, opts) = SenseEase.Infrastructure.Nlp.FeedbackLexicon
                                             .BuildSpikeFollowup(zhHint, magnitude);
 
-                        if (MainTabs is not null && MainTabs.Items.Count > 2)
-                            MainTabs.SelectedIndex = 2;
+                        // Switch to the AI Assistant tab (where the chatbot followup
+                        // lands). Target it BY REFERENCE — the prior SelectedIndex=2 went
+                        // stale when the Event Log got its own tab (it pointed at the log,
+                        // not the chat); removing the Event Log tab (2026-06-07) makes the
+                        // by-name select robust to any further tab reordering.
+                        if (MainTabs is not null && AiAssistantTab is not null)
+                            MainTabs.SelectedItem = AiAssistantTab;
                         vm.ChatbotVm.RaiseFollowup(q, opts);
 
                         if (_spikePopup is not null && _spikePopup.IsLoaded)
@@ -706,7 +715,7 @@ public partial class MainWindow : Window
 
         // Task 4: tray left-click opens the notification card for the
         // current tier (user-initiated → bypasses mute per spec).
-        _trayIcon.LeftClicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
+        _trayIcon.LeftClicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true, allowSetMoveSurface: true);
 
         // Task 5: Settings menu opens the dedicated SettingsWindow.
         _trayIcon.SettingsRequested += (_, _) => ShowSettingsWindow();
@@ -744,6 +753,26 @@ public partial class MainWindow : Window
         if (r == MessageBoxResult.OK) _viewModel.ResetStateCommand.Execute(null);
     }
 
+    /// <summary>Open the Event Log in its own window (UI/UX fine-tune 2026-06-07:
+    /// relocated from a top-level tab; opened from Settings → 事件記錄). Created on
+    /// demand and reused while open; the field is cleared on Closed so the next
+    /// request makes a fresh one. Owner = this so it stays grouped with the app
+    /// and closes on app exit. DataContext = the shared MainViewModel so the
+    /// window's {Binding EventLog} matches the former tab.</summary>
+    private EventLogWindow? _eventLogWindow;
+    private void ShowEventLogWindow()
+    {
+        if (_eventLogWindow is null)
+        {
+            _eventLogWindow = new EventLogWindow(_viewModel) { Owner = this };
+            _eventLogWindow.Closed += (_, _) => _eventLogWindow = null;
+        }
+        _eventLogWindow.Show();
+        if (_eventLogWindow.WindowState == WindowState.Minimized)
+            _eventLogWindow.WindowState = WindowState.Normal;
+        _eventLogWindow.Activate();
+    }
+
     /// <summary>Confirm before clearing the chat (wipes history + the on-disk model trace).</summary>
     private void OnChatClearClicked(object sender, RoutedEventArgs e)
     {
@@ -768,6 +797,7 @@ public partial class MainWindow : Window
         _settingsWindow.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
         _settingsWindow.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
         _settingsWindow.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
+        _settingsWindow.OpenEventLog            = ShowEventLogWindow;
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
         _settingsWindow.Show();
@@ -853,7 +883,7 @@ public partial class MainWindow : Window
         // click event only fires when the bar is "hovered" (cursor within
         // 200 dip per spec) — click-through behaviour while far away keeps
         // accidental swallowing minimal.
-        _persistentBar.Clicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true);
+        _persistentBar.Clicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true, allowSetMoveSurface: true);
 
         // v0.9.1 round-3: HoverSustained removed. Card opens on click or
         // tier-spike auto-show only (per user revision). Hover state remains
@@ -975,7 +1005,50 @@ public partial class MainWindow : Window
         _viewModel.ExpireActiveProposal();
     }
 
-    private void ShowNotificationCardForCurrentTier(bool userInitiated)
+    // ── P5 (propose-confirm): AdaptiveFit set-move card wiring ───────────────
+    // Mirrors the chatbot OnCardProposal* handlers but routes to the VM's separate
+    // set-move channel. Do NOT touch OnProposalSurfaceRequested / the chatbot wiring.
+    private bool _cardSetMoveEventsWired;
+    private void WireSetMoveEventsOnce()
+    {
+        if (_cardSetMoveEventsWired || _cardWindow is null) return;
+        _cardWindow.SetMoveAccepted += OnCardSetMoveAccepted;
+        _cardWindow.SetMoveDeclined += OnCardSetMoveDeclined;
+        _cardWindow.SetMoveDeferred += OnCardSetMoveDeferred;
+        _cardWindow.SetMoveExpired  += OnCardSetMoveExpired;
+        _cardSetMoveEventsWired = true;
+    }
+
+    private void OnCardSetMoveAccepted(object? sender, PendingSetMoveVm m)
+    {
+        _viewModel.AcceptPendingSetMove();
+    }
+
+    private void OnCardSetMoveDeclined(object? sender, PendingSetMoveVm m)
+    {
+        _viewModel.DeclinePendingSetMove();
+    }
+
+    private void OnCardSetMoveDeferred(object? sender, PendingSetMoveVm m)
+    {
+        _viewModel.DeferPendingSetMove();
+    }
+
+    private void OnCardSetMoveExpired(object? sender, PendingSetMoveVm m)
+    {
+        _viewModel.ExpirePendingSetMove();
+    }
+
+    // allowSetMoveSurface: TRUE only when the user themselves opened the card (tray / bar
+    // click). It is NOT the same as userInitiated — userInitiated==true ALSO covers the
+    // chatbot's OnProposalSurfaceRequested SYSTEM auto-pop (which force-opens the card to
+    // show a chatbot proposal). Surfacing the AdaptiveFit set-move proposal on that auto-pop
+    // would be a "popup never initiate" violation (a system-decided pop carrying a
+    // more-protection suggestion the user didn't open the card to see). So the P5 set-move
+    // surface is gated on this stricter flag, passed true ONLY from the two genuine
+    // user-open handlers below; every other caller (spike/tier auto-expand, chatbot
+    // proposal auto-pop) leaves it at the default false.
+    private void ShowNotificationCardForCurrentTier(bool userInitiated, bool allowSetMoveSurface = false)
     {
         var band = TierColorPalette.BandForTier(_viewModel.VimsTier);
         if (!userInitiated && !_cardController.ShouldAutoShow(band)) return;
@@ -996,6 +1069,7 @@ public partial class MainWindow : Window
                 _viewModel.SetWgcMonitorExcludeRect(null, null, null, null);
                 _cardWindow = null;
                 _cardProposalEventsWired = false;
+                _cardSetMoveEventsWired = false;
                 // Re-engage the bar's mask since closing the card cleared it.
                 // Bar may have been hidden by user via tray menu — only
                 // re-engage if it's actually visible.
@@ -1139,6 +1213,19 @@ public partial class MainWindow : Window
         {
             WireCardProposalEventsOnce();
             _cardWindow.ActiveProposal = pending;
+        }
+        // P5 (propose-confirm): if the AdaptiveFit selector has a pending cross-segment
+        // set-move proposal, surface it — but ONLY behind a genuine USER card-open
+        // (allowSetMoveSurface, true from tray/bar only). This is STRICTER than userInitiated,
+        // which is also true for the chatbot OnProposalSurfaceRequested system auto-pop —
+        // surfacing the set-move there would be a "popup never initiate" violation. Filter
+        // expired proposals defensively (the engine's 24h TTL clears them on its next tick).
+        if (allowSetMoveSurface
+            && _viewModel.PendingSetMove is { } sm
+            && sm.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            WireSetMoveEventsOnce();
+            _cardWindow.ActiveSetMove = sm;
         }
         // Record whether THIS open was user-initiated (tray / bar / gear) versus
         // an auto-show driven by the tier gate, so the card can adapt its dismiss

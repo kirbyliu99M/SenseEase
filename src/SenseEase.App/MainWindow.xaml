@@ -425,7 +425,7 @@
                         <TextBlock Text="{loc:T Zh='個人化設定檔', En='Profile'}"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <WrapPanel Orientation="Horizontal">
-                            <Button Content="RESILIENT"
+                            <Button Content="{loc:T Zh='穩健', En='RESILIENT'}"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="RESILIENT"
                                     AutomationProperties.Name="{loc:T Zh='設定檔 RESILIENT', En='Profile RESILIENT'}"
@@ -441,7 +441,7 @@
                                     </Style>
                                 </Button.Style>
                             </Button>
-                            <Button Content="TYPICAL"
+                            <Button Content="{loc:T Zh='一般', En='TYPICAL'}"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="TYPICAL"
                                     AutomationProperties.Name="{loc:T Zh='設定檔 TYPICAL', En='Profile TYPICAL'}"
@@ -457,7 +457,7 @@
                                     </Style>
                                 </Button.Style>
                             </Button>
-                            <Button Content="SENSITIVE"
+                            <Button Content="{loc:T Zh='敏感', En='SENSITIVE'}"
                                     Command="{Binding SelectProfileCommand}"
                                     CommandParameter="SENSITIVE"
                                     AutomationProperties.Name="{loc:T Zh='設定檔 SENSITIVE', En='Profile SENSITIVE'}"
@@ -603,74 +603,17 @@
                      read-only on the dashboard's stat card above. -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="Controls" Style="{StaticResource SectionTitle}"/>
-
-                        <!-- Action buttons -->
-                        <TextBlock Text="Demo &amp; Overlay"
-                                   Style="{StaticResource CardLabel}" Margin="0,0,0,10"/>
-                        <WrapPanel Orientation="Horizontal">
-                            <!-- Consolidated demo entry point. Always runs the
-                                 calibration variant (video → summary → preset
-                                 suggestion). For repeat runs the user's "add on
-                                 top" preset mode means new deltas accumulate on
-                                 the existing personalization rather than wiping
-                                 it. The legacy plain-demo button (StartDemo
-                                 without calibration) was removed — it had no
-                                 use case once calibration is the default flow. -->
-                            <!-- Alpha-2 addendum: the explicit-calibration entry is hidden in
-                                 the auto-profiling world (suppressed, not removed). Flag OFF ⇒ shown. -->
-                            <Button Content="Calibration &amp; Demo" Style="{StaticResource PrimaryBtn}"
-                                    Command="{Binding StartSetupDemoCommand}"
-                                    Visibility="{Binding CalibrationEntryVisibility}"
-                                    ToolTip="Plays a 60 s vection clip, then suggests a personalised preset based on your reaction. Re-running adds to existing preferences."
-                                    Margin="0,0,8,8"/>
-                            <!-- Quest 2 塊 A (UI Consolidation Sprint, 2026-05-30):
-                                 Stop Demo hidden via Visibility="Collapsed". Demos
-                                 already auto-end (video clip → OnDemoVideoFinished,
-                                 synthetic ramp → OFI=150). Mid-discomfort interrupt
-                                 path preserved via Reset State (which calls
-                                 if (IsRunning) StopDemo() before reset) AND via
-                                 closing the demo video window X (also triggers
-                                 OnDemoVideoFinished). Wellbeing: user retains
-                                 explicit interrupt for "I feel discomfort, stop now". -->
-                            <Button Content="Stop Demo" Style="{StaticResource AlertBtn}"
-                                    Command="{Binding StopDemoCommand}"
-                                    Visibility="Collapsed"
-                                    Margin="0,0,8,8"/>
-                            <!-- Quest 2 塊 A: Toggle Overlay button removed —
-                                 the "保持遮罩開啟 / Keep overlay visible" checkbox
-                                 below is the discoverable primary control + has
-                                 bilingual explanation. Demo auto-enables overlay
-                                 anyway. ToggleOverlayCommand binding still exists
-                                 on MainViewModel for any programmatic invocations. -->
-                            <!-- Alpha-2 addendum: reset moves into Settings in the auto-profiling
-                                 world, so the console Reset is hidden there. Flag OFF ⇒ shown. -->
-                            <!-- Destructive (discards earned habituation progress) → confirm
-                                 in code-behind before executing ResetStateCommand. -->
-                            <Button Content="Reset State" Style="{StaticResource AlertBtn}"
-                                    Click="OnConsoleResetClicked"
-                                    Visibility="{Binding ConsoleResetVisibility}"
-                                    Margin="0,0,8,8"/>
-                            <!-- Phase 5 Steps 5-6 (v0.11, 2026-05-31): manual
-                                 'Switch Driver / Passenger' button removed.
-                                 UserActivityModeDetector (Win32 GetLastInputInfo,
-                                 1 Hz, asymmetric hysteresis 2500/5000 ms) is the
-                                 sole mode source. Current mode visible in the
-                                 status row below via {Binding AutoModeText}. -->
-                            <!-- Cycle Sensing Mode button removed (Quest 2 塊 A,
-                                 2026-05-30). Was already Visibility="Collapsed"
-                                 since Path Z UX iter 2; Cursor mode unused, Demo
-                                 mode only entered via Calibration flow. Binding
-                                 ToggleDemoModeCommand kept on MainViewModel for
-                                 any programmatic test invocations. -->
-                        </WrapPanel>
-
-                        <!-- ── Always-on Overlay (issue #4) ──────────────────────────────
+                        <!-- ── Overlay Adjustment (遮罩調節) ──────────────────────────────
                              Forces the FOV mask to stay visible at a user-chosen baseline
                              intensity. Natural pressure-driven tier still wins when higher,
-                             so real motion still darkens the periphery further. -->
-                        <Separator Background="{DynamicResource Separator}" Margin="0,16"/>
-                        <TextBlock Text="{loc:T Zh='保持開啟', En='Always-on Overlay'}"
+                             so real motion still darkens the periphery further.
+                             UI/UX fine-tune (2026-06-07): the orphaned "Controls / Demo &
+                             Overlay" header and its all-hidden button row (Calibration & Demo,
+                             Stop Demo, Reset State — every one suppressed in the auto-profiling
+                             world) were removed; they left an empty, English-only residual
+                             card. The demo/stop/reset commands remain on MainViewModel for
+                             programmatic use. -->
+                        <TextBlock Text="{loc:T Zh='遮罩調節', En='Overlay Settings'}"
                                    Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -679,10 +622,11 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <CheckBox IsChecked="{Binding PersistentOverlayEnabled}"
+                                          Style="{StaticResource SettingSwitch}"
                                           Content="{loc:T Zh='保持遮罩開啟', En='Keep overlay visible'}"
                                           FontSize="12" Foreground="{DynamicResource TextPrimary}"
                                           VerticalContentAlignment="Center"/>
-                                <TextBlock Margin="22,2,0,0" Style="{StaticResource CardLabel}"
+                                <TextBlock Margin="54,2,0,0" Style="{StaticResource CardLabel}"
                                            Text="{loc:T Zh='顯示器周邊維持暗角；偵測到動態時自動加深', En='Periphery stays dim; darkens on detected motion.'}"/>
                             </StackPanel>
                         </Grid>
@@ -697,7 +641,7 @@
                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Slider Grid.Column="1"
                                     Value="{Binding PersistentOverlayBaselineTier, UpdateSourceTrigger=PropertyChanged}"
-                                    Minimum="1" Maximum="10" TickFrequency="1"
+                                    Minimum="1" Maximum="12" TickFrequency="1"
                                     IsSnapToTickEnabled="True"
                                     VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2"
@@ -986,48 +930,16 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- ── Tab 3: Event Log (relocated from Dashboard) ── -->
-            <TabItem Header="{loc:T Zh='事件記錄', En='Event Log'}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="24,20,24,24">
-                        <!-- ── Event Log ── -->
-                        <Border Style="{StaticResource Card}">
-                            <DockPanel>
-                                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Event Log"
-                                               Style="{StaticResource SectionTitle}" Margin="0"/>
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding EventLog.Count, StringFormat='Latest {0} entries'}"
-                                               Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
-                                </Grid>
+            <!-- Event Log relocated (UI/UX fine-tune 2026-06-07): the former
+                 top-level "事件記錄 / Event Log" tab was removed to declutter the
+                 primary nav (5→4 tabs). A read-only diagnostic log is secondary
+                 content, so it now opens in its own EventLogWindow from a button in
+                 Settings (設定 → 事件記錄). The full-page list lives in
+                 Views/EventLogWindow.xaml; the EventLog collection still lives on
+                 MainViewModel. -->
 
-                                <ListView ItemsSource="{Binding EventLog}"
-                                          Style="{StaticResource LogListView}"
-                                          MaxHeight="200">
-                                    <ListView.View>
-                                        <GridView>
-                                            <!-- Raw OFI / Pressure / FOV / Mask columns removed: advanced
-                                                 telemetry belongs on the Dashboard, not the Event Log, which
-                                                 keeps a plain Time + Action record. -->
-                                            <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"   Width="80"
-                                                            DisplayMemberBinding="{Binding Time}"/>
-                                            <GridViewColumn Header="{loc:T Zh='事件', En='Action'}"  Width="440"
-                                                            DisplayMemberBinding="{Binding Message}"/>
-                                        </GridView>
-                                    </ListView.View>
-                                </ListView>
-                            </DockPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- ── Tab 4: AI Assistant ── -->
-            <TabItem Header="{loc:T Zh='智能助理', En='AI Assistant'}">
+            <!-- ── Tab 3: AI Assistant ── -->
+            <TabItem x:Name="AiAssistantTab" Header="{loc:T Zh='智能助理', En='AI Assistant'}">
                 <Grid DataContext="{Binding ChatbotVm}" Background="{DynamicResource Canvas}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>  <!-- Recalibrate header (Stage 5b) -->

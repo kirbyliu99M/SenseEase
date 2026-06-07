@@ -10,85 +10,10 @@
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- M16: calm iOS-style toggle-switch restyle for the settings
-                 CheckBoxes. A rounded pill TRACK that fills {StaticResource
-                 Accent} when checked, a sliding THUMB, ≥44px-wide hit area,
-                 hover / keyboard-focus / disabled (0.4 opacity) states. The
-                 content label sits to the right of the switch; the whole row
-                 keeps the original click-to-toggle behaviour. Only the visual
-                 chrome changes — every x:Name, Checked/Unchecked handler and
-                 IsChecked binding on the consumers is untouched. -->
-            <Style x:Key="SettingSwitch" TargetType="CheckBox">
-                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
-                <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="VerticalContentAlignment" Value="Center"/>
-                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="CheckBox">
-                            <Border Background="Transparent" Padding="0">
-                                <StackPanel Orientation="Horizontal">
-                                    <!-- ≥44px-wide hit area: 44-wide cell wraps the 40px track -->
-                                    <Grid x:Name="SwitchHit" Width="44" Height="26" VerticalAlignment="Center">
-                                        <Border x:Name="Track"
-                                                Width="40" Height="24"
-                                                CornerRadius="12"
-                                                Background="{DynamicResource SurfaceMuted}"
-                                                BorderBrush="{DynamicResource Separator}"
-                                                BorderThickness="1"/>
-                                        <Border x:Name="Thumb"
-                                                Width="18" Height="18"
-                                                CornerRadius="9"
-                                                HorizontalAlignment="Left"
-                                                Margin="3,0,0,0"
-                                                Background="{DynamicResource TextOnComfort}"/>
-                                    </Grid>
-                                    <ContentPresenter x:Name="Label"
-                                                      Margin="10,0,0,0"
-                                                      VerticalAlignment="Center"
-                                                      RecognizesAccessKey="True"
-                                                      SnapsToDevicePixels="True"/>
-                                </StackPanel>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <!-- Checked: track fills Accent, thumb slides right -->
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}"/>
-                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                                    <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
-                                    <Setter TargetName="Thumb" Property="Margin" Value="0,0,3,0"/>
-                                </Trigger>
-                                <!-- Hover: gentle track lift -->
-                                <MultiTrigger>
-                                    <MultiTrigger.Conditions>
-                                        <Condition Property="IsMouseOver" Value="True"/>
-                                        <Condition Property="IsChecked" Value="False"/>
-                                    </MultiTrigger.Conditions>
-                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource Separator}"/>
-                                </MultiTrigger>
-                                <MultiTrigger>
-                                    <MultiTrigger.Conditions>
-                                        <Condition Property="IsMouseOver" Value="True"/>
-                                        <Condition Property="IsChecked" Value="True"/>
-                                    </MultiTrigger.Conditions>
-                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentHover}"/>
-                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
-                                </MultiTrigger>
-                                <!-- Keyboard focus: Accent ring around the track (in addition to FocusVisualStyle) -->
-                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                                    <Setter TargetName="Track" Property="BorderThickness" Value="2"/>
-                                </Trigger>
-                                <!-- Disabled: dim whole control to 0.4 opacity -->
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Opacity" Value="0.4"/>
-                                    <Setter Property="Cursor" Value="Arrow"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
+            <!-- SettingSwitch (calm iOS-style toggle) moved to SenseEaseTheme.xaml
+                 (UI/UX fine-tune 2026-06-07) so the dashboard's Overlay Adjustment
+                 toggle shares ONE source with the Settings page. Resolved here via
+                 the merged theme dictionary above; consumers below are unchanged. -->
 
             <!-- Appearance setting (2026-06-07): segmented-control segment.
                  Three of these RadioButtons (GroupName="ThemeMode") form a
@@ -157,6 +82,18 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Tighter variant of ThemeSegment for the Appearance capsule only
+                 (UI/UX fine-tune 2026-06-07): short labels (自動/淺色/深色) looked
+                 loose in the 44×84 segments. MinHeight 44→36, MinWidth 84→60 hugs
+                 the labels. Inherits the ThemeSegment template (incl. the 14,0
+                 content margin, which MinWidth=60 now governs). Language selector
+                 keeps the full ThemeSegment. -->
+            <Style x:Key="ThemeSegmentTight" TargetType="RadioButton"
+                   BasedOn="{StaticResource ThemeSegment}">
+                <Setter Property="MinHeight" Value="36"/>
+                <Setter Property="MinWidth" Value="60"/>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
     <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): shared settings UI
@@ -218,7 +155,7 @@
                         <TextBlock Style="{StaticResource Type.Heading}"
                                    Text="{loc:T Zh='外觀', En='Appearance'}"
                                    Margin="0,0,0,4"/>
-                        <TextBlock Text="選擇介面主題，或跟隨 Windows 系統設定。"
+                        <TextBlock Text="{loc:T Zh='選擇介面主題，或跟隨 Windows 系統設定。', En='Choose the interface theme, or follow your Windows system setting.'}"
                                    FontSize="12"
                                    Foreground="{DynamicResource TextTertiary}"
                                    TextWrapping="Wrap"
@@ -236,19 +173,19 @@
                                 HorizontalAlignment="Left">
                             <UniformGrid Rows="1" Columns="3">
                                 <RadioButton x:Name="ThemeAuto"
-                                             Style="{StaticResource ThemeSegment}"
+                                             Style="{StaticResource ThemeSegmentTight}"
                                              GroupName="ThemeMode"
                                              Content="{loc:T Zh='自動', En='Auto'}"
                                              ToolTip="{loc:T Zh='跟隨 Windows 系統的淺色 / 深色設定', En='Follow the Windows system light / dark setting'}"
                                              Checked="OnThemeModeChanged"/>
                                 <RadioButton x:Name="ThemeLight"
-                                             Style="{StaticResource ThemeSegment}"
+                                             Style="{StaticResource ThemeSegmentTight}"
                                              GroupName="ThemeMode"
                                              Content="{loc:T Zh='淺色', En='Light'}"
                                              ToolTip="{loc:T Zh='永遠使用淺色主題', En='Always use the light theme'}"
                                              Checked="OnThemeModeChanged"/>
                                 <RadioButton x:Name="ThemeDark"
-                                             Style="{StaticResource ThemeSegment}"
+                                             Style="{StaticResource ThemeSegmentTight}"
                                              GroupName="ThemeMode"
                                              Content="{loc:T Zh='深色', En='Dark'}"
                                              ToolTip="{loc:T Zh='永遠使用深色主題', En='Always use the dark theme'}"
@@ -330,12 +267,12 @@
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleAuto"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="讓 SenseEase 主動展開通知卡"
+                                      Content="{loc:T Zh='讓 SenseEase 主動展開通知卡', En='Let SenseEase expand notification cards automatically'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleAutoChanged"
                                       Unchecked="OnToggleAutoChanged"/>
-                            <TextBlock Text="偵測到中度以上不適時自動展開通知卡。"
+                            <TextBlock Text="{loc:T Zh='偵測到中度以上不適時自動展開通知卡。', En='Auto-expands a notification card when moderate-or-higher discomfort is detected.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -345,7 +282,7 @@
                                       Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
-                                <TextBlock Text="開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。"
+                                <TextBlock Text="{loc:T Zh='開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。', En='When on, the system auto-expands a notification card on moderate-or-higher discomfort. Off by default to avoid unexpected visual interruptions.'}"
                                            FontSize="11"
                                            Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
@@ -359,12 +296,12 @@
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleColor"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="Bar 與 Tray 顏色隨 tier 變化"
+                                      Content="{loc:T Zh='Bar 與 Tray 顏色隨 tier 變化', En='Bar &amp; tray colour follows the tier'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleColorChanged"
                                       Unchecked="OnToggleColorChanged"/>
-                            <TextBlock Text="bar 與 tray icon 顏色依視覺壓力 tier 變化。"
+                            <TextBlock Text="{loc:T Zh='bar 與 tray icon 顏色依視覺壓力 tier 變化。', En='The bar and tray icon colour change with the visual-pressure tier.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -374,7 +311,7 @@
                                       Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
-                                <TextBlock Text="開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。"
+                                <TextBlock Text="{loc:T Zh='開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。', En='When on, the bar and tray icon colour follow the visual-pressure tier (grey / amber / red); when off they stay grey and translucent.'}"
                                            FontSize="11"
                                            Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
@@ -400,12 +337,12 @@
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleMinimizeToTray"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="關閉視窗時最小化到工作匣 (不結束程式)"
+                                      Content="{loc:T Zh='關閉視窗時最小化到工作匣 (不結束程式)', En='Minimise to the tray when the window closes (keep running)'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleMinimizeToTrayChanged"
                                       Unchecked="OnToggleMinimizeToTrayChanged"/>
-                            <TextBlock Text="按下主視窗的 X 只會收到工作匣，背景持續偵測。"
+                            <TextBlock Text="{loc:T Zh='按下主視窗的 X 只會收到工作匣，背景持續偵測。', En='Pressing X on the main window just sends it to the tray; detection keeps running in the background.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -415,7 +352,7 @@
                                       Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
-                                <TextBlock Text="開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。"
+                                <TextBlock Text="{loc:T Zh='開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。', En='When on, pressing X on the main window sends it to the system tray (bottom-right) and SenseEase keeps detecting in the background. To quit completely, use Quit SenseEase in the tray menu.'}"
                                            FontSize="11"
                                            Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
@@ -576,6 +513,44 @@
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                         </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Section 3.5 · 事件記錄 / Event Log ═══════════════════════
+                     UI/UX fine-tune (2026-06-07): the former top-level 事件記錄 tab
+                     became a button here that opens the dedicated EventLogWindow —
+                     declutters the primary nav and keeps the log full-page in its own
+                     window. Grouped near 資料與隱私 (both are records/diagnostics).
+                     Hidden unless the host wired OpenEventLog (code-behind OnLoaded). -->
+                <Border x:Name="EventLogCard"
+                        Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="{loc:T Zh='事件記錄', En='Event Log'}"
+                                   Margin="0,0,0,4"/>
+                        <TextBlock Text="{loc:T Zh='在獨立視窗查看 SenseEase 的事件與診斷紀錄（啟動、遮罩啟動／解除、示範、感測切換等）。', En='View the event &amp; diagnostic log in its own window (startup, mask on/off, demos, sensing switches, and more).'}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,12"/>
+                        <Button x:Name="OpenEventLogButton"
+                                Content="{loc:T Zh='開啟事件記錄', En='Open event log'}"
+                                HorizontalAlignment="Left"
+                                Padding="14,7"
+                                FontSize="12"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource TextOnComfort}"
+                                Background="{DynamicResource Accent}"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                Click="OnOpenEventLogClicked"
+                                ToolTip="{loc:T Zh='在獨立視窗開啟事件／診斷紀錄', En='Open the event / diagnostic log in its own window'}"/>
                     </StackPanel>
                 </Border>
 

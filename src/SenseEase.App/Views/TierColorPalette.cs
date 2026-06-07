@@ -295,12 +295,12 @@ public static class TierColorPalette
     /// natural / stable screen, hence the LOWEST 動態感 (極低). §6-safe (no medical claims).</summary>
     public static string FeelLabel(TierBand band) => band switch
     {
-        TierBand.VeryHigh => "動態感 · 極低",  // L1–2   Very Calm  (most stable screen)
-        TierBand.High     => "動態感 · 低",    // L3–4   Calm
-        TierBand.Medium   => "動態感 · 中",    // L5–7   Moderate
-        TierBand.Low      => "動態感 · 高",    // L8–10  Dynamic
-        TierBand.VeryLow  => "動態感 · 極高",  // L11–12 Very Dynamic (most motion)
-        _                 => "動態感 · 中",
+        TierBand.VeryHigh => "畫面動態 · 極低",  // L1–2   Very Calm  (most stable screen)
+        TierBand.High     => "畫面動態 · 低",    // L3–4   Calm
+        TierBand.Medium   => "畫面動態 · 中",    // L5–7   Moderate
+        TierBand.Low      => "畫面動態 · 高",    // L8–10  Dynamic
+        TierBand.VeryLow  => "畫面動態 · 極高",  // L11–12 Very Dynamic (most motion)
+        _                 => "畫面動態 · 中",
     };
 
     /// <summary>English 5級「screen motion」status (§6-safe). Same root word at both ends
@@ -308,12 +308,12 @@ public static class TierColorPalette
     /// <see cref="FeelLabel"/>; same polarity (VeryHigh-comfort band = Very Calm).</summary>
     public static string FeelLabelEn(TierBand band) => band switch
     {
-        TierBand.VeryHigh => "Very Calm",    // L1–2
-        TierBand.High     => "Calm",         // L3–4
-        TierBand.Medium   => "Moderate",     // L5–7
-        TierBand.Low      => "Dynamic",      // L8–10
-        TierBand.VeryLow  => "Very Dynamic", // L11–12
-        _                 => "Moderate",
+        TierBand.VeryHigh => "Screen Motion · Very Calm",    // L1–2
+        TierBand.High     => "Screen Motion · Calm",         // L3–4
+        TierBand.Medium   => "Screen Motion · Moderate",     // L5–7
+        TierBand.Low      => "Screen Motion · Dynamic",      // L8–10
+        TierBand.VeryLow  => "Screen Motion · Very Dynamic", // L11–12
+        _                 => "Screen Motion · Moderate",
     };
 
     /// <summary>Convenience: 1–12 level → 5級 中文 label.</summary>

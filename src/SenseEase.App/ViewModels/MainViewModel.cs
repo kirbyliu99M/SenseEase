@@ -19,6 +19,12 @@ using System.IO;
 
 namespace SenseEase.App.ViewModels;
 
+/// <summary>P5 (propose-confirm): a small VM-layer projection of the engine's pending
+/// cross-segment set-move proposal. SEPARATE from the chatbot <c>ProfileOverrideProposal</c>
+/// channel — this is the AdaptiveFit selector's own queued suggestion, surfaced ONLY behind
+/// a user-initiated card-open. <c>TargetLevel</c> drives the canned non-medical card copy.</summary>
+public readonly record struct PendingSetMoveVm(int Band, int Shape, int TargetLevel, DateTime ExpiresAtUtc);
+
 /// <summary>
 /// Dashboard view model. Wires the mock Sensing ??Inference ??Feedback loop and
 /// exposes bindable state for the dashboard and overlay.
@@ -75,7 +81,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void SetSensingModeToWgc()
     {
         if (AppConfig.Mode == SensingMode.Wgc) return;
-        SetSensingMode(SensingMode.Wgc, "啟動保護");
+        SetSensingMode(SensingMode.Wgc, Loc("啟動保護", "Protection started"));
     }
 
     /// <summary>Per-press FOV tightening for the card's "緩和畫面" control (AF-1).
@@ -306,6 +312,54 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _activeProposal = null;
         try { _proposalExpiryTimer?.Stop(); } catch { /* ignore */ }
         _proposalExpiryTimer = null;
+    }
+
+    // ── P5 (propose-confirm): AdaptiveFit pending set-move channel ────────────
+    // A read-through mirror of the engine's queued cross-segment proposal. Kept
+    // entirely SEPARATE from _activeProposal (the chatbot channel) — distinct
+    // lifecycle, distinct card panel. The host (MainWindow) reads this ONLY behind
+    // a userInitiated card-open and routes Accept/Decline/Defer back through here.
+
+    /// <summary>P5: the engine's pending cross-segment set-move proposal projected to a
+    /// VM record, or null when none is queued. Pure read-through (no mutation); the
+    /// host filters by wall-clock at display time. Null-safe over the engine cast —
+    /// a non-Mock engine simply reports no pending move.</summary>
+    public PendingSetMoveVm? PendingSetMove =>
+        (_engine as MockInferenceEngine)?.PeekPendingSetMove() is { } p
+            ? new PendingSetMoveVm(p.Band, p.Shape, p.TargetLevel, p.ExpiresAtUtc)
+            : null;
+
+    /// <summary>P5: host calls this when the user clicked Accept on the in-card
+    /// set-move proposal. Confirms the move in the engine (offset-preserving) and
+    /// refreshes VM state so the overlay/dashboard reflect the new set + level.</summary>
+    public void AcceptPendingSetMove()
+    {
+        (_engine as MockInferenceEngine)?.ConfirmPendingSetMove();
+        UpdateFromState(_engine.Current);
+    }
+
+    /// <summary>P5: host calls this when the user clicked Decline. Backs the selector
+    /// off (cooldown ×2) and clears the pending suggestion in the engine.</summary>
+    public void DeclinePendingSetMove()
+    {
+        (_engine as MockInferenceEngine)?.DeclinePendingSetMove();
+    }
+
+    /// <summary>P5: host calls this when the user clicked Later / the card's 15s in-card
+    /// expiry fired. No-op against the engine state — the pending move is left queued
+    /// (neutral) so the next user-open can re-surface it; it decays on its own 24h TTL
+    /// if the user never engages.</summary>
+    public void DeferPendingSetMove()
+    {
+        // Intentionally no engine call — Defer is a "leave it for next time".
+    }
+
+    /// <summary>P5: host calls this when the card's in-card expiry fires with no user
+    /// action. Clears the pending suggestion in the engine WITHOUT a back-off (neutral
+    /// expiry, not a decline).</summary>
+    public void ExpirePendingSetMove()
+    {
+        (_engine as MockInferenceEngine)?.ClearPendingSetMove();
     }
 
     /// <summary>P2 (LOCKED, Wallpaper-Engine-style Pause/Resume mode shift):
@@ -728,13 +782,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var bootSnap = _habituationProfileStore.Load();
         if (bootSnap is not null)
         {
+            // Friendly, localized snapshot (UI/UX fine-tune 2026-06-07). ALL forensic
+            // fields are retained for the durable field-report anchor — only the labels
+            // follow the active UI language; the profile name / source stay verbatim
+            // (no-translate exception list).
+            string advZh = bootSnap.MedicalAdvisoryShown?.ToString() ?? "無";
+            string advEn = bootSnap.MedicalAdvisoryShown?.ToString() ?? "none";
             _log.Append(new EventLogEntry
             {
                 Category = "State.PersistedStateLoaded",
-                Message  = $"profile={bootSnap.Profile} source={bootSnap.ProfileSource} " +
-                           $"offset_pp={bootSnap.HabituationOffsetPp:F1} " +
-                           $"calibrations={bootSnap.CalibrationCount} " +
-                           $"advisory={bootSnap.MedicalAdvisoryShown?.ToString() ?? "none"}",
+                Message  = Loc(
+                    $"已載入個人化狀態：設定檔 {bootSnap.Profile}（來源 {bootSnap.ProfileSource}）、習慣化偏移 {bootSnap.HabituationOffsetPp:F1}pp、校正 {bootSnap.CalibrationCount} 次、醫療提示 {advZh}。",
+                    $"Loaded saved state: profile {bootSnap.Profile} (source {bootSnap.ProfileSource}), habituation offset {bootSnap.HabituationOffsetPp:F1}pp, {bootSnap.CalibrationCount} calibration(s), advisory {advEn}."),
             });
         }
         // Kirby's decision: "AI replies follow the language toggle." Wire the live
@@ -890,7 +949,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _engine.SetHabituationPaused(!HabituationPaused);
             UpdateFromState(_engine.Current);
             AppendLog("Habituation",
-                HabituationPaused ? "再適應已暫停 (Habituation paused)" : "再適應已恢復 (Habituation resumed)",
+                HabituationPaused ? Loc("再適應已暫停。", "Habituation paused.")
+                                  : Loc("再適應已恢復。", "Habituation resumed."),
                 CurrentState);
         });
         // Alpha-2 addendum: one-time vestibular prompt responses (auto-profiling world).
@@ -921,7 +981,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         CurrentState = _engine.Current;
         UpdateFromState(CurrentState);
-        AppendLog("System", "SenseEase started, inference loop ready.", CurrentState);
+        AppendLog("System", Loc("SenseEase 已啟動，推論迴圈就緒。", "SenseEase started, inference loop ready."), CurrentState);
     }
 
     private void ToggleDemoMode()
@@ -933,7 +993,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var next = AppConfig.Mode == SensingMode.Wgc
             ? SensingMode.Cursor
             : SensingMode.Wgc;
-        SetSensingMode(next, "感測模式切換");
+        SetSensingMode(next, Loc("感測模式切換", "Sensing mode switched"));
     }
 
     /// <summary>Switch to the given sensing provider, unsubscribing the previous
@@ -970,7 +1030,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _sensing.OpticalFlowSampled -= OnOpticalFlowSampled;
             _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
             _sensing.Start();
-            AppendLog("Error", $"感測模式切換失敗: {ex.GetType().Name}: {ex.Message}", CurrentState);
+            AppendLog("Error", Loc($"感測模式切換失敗：{ex.GetType().Name}：{ex.Message}", $"Sensing mode switch failed: {ex.GetType().Name}: {ex.Message}"), CurrentState);
         }
     }
 
@@ -1219,6 +1279,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         int current = ResolveDisplayedTier(CurrentState.VimsTier);
         int target  = Math.Clamp(current + (direction >= 0 ? 1 : -1), 1, 12);
+        // P5: a card +/- nudge defers the AdaptiveFit selector AND retracts any stale
+        // pending suggestion. This path never reaches ApplyUserFeedback (it rides the
+        // always-on baseline floor), so the OnManualAdjust wiring lives here.
+        (_engine as MockInferenceEngine)?.NotifyManualLevelNudge();
         SetSensingModeToWgc();
         if (target <= 1)
         {
@@ -1401,7 +1465,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         string videoPath = AppConfig.DemoVideoPath;
         if (string.IsNullOrEmpty(videoPath))
         {
-            AppendLog("Demo", "Demo video not found, running synthetic OFI ramp instead.", CurrentState);
+            AppendLog("Demo", Loc("找不到示範影片，改以合成 OFI 漸增模擬。", "Demo video not found, running synthetic OFI ramp instead."), CurrentState);
             StartSyntheticOfiRamp();
             return;
         }
@@ -1417,7 +1481,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // In Demo mode the sensor is MockSensingProvider (slider-fed) and
         // would ignore the on-screen video entirely.
         _modeBeforeDemo = AppConfig.Mode;
-        SetSensingMode(SensingMode.Wgc, "Demo 啟動，切換感測");
+        SetSensingMode(SensingMode.Wgc, Loc("示範啟動，切換感測", "Demo start — switching sensing"));
 
         // Auto-enable the overlay so the mask is visible the moment pressure
         // crosses threshold — the whole point of the demo is to SHOW the
@@ -1434,14 +1498,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _demoVideoWindow.Show();
 
             IsRunning = true;
-            AppendLog("Demo", $"Demo started — playing {Path.GetFileName(videoPath)} via WGC sensing.", CurrentState);
+            AppendLog("Demo", Loc($"示範開始 — 透過螢幕擷取播放 {Path.GetFileName(videoPath)}。", $"Demo started — playing {Path.GetFileName(videoPath)} via WGC sensing."), CurrentState);
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Demo 影片啟動失敗: {ex.GetType().Name}: {ex.Message}", CurrentState);
+            AppendLog("Error", Loc($"示範影片啟動失敗：{ex.GetType().Name}：{ex.Message}", $"Demo video failed to start: {ex.GetType().Name}: {ex.Message}"), CurrentState);
             if (_modeBeforeDemo is { } prior)
             {
-                SetSensingMode(prior, "Demo 還原感測");
+                SetSensingMode(prior, Loc("示範還原感測", "Demo — restoring sensing"));
                 _modeBeforeDemo = null;
             }
             StartSyntheticOfiRamp();
@@ -1454,7 +1518,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OpticalFlowIndex = 0;
         IsRunning = true;
         _demoTimer.Start();
-        AppendLog("Demo", "OFI auto-increment running (synthetic fallback).", CurrentState);
+        AppendLog("Demo", Loc("OFI 自動遞增執行中（合成備援）。", "OFI auto-increment running (synthetic fallback)."), CurrentState);
     }
 
     private void StopDemo()
@@ -1464,7 +1528,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _demoTimer.Stop();
             IsRunning = false;
-            AppendLog("Demo", $"Demo stopped, final OFI = {OpticalFlowIndex:F1}", CurrentState);
+            AppendLog("Demo", Loc($"示範已停止，最終 OFI = {OpticalFlowIndex:F1}", $"Demo stopped, final OFI = {OpticalFlowIndex:F1}"), CurrentState);
             return;
         }
 
@@ -1490,7 +1554,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         if (_modeBeforeDemo is { } prior)
         {
-            SetSensingMode(prior, "Demo 結束，還原感測");
+            SetSensingMode(prior, Loc("示範結束，還原感測", "Demo end — restoring sensing"));
             _modeBeforeDemo = null;
         }
 
@@ -1509,7 +1573,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         TimeSpan dur = DateTime.Now - _demoStartedAt;
         AppendLog("Demo",
-            $"Demo 結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
+            Loc($"示範結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
+                $"Demo ended — {dur.TotalSeconds:F0}s, mask activated {_demoMaskActivations}×, peak pressure {_demoPeakPressure:F0}."),
             CurrentState);
 
         // v0.9.1 diagnostic: Bug 2 reported "no calibration card / banner after demo"
@@ -1815,7 +1880,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _adjustmentLog.Append(new AdjustmentRecord { Parameter = "Reset", Source = "reset" });
         NluResponse = string.Empty;
         OnPropertyChanged(nameof(NluResponseVisible));
-        AppendLog("System", "State reset.", CurrentState);
+        AppendLog("System", Loc("狀態已重設。", "State reset."), CurrentState);
     }
 
     private void OnDemoTick(object? sender, EventArgs e)
@@ -1826,7 +1891,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (_demoOfi >= 150)
         {
             StopDemo();
-            AppendLog("Demo", "OFI reached max 150, demo ended.", CurrentState);
+            AppendLog("Demo", Loc("OFI 達到上限 150，示範結束。", "OFI reached max 150, demo ended."), CurrentState);
         }
     }
 
@@ -1849,8 +1914,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _lastMaskActive = state.MaskActive;
             AppendLog("Inference", state.MaskActive
-                ? $"Pressure {state.Pressure:F0} exceeded threshold, FOV mask activated."
-                : "Pressure returned below threshold, FOV mask released.", state);
+                ? Loc($"壓力 {state.Pressure:F0} 超過閾值，已啟動視野遮罩。", $"Pressure {state.Pressure:F0} exceeded threshold, FOV mask activated.")
+                : Loc("壓力回到閾值以下，已解除視野遮罩。", "Pressure returned below threshold, FOV mask released."), state);
         }
     }
     /// <summary>M5 test seam: drive the engine→state publication path

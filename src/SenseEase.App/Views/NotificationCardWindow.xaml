@@ -165,7 +165,8 @@
         </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/> <!-- proposal (grows the card above the bar) -->
+                <RowDefinition Height="Auto"/> <!-- chatbot proposal (grows the card above the bar) -->
+                <RowDefinition Height="Auto"/> <!-- P5 AdaptiveFit set-move proposal -->
                 <RowDefinition Height="Auto"/> <!-- the bar (main face / chat face) -->
             </Grid.RowDefinitions>
 
@@ -282,10 +283,88 @@
                 </StackPanel>
             </Border>
 
+            <!-- P5 (propose-confirm): the AdaptiveFit set-move proposal section.
+                 A SIBLING of the chatbot ProposalPanel (Row 0) above, MIRRORING its
+                 structure but with CANNED non-medical copy describing the SCREEN
+                 setting only (never the user's state). Surfaced ONLY behind a
+                 userInitiated card-open (the engine never opens a window). Driven by
+                 the ActiveSetMove code-behind property. -->
+            <Border Grid.Row="1"
+                    x:Name="SetMoveProposalPanel"
+                    Visibility="Collapsed"
+                    Background="{DynamicResource SurfaceMuted}"
+                    BorderBrush="{DynamicResource Separator}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12,10"
+                    Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock x:Name="SetMoveHeaderText"
+                               Text="SenseEase 建議"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Accent}"
+                               Margin="0,0,0,6"/>
+                    <TextBlock x:Name="SetMoveSummaryText"
+                               Text=""
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <Button x:Name="SetMoveAcceptBtn"
+                                    Content="{loc:T Zh='套用', En='Apply'}"
+                                    Click="OnSetMoveAcceptClicked"
+                                    Background="{DynamicResource Accent}"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Padding="14,6"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Cursor="Hand"/>
+                            <Button x:Name="SetMoveDeclineBtn"
+                                    Content="{loc:T Zh='不要', En='No thanks'}"
+                                    Click="OnSetMoveDeclineClicked"
+                                    Background="{DynamicResource SurfaceMuted}"
+                                    Foreground="{DynamicResource TextPrimary}"
+                                    BorderThickness="0"
+                                    Padding="14,6"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    Cursor="Hand"/>
+                            <Button x:Name="SetMoveLaterBtn"
+                                    Content="{loc:T Zh='稍後', En='Later'}"
+                                    Click="OnSetMoveLaterClicked"
+                                    Background="Transparent"
+                                    Foreground="{DynamicResource TextSecondary}"
+                                    BorderBrush="{DynamicResource Separator}"
+                                    BorderThickness="1"
+                                    Padding="14,6"
+                                    FontSize="12"
+                                    Cursor="Hand"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2"
+                                   x:Name="SetMoveExpiryText"
+                                   Text=""
+                                   FontSize="10"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- ═══ THE BAR ════════════════════════════════════════════════════
                  Two faces stacked in the same cell; only one is visible at a
                  time. FlipBtn toggles MainFace ⇄ ChatFace. -->
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>   <!-- SHARED close (×) — visible on BOTH faces -->
                     <RowDefinition Height="*"/>      <!-- the two stacked faces -->

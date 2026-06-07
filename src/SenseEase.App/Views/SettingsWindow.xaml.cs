@@ -58,6 +58,14 @@ public partial class SettingsWindow : Window
         get => ContentHost.ResetRequested;
         set => ContentHost.ResetRequested = value;
     }
+    /// <summary>Pass-through for the "open Event Log window" action (2026-06-07).
+    /// Wired by the host that owns the MainViewModel (MainWindow); left unset on
+    /// paths that don't (the Event Log card then stays hidden).</summary>
+    public Action? OpenEventLog
+    {
+        get => ContentHost.OpenEventLog;
+        set => ContentHost.OpenEventLog = value;
+    }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 

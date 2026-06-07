@@ -220,4 +220,10 @@ public static class SenseDefaults
     /// <summary>Multiplier applied to the REMAINING cooldown when a proposal is declined —
     /// each decline doubles the wait, so repeated rejection backs the selector off fast.</summary>
     public const double CooldownDeclineMultiplier = 2.0;
+
+    /// <summary>P5 (propose-confirm): time-to-live for an UNCONFIRMED cross-segment set-move
+    /// proposal queued by the selector. The proposal is surfaced ONLY when the user next opens
+    /// the pop-up; if they never do within this window it decays and the selector is free to
+    /// re-evaluate. 24h. In-memory only (never persisted).</summary>
+    public const double SetMoveProposalTtlSeconds = 86400; // 24h; unconfirmed system suggestion decays
 }

@@ -143,4 +143,86 @@
         </Setter>
     </Style>
 
+    <!-- Calm iOS-style toggle-switch (shared). A rounded pill TRACK that fills
+         {DynamicResource Accent} when checked, a sliding THUMB, ≥44px-wide hit
+         area, hover / keyboard-focus / disabled (0.4 opacity) states. The
+         content label sits to the right of the switch; the whole row keeps the
+         original click-to-toggle behaviour. Only the visual chrome changes —
+         every x:Name, Checked/Unchecked handler and IsChecked binding on the
+         consumers is untouched.
+         Moved here from SettingsContent.xaml (UI/UX fine-tune 2026-06-07) so the
+         Settings page AND the dashboard's Overlay Adjustment toggle share ONE
+         source and can't drift. Both views merge this theme dictionary. -->
+    <Style x:Key="SettingSwitch" TargetType="CheckBox">
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border Background="Transparent" Padding="0">
+                        <StackPanel Orientation="Horizontal">
+                            <!-- ≥44px-wide hit area: 44-wide cell wraps the 40px track -->
+                            <Grid x:Name="SwitchHit" Width="44" Height="26" VerticalAlignment="Center">
+                                <Border x:Name="Track"
+                                        Width="40" Height="24"
+                                        CornerRadius="12"
+                                        Background="{DynamicResource SurfaceMuted}"
+                                        BorderBrush="{DynamicResource Separator}"
+                                        BorderThickness="1"/>
+                                <Border x:Name="Thumb"
+                                        Width="18" Height="18"
+                                        CornerRadius="9"
+                                        HorizontalAlignment="Left"
+                                        Margin="3,0,0,0"
+                                        Background="{DynamicResource TextOnComfort}"/>
+                            </Grid>
+                            <ContentPresenter x:Name="Label"
+                                              Margin="10,0,0,0"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"
+                                              SnapsToDevicePixels="True"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- Checked: track fills Accent, thumb slides right -->
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}"/>
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+                            <Setter TargetName="Thumb" Property="Margin" Value="0,0,3,0"/>
+                        </Trigger>
+                        <!-- Hover: gentle track lift -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                                <Condition Property="IsChecked" Value="False"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource Separator}"/>
+                        </MultiTrigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                                <Condition Property="IsChecked" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentHover}"/>
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
+                        </MultiTrigger>
+                        <!-- Keyboard focus: Accent ring around the track (in addition to FocusVisualStyle) -->
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            <Setter TargetName="Track" Property="BorderThickness" Value="2"/>
+                        </Trigger>
+                        <!-- Disabled: dim whole control to 0.4 opacity -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

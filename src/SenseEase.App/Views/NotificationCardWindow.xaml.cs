@@ -114,6 +114,138 @@ public partial class NotificationCardWindow : Window
 
     private ProfileOverrideProposal? _activeProposal;
 
+    // ── P5 (propose-confirm): AdaptiveFit set-move proposal section ──────────
+    // A SIBLING of the chatbot proposal section above, MIRRORING its Accept/Decline/
+    // Later + 15s in-card countdown structure. Distinct channel: the engine's own
+    // queued cross-segment set move, surfaced ONLY behind a userInitiated card-open.
+    // CANNED non-medical copy — describes the SCREEN setting only, never the user's
+    // state. The 15s expiry is the in-card defer countdown (the engine's own 24h TTL
+    // is the durable decay); on expiry the host clears the engine's pending neutrally.
+
+    /// <summary>P5: raised when the user clicks Apply on the set-move proposal. Host
+    /// calls <c>_viewModel.AcceptPendingSetMove()</c>.</summary>
+    public event EventHandler<PendingSetMoveVm>? SetMoveAccepted;
+
+    /// <summary>P5: raised when the user clicks No thanks. Host calls
+    /// <c>_viewModel.DeclinePendingSetMove()</c> (selector back-off).</summary>
+    public event EventHandler<PendingSetMoveVm>? SetMoveDeclined;
+
+    /// <summary>P5: raised when the user clicks Later. Host calls
+    /// <c>_viewModel.DeferPendingSetMove()</c> (leave it queued for next open).</summary>
+    public event EventHandler<PendingSetMoveVm>? SetMoveDeferred;
+
+    /// <summary>P5: raised when the in-card 15s countdown elapses with no user action.
+    /// Host calls <c>_viewModel.ExpirePendingSetMove()</c> (neutral engine clear).</summary>
+    public event EventHandler<PendingSetMoveVm>? SetMoveExpired;
+
+    private PendingSetMoveVm? _activeSetMove;
+    private DispatcherTimer? _setMoveCountdownTimer;
+
+    /// <summary>P5: the AdaptiveFit selector's currently-surfaced set-move proposal, or
+    /// null. Setting a non-null value reveals the set-move panel + starts the 15s in-card
+    /// countdown; setting null hides the panel + stops the countdown. Mirrors
+    /// <see cref="ActiveProposal"/>.</summary>
+    public PendingSetMoveVm? ActiveSetMove
+    {
+        get => _activeSetMove;
+        set
+        {
+            _activeSetMove = value;
+            if (value is null)
+            {
+                SetMoveProposalPanel.Visibility = Visibility.Collapsed;
+                StopSetMoveCountdown();
+            }
+            else
+            {
+                ApplySetMoveToUi(value.Value);
+                SetMoveProposalPanel.Visibility = Visibility.Visible;
+                StartSetMoveCountdown();
+            }
+        }
+    }
+
+    /// <summary>P5: CANNED non-medical copy describing the SCREEN setting only (§6) —
+    /// no LLM text, never the user's state/symptoms. Localized zh/en.</summary>
+    private void ApplySetMoveToUi(PendingSetMoveVm move)
+    {
+        SetMoveSummaryText.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+            $"建議調整為更穩定的畫面設定（L{move.TargetLevel}）",
+            $"Suggest a calmer view setting (L{move.TargetLevel})");
+        SetMoveAcceptBtn.IsEnabled  = true;
+        SetMoveDeclineBtn.IsEnabled = true;
+        SetMoveLaterBtn.IsEnabled   = true;
+        UpdateSetMoveCountdownText();
+    }
+
+    private void StartSetMoveCountdown()
+    {
+        StopSetMoveCountdown();
+        int remaining = 15;
+        UpdateSetMoveCountdownText(remaining);
+        _setMoveCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _setMoveCountdownTimer.Tick += (_, _) =>
+        {
+            if (_activeSetMove is null) { StopSetMoveCountdown(); return; }
+            remaining--;
+            if (remaining <= 0)
+            {
+                // Capture BEFORE any mutation so the event payload is stable.
+                var m = _activeSetMove.Value;
+                StopSetMoveCountdown();
+                // Surface a visible tombstone then notify the host so the engine's
+                // pending is cleared neutrally (no back-off — the user simply didn't
+                // engage this time).
+                SetMoveAcceptBtn.IsEnabled  = false;
+                SetMoveDeclineBtn.IsEnabled = false;
+                SetMoveLaterBtn.IsEnabled   = false;
+                SetMoveExpiryText.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                    "已過期", "Expired");
+                _activeSetMove = null;
+                SetMoveExpired?.Invoke(this, m);
+                return;
+            }
+            UpdateSetMoveCountdownText(remaining);
+        };
+        _setMoveCountdownTimer.Start();
+    }
+
+    private void StopSetMoveCountdown()
+    {
+        try { _setMoveCountdownTimer?.Stop(); } catch { /* ignore */ }
+        _setMoveCountdownTimer = null;
+    }
+
+    private void UpdateSetMoveCountdownText(int? seconds = null)
+    {
+        if (seconds is int s)
+            SetMoveExpiryText.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                $"{s} 秒後消失", $"{s}s");
+    }
+
+    private void OnSetMoveAcceptClicked(object sender, RoutedEventArgs e)
+    {
+        if (_activeSetMove is not { } m) return;
+        SetMoveAcceptBtn.IsEnabled = false;
+        ActiveSetMove = null;
+        SetMoveAccepted?.Invoke(this, m);
+    }
+
+    private void OnSetMoveDeclineClicked(object sender, RoutedEventArgs e)
+    {
+        if (_activeSetMove is not { } m) return;
+        ActiveSetMove = null;
+        SetMoveDeclined?.Invoke(this, m);
+    }
+
+    private void OnSetMoveLaterClicked(object sender, RoutedEventArgs e)
+    {
+        if (_activeSetMove is not { } m) return;
+        ActiveSetMove = null;
+        SetMoveDeferred?.Invoke(this, m);
+        HideWithSlide();
+    }
+
     /// <summary>Top-center revision: true when the card was opened by an explicit
     /// user action (clicking the bar / tray) rather than auto-surfaced on a
     /// tier-up. A user-opened card lingers (60 s idle window); an auto-surfaced
@@ -857,7 +989,7 @@ public partial class NotificationCardWindow : Window
     /// decline the user must see; auto-fading it away would silently drop a
     /// decision (POPUP-AND-HABITUATION-INTEGRATION-AUDIT: "proposal stays
     /// pending, user might miss it"). Internal for unit coverage.</summary>
-    internal bool ShouldBeginIdleFade() => _activeProposal is null;
+    internal bool ShouldBeginIdleFade() => _activeProposal is null && _activeSetMove is null;
 
     private void OnIdleTimerTick(object? sender, EventArgs e)
     {
