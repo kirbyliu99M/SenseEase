@@ -67,6 +67,27 @@ public interface IInferenceEngine
     /// <summary>Reset all personalization (FOV offset + shader knobs) back to baseline.</summary>
     void ResetPersonalization();
 
+    // ── G1 (Alpha-2): absolute shader-parameter set + shader-only reset ──────────
+    // The chatbot's slash-command / strict-language path resolves a high-confidence
+    // user request ("turn the grid off") into a single absolute set, bypassing the
+    // delta-only [-0.3,+0.3] ApplyShaderAdjustment cap. Both carry DEFAULT interface
+    // bodies (matching the ResolveLevel/SetLevel default-method style above) so any
+    // non-Mock implementer / test stub keeps compiling with a safe no-op.
+
+    /// <summary>G1: ABSOLUTE-set a single shader parameter. <paramref name="value"/>
+    /// is in the parameter's own units ([0,1] for Mask/Grid/Feather; percent for
+    /// <see cref="ShaderParam.FovRadius"/>). The caller (ShaderCommandLexicon) is
+    /// responsible for safety validation (e.g. the 0.20 mask floor); the engine does
+    /// a final defensive clamp only. Default no-op so flag-off / stub implementers
+    /// are unaffected.</summary>
+    void SetShaderParam(ShaderParam param, double value) { /* no-op default; see MockInferenceEngine */ }
+
+    /// <summary>G1: reset the shader knobs (mask / grid / feather) AND the user FOV
+    /// offset back to the CURRENT habituation profile's defaults. MUST NOT touch the
+    /// earned habituation <c>_offset</c> (Q4.5 / C5) — this clears transient chatbot
+    /// shader state only, never weeks of habituation progress. Default no-op.</summary>
+    void ResetShaderToProfileDefault() { /* no-op default; see MockInferenceEngine */ }
+
     /// <summary>Manually pause or resume the Habituation Engine from the dashboard.</summary>
     void SetHabituationPaused(bool paused);
 

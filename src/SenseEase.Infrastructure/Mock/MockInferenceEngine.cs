@@ -497,6 +497,76 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
+    /// <summary>G1: ABSOLUTE-set a single shader parameter from the chatbot slash-
+    /// command / strict-language path. Unlike <see cref="ApplyShaderAdjustment"/>
+    /// (delta-only, [-0.3,+0.3] capped upstream), this writes the field directly —
+    /// the semantics are "the user told us exactly what they want". Mask/Grid/Feather
+    /// write the [0,1] field then defensively <see cref="ShaderParams.Clamp"/>; FOV is
+    /// a best-effort absolute via the user FOV offset. Marks the shader as
+    /// user-modified (A7) so a later profile change won't re-seed over the choice, and
+    /// mirrors onto <c>Current.Shader</c> so the overlay re-renders immediately even
+    /// when the sensing loop is stopped (no Update() tick will arrive).</summary>
+    public void SetShaderParam(ShaderParam param, double value)
+    {
+        lock (_gate)
+        {
+            switch (param)
+            {
+                case ShaderParam.MaskDepth:
+                    _shader.MaskDepth = Math.Clamp(value, 0.0, 1.0);
+                    break;
+                case ShaderParam.GridVisibility:
+                    _shader.GridVisibility = Math.Clamp(value, 0.0, 1.0);
+                    break;
+                case ShaderParam.FeatherWidth:
+                    _shader.FeatherWidth = Math.Clamp(value, 0.0, 1.0);
+                    break;
+                case ShaderParam.FovRadius:
+                {
+                    // Best-effort ABSOLUTE FOV: the composed radius is
+                    // ComputeFovRadiusPercent(pressure) + _userFovOffset + habituation
+                    // offset (see ComposeFovRadius). Solve _userFovOffset so the
+                    // composed result targets `value`, then clamp the offset's working
+                    // range (-60..0; FOV is a tighten-only knob from chatbot feedback).
+                    // The composed radius is finally clamped to
+                    // [MinComposedFovRadius, 100] by ComposeFovRadius itself.
+                    int target = (int)Math.Round(Math.Clamp(value, SenseDefaults.MinComposedFovRadius, 100));
+                    int natural = ComputeFovRadiusPercent(Current.Pressure) + _habituation.HabituationOffset;
+                    _userFovOffset = Math.Clamp(target - natural, -60, 0);
+                    break;
+                }
+            }
+
+            _shader.Clamp();
+            _shaderUserModified = true; // A7: user owns the shader knobs from here on
+
+            // Refresh Current via the SAME path SetLevel / ApplySetMove use so the
+            // overlay re-renders without waiting for the next Update() tick.
+            Current.Shader           = _shader;
+            Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+        }
+    }
+
+    /// <summary>G1: reset the shader knobs + user FOV offset to the CURRENT profile's
+    /// defaults. Reuses the existing <see cref="SeedShaderFromProfile"/> (A7) so the
+    /// per-profile baseline is the single source of truth. Q4.5 (locked): this clears
+    /// transient chatbot shader state ONLY — it MUST NOT call <c>_habituation.Reset</c>
+    /// or zero the earned habituation <c>_offset</c> (that conflation is the C5 bug).
+    /// Mirrors onto <c>Current</c> via the same compose path so the overlay re-renders.</summary>
+    public void ResetShaderToProfileDefault()
+    {
+        lock (_gate)
+        {
+            SeedShaderFromProfile(_habituation.CurrentProfile); // sets _shader + Current.Shader
+            _userFovOffset      = 0;
+            _shaderUserModified = false; // a later profile change may re-seed again
+
+            // Q4.5: deliberately NO _habituation.Reset / ResetTransientState / _offset
+            // zeroing here — the earned habituation offset (weeks of progress) survives.
+            Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+        }
+    }
+
     public void ResetPersonalization()
     {
         lock (_gate)

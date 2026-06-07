@@ -487,6 +487,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             return; // skip LLM call entirely
         }
 
+        // ── G1: strict-language + slash-command shader control (Alpha-2) ─────
+        // AFTER the SafetyFloor short-circuit AND the profile-picker interceptor,
+        // BEFORE the LLM/NLU dispatch. A high-confidence "/grid off" / "把格線完全
+        // 關掉" resolves INSTANTLY and absolute-set (bypassing the delta-only
+        // [-0.3,+0.3] LLM path) → no 5-30 s iGPU round-trip. SetShaderParam /
+        // ResetShaderToProfileDefault are on IInferenceEngine now (no cast needed).
+        var shaderCmd = ShaderCommandLexicon.Parse(text, LocalizationManager.Current.IsEnglish);
+        if (shaderCmd.Kind != ShaderCommandKind.None)
+        {
+            InputText = string.Empty;
+            HandleShaderCommand(shaderCmd, text);
+            return; // local reply only — no LLM
+        }
+
         // Cancel any in-flight fake-stream animation from the prior turn so its
         // dispatcher updates can't overwrite this turn's bubble content.
         try { _streamCts.Cancel(); } catch { /* ignore */ }
@@ -1140,6 +1154,102 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             Messages.Add(new ChatMessageViewModel(content, ChatRole.Assistant));
             PersistMessage(ChatRole.Assistant, content);
         });
+    }
+
+    /// <summary>G1: execute a parsed shader slash-command / strict-language command
+    /// LOCALLY (no LLM). Echoes the user turn, applies the engine action, pushes the
+    /// command's local reply, and logs an audit entry with the pattern id + resolved
+    /// param + old/new value. No PII — the raw utterance is NEVER logged (pattern id
+    /// only), preserving the project-wide no-PII-in-logs invariant.</summary>
+    private void HandleShaderCommand(ShaderCommand cmd, string userText)
+    {
+        // Capture the pre-change value for the audit log (before the engine mutates).
+        var beforeShader = _engine.Current.Shader;
+        int beforeFov = _engine.Current.FovRadiusPercent;
+
+        string reply = cmd.Reply;
+        double oldValue = 0, newValue = 0;
+
+        switch (cmd.Kind)
+        {
+            case ShaderCommandKind.SetParam when cmd.Param is ShaderParam p:
+                oldValue = p switch
+                {
+                    ShaderParam.MaskDepth      => beforeShader.MaskDepth,
+                    ShaderParam.GridVisibility => beforeShader.GridVisibility,
+                    ShaderParam.FeatherWidth   => beforeShader.FeatherWidth,
+                    ShaderParam.FovRadius      => beforeFov,
+                    _                          => 0,
+                };
+                newValue = cmd.Value;
+                _engine.SetShaderParam(p, cmd.Value);
+                break;
+
+            case ShaderCommandKind.ResetShader:
+                _engine.ResetShaderToProfileDefault();
+                break;
+
+            case ShaderCommandKind.Show:
+            {
+                var s = _engine.Current.Shader;
+                reply = ShaderCommandLexicon.ComposeShowReply(
+                    _engine.Current.FovRadiusPercent, s.MaskDepth, s.GridVisibility, s.FeatherWidth);
+                break;
+            }
+
+            case ShaderCommandKind.Help:
+            case ShaderCommandKind.Reject:
+                // reply already holds the help text / rejection reason.
+                break;
+        }
+
+        // Echo the user's turn (mirrors the other local-reply short-circuits), then
+        // push the local reply — both persisted, no LLM round-trip.
+        _dispatcher.Invoke(() =>
+        {
+            Messages.Add(new ChatMessageViewModel(userText, ChatRole.User));
+            PersistMessage(ChatRole.User, userText);
+        });
+        PushAssistantBubble(reply);
+
+        LogShaderCommand(cmd, oldValue, newValue);
+    }
+
+    /// <summary>G1 audit: one IEventLogStore entry per accepted/rejected shader
+    /// command. Category distinguishes the slash path from the strict-language path
+    /// (pattern-id prefix "slash." vs "nl."). Payload carries pattern id + resolved
+    /// param + old/new value ONLY — never the raw utterance (no-PII rule).</summary>
+    private void LogShaderCommand(ShaderCommand cmd, double oldValue, double newValue)
+    {
+        if (_eventLog is null) return;
+        string category = cmd.PatternId.StartsWith("slash.", StringComparison.Ordinal)
+            ? "Chatbot.SlashCommand"
+            : "Chatbot.StrictLanguage";
+        string paramName = cmd.Param?.ToString() ?? "—";
+        string msg = cmd.Kind switch
+        {
+            ShaderCommandKind.SetParam =>
+                $"pattern={cmd.PatternId} param={paramName} {oldValue:0.###}→{newValue:0.###}",
+            ShaderCommandKind.ResetShader => $"pattern={cmd.PatternId} reset shader→profile default",
+            ShaderCommandKind.Show        => $"pattern={cmd.PatternId} show",
+            ShaderCommandKind.Help        => $"pattern={cmd.PatternId} help",
+            ShaderCommandKind.Reject      => $"pattern={cmd.PatternId} REJECTED",
+            _                             => $"pattern={cmd.PatternId}",
+        };
+        try
+        {
+            _eventLog.Append(new EventLogEntry
+            {
+                Timestamp    = DateTime.UtcNow,
+                Category     = category,
+                Message      = msg,
+                Ofi          = _engine.Current.RawOpticalFlowIndex,
+                Pressure     = _engine.Current.Pressure,
+                FovRadius    = _engine.Current.FovRadiusPercent,
+                MaskSnapshot = _engine.Current.MaskActive ? "ON" : "off",
+            });
+        }
+        catch { /* best-effort; an audit-write failure must never break the chat turn */ }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
