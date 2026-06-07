@@ -89,7 +89,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; ignoreversion          -- always overwrite (we don't rely on FileVersion stamps)
 ; recursesubdirs         -- include models\, runtimes\, locale subfolders
 ; createallsubdirs       -- preserve directory structure for runtimes\win-x64\native\cuda12\ etc.
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Excludes (H28)         -- never package debug symbols, doc-comment XML, stray logs, or
+;                           the .NET createdump diagnostic tool; they bloat the installer
+;                           and ship nothing the runtime needs.
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.log,createdump.exe"
 
 [Icons]
 ; Start-menu shortcut (always created).
