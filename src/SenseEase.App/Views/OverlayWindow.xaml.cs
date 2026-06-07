@@ -376,6 +376,16 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         int tier = Math.Clamp(state.VimsTier, 1, 12);
         var (tR, tG, tB, tAlpha) = VimsLevels[tier - 1];
 
+        // Alpha-2 (selector→renderer): the active AdaptiveFit set's curve overrides the mask
+        // DEPTH (peak alpha) when set (>= 0); the HUE/colour stays tier-keyed (above). This is
+        // what makes the 50-set selector's chosen envelope actually visible — previously the
+        // set's PeakMaskAlpha was computed but ignored and every set rendered the static tier
+        // alpha. -1 (flag OFF / no override) keeps the static tier alpha, byte-identical to
+        // before. set0 resolves to exactly tAlpha, so the default set looks unchanged. L1's
+        // override is always 0.00 (the D6 day-1 floor is preserved end-to-end).
+        if (state.MaskPeakAlphaOverride >= 0.0)
+            tAlpha = state.MaskPeakAlphaOverride;
+
         // Seed on first tick so we don't ease in from black/zero at startup.
         if (!_displayedSeeded)
         {

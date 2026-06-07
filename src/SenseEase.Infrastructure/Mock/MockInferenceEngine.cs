@@ -433,6 +433,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
             {
                 LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
                 Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
+                // Alpha-2 (selector→renderer): surface the active set's mask DEPTH so the
+                // selector's chosen envelope actually reaches the overlay. set0 ⇒ the raw
+                // VimsLevels alpha (no visible change); a selector-moved (deformed) set ⇒ a
+                // deeper/shallower mask at the same tier. A set move from the tick below lands
+                // next frame — invisible given the overlay's ~250ms smoothing + 300s cooldown.
+                Current.MaskPeakAlphaOverride = lp.PeakMaskAlpha;
 
                 // ── Selector tick (GROUP D) ──────────────────────────────────
                 // Conservative cadence: accumulate dt and only do the durable
@@ -776,6 +782,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // Apply the active set's FOV floor (set0 ⇒ 15, a no-op vs today).
             LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
             Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
+            // Alpha-2 (selector→renderer): refresh the mask-depth override so a level snap
+            // re-renders the active set's alpha immediately (out-of-tick path). Gated on the
+            // flag — OFF ⇒ -1 ⇒ overlay falls back to its static tier alpha (byte-identical).
+            Current.MaskPeakAlphaOverride = _adaptiveFitSelectorEnabled ? lp.PeakMaskAlpha : -1.0;
         }
     }
 
@@ -897,6 +907,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
         Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
         LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
         Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
+        // Alpha-2 (selector→renderer): the NEW set's mask depth reaches the overlay
+        // immediately on a silent move (this runs inside the flag-on selector tick).
+        Current.MaskPeakAlphaOverride = lp.PeakMaskAlpha;
     }
 
     /// <summary>Vestibular guard (SPEC item 4): for a user carrying the vestibular

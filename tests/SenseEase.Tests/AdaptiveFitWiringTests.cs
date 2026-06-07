@@ -164,6 +164,53 @@ public class AdaptiveFitWiringTests
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // 1b. SELECTOR → RENDERER — the active set's mask DEPTH reaches the overlay.
+    //     Alpha-2 audit B1: PeakMaskAlpha was computed but ignored; the overlay
+    //     rendered the static tier alpha for EVERY set. SenseState.MaskPeakAlphaOverride
+    //     now carries the active set's resolved peak alpha so the selector's chosen
+    //     envelope is actually visible (-1 ⇒ flag OFF ⇒ overlay's static tier alpha).
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void FlagOn_MaskPeakAlphaOverride_TracksActiveSetResolvedAlpha()
+    {
+        bool original = AppConfig.AdaptiveFitSelectorEnabled;
+        try
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = true;
+            var engine = new MockInferenceEngine { AdaptiveFitSelectorEnabled = true };
+
+            // A few calm ticks (no seeded durable log ⇒ no set move ⇒ active set stays Set0).
+            SenseState s = engine.Update(0.0, "Passenger", ClockBase);
+            for (int i = 1; i < 5; i++)
+                s = engine.Update(60.0, "Passenger", ClockBase.AddSeconds(i * TickSeconds));
+
+            // The overlay-facing override carries the ACTIVE SET's resolved peak alpha for the
+            // displayed tier — the wiring that makes the selector's chosen depth visible.
+            Assert.True(s.MaskPeakAlphaOverride >= 0.0);
+            Assert.Equal(engine.ResolveLevel(s.VimsTier).PeakMaskAlpha, s.MaskPeakAlphaOverride);
+            // Set0 ≡ today ⇒ the override equals the static VimsLevels alpha (default set unchanged).
+            Assert.Equal(OverlayWindow.VimsLevels[s.VimsTier - 1].Alpha, s.MaskPeakAlphaOverride);
+        }
+        finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
+    }
+
+    [Fact]
+    public void FlagOff_MaskPeakAlphaOverride_IsMinusOne_OverlayKeepsStaticTierAlpha()
+    {
+        bool original = AppConfig.AdaptiveFitSelectorEnabled;
+        try
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = false;
+            var engine = new MockInferenceEngine(); // instance flag defaults OFF
+            SenseState s = engine.Update(60.0, "Passenger", ClockBase);
+            // -1 ⇒ overlay falls back to its static tier-keyed VimsLevels alpha (byte-identical).
+            Assert.Equal(-1.0, s.MaskPeakAlphaOverride);
+        }
+        finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // 2. FLAG-OFF PARITY — the #1 invariant still holds after Group D
     // ──────────────────────────────────────────────────────────────────────────
 

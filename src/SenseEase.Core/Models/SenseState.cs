@@ -49,6 +49,15 @@ public class SenseState
     /// projection, not this raw value.</summary>
     public int VimsTier { get; set; } = 1;
 
+    /// <summary>Alpha-2 (selector→renderer): when &gt;= 0, the peak mask alpha (0..1) the
+    /// OverlayWindow must render for the CURRENT tier, resolved from the ACTIVE AdaptiveFit
+    /// set's curve — so the selector's chosen mask DEPTH actually reaches the screen instead
+    /// of being computed-but-ignored. -1 (the default) means "no override": the overlay uses
+    /// its static tier-keyed VimsLevels alpha, byte-identical to pre-Alpha-2 / flag-OFF. Only
+    /// the depth is set-driven; the hue/colour stays tier-keyed in the overlay. set0 resolves
+    /// to exactly the VimsLevels alpha (pinned drift test), so the default set is unchanged.</summary>
+    public double MaskPeakAlphaOverride { get; set; } = -1.0;
+
     /// <summary>"Driver" or "Passenger" — affects passive optical-flow weighting.</summary>
     public string Mode { get; set; } = "Passenger";
 
