@@ -286,36 +286,40 @@
                  Two faces stacked in the same cell; only one is visible at a
                  time. FlipBtn toggles MainFace ⇄ ChatFace. -->
             <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>   <!-- SHARED close (×) — visible on BOTH faces -->
+                    <RowDefinition Height="*"/>      <!-- the two stacked faces -->
+                </Grid.RowDefinitions>
+
+                <!-- SHARED close (×): lives in the bar container, NOT inside a single face,
+                     so it stays visible after the flip to the chat face. Bug-fix: the × used
+                     to be a child of MainFace only, so flipping to ChatFace hid it. Both faces
+                     now sit in row 1 BELOW this ×, sharing one vertical band — so the flip no
+                     longer shifts the visible content up/down inside the card. -->
+                <Button Grid.Row="0"
+                        x:Name="CloseBtn"
+                        Content="×"
+                        HorizontalAlignment="Right"
+                        Width="22" Height="22"
+                        Padding="0" BorderThickness="0"
+                        Background="Transparent"
+                        Foreground="{DynamicResource TextTertiary}"
+                        FontSize="16" FontWeight="Bold"
+                        Cursor="Hand"
+                        Panel.ZIndex="10"
+                        AutomationProperties.Name="{loc:T Zh='關閉通知', En='Close'}"
+                        Click="OnCloseClicked"/>
 
                 <!-- ── MAIN FACE (default) ──────────────────────────────────── -->
-                <Grid x:Name="MainFace">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>     <!-- close (×), spans the top -->
-                        <RowDefinition Height="*"/>        <!-- status + controls, aligned -->
-                    </Grid.RowDefinitions>
+                <Grid x:Name="MainFace" Grid.Row="1">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>      <!-- status text -->
                         <ColumnDefinition Width="Auto"/>   <!-- controls -->
                     </Grid.ColumnDefinitions>
 
-                    <!-- TOP: close (×) spans the full width, right-aligned, so the status
-                         label + controls below share ONE vertically-centred row (no offset). -->
-                    <Button Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
-                            x:Name="CloseBtn"
-                            Content="×"
-                            HorizontalAlignment="Right"
-                            Width="22" Height="22"
-                            Padding="0" BorderThickness="0"
-                            Background="Transparent"
-                            Foreground="{DynamicResource TextTertiary}"
-                            FontSize="16" FontWeight="Bold"
-                            Cursor="Hand"
-                            AutomationProperties.Name="{loc:T Zh='關閉通知', En='Close'}"
-                            Click="OnCloseClicked"/>
-
-                    <!-- LEFT (row 1): status text, vertically centred to align with the
+                    <!-- LEFT: status text, vertically centred to align with the
                          controls cluster on the right. -->
-                    <StackPanel Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
                         <!-- The 5級「動態感」status is the ONLY user-facing status; the label
                              ("動態感 · 極低" / "Very Calm") is self-contained, no caption. -->
 
@@ -348,9 +352,9 @@
                                    AutomationProperties.HelpText="{loc:T Zh='通知內容', En='Notification details'}"/>
                     </StackPanel>
 
-                    <!-- RIGHT (row 1): controls — +/- depth pills, separator, 暫停 / 設定 /
+                    <!-- RIGHT: controls — +/- depth pills, separator, 暫停 / 設定 /
                          flip — vertically centred so they align with the status label. -->
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal"
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"
                                 HorizontalAlignment="Right" VerticalAlignment="Center">
                             <!-- HUD-card rework: intervention-depth cluster, now
                                  ordered [ − ] [ level ] [ + ] (minus LEFT, plus
@@ -470,11 +474,13 @@
                 </Grid>
 
                 <!-- ── CHAT FACE (shown after flip) ─────────────────────────── -->
-                <!-- Hidden (not Collapsed) so it is still MEASURED while the main face
-                     shows: the card then sizes to the MAX of both faces and keeps a
-                     constant footprint across a flip (no resize / re-centre jump).
-                     VerticalAlignment=Center keeps the chat row centred in that height. -->
-                <Grid x:Name="ChatFace" Visibility="Hidden" VerticalAlignment="Center">
+                <!-- Shares row 1 with MainFace (below the persistent × in row 0). Hidden (not
+                     Collapsed) so it is still MEASURED while the main face shows: the card sizes
+                     to the MAX of both faces and keeps a constant footprint across a flip (no
+                     resize / re-centre jump). VerticalAlignment=Center centres the chat row in
+                     that band — the SAME band MainFace's content is centred in, so the visible
+                     content no longer jumps to a different position when the user flips. -->
+                <Grid x:Name="ChatFace" Grid.Row="1" Visibility="Hidden" VerticalAlignment="Center">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>  <!-- back arrow -->
                         <ColumnDefinition Width="*"/>     <!-- input -->

@@ -679,8 +679,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
             }
             _profileSnapshotDirty = true;
             MaybePersistProfileSnapshot();
-            AppendAdaptiveFitEvent("Habituation.VestibularProtection",
-                $"vestibular protection {(enabled ? "ENABLED" : "disabled")} (source={source})");
+            // NOTE: deliberately NO event-log entry here. The App-layer caller
+            // (MainViewModel.AnswerVestibularPrompt / the Settings regret toggle) already
+            // writes ONE localized, user-facing "Vestibular" line. Emitting an English/UTC
+            // "Habituation.VestibularProtection" event here too produced the duplicate,
+            // bilingual pair Kirby saw in the dashboard Event Log. The durable state still
+            // round-trips via the persisted snapshot (VestibularProtectionEnabled), so no
+            // forensic signal is lost by dropping the engine-side line.
         }
     }
 

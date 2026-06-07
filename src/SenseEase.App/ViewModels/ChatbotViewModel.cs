@@ -136,10 +136,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     // LLM calibration session via _llmCalibrationFactory) or Skip (just
     // dismisses). Auto-dismisses after 30 s if the user doesn't act.
 
+    /// <summary>Auto-profiling addendum (<see cref="AppConfig.AutoProfilingEnabled"/>):
+    /// explicit calibration is cancelled, so the chatbot tab's "Recalibrate" entry — and
+    /// the whole 5-card / LLM-calibration QA it opens — must be unreachable. The Recalibrate
+    /// header binds its Visibility to this; the banner getter and the two entry methods below
+    /// hard-gate on the same flag (defense in depth, so no stray caller can resurface the QA).
+    /// Flag OFF ⇒ byte-identical to the prior calibration UX.</summary>
+    public bool ShowCalibrationEntry => !AppConfig.AutoProfilingEnabled;
+
     private bool _showCalibrationInvitationBanner;
     public bool ShowCalibrationInvitationBanner
     {
-        get => _showCalibrationInvitationBanner;
+        // Hard-gated: under auto-profiling the banner never surfaces even if the field
+        // was somehow set, because there is no calibration to invite the user into.
+        get => _showCalibrationInvitationBanner && !AppConfig.AutoProfilingEnabled;
         set
         {
             if (!Set(ref _showCalibrationInvitationBanner, value)) return;
@@ -242,7 +252,18 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
     }
 
-    public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }
+    public string StatusText
+    {
+        get => _statusText;
+        private set { if (Set(ref _statusText, value)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasStatus))); }
+    }
+
+    /// <summary>True only while there is a transient status worth surfacing (loading /
+    /// load-failure / model-missing). The dashboard binds the status border's Visibility
+    /// to this so the box collapses entirely when idle — Kirby flagged the steady-state
+    /// "Ministral 3B ready" badge as needless chrome, so the ready/standby state now
+    /// clears StatusText to empty and the border disappears.</summary>
+    public bool HasStatus => !string.IsNullOrWhiteSpace(_statusText);
 
     public ICommand SendCommand { get; }
     public ICommand ClearCommand { get; }
@@ -318,8 +339,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         SkipCalibrationInvitationCommand = new RelayCommand(_ => SkipCalibrationInvitation());
         RecalibrateCommand               = new RelayCommand(_ => Recalibrate());
 
+        // Idle/standby shows NOTHING (Kirby: the "ready" badge is needless chrome). The
+        // status border only appears for actionable states: a transient "loading…" on the
+        // first chat, a load failure, or a missing-model diagnostic.
         StatusText = chatbot.IsModelAvailable
-            ? "Ministral 3B 待命 — 首次對話時載入 / ready — loads on first chat"
+            ? string.Empty
             : $"Model not found at: {AppConfig.ModelPath}";
 
         // Lazy model load (startup speed): the GGUF no longer loads at app startup —
@@ -400,8 +424,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             await _chatbot.LoadAsync().ConfigureAwait(false);
             _dispatcher.Invoke(() =>
             {
+                // Loaded OK → clear the transient "loading…" line back to empty (no steady-state
+                // "ready" badge). Only the lexicon-fallback case keeps a visible note.
                 StatusText = _chatbot.IsModelLoaded
-                    ? "Ministral 3B ready"
+                    ? string.Empty
                     : $"Lexicon fallback (no GGUF found at: {AppConfig.ModelPath})";
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
@@ -817,6 +843,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     private void StartInvitedCalibration()
     {
+        if (AppConfig.AutoProfilingEnabled) return; // calibration cancelled under auto-profiling
         ShowCalibrationInvitationBanner = false;
         // v0.9.1 hotfix: prefer the button-card path. The LLM session has no
         // UI binding — clicking Start used to silently launch an invisible
@@ -839,6 +866,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     private void Recalibrate()
     {
+        // Auto-profiling addendum: with explicit calibration cancelled there is no
+        // questionnaire to reopen — the button is hidden via ShowCalibrationEntry, and this
+        // guard ensures even a programmatic invocation can't resurface the QA in the chat.
+        if (AppConfig.AutoProfilingEnabled) return;
         // Recalibrate entry from the chatbot tab. v0.9.1: also prefer the
         // button-card path when host wired the callback — same UX argument
         // as StartInvitedCalibration. Falls back to LLM session for tests

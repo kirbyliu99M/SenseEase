@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Threading;
 using System.Windows.Threading;
+using SenseEase.App.Configuration;
 using SenseEase.App.ViewModels;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
@@ -29,8 +30,26 @@ namespace SenseEase.Tests;
 /// here, just direct property assignment. Cases already covered by
 /// <see cref="CalibrationCardViewModelTests"/> are not duplicated.
 /// </summary>
-public class CalibrationIntegrationTests
+/// <para><b>Flag scope.</b> This whole suite exercises the LEGACY explicit-calibration
+/// flow (5-card form, invitation banner, Recalibrate entry). Under the Alpha-2 addendum
+/// that flow is CANCELLED when <see cref="AppConfig.AutoProfilingEnabled"/> is ON (the
+/// engine auto-profiles instead), so every test here pins the static flag OFF for its
+/// duration and restores it after — making these the flag-OFF parity coverage for
+/// calibration. Tagged into the shared flag collection so the static mutation never races
+/// a sibling class that reads it.</para>
+[Collection("AdaptiveFitSelectorFlag")]
+public class CalibrationIntegrationTests : IDisposable
 {
+    private readonly bool _autoProfilingOriginal = AppConfig.AutoProfilingEnabled;
+
+    public CalibrationIntegrationTests()
+    {
+        // Legacy calibration UX only exists with auto-profiling OFF.
+        AppConfig.AutoProfilingEnabled = false;
+    }
+
+    public void Dispose() => AppConfig.AutoProfilingEnabled = _autoProfilingOriginal;
+
     // Sensor stub used by every test. PeakPressureAtSec=0 so Q1-alignment
     // never claims "high confidence" purely on a coincidence.
     private static readonly CalibrationSensorData Sensor =

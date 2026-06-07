@@ -17,12 +17,25 @@ public class EaseViewTests
         var vm = new MainViewModel();
         int before = vm.FovRadiusPercent;
 
-        vm.EaseView();
-        int after1 = vm.FovRadiusPercent;
-        Assert.True(after1 < before, $"press 1 should tighten the FOV ({after1} < {before})");
+        // Press repeatedly rather than asserting a single press moves the FOV. The
+        // accumulated user FOV offset clamps at -60pp, which exceeds the earned-
+        // habituation offset cap (<=30pp). So even on a machine whose %LOCALAPPDATA%
+        // carries a real persisted habituation offset — which at REST (FOV already
+        // fully open at 100) would absorb one small deliberate tighten — enough
+        // presses always drive the composed FOV strictly below the fully-open
+        // baseline. Each press must tighten or hold at the clamp (never loosen),
+        // which is the deliberate-preference contract under test.
+        int prev = before;
+        for (int i = 0; i < 6; i++)
+        {
+            vm.EaseView();
+            Assert.True(vm.FovRadiusPercent <= prev,
+                $"press {i + 1} must tighten the FOV or hold at the clamp ({vm.FovRadiusPercent} <= {prev})");
+            prev = vm.FovRadiusPercent;
+        }
 
-        vm.EaseView();
-        Assert.True(vm.FovRadiusPercent <= after1, "press 2 should tighten further (or hold at the clamp)");
+        Assert.True(vm.FovRadiusPercent < before,
+            $"after repeated presses the FOV must be tighter than fully-open ({vm.FovRadiusPercent} < {before})");
     }
 
     // The deliberate-preference no-discomfort / no-pause / offset-preservation

@@ -1040,8 +1040,12 @@
 
                     <!-- Stage 5b: small Recalibrate entry. Right-aligned above the
                          chat history so users can re-enter calibration any time
-                         without needing a fresh demo run. -->
-                    <Grid Grid.Row="0" Margin="24,16,24,0">
+                         without needing a fresh demo run.
+                         Auto-profiling addendum: hidden when AutoProfilingEnabled (explicit
+                         calibration is cancelled — the engine auto-profiles instead), so the
+                         5-card / LLM calibration QA is no longer reachable from the chat tab. -->
+                    <Grid Grid.Row="0" Margin="24,16,24,0"
+                          Visibility="{Binding ShowCalibrationEntry, Converter={StaticResource BoolToVis}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -1269,8 +1273,11 @@
                         <views:CalibrationConfirmCardView DataContext="{Binding ActiveCalibrationConfirmCard}"/>
                     </Border>
 
-                    <!-- Status bar -->
+                    <!-- Status bar — collapses entirely when idle (HasStatus=false) so the
+                         steady-state has no empty bordered box. Only shows for transient
+                         loading / load-failure / model-missing states. -->
                     <Border Grid.Row="4" Margin="24,0,24,8"
+                            Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}"
                             Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}" Padding="14,7"
                             BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                             Effect="{StaticResource Elev.2}">
