@@ -107,4 +107,18 @@
     </Content>
   </ItemGroup>
 
+  <!-- Guarantee the unused 148 MB CUDA backend never lands in the output (Vulkan is the
+       active side-loaded backend — see the Content rule above). ExcludeAssets="native;runtime"
+       on the Cuda12 package (SenseEase.Infrastructure.csproj) should prevent the copy; this
+       target removes any cuda12 native folder that still slips through (after Build AND
+       Publish) so it isn't re-scanned by AV on every launch (which dominated startup time). -->
+  <Target Name="DropUnusedCudaNative" AfterTargets="Build;Publish">
+    <ItemGroup>
+      <_CudaNativeFiles Include="$(OutDir)runtimes\win-x64\native\cuda12\**\*" />
+      <_CudaNativeFiles Include="$(PublishDir)runtimes\win-x64\native\cuda12\**\*" Condition="'$(PublishDir)' != ''" />
+    </ItemGroup>
+    <Delete Files="@(_CudaNativeFiles)" ContinueOnError="true" />
+    <RemoveDir Directories="$(OutDir)runtimes\win-x64\native\cuda12" Condition="Exists('$(OutDir)runtimes\win-x64\native\cuda12')" ContinueOnError="true" />
+  </Target>
+
 </Project>

@@ -319,10 +319,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         RecalibrateCommand               = new RelayCommand(_ => Recalibrate());
 
         StatusText = chatbot.IsModelAvailable
-            ? "Loading Ministral 3B… (first load ~30s on CPU; chat is disabled meanwhile)"
+            ? "Ministral 3B 待命 — 首次對話時載入 / ready — loads on first chat"
             : $"Model not found at: {AppConfig.ModelPath}";
 
-        _ = InitModelAsync();
+        // Lazy model load (startup speed): the GGUF no longer loads at app startup —
+        // EnsureModelLoadedAsync kicks it on the FIRST chat message that reaches the LLM
+        // (SendAsync). Launch stays fast and the heavy model read / AV scan only happens
+        // when the user actually chats. Safety-floor + slash-command + profile-picker
+        // short-circuits never need the model, so they stay instant.
 
         // Phase 4: persist transcript across restarts. Load existing history first;
         // if any prior bubbles exist they replace the welcome (returning user — the
@@ -372,6 +376,21 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             _historyStore.Trim(PersistedHistoryMax);
             _persistedLineCount = PersistedHistoryMax;
         }
+    }
+
+    // Lazy-load guard: InitModelAsync runs at most once, on the first chat message that
+    // reaches the LLM (see SendAsync). Interlocked so concurrent first-sends can't double-load.
+    private int _modelInitStarted;
+    private Task _modelInitTask = Task.CompletedTask;
+
+    private Task EnsureModelLoadedAsync()
+    {
+        if (System.Threading.Interlocked.CompareExchange(ref _modelInitStarted, 1, 0) == 0)
+        {
+            StatusText = "Loading Ministral 3B… (first chat ~30s on CPU)";
+            _modelInitTask = InitModelAsync();
+        }
+        return _modelInitTask;
     }
 
     private async Task InitModelAsync()
@@ -524,6 +543,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
         try
         {
+            // Lazy model load: kick + await the GGUF load on the FIRST message that reaches
+            // the LLM (the safety-floor / slash-command / profile-picker short-circuits above
+            // never need it). The typing-indicator bubble is already showing, so the one-time
+            // ~load wait reads as "thinking". Idempotent — later turns no-op instantly.
+            await EnsureModelLoadedAsync().ConfigureAwait(false);
+
             string contextualInput = BuildContextualInput(text);
 
             // NE6: thread cancellation + a 60 s ceiling into the interactive LLM
