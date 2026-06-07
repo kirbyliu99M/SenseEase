@@ -109,6 +109,26 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         set => Set(ref _activeCalibrationCard, value);
     }
 
+    // ── H11 calibration confirmation card ───────────────────────────────────
+    // Shown by the host (MainViewModel) AFTER the 5-card calibration completes
+    // but BEFORE the result mutates the engine. The host sets ActiveCalibration
+    // ConfirmCard + flips IsCalibrationConfirmCardActive on; the card's Accept/
+    // Decline are wired by the host to apply-or-keep, then it clears both.
+
+    private bool _isCalibrationConfirmCardActive;
+    public bool IsCalibrationConfirmCardActive
+    {
+        get => _isCalibrationConfirmCardActive;
+        set => Set(ref _isCalibrationConfirmCardActive, value);
+    }
+
+    private CalibrationConfirmCardViewModel? _activeCalibrationConfirmCard;
+    public CalibrationConfirmCardViewModel? ActiveCalibrationConfirmCard
+    {
+        get => _activeCalibrationConfirmCard;
+        set => Set(ref _activeCalibrationConfirmCard, value);
+    }
+
     // ── Calibration invitation banner (Stage 5a) ────────────────────────────
     // On subsequent demo runs (calibration_count >= 1) the host sets
     // ShowCalibrationInvitationBanner = true at OnDemoVideoFinished instead of

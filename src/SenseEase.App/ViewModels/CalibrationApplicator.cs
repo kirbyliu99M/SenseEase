@@ -39,13 +39,31 @@ public static class CalibrationApplicator
         MockInferenceEngine engine,
         ObservableCollection<ChatMessageViewModel> messages)
     {
+        // H11: compute is PURE (no engine mutation). Splitting compute from
+        // ApplyComputed lets the H11 confirm card preview the result and gate the
+        // engine write behind an explicit Accept. This overload keeps the original
+        // compute-then-apply behaviour for the cancel / partial path and for tests.
         var result = CalibrationProcessor.Process(responses, sensor);
+        ApplyComputed(result, responses, engine, messages);
+        return result;
+    }
 
+    /// <summary>H11: apply an ALREADY-COMPUTED <see cref="CalibrationResult"/> to
+    /// the engine and post the summary + advisory bubbles. This is the ONLY method
+    /// that mutates the engine from a calibration; the H11 confirm card calls it
+    /// after the user accepts, so the pure compute (<see cref="CalibrationProcessor.Process"/>)
+    /// can run + preview without changing any setting. Abandoned results are a no-op
+    /// (no mutation, no message), exactly as before.</summary>
+    public static void ApplyComputed(
+        CalibrationResult result,
+        CalibrationResponses responses,
+        MockInferenceEngine engine,
+        ObservableCollection<ChatMessageViewModel> messages)
+    {
         if (result.Completeness == CalibrationCompleteness.Abandoned)
         {
-            // Do not mutate the engine, do not post any message. Caller still
-            // gets the result so it can log "card dismissed before Q3".
-            return result;
+            // Do not mutate the engine, do not post any message.
+            return;
         }
 
         engine.ApplyCalibrationResult(result);
@@ -60,7 +78,6 @@ public static class CalibrationApplicator
         {
             messages.Add(new ChatMessageViewModel(advisory, ChatRole.Assistant));
         }
-        return result;
     }
 
     internal static string BuildSummary(

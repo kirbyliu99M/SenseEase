@@ -1453,7 +1453,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void OnCalibrationCompleted(object? sender, CalibrationResponses responses)
     {
-        ApplyAndAnnounceCalibration(responses);
+        // H11: compute the result with the PURE processor (NO engine mutation),
+        // then gate the apply behind a confirmation card — the engine changes only
+        // after the user accepts. Resolve the sensor BEFORE dismissing the Q-card
+        // (DismissCalibrationCard clears _pendingCalibrationSensorData).
+        var sensor = ResolveCalibrationSensor();
+        CalibrationResult result = CalibrationProcessor.Process(responses, sensor);
+
+        DismissCalibrationCard();
+
+        if (result.Completeness == CalibrationCompleteness.Abandoned)
+        {
+            // Nothing to apply or confirm — keep the silent-dismiss behaviour.
+            AppendLog("Calibration",
+                Loc("校正卡已關閉（未完成 Q3，無紀錄）。", "Card dismissed before Q3 — no profile change."),
+                CurrentState);
+            return;
+        }
+
+        PromptCalibrationConfirmation(responses, result);
     }
 
     private void OnCalibrationCancelled(object? sender, CalibrationResponses responses)
@@ -1465,14 +1483,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ApplyAndAnnounceCalibration(responses);
     }
 
-    /// <summary>Shared completion path used by both Complete and Partial flows.
+    /// <summary>The demo sensor snapshot the calibration result is computed from.
+    /// Falls back to the loose demo-peak fields when no explicit pending snapshot
+    /// was captured. Resolve this BEFORE <see cref="DismissCalibrationCard"/>,
+    /// which clears <c>_pendingCalibrationSensorData</c>.</summary>
+    private CalibrationSensorData ResolveCalibrationSensor()
+        => _pendingCalibrationSensorData
+           ?? new CalibrationSensorData(_demoPeakPressure, _demoMaskActivations, _demoPeakPressureAtSec);
+
+    /// <summary>Direct apply path used by the CANCEL/partial flow (not gated by the
+    /// H11 confirm card — a mid-flow cancel is the user dismissing, not committing).
     /// Hands off to <see cref="CalibrationApplicator.Apply"/> for the engine
-    /// mutation + Messages append, then performs the MainViewModel-side
-    /// follow-ups (dismiss card, mark first-run-complete, log).</summary>
+    /// mutation + Messages append, then dismisses + announces.</summary>
     private void ApplyAndAnnounceCalibration(CalibrationResponses responses)
     {
-        var sensor = _pendingCalibrationSensorData
-                     ?? new CalibrationSensorData(_demoPeakPressure, _demoMaskActivations, _demoPeakPressureAtSec);
+        var sensor = ResolveCalibrationSensor();
 
         CalibrationResult result;
         if (_engine is MockInferenceEngine mock)
@@ -1487,7 +1512,53 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         DismissCalibrationCard();
+        AnnounceCalibrationResult(result);
+    }
 
+    /// <summary>H11: present the confirmation card for an already-computed result.
+    /// The engine is NOT mutated here — only when the user accepts. Decline keeps
+    /// the current settings unchanged.</summary>
+    private void PromptCalibrationConfirmation(CalibrationResponses responses, CalibrationResult result)
+    {
+        var confirm = new CalibrationConfirmCardViewModel(responses, result);
+        confirm.Accepted += (_, _) =>
+        {
+            DismissCalibrationConfirmCard();
+            ApplyComputedAndAnnounce(responses, result);
+        };
+        confirm.Declined += (_, _) =>
+        {
+            DismissCalibrationConfirmCard();
+            // H11: user reviewed and chose to keep current settings — NO engine
+            // change. Still mark first-run complete so calibration doesn't auto-
+            // retrigger; the Stage 5a invitation banner offers recalibration later.
+            AppConfig.MarkFirstRunComplete();
+            ShowFirstRunBanner = false;
+            AppendLog("Calibration",
+                Loc("您已檢視校正結果並選擇維持目前設定（未套用變更）。",
+                    "You reviewed the calibration and kept your current settings (no change applied)."),
+                CurrentState);
+        };
+        ChatbotVm.ActiveCalibrationConfirmCard = confirm;
+        ChatbotVm.IsCalibrationConfirmCardActive = true;
+    }
+
+    /// <summary>H11: apply an already-computed result to the engine (the ONLY
+    /// calibration→engine mutation on the Complete path) + announce. Invoked from
+    /// the confirm card's Accept handler.</summary>
+    private void ApplyComputedAndAnnounce(CalibrationResponses responses, CalibrationResult result)
+    {
+        if (_engine is MockInferenceEngine mock)
+        {
+            CalibrationApplicator.ApplyComputed(result, responses, mock, ChatbotVm.Messages);
+        }
+        AnnounceCalibrationResult(result);
+    }
+
+    /// <summary>Shared post-apply bookkeeping: mark first-run complete + log the
+    /// outcome. Abandoned results are a no-op announce.</summary>
+    private void AnnounceCalibrationResult(CalibrationResult result)
+    {
         // Abandoned → silent dismiss, no first-run bookkeeping, no log noise.
         if (result.Completeness == CalibrationCompleteness.Abandoned)
         {
@@ -1508,6 +1579,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 : Loc($"校正完成 — profile={result.Profile}, scale={result.PersonalPressureScale:F2}。",
                       $"Calibration complete — profile={result.Profile}, scale={result.PersonalPressureScale:F2}."),
             CurrentState);
+    }
+
+    private void DismissCalibrationConfirmCard()
+    {
+        ChatbotVm.IsCalibrationConfirmCardActive = false;
+        ChatbotVm.ActiveCalibrationConfirmCard = null;
     }
 
     private void DismissCalibrationCard()

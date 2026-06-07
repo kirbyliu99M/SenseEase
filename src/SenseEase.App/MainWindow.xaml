@@ -1221,6 +1221,15 @@
                         <views:CalibrationCardView DataContext="{Binding ActiveCalibrationCard}"/>
                     </Border>
 
+                    <!-- H11 calibration confirmation card host.
+                         Shares Grid.Row 3 with the calibration card; the two are
+                         mutually exclusive (the Q-card is dismissed before the
+                         confirm card appears), gated on IsCalibrationConfirmCardActive. -->
+                    <Border Grid.Row="3" Margin="24,0,24,8"
+                            Visibility="{Binding IsCalibrationConfirmCardActive, Converter={StaticResource BoolToVis}}">
+                        <views:CalibrationConfirmCardView DataContext="{Binding ActiveCalibrationConfirmCard}"/>
+                    </Border>
+
                     <!-- Status bar -->
                     <Border Grid.Row="4" Margin="24,0,24,8"
                             Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}" Padding="14,7"
