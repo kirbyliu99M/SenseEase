@@ -75,6 +75,44 @@ foreach ($d in $trim) {
 Write-Host "  ($removed trimmed)"
 
 # -----------------------------------------------------------------------------
+# 1b. Trim win-x64 native backend variants + diagnostics (H28)
+# -----------------------------------------------------------------------------
+Write-Section "Trim win-x64 native backend variants (H28)"
+# llama.cpp ships per-ISA / GPU backend variant folders; this build runs the
+# vulkan path only, so the AVX/AVX2/AVX512/CUDA12/noavx variants are dead weight.
+# Each removal is Test-Path-guarded => a path absent on this build is a safe
+# no-op, never a hard failure.
+$nativeTrim = @(
+    "runtimes/win-x64/native/avx",
+    "runtimes/win-x64/native/avx2",
+    "runtimes/win-x64/native/avx512",
+    "runtimes/win-x64/native/cuda12",
+    "runtimes/win-x64/native/noavx"
+)
+$nativeRemoved = 0
+foreach ($d in $nativeTrim) {
+    $full = Join-Path $Dist $d
+    if (Test-Path $full) {
+        Remove-Item $full -Recurse -Force
+        Write-Host "  removed: $d"
+        $nativeRemoved++
+    }
+}
+# createdump.exe: the .NET crash-dump tool, never needed at runtime. Also excluded
+# at package time by the .iss [Files] Excludes -- this is defense in depth.
+Get-ChildItem -Path $Dist -Recurse -File -Filter "createdump.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item $_.FullName -Force
+    Write-Host "  removed: $($_.Name) (in $($_.Directory.Name))"
+    $nativeRemoved++
+}
+Write-Host "  ($nativeRemoved trimmed)"
+# NOTE (H28, deferred): the vulkan/ keep-list trim (delete unused llama-*.exe,
+# keeping only llama-server.exe + llama-server-impl.dll + ggml*.dll [minus
+# ggml-rpc.dll] + llama.dll + libomp140.x86_64.dll) is intentionally NOT done
+# here -- a delete-with-exceptions pass is unsafe to author blind, so run it once
+# against the real staged native tree to avoid removing a required dependency.
+
+# -----------------------------------------------------------------------------
 # 2. Bundle Mistral 3B Q4_K_M GGUF
 # -----------------------------------------------------------------------------
 Write-Section "Bundle Mistral 3B Q4_K_M GGUF model"

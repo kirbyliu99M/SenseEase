@@ -72,7 +72,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private static void WgcLog(string msg)
     {
         Debug.WriteLine($"[WGC] {msg}");
-        WgcDiagLog.Append($"{DateTime.Now:HH:mm:ss.fff} {msg}");
+        WgcDiagLog.Append($"{DateTime.UtcNow:HH:mm:ss.fff}Z {msg}"); // H41: UTC, not local
     }
 
     // Returns a raw AddRef'd interface pointer for the given IID; caller must Release.
@@ -431,7 +431,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         // Phase 4 (UVHS Playbook clause 5): no longer truncates DiagFile —
         // WriteHeader appends a delimiter so the full WGC lifecycle history
         // (across multiple Start/Stop rounds in a UVHS session) is preserved.
-        WgcDiagLog.WriteHeader($"WGC Start {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        WgcDiagLog.WriteHeader($"WGC Start {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z"); // H41: UTC
 
         // Pop-up sprint Task 1: enable OFI trace log when SENSEEASE_WGC_BAR_VALIDATION=1.
         // Trace path is %TEMP%/wgc_ofi_trace.txt; header line written here, per-tick
@@ -447,7 +447,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             // but goes through ResetSessionFile so a sharing violation no longer
             // silently drops the header — failure is surfaced to wgc_diag.lost.log.
             WgcDiagLog.ResetSessionFile(_ofiTracePath,
-                $"# wgc_ofi_trace start {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
+                $"# wgc_ofi_trace start {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z\n" + // H41: UTC
                 "epoch_ms,smoothed_ofi,mask_left,mask_top,mask_w,mask_h\n");
         }
 
