@@ -234,6 +234,20 @@ public static class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "calibration_history.jsonl");
 
+    // UM1 (User Model sprint): daily passive behaviour aggregate — append-only
+    // JSONL, one numeric-only row per day (NO raw utterances / OFI traces / window
+    // titles, per the sprint's no-PII constraint). Same %LOCALAPPDATA%\SenseEase\
+    // home as the other user data so H25 uninstall + H24 clear cover it.
+    public static string BehaviorLogPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "behavior_log.jsonl");
+
+    // UM3 (User Model sprint): incremental analysis index + bucket manifest.
+    // Atomic write (tmp + File.Replace) like habituation_profile.json.
+    public static string UserModelIndexPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "user_model_index.json");
+
     // Display Comfort AppConfig fields (AmbientLightComfortEnabled, LuxMode,
     // DisplayBaselinePath, UseWebcamLuxFallback) removed at v0.11 (UI
     // Consolidation Sprint Phase 4) — feature decommissioned. The

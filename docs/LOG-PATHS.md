@@ -1,0 +1,178 @@
+# All log paths and locations
+
+> **Flag:** This document is the canonical enumeration of every log file, user-profile file, persisted-state file, and diagnostic sink the SenseEase desktop app reads or writes on a user's machine. Generated 2026-05-31 at v0.11-Unreleased (HEAD = `c47bb21` on `main`). Update on every commit that adds, removes, or relocates a path.
+
+Two roots cover all persistent user-machine state:
+
+- **`%LOCALAPPDATA%\SenseEase\`** = `C:\Users\<user>\AppData\Local\SenseEase\` — durable user data + crash logs + chatbot transcripts. Survives reboot. NOT cleared by Windows automatic cleanup.
+- **`%TEMP%\`** = `C:\Users\<user>\AppData\Local\Temp\` — diagnostic logs + caches. Subject to Windows automatic cleanup (Storage Sense, manual Disk Cleanup).
+
+A third class is **in-memory only** — looks like a log from the API surface but never touches disk. Easy to miss; explicitly enumerated below.
+
+A fourth class is **repo-tracked baseline artifacts** under `baseline/` and `publish-test/` — captured during development for perf/UVHS reference; NOT written by the running app on user machines.
+
+---
+
+## 1. Quick-reference table (most useful entry point)
+
+| File | Full path | Writer | Purpose | Format | Retention |
+|---|---|---|---|---|---|
+| `user-preferences.json` | `%LOCALAPPDATA%\SenseEase\user-preferences.json` | [UserPreferences.Save](../src/SenseEase.App/Configuration/UserPreferences.cs#L190) | Single canonical preferences home (AutoExpand, BarTrayColor, Vestibular, HeadTracking opt-in, etc.) | JSON schema v2, atomic tmp+File.Replace | Permanent until user deletes |
+| `habituation_profile.json` | `%LOCALAPPDATA%\SenseEase\habituation_profile.json` | [AppConfig.HabituationProfilePath](../src/SenseEase.App/Configuration/AppConfig.cs#L156) → [FileHabituationProfileStore](../src/SenseEase.Infrastructure/Storage/FileHabituationProfileStore.cs) | Phase 4 habituation snapshot — profile, strikes, state, longitudinal_observations, calibration_count | JSON schema v2, atomic tmp+File.Replace | Permanent until user deletes |
+| `habituation.json` | `%LOCALAPPDATA%\SenseEase\habituation.json` | [AppConfig.HabituationStatePath](../src/SenseEase.App/Configuration/AppConfig.cs#L182) → [FileHabituationStore](../src/SenseEase.Infrastructure/Storage/FileHabituationStore.cs) | Legacy offset-only file (Phase 3). Coexists with `habituation_profile.json`; presence drives synthesize-defaults edge case in store loader. | JSON (single offset) | Permanent until user deletes |
+| `adjustments.jsonl` | `%LOCALAPPDATA%\SenseEase\adjustments.jsonl` | [AppConfig.AdjustmentLogPath](../src/SenseEase.App/Configuration/AppConfig.cs#L148) → [FileAdjustmentLog](../src/SenseEase.Infrastructure/Storage/FileAdjustmentLog.cs) | Per-user personalization adjustment log (Phase 2.4) — survives restarts | JSONL (append) | Permanent until user deletes |
+| `chat_history.jsonl` | `%LOCALAPPDATA%\SenseEase\chat_history.jsonl` | [AppConfig.ChatHistoryPath](../src/SenseEase.App/Configuration/AppConfig.cs#L188) → [FileChatHistoryStore](../src/SenseEase.Infrastructure/Storage/FileChatHistoryStore.cs) | Phase 4 main chatbot transcript — survives restarts so returning user sees prior context | JSONL (append, best-effort) | Permanent until user deletes |
+| `calibration_history.jsonl` | `%LOCALAPPDATA%\SenseEase\calibration_history.jsonl` | [AppConfig.CalibrationHistoryPath](../src/SenseEase.App/Configuration/AppConfig.cs#L195) | Phase 5b calibration-mode LLM transcript — separate from main chat so VIMS-monitoring context never bleeds into longitudinal-comparison reasoning | JSONL (append) | Permanent until user deletes |
+| `model_trace.jsonl` | `%LOCALAPPDATA%\SenseEase\model_trace.jsonl` | [MistralChatbotService.LogModelTrace](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L423) | Raw model input + raw output (every chatbot turn) — used to distinguish "model produced empty reply, lexicon backfilled" from "model produced the right reply" | JSONL (append) | Permanent; tail to verify model behavior |
+| `llama-server.log` | `%LOCALAPPDATA%\SenseEase\llama-server.log` | [MistralChatbotService](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L265) | llama-server.exe stdout+stderr tee via cmd.exe wrapper | Plain text (append) | Truncated on each app start (File.Delete then append) |
+| `behavior_log.jsonl` | `%LOCALAPPDATA%\SenseEase\behavior_log.jsonl` | [AppConfig.BehaviorLogPath](../src/SenseEase.App/Configuration/AppConfig.cs) → [DailyBehaviorAggregateWriter](../src/SenseEase.Infrastructure/Storage/DailyBehaviorAggregateWriter.cs) | **UM1** daily passive behaviour aggregate — one **numeric-only** row per day (session minutes, ofi p50/p90, tier modal, spike/stable-window/mask counts, offset delta). No raw text → no PII. | JSONL (append, idempotent by `date`) | Permanent until user deletes / H24 clear / H25 uninstall. No rotation (Pre-Alpha follow-up) |
+| `user_model_index.json` | `%LOCALAPPDATA%\SenseEase\user_model_index.json` | [AppConfig.UserModelIndexPath](../src/SenseEase.App/Configuration/AppConfig.cs) → [UserModelIndexStore](../src/SenseEase.Infrastructure/Storage/UserModelIndexStore.cs) | **UM3** incremental-analysis index — `last_analyzed_chat_turn_index` + per-month `bucket_manifest`. Carries `exportable:false` / `deletable_on_clear:true`. | JSON schema v1, atomic tmp+File.Replace | Permanent until user deletes / H24 clear / H25 uninstall |
+| `crash.log` | `%LOCALAPPDATA%\SenseEase\crash.log` | [App.xaml.cs:18-86](../src/SenseEase.App/App.xaml.cs#L18-L86) | Crash logger — Dispatcher / AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException. Best-effort, never throws inside itself. | Plain text (append) | Permanent. **First file to check on "cannot start" reports.** |
+| `first-run-complete.flag` | `%LOCALAPPDATA%\SenseEase\first-run-complete.flag` | [AppConfig.MarkFirstRunComplete](../src/SenseEase.App/Configuration/AppConfig.cs#L171) | Empty marker file — presence is the entire signal. Drives dashboard welcome banner suppression. | Empty (mtime = first-completion timestamp) | Permanent until user deletes |
+| `wgc_diag.txt` | `%TEMP%\wgc_diag.txt` | [WgcDiagLog.Append](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L43) | **Primary diagnostic sink.** WGC Sensing + Sidecar lifecycle + Tray ctor + MainWindow load + 9 ex-SafeLog sites all route here. Clause-5 reference: append-only, retry-on-IOException, `[N=xxxxxxx]` monotonic sequence prefix. | Plain text (append) | Subject to %TEMP% auto-cleanup |
+| `wgc_diag.lost.log` | `%TEMP%\wgc_diag.lost.log` | [WgcDiagLog](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L46) | **Orthogonal loss sink** (UVHS Playbook clause 5). When primary sink IOException retry exhausts, message goes here. SilentLossCount counter exposed for invariant tests. | Plain text (append) | Subject to %TEMP% auto-cleanup |
+| `wgc_ofi_trace.txt` | `%TEMP%\wgc_ofi_trace.txt` | [WgcSensingProvider.OnTick](../src/SenseEase.Infrastructure/Real/WgcSensingProvider.cs#L313) | Per-tick OFI trace (env-var gated; zero overhead in production). Header line written once on Start; per-tick rows appended. | CSV-like text (append) | Subject to %TEMP% auto-cleanup |
+| `display-baseline.json` | `%LOCALAPPDATA%\SenseEase\display-baseline.json` | **REMOVED at v0.11** ([App.OnStartup migration](../src/SenseEase.App/App.xaml.cs#L190-L218)) | Display Comfort decommissioned. Idempotent one-time delete on startup; never re-created. | — | Deleted; absence is the steady state |
+
+---
+
+## 2. By location
+
+### 2.1 `%LOCALAPPDATA%\SenseEase\` — durable user data
+
+Resolved via `Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)` + `"SenseEase"` subdirectory. Subdirectory is created on demand by each writer (no centralized init).
+
+#### Profiles & state (atomic JSON)
+
+- **[user-preferences.json](../src/SenseEase.App/Configuration/UserPreferences.cs#L190)** — Pop-up sprint Task 5 + M8 head-tracking fields. Schema v2 (v1 also loads via roll-forward). Atomic write via [AtomicJsonWriter](../src/SenseEase.Infrastructure/Storage/AtomicJsonWriter.cs) (tmp + File.Replace) so Process.Kill mid-write leaves file at either old or new value, never half-written. Fields: `auto_expand_notifications`, `bar_tray_color_enabled`, `vestibular_warning_shown`, `use_new_bar_overlay`, `minimize_to_tray_on_close`, `run_at_windows_startup`, `head_tracking_enabled`, `head_tracking_follow_mode`, `head_tracking_escape_hatch_enabled`. ResetToDefaults is public+static for chatbot intent.
+- **[habituation_profile.json](../src/SenseEase.App/Configuration/AppConfig.cs#L156)** — JSON schema v2 (Phase 4). Fields: profile (sensitive/balanced/firm), strikes, state (Running/Cooldown/PausedAwaitingUserConfirm), longitudinal_observations[], calibration_count, medical_advisory_shown, personal_pressure_scale, last_calibration_at_iso. Atomic via [FileHabituationProfileStore](../src/SenseEase.Infrastructure/Storage/FileHabituationProfileStore.cs).
+- **[habituation.json](../src/SenseEase.App/Configuration/AppConfig.cs#L182)** — Phase 3 offset-only (legacy). Untouched semantics; coexists with the snapshot. Its presence is the signal for the Stage 6c app-data-wipe edge case in FileHabituationProfileStore (synthesize defaults-only snapshot when `_profile.json` is missing but `habituation.json` survives → user had prior usage).
+
+#### Transcripts (append-only JSONL)
+
+- **[chat_history.jsonl](../src/SenseEase.App/Configuration/AppConfig.cs#L188)** — main chatbot turns. Best-effort; if append fails, the turn is dropped from history but rendered to UI.
+- **[calibration_history.jsonl](../src/SenseEase.App/Configuration/AppConfig.cs#L195)** — calibration-mode LLM turns. **Intentionally separate** from `chat_history.jsonl` so VIMS-monitoring context (main chat) and longitudinal-comparison reasoning (calibration) do not cross-contaminate. See [CalibrationChatbotService](../src/SenseEase.Infrastructure/Real/CalibrationChatbotService.cs).
+- **[model_trace.jsonl](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L423)** — every (user_text, raw_model_output) pair across both chatbots. Per-line JSON object with `t`, `user`, raw model fields. Critical for distinguishing model-produced replies from lexicon-backfilled empties. Used as a verbatim trace source by [HabituationOverrideParserRealLlmTraceTests](../tests/SenseEase.Tests/HabituationOverrideParserRealLlmTraceTests.cs).
+- **[adjustments.jsonl](../src/SenseEase.App/Configuration/AppConfig.cs#L148)** — per-user personalization adjustments. Survives restarts. [FileAdjustmentLog](../src/SenseEase.Infrastructure/Storage/FileAdjustmentLog.cs) is the writer.
+
+#### llama-server transcript (append text)
+
+- **[llama-server.log](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L265)** — tee of llama-server.exe stdout+stderr via cmd.exe wrapper (direct redirect from a no-console WPF parent caused server stub exit; cmd wrapper gives proper console + file-backed stdio). **Truncated** on each app start (`File.Delete(logPath)` at startup). Captures model load progress and any server-side errors.
+
+#### Crash log (append text, NEVER throws inside itself)
+
+- **[crash.log](../src/SenseEase.App/App.xaml.cs#L62)** — three subscribers: `DispatcherUnhandledException`, `AppDomain.UnhandledException`, `TaskScheduler.UnobservedTaskException`. Format: `[ISO-8601 UTC] [scope] message + stack`. Append-only via `File.AppendAllText`. Best-effort: any IO failure is swallowed (cannot afford to throw inside a crash handler).
+
+#### First-run flag (empty file)
+
+- **[first-run-complete.flag](../src/SenseEase.App/Configuration/AppConfig.cs#L165)** — file presence is the entire signal (banner shown iff file does not exist). Content = UTC ISO-8601 timestamp written via `File.WriteAllText` but never read. Lives alongside other LocalAppData state so a manual wipe of `%LOCALAPPDATA%\SenseEase\` also resets first-run.
+
+#### Removed at v0.11 (one-time migration deletes it)
+
+- **`display-baseline.json`** — Display Comfort feature decommissioned (UI Consolidation Sprint Phase 4). [App.OnStartup](../src/SenseEase.App/App.xaml.cs#L190-L218) performs an idempotent `File.Delete` on every launch; absence is the steady state. Migration is in [CHANGELOG.md v0.11 Removed](../CHANGELOG.md). Outcome of delete is logged through [WgcDiagLog](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs).
+
+### 2.2 `%TEMP%\` — diagnostic sinks (subject to OS cleanup)
+
+Resolved via `Path.GetTempPath()` which returns `C:\Users\<user>\AppData\Local\Temp\` on Windows 11.
+
+- **[wgc_diag.txt](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L43)** — **single most important diagnostic file.** UVHS Playbook clause 5 reference implementation:
+  - Append-only (no `WriteAllText` ever — historical bug that silently truncated)
+  - Retry on `IOException` (concurrent-writer contention)
+  - `[N=xxxxxxx]` monotonic sequence prefix on every line (orthogonal probe — gaps detect silent loss)
+  - 9 ex-`SafeLog` call sites route through this single sink: `[App.xaml.cs]`, `[MainWindow.xaml.cs]`, `[MainViewModel.cs]`, `[TrayIconService.cs]`, `[ValidationModeBanner.cs]`, plus `WgcSensingProvider` lifecycle, sidecar lifecycle, mutex catch, hydrate fail. See [WgcDiagLog.cs](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs) header XML doc for full call-site enumeration.
+- **[wgc_diag.lost.log](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L46)** — independent loss sink (clause 5). When primary append's retry budget exhausts, the message is written here instead. `WgcDiagLog.SilentLossCount` is incremented for invariant testing. **This file existing with content = silent-loss occurred on primary; investigate the parent run.**
+- **[wgc_ofi_trace.txt](../src/SenseEase.Infrastructure/Real/WgcSensingProvider.cs#L313)** — env-var gated (`SENSEEASE_WGC_OFI_TRACE=1`). Zero overhead when off (env var read once at Start). Per-tick OFI trace for dev diagnostics. Header line written once; one row per tick. Trace path also referenced from [MainWindow.xaml.cs:1057](../src/SenseEase.App/MainWindow.xaml.cs#L1057) for the user-facing "Trace path" hint.
+
+#### Caches (NOT logs — for reference)
+
+- `%TEMP%\llama-b9294-cuda` — llama.cpp CUDA runtime cache. See `.gitignore:41` for restore source.
+- `%TEMP%\cudart-b9294` — CUDA runtime cache. Same.
+
+### 2.3 Sidecar process I/O — `head_tracker.py`
+
+Sidecar communicates with the C# parent via **pipes, not files**, on user machines.
+
+- **stdout** → [SidecarHeadPoseReader](../src/SenseEase.Infrastructure/Real/SidecarHeadPoseReader.cs) consumes one JSON pose object per line. Never written to disk on user machines.
+- **stderr** → SidecarHeadPoseReader maintains an in-process ring buffer ([_stderrTail](../src/SenseEase.Infrastructure/Real/SidecarHeadPoseReader.cs#L96-L98), default 8 KiB) and dumps the tail to `wgc_diag.txt` via `_log?.Invoke` when the sidecar process exits. Never persisted directly.
+- **`head_tracker.py --diag <path>`** — dev-only ad-hoc CSV (columns: `t_ms, yaw_deg, pitch_deg, cx_raw, cy_raw, cx_smoothed, cy_smoothed, face_detected, face_present, mirror, velocity_deg_per_frame, adaptive_alpha`). Path is caller-supplied; not used in production. Reference: [head_tracker.py:545](../tools/head-tracker-sidecar/head_tracker.py#L545).
+- **`head_tracker.py --soak`** — emits one JSON report object on stdout (used to produce `soak_report.json` at repo root during dev runs; not user-machine output).
+
+See [docs/HEAD-TRACKING-PRIVACY.md](HEAD-TRACKING-PRIVACY.md) for the privacy posture (sidecar emits only `yaw_deg`, `pitch_deg`, `confidence`, `face_present` — never frames, never landmarks, never identifiers).
+
+---
+
+## 3. In-memory only (NOT persisted) — easy to miss
+
+These look like log/store APIs but never touch disk. State is lost on every app restart.
+
+- **`IEventLogStore`** = [InMemoryEventLogStore](../src/SenseEase.Infrastructure/Storage/InMemoryEventLogStore.cs) — bounded ring (`SenseDefaults.EventLogMaxCount`). Raises `Appended` event for live dashboard mirror. **No File* variant exists.** Categories: Setup, System, Habituation, Demo, Calibration, Inference, Feedback, Lux (legacy), Error.
+- **`IChatbotActionLog`** = [InMemoryChatbotActionLog](../src/SenseEase.Infrastructure/Storage/InMemoryChatbotActionLog.cs) — tracks `Proposed/Accepted/Declined/Expired/Intercepted` lifecycle states for chatbot-driven habituation overrides (Q4.7). **In-memory only**; survives until app exit, not across restarts.
+
+**Implication for advisor:** if a session boundary matters for evidence-gathering, this state is gone. The persistent counterparts are `model_trace.jsonl` (every chatbot turn raw) + `habituation_profile.json` longitudinal_observations (post-acceptance summaries) + `adjustments.jsonl` (personalization deltas) — none of which capture the in-memory action-log's proposal-state granularity.
+
+---
+
+## 4. Repository-tracked baseline / reference artifacts
+
+NOT user-machine output. Captured during development; committed for advisor + UVHS reference.
+
+| Path | Source | Purpose |
+|---|---|---|
+| `baseline/m5.1-a-diag.csv` | head_tracker.py `--diag` run | M5.1-A perf reference |
+| `baseline/m5.1-c-perf-isolated.json` | C# perf harness | M5.1-C isolated CompositionTarget.Rendering perf reference |
+| `baseline/m7-perf-report.md` | manual | M7 real-machine perf UVHS report |
+| `baseline/m8-pr-description.md` | manual | M8 head-tracking PR description archive |
+| `baseline/overlay-idle-screenshot-instructions.md` + `overlay-idle-observation.md` | manual | UVHS reference for `overlay-idle.png` (human-visual-reference, NOT auto-compared baseline — UVHS Playbook §"Reference auto-artifacts") |
+| `baseline/build-warnings.txt`, `tests.txt`, `coldstart-seconds.txt`, `files-snapshot.txt`, `git-state.txt`, `coldstart-instructions.md` | repo-state captures | misc reference |
+| `face_landmarker.task` | MediaPipe distribution | head_tracker.py model — bundled, not generated |
+| `publish-test/` | `dotnet publish` self-contained output (currently untracked) | smoke-test built binaries pre-tag |
+| `soak_report.json` (repo root, currently untracked) | head_tracker.py `--soak` stdout | sidecar soak-run output |
+
+---
+
+## 5. External services touched (not files, but log-adjacent)
+
+- **llama-server.exe** at `127.0.0.1:<port>` (default `--port 8080` per [MistralChatbotService](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs)). Subprocess started by MistralChatbotService; stdout+stderr tee'd to `llama-server.log` (above). HTTP traffic NOT logged separately — request/response bodies appear in `model_trace.jsonl` (parent-side capture).
+- **Windows Event Viewer → Application log** — `.NET Runtime` / `Application Error` entries on hard crash before crash.log handler fires. Referenced by [HANDOVER.md:153](../HANDOVER.md#L153) as the second place to check after `crash.log`.
+
+---
+
+## 6. Retention / rotation / atomicity notes
+
+| Property | Files that have it |
+|---|---|
+| **Atomic write (tmp + File.Replace)** | `user-preferences.json`, `habituation_profile.json`, `user_model_index.json` (UM3) |
+| **Append-only with retry + sequence-prefix (clause 5)** | `wgc_diag.txt` |
+| **Append-only best-effort (no clause 5)** | `chat_history.jsonl`, `calibration_history.jsonl`, `model_trace.jsonl`, `adjustments.jsonl`, `behavior_log.jsonl` (UM1, idempotent by date), `crash.log`, `wgc_diag.lost.log`, `wgc_ofi_trace.txt` |
+| **Truncated on app start** | `llama-server.log` (deletes then re-creates) |
+| **Subject to %TEMP% auto-cleanup** | `wgc_diag.txt`, `wgc_diag.lost.log`, `wgc_ofi_trace.txt` |
+| **No size cap / no rotation** | All JSONL transcripts. Diagnostic Storage Sense or manual user delete is the only cleanup. |
+| **No max-age** | All persistent files. None expire automatically. |
+
+**No file currently rotates by size or age.** If a chatbot-heavy user runs the app for months, `chat_history.jsonl` and `model_trace.jsonl` grow unbounded. Identified as a Pre-Alpha follow-up.
+
+---
+
+## 7. PII posture (cross-reference)
+
+Per standing instruction "no PII in any logs (no window titles, class names, notification content)":
+
+- `wgc_diag.txt` ✓ — clause-5 enforced: numbers + identifiers only (PIDs, sequence numbers, event-type names, exception types). Recent Phase 4 audit found 0 PII leaks.
+- `chat_history.jsonl`, `calibration_history.jsonl`, `model_trace.jsonl` — contain user-typed text and model responses. **By design — these ARE the user's conversation.** Not subject to the no-PII rule (the rule targets *system* logs, not user content).
+- `crash.log` — stack traces only; PII-free by construction.
+- `head_tracker.py` sidecar — privacy-by-design ([docs/HEAD-TRACKING-PRIVACY.md](HEAD-TRACKING-PRIVACY.md)): emits only numeric angles + face_present boolean. No frames, no landmarks, no identifiers.
+- WindowsActivityFilter event sink — explicitly does NOT log window titles or class names per the standing rule.
+
+---
+
+## 8. Maintenance rule
+
+When a commit adds, removes, or relocates a path, update **this document in the same commit**. Treat `LOG-PATHS.md` like CHANGELOG.md — drift between code and doc is a maintainability bug.
+
+Audit checklist for each commit:
+1. Did I add a new `Environment.GetFolderPath(...)` or `Path.GetTempPath()` call? → add to §1 + §2.
+2. Did I delete a file path? → mark as Removed with the migration commit hash.
+3. Did I change an atomic strategy or retention property? → update §6.
+4. Did I add a new event-log category or in-memory store? → update §3.
+
+Last verified: 2026-05-31, HEAD = `c47bb21`, branch = `main`.
