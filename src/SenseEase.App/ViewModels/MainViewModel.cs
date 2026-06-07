@@ -575,6 +575,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly PressureSpikeDetector _spikeDetector = new();
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
 
+    // ── UM1: daily behaviour telemetry collector ──────────────────────────────
+    // Folds each organic engine tick into an in-memory single-day aggregate
+    // (numeric only — no PII) and persists it idempotently to behavior_log.jsonl,
+    // which feeds UM5's [behavior_trend] block. Demo runs (video + synthetic ramp)
+    // are deliberate vection stress tests and are excluded (see SampleBehavior's
+    // IsRunning gate) so the longitudinal trend reflects only real use. Q4.5-safe:
+    // reads the engine offset via HabituationOffsetPp, never writes engine state.
+    private readonly DailyBehaviorAccumulator _behaviorAccumulator = new();
+    private readonly DailyBehaviorAggregateWriter _behaviorWriter = new(AppConfig.BehaviorLogPath);
+    private int _behaviorFlushTickCounter;
+    private const int BehaviorFlushPeriodSeconds = 60; // crash-durability cadence
+
     private bool _lastMaskActive;
     private double _demoOfi;
 
@@ -746,6 +758,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             else
             {
                 AutoModeText = "Manual";
+            }
+
+            // UM1: periodic crash-durability flush of the day's partial aggregate.
+            // The idempotent-by-date writer rewrites the single row, so repeated
+            // flushes converge rather than duplicate. Date rollover itself is
+            // handled at sample time (SampleBehavior); this is just the heartbeat
+            // that gets a long-running session's data to disk without a restart.
+            if (++_behaviorFlushTickCounter >= BehaviorFlushPeriodSeconds)
+            {
+                _behaviorFlushTickCounter = 0;
+                FlushBehaviorAggregate();
             }
         };
         _metricsTimer.Start();
@@ -1734,8 +1757,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (state.MaskActive && !_prevMaskActiveForIntercept) _demoMaskActivations++;
         }
 
-        // FOV intercept: count the rising edge of MaskActive.
-        if (state.MaskActive && !_prevMaskActiveForIntercept)
+        // FOV intercept: count the rising edge of MaskActive. Captured into a local
+        // so UM1's daily collector can count the same rising edge as a mask activation.
+        bool maskRising = state.MaskActive && !_prevMaskActiveForIntercept;
+        if (maskRising)
             SessionFovIntercepts++;
         _prevMaskActiveForIntercept = state.MaskActive;
 
@@ -1779,10 +1804,73 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // feel a spike?" defeats the experiment AND clutters the chat thread
         // with auto-generated questions that aren't part of the user's
         // organic conversation.
-        if (_demoVideoWindow is null && _spikeDetector.Push(state.Pressure, DateTime.UtcNow))
+        bool spike = _demoVideoWindow is null && _spikeDetector.Push(state.Pressure, DateTime.UtcNow);
+        if (spike)
         {
             PressureSpikeDetected?.Invoke(this, _spikeDetector.LastNormalizedSpike);
         }
+
+        // UM1: fold this tick into the daily behaviour collector (after the spike
+        // edge is known). No-op during demo runs — see SampleBehavior.
+        SampleBehavior(state, spike, maskRising);
+    }
+
+    /// <summary>UM1: fold one engine tick into the daily behaviour collector. Handles
+    /// local-date rollover (flush the completed day, re-open the new one) and same-day
+    /// session seed-merge (a mid-day restart resumes the additive counters from the
+    /// row already on disk rather than clobbering it). No-op during demo runs
+    /// (<see cref="IsRunning"/>) so the intentional vection stress test stays out of
+    /// the longitudinal trend. Fail-soft: any telemetry error is swallowed so it can
+    /// never break the inference loop.</summary>
+    private void SampleBehavior(SenseState state, bool spike, bool maskRising)
+    {
+        if (IsRunning) return; // demo video / synthetic ramp — not organic exposure
+        try
+        {
+            DateTime nowLocal = DateTime.Now;
+            string today = nowLocal.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            int offsetPp = (_engine as MockInferenceEngine)?.HabituationOffsetPp ?? 0;
+
+            // Local-date rollover: persist the completed day, then re-open fresh.
+            if (_behaviorAccumulator.Date is { } open && open != today)
+            {
+                FlushBehaviorAggregate();
+                _behaviorAccumulator.Reset();
+            }
+
+            // (Re-)open the day, seeding from any row already on disk for it so a
+            // mid-day restart resumes the additive counters instead of clobbering them.
+            if (_behaviorAccumulator.Date is null)
+            {
+                DailyBehaviorAggregate? seed = null;
+                foreach (var row in _behaviorWriter.ReadAll())
+                    if (row.Date == today) { seed = row; break; }
+                _behaviorAccumulator.Begin(today, seed, offsetPp, state.HabituationLevel, nowLocal);
+            }
+
+            _behaviorAccumulator.Sample(
+                ofi:        (int)Math.Round(state.RawOpticalFlowIndex),
+                tier:       state.VimsTier,
+                maskRising: maskRising,
+                spike:      spike,
+                offsetPp:   offsetPp,
+                level:      state.HabituationLevel,
+                nowLocal:   nowLocal);
+        }
+        catch { /* best-effort telemetry — never disturb the inference loop */ }
+    }
+
+    /// <summary>UM1: write the collector's current-day aggregate to behavior_log.jsonl
+    /// (idempotent by date — replaces the day's row). Called on the 60 s durability
+    /// cadence, on date rollover, and at shutdown. Fail-soft.</summary>
+    private void FlushBehaviorAggregate()
+    {
+        try
+        {
+            var agg = _behaviorAccumulator.BuildAggregate();
+            if (agg is not null) _behaviorWriter.Write(agg);
+        }
+        catch { /* best-effort */ }
     }
 
     // ?? Feedback ???????????????????????????????????????????????????????????
@@ -1917,6 +2005,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public void DisposeServices()
     {
+        // UM1: persist the day's final behaviour aggregate before teardown so the
+        // tail since the last 60 s heartbeat isn't lost on a clean exit.
+        FlushBehaviorAggregate();
         try { _userModelAnalysisCts?.Cancel(); _userModelAnalysisCts?.Dispose(); } catch { }
         try { _activityDetector.Dispose(); } catch { }
         // M4 head-tracking sprint: gracefully stop the sidecar process if it

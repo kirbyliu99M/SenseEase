@@ -863,6 +863,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
         get { lock (_gate) { return _habituation.SevereStrikeLimitOverride; } }
     }
 
+    /// <summary>UM1 telemetry: the engine's current habituation offset (pp),
+    /// read-only. Pass-through getter used by the daily-behaviour collector to
+    /// track net adaptation over the day — it only READS the offset and never
+    /// resets or mutates it (Q4.5-safe).</summary>
+    public int HabituationOffsetPp
+    {
+        get { lock (_gate) { return _habituation.HabituationOffset; } }
+    }
+
     /// <summary>Apply a post-test calibration result. Computes the effective
     /// trigger (override > scale + adjustment) and pushes it to the engine,
     /// pushes the strike-limit override (vestibular case), and swaps the
