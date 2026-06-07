@@ -18,6 +18,7 @@ public class UserModelStoreTests : IDisposable
     private readonly string _tempDir;
     private readonly string _indexPath;
     private readonly string _logPath;
+    private readonly string _profilePath;
 
     public UserModelStoreTests()
     {
@@ -25,6 +26,7 @@ public class UserModelStoreTests : IDisposable
         Directory.CreateDirectory(_tempDir);
         _indexPath = Path.Combine(_tempDir, "user_model_index.json");
         _logPath = Path.Combine(_tempDir, "behavior_log.jsonl");
+        _profilePath = Path.Combine(_tempDir, "habituation_profile.json");
     }
 
     public void Dispose()
@@ -121,6 +123,85 @@ public class UserModelStoreTests : IDisposable
         var w = new DailyBehaviorAggregateWriter(_logPath);
         w.Write(Row(""));
         Assert.Empty(w.ReadAll());
+    }
+
+    // ── H24: ClearUserModel + observation access (PR-C) ──────────────────────
+
+    [Fact]
+    public void GetObservationBuckets_ReturnsProfileBuckets()
+    {
+        var profile = new FileHabituationProfileStore(_profilePath);
+        var snap = new HabituationProfileSnapshot();
+        snap.LongitudinalObservationsV2["2026-06"] =
+            new List<ObservationEntry> { new() { Ts = "2026-06-07T00:00:00Z", Text = "x" } };
+        profile.Save(snap);
+
+        var store = new UserModelIndexStore(_indexPath, _logPath, profile);
+        var buckets = store.GetObservationBuckets();
+
+        Assert.True(buckets.ContainsKey("2026-06"));
+        Assert.Single(buckets["2026-06"]);
+    }
+
+    [Fact]
+    public void ClearUserModel_WipesBehaviorLogIndexObservations_PreservesStructuredDeltas()
+    {
+        // Arrange: a profile carrying observations AND structured deltas.
+        var profile = new FileHabituationProfileStore(_profilePath);
+        var snap = new HabituationProfileSnapshot
+        {
+            Profile = "SENSITIVE",
+            SevereStrikeCount = 2,
+            EngineState = "COOLDOWN",
+            CalibrationCount = 3,
+            PersonalPressureScale = 1.2,
+            HabituationOffsetPp = 8.0, // a proxy for offset — must be untouched (Q4.5)
+        };
+        snap.LongitudinalObservationsV2["2026-06"] =
+            new List<ObservationEntry> { new() { Ts = "2026-06-07T00:00:00Z", Text = "obs" } };
+        snap.LongitudinalObservations.Add("legacy flat obs");
+        profile.Save(snap);
+
+        new DailyBehaviorAggregateWriter(_logPath).Write(Row("2026-06-07"));
+        var store = new UserModelIndexStore(_indexPath, _logPath, profile);
+        var seed = new UserModelIndex { LastAnalyzedChatTurnIndex = 5 };
+        seed.BucketManifest["2026-06"] = new BucketMeta { EntryCount = 1 };
+        store.SaveIndex(seed);
+        Assert.NotEmpty(store.LoadIndex().BucketManifest); // precondition: non-empty before clear
+
+        // Act
+        store.ClearUserModel();
+
+        // Assert: user-model files wiped.
+        Assert.False(File.Exists(_logPath));
+        var idx = store.LoadIndex();
+        Assert.Equal(0, idx.LastAnalyzedChatTurnIndex);
+        Assert.Empty(idx.BucketManifest);
+
+        var after = profile.Load()!;
+        Assert.Empty(after.LongitudinalObservationsV2);  // observation memory cleared
+        Assert.Empty(after.LongitudinalObservations);
+
+        // Structured deltas preserved (brief + Q4.5).
+        Assert.Equal("SENSITIVE", after.Profile);
+        Assert.Equal(2, after.SevereStrikeCount);
+        Assert.Equal("COOLDOWN", after.EngineState);
+        Assert.Equal(3, after.CalibrationCount);
+        Assert.Equal(1.2, after.PersonalPressureScale);
+        Assert.Equal(8.0, after.HabituationOffsetPp); // Q4.5: offset untouched
+    }
+
+    [Fact]
+    public void ClearUserModel_IndexOnly_NoProfileOrLog_DoesNotThrow()
+    {
+        // The index-only ctor (no behaviour-log path, no profile store) must still
+        // reset the index without throwing.
+        var store = new UserModelIndexStore(_indexPath);
+        store.SaveIndex(new UserModelIndex { LastAnalyzedChatTurnIndex = 9 });
+
+        store.ClearUserModel();
+
+        Assert.Equal(0, store.LoadIndex().LastAnalyzedChatTurnIndex);
     }
 
     [Fact]

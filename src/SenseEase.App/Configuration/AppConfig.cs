@@ -248,6 +248,14 @@ public static class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "user_model_index.json");
 
+    // H24: the chatbot model trace (the ClearOnDiskTrace target). Mirrors the path
+    // MistralChatbotService writes to (Infrastructure can't see this App config, so
+    // both sides compute %LOCALAPPDATA%\SenseEase\model_trace.jsonl independently).
+    // Used by the Settings "clear all my data" button to delete it directly.
+    public static string ModelTracePath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SenseEase", "model_trace.jsonl");
+
     // Display Comfort AppConfig fields (AmbientLightComfortEnabled, LuxMode,
     // DisplayBaselinePath, UseWebcamLuxFallback) removed at v0.11 (UI
     // Consolidation Sprint Phase 4) — feature decommissioned. The

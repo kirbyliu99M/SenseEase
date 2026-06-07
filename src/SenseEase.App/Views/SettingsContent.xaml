@@ -579,6 +579,39 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ═══ Section 4 · 資料與隱私 / Data & privacy (H24) ═══ -->
+                <Border Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="{loc:T Zh='資料與隱私', En='Data &amp; privacy'}"
+                                   Margin="0,0,0,14"/>
+                        <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期模型：行為紀錄、分析索引與長期觀察，並刪除模型診斷追蹤。你的校正設定檔（profile／強度）會保留。此動作無法復原。', En='Clear the long-term model SenseEase has built about you — the behaviour log, analysis index, and longitudinal observations — plus the model diagnostic trace. Your calibration profile (profile / strength) is kept. This cannot be undone.'}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,10"/>
+                        <Button x:Name="ClearAllDataButton"
+                                Content="{loc:T Zh='清除所有資料並重設', En='Clear all my data and reset'}"
+                                HorizontalAlignment="Left"
+                                Padding="14,7"
+                                FontSize="12"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource ComfortHighText}"
+                                Background="{DynamicResource ComfortHighWeak}"
+                                BorderBrush="{DynamicResource ComfortHigh}"
+                                BorderThickness="1"
+                                Cursor="Hand"
+                                Click="OnClearAllDataClicked"
+                                ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察與模型追蹤；保留校正設定檔。', En='Deletes the behaviour log, analysis index, longitudinal observations, and model trace; keeps your calibration profile.'}"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Phase 5 follow-up (v0.11, 2026-05-31): developer / QA test
                      hotkey reference table. Per user request, labeled as "dev
                      test usage" — this is not a normal-user feature. Lists the

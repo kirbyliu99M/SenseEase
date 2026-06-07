@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using SenseEase.App.Configuration;
 using SenseEase.App.Localization;
 using SenseEase.App.Theme;
+using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.App.Views;
 
@@ -385,6 +386,57 @@ public partial class SettingsContent : UserControl
                 LocalizationManager.Current.Pick(
                     $"重啟失敗：{ex.Message}",
                     $"Restart failed: {ex.Message}"),
+                "SenseEase", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>H24: "Clear all my data and reset" — wipes the long-term user model
+    /// (behaviour log, analysis index, longitudinal observations) + the model trace,
+    /// preserving the calibration profile. Pre-confirms (destructive + irreversible),
+    /// runs ClearUserModel() + the ClearOnDiskTrace() target, then confirms completion.
+    /// Constructed from AppConfig path singletons to match this control's no-DI design.
+    /// Q4.5: ClearUserModel never resets the habituation offset / live engine.</summary>
+    private void OnClearAllDataClicked(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(
+            LocalizationManager.Current.Pick(
+                "確定要清除 SenseEase 為你建立的長期模型並重設嗎？\n\n" +
+                "這會刪除行為紀錄、分析索引、長期觀察與模型診斷追蹤。\n" +
+                "你的校正設定檔（profile／強度）會保留。此動作無法復原。",
+                "Clear the long-term model SenseEase built about you and reset?\n\n" +
+                "This deletes the behaviour log, analysis index, longitudinal observations, " +
+                "and the model trace.\nYour calibration profile (profile / strength) is kept. " +
+                "This cannot be undone."),
+            "SenseEase",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.OK) return;
+
+        try
+        {
+            // H24 step 4: ClearUserModel() (behaviour log + index + observations,
+            // structured deltas preserved) ...
+            var profileStore = new FileHabituationProfileStore(AppConfig.HabituationProfilePath);
+            var userModel = new UserModelIndexStore(
+                AppConfig.UserModelIndexPath, AppConfig.BehaviorLogPath, profileStore);
+            userModel.ClearUserModel();
+
+            // ... + the ClearOnDiskTrace() target (the model trace), best-effort.
+            try { if (File.Exists(AppConfig.ModelTracePath)) File.Delete(AppConfig.ModelTracePath); }
+            catch { /* best-effort PII cleanup */ }
+
+            MessageBox.Show(
+                LocalizationManager.Current.Pick(
+                    "已清除所有使用者模型資料。",
+                    "All user-model data cleared."),
+                "SenseEase", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                LocalizationManager.Current.Pick(
+                    $"清除失敗：{ex.Message}",
+                    $"Clear failed: {ex.Message}"),
                 "SenseEase", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
