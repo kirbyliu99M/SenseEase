@@ -305,6 +305,28 @@ public static class AppConfig
     /// requires explicit opt-in in code or a future settings UI.</para></summary>
     public static bool AdaptiveFitSelectorEnabled { get; set; } = false;
 
+    /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
+    /// master gate for the zero-setup start. Defaults to <c>false</c> — M1-gated
+    /// and coupled to <see cref="AdaptiveFitSelectorEnabled"/>: cancelling explicit
+    /// calibration before auto-adaptation (the AdaptiveFit selector) + M1 norm-factors
+    /// are live would strand a brand-new user at a default they cannot adjust away
+    /// from. So this ships dormant; full activation is
+    /// <c>AutoProfilingEnabled=true</c> AND <c>AdaptiveFitSelectorEnabled=true</c>,
+    /// flipped only once M1 lands.
+    ///
+    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When <c>false</c>
+    /// (the default): the explicit 5-card / demo-reaction / LLM-dialog calibration
+    /// flow runs exactly as today, the new-user defaults stay RESILIENT/L1, the
+    /// console keeps its Calibration &amp; Demo + Reset entries, and the one-time
+    /// vestibular field never appears. When <c>true</c>: the calibration entry
+    /// points are suppressed (the calibration CODE stays intact, just dormant),
+    /// a brand-new user starts at TYPICAL / L5「中」 and the level auto-converges
+    /// via the selector, and vestibular diagnosis is captured by a one-time
+    /// first-use field + a permanent Settings toggle instead of calibration Q5.</para>
+    ///
+    /// <para>Same settable-static pattern as the other runtime feature flags here.</para></summary>
+    public static bool AutoProfilingEnabled { get; set; } = false;
+
     /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven
     /// FOV mask centering. Defaults to false (privacy + stability). When
     /// false, all head-tracking code paths are dead — overlay behaves exactly

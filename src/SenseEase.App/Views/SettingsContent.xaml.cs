@@ -44,6 +44,22 @@ public partial class SettingsContent : UserControl
     /// UserControl loads; OnLoaded reads it once during hydration.</summary>
     public Func<bool>? HasVestibularDiagnosis { get; set; }
 
+    /// <summary>Alpha-2 addendum (auto-profiling world): host-provided read of the
+    /// PERSISTENT vestibular protection state for the Settings "regret" toggle's checked
+    /// state. Wired by MainWindow to MainViewModel.VestibularProtectionEnabled.</summary>
+    public Func<bool>? GetVestibularProtection { get; set; }
+
+    /// <summary>Alpha-2 addendum: host-provided write of the vestibular protection toggle.
+    /// Wired by MainWindow to MainViewModel.VestibularProtectionEnabled (which drives the
+    /// engine + persists). Read-only-consumed elsewhere; this is the ONE deliberate write
+    /// (the regret mechanism), gated to the auto-profiling world.</summary>
+    public Action<bool>? SetVestibularProtection { get; set; }
+
+    /// <summary>Alpha-2 addendum: host-provided "reset personalisation state" action for the
+    /// Reset that moved from the console into Settings. Wired by MainWindow to
+    /// MainViewModel.ResetStateCommand (Q4.5-safe — preserves the habituation offset).</summary>
+    public Action? ResetRequested { get; set; }
+
     /// <summary>Raised after any persisted toggle change so the host can
     /// repaint dependent surfaces (bar colour, tray icon) immediately
     /// instead of waiting for the next StateChanged push. Mirrors the
@@ -151,6 +167,15 @@ public partial class SettingsContent : UserControl
                 ToggleEscapeHatch.ToolTip   = null;
                 EscapeHatchVestibularNote.Visibility = Visibility.Collapsed;
             }
+
+            // Alpha-2 addendum: the vestibular "regret" toggle + the moved Reset are shown
+            // ONLY in the auto-profiling world AND only when the host wired the callbacks
+            // (the NotificationCard→Settings path doesn't, so it won't show an inert group).
+            // Hydrate the toggle from the host's current engine state (read-only consumption).
+            AutoProfilingDataGroup.Visibility =
+                (AppConfig.AutoProfilingEnabled && SetVestibularProtection is not null)
+                    ? Visibility.Visible : Visibility.Collapsed;
+            VestibularProtectionToggle.IsChecked = GetVestibularProtection?.Invoke() ?? false;
         }
         finally { _wiring = false; }
     }
@@ -396,6 +421,34 @@ public partial class SettingsContent : UserControl
     /// runs ClearUserModel() + the ClearOnDiskTrace() target, then confirms completion.
     /// Constructed from AppConfig path singletons to match this control's no-DI design.
     /// Q4.5: ClearUserModel never resets the habituation offset / live engine.</summary>
+    /// <summary>Alpha-2 addendum: the vestibular "regret" toggle changed. Suppressed during
+    /// hydration (<see cref="_wiring"/>). Routes the new value to the host
+    /// (MainViewModel.VestibularProtectionEnabled), which drives + persists the engine.</summary>
+    private void OnVestibularProtectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        SetVestibularProtection?.Invoke(VestibularProtectionToggle.IsChecked == true);
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Alpha-2 addendum: the moved-into-Settings "reset personalisation state"
+    /// button. Confirms (it is less contextual than the console button was), then routes
+    /// to the host's ResetStateCommand (Q4.5-safe — preserves the earned habituation offset).</summary>
+    private void OnResetStateClicked(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(
+            LocalizationManager.Current.Pick(
+                "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），" +
+                "但保留你已養成的習慣化進度。",
+                "Reset personalisation state?\n\nThis clears transient personalisation " +
+                "(shader tweaks) but keeps your earned habituation progress."),
+            "SenseEase",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.OK) return;
+        ResetRequested?.Invoke();
+    }
+
     private void OnClearAllDataClicked(object sender, RoutedEventArgs e)
     {
         var confirm = MessageBox.Show(

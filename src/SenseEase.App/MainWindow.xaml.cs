@@ -99,6 +99,11 @@ public partial class MainWindow : Window
         // for the tray-menu / Pop-up Card SettingsWindow instance, so a
         // toggle flipped in the tab repaints bar/tray identically.
         SettingsTabContent.HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis;
+        // Alpha-2 addendum (auto-profiling world): wire the vestibular "regret" toggle +
+        // the moved-into-Settings Reset to the VM. Hidden unless AutoProfilingEnabled.
+        SettingsTabContent.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
+        SettingsTabContent.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
+        SettingsTabContent.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
         SettingsTabContent.PreferencesChanged    += (_, _) => RefreshSettingsDependentSurfaces();
 
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
@@ -733,6 +738,11 @@ public partial class MainWindow : Window
             return;
         }
         _settingsWindow = new SettingsWindow(_viewModel.HasVestibularDiagnosis);
+        // Alpha-2 addendum: forward the auto-profiling vestibular toggle + Reset wiring so the
+        // tray/gear Settings window matches the console Settings tab in the auto-profiling world.
+        _settingsWindow.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
+        _settingsWindow.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
+        _settingsWindow.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
         _settingsWindow.Show();

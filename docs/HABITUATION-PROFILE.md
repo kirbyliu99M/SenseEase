@@ -201,6 +201,21 @@ the existing `habituation.json` (which continues to store offset only).
 `profile_source` ∈ `{"calibration_demo", "chatbot_override", "default"}`.
 `engine_state` ∈ `{"RUNNING", "COOLDOWN", "PAUSED_AWAITING_USER_CONFIRM"}`.
 
+### 5.1a — `vestibular_protection_enabled` (auto-profiling vestibular flag)
+
+`vestibular_protection_enabled` (bool, default `false`) is the persistent
+auto-profiling vestibular flag, added **additively to schema v3** (older files
+without the key load as `false`). It is set by the one-time first-use prompt
+「是否有前庭/眩暈相關診斷?」 or the Settings toggle (regret mechanism), and is
+restored on load. When `true` it drives the vestibular-protection hard-override:
+**EffectiveTrigger = 50, SevereStrikeLimit = 1, and the L9 floor** — the same
+guardrails the cancelled `Q5RiskFactors.VestibularDiagnosed` path used to fire.
+It is set/cleared via `SetVestibularProtection` and persisted in the snapshot.
+
+This flag does **not** replace the legacy calibration Q5 path — both are honoured;
+either the auto-profiling flag OR the legacy Q5 vestibular signal activates the
+same protection (no regression for users who came through explicit calibration).
+
 ### 5.2 — Write triggers
 
 The engine writes the full snapshot (atomic temp+rename) when any of:

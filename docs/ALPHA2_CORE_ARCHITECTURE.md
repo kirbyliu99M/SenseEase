@@ -40,10 +40,14 @@ no-move-on-noise · adjacency-only · Q4-before-Q5 · dual-trigger-cooldown-prec
 
 ## Alpha-2 addendum — cancel explicit user calibration → auto-profiling (Kirby 2026-06-06)
 
-**Status: RECORD-ONLY. M1-gated. Do NOT implement now.** This is a future-direction
-decision captured for back-trace; no code, no test, no flag changes land from this
-section. The CURRENT explicit-calibration flow (`docs/CALIBRATION.md`) remains fully in
-effect until Alpha-2 ships this.
+**Status: IMPLEMENTED behind `AppConfig.AutoProfilingEnabled` (default OFF — byte-identical
+when off). Activation remains M1-gated and is paired with `AppConfig.AdaptiveFitSelectorEnabled`.**
+The code now exists flag-gated; with the flag OFF the CURRENT explicit-calibration flow
+(`docs/CALIBRATION.md`) remains fully in effect, and turning it ON for real users still
+awaits M1 + the Adaptive Fit selector. New persisted field:
+`habituation_profile.json:vestibular_protection_enabled` carries the auto-profiling
+vestibular signal. The explicit-calibration CODE is **suppressed-not-removed** (the entry is
+hidden behind the flag, not deleted) so the legacy path stays intact and revertible.
 
 **Why Alpha-2 (not merely deferred).** The starting-level "gradual convergence" only has
 meaning once auto-adaptation (P3/P4, the Adaptive Fit selector + state machine above) is

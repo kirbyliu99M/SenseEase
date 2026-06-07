@@ -47,6 +47,24 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // false, NO new code path below is reachable and Update() runs today's path.
     private bool _adaptiveFitSelectorEnabled;
 
+    // Engine-local mirror of AppConfig.AutoProfilingEnabled (Alpha-2 addendum:
+    // cancel explicit calibration → auto-profiling). Same App-can't-be-read-from-
+    // Infrastructure rule as _adaptiveFitSelectorEnabled — the App layer mirrors the
+    // flag onto this at startup. DEFAULTS OFF → flag-off byte-identity by construction.
+    // Read only by ApplyAutoProfilingStartDefaults (App-driven), so while OFF nothing
+    // here changes today's behaviour.
+    private bool _autoProfilingEnabled;
+
+    // Alpha-2 addendum vestibular re-rooting: the PERSISTENT in-memory vestibular-
+    // protection signal. Set by SetVestibularProtection (the auto-profiling one-time
+    // field / Settings toggle) OR restored from the snapshot at load. The legacy
+    // calibration path keeps signalling vestibular via _lastCalibrationResult.Medical
+    // Advisory; the IsVestibularActive helper ORs both so EVERY vestibular consumer
+    // keeps firing regardless of which world set it. Read by the selector guards
+    // (ApplySetMove L9 floor / PassesVestibularGuard), which only run when the
+    // selector flag is ON, so re-rooting them is byte-identical when the selector is OFF.
+    private bool _vestibularProtection;
+
     // ── Adaptive Fit selector TICK (Alpha-2 core GROUP D) ────────────────────
     // Everything in this region is reachable ONLY inside an
     // 'if (_adaptiveFitSelectorEnabled)' guard in Update(); while the flag is
@@ -210,6 +228,19 @@ public sealed class MockInferenceEngine : IInferenceEngine
             {
                 _lastCalibrationAtUtc = lastCalAt;
             }
+            // Alpha-2 addendum: restore the PERSISTENT vestibular protection so the
+            // auto-profiling world's TriggerPressure-50 + SevereStrikeLimit-1 (and the
+            // selector L9 floor / propose-stronger-only guards via IsVestibularActive)
+            // survive restarts. Once explicit calibration is cancelled this field is the
+            // ONLY vestibular source, so it must be re-applied at load. Field defaults
+            // false ⇒ no-op for existing calibration-era snapshots (byte-identical).
+            if (savedSnapshot.VestibularProtectionEnabled)
+            {
+                _vestibularProtection                  = true;
+                _habituation.EffectiveTrigger          = CalibrationProcessor.VestibularTriggerPressureOverride;
+                _habituation.SevereStrikeLimitOverride = 1;
+            }
+
             // Note: we deliberately do NOT restore strike_count from the snapshot.
             // Strikes are a within-session safety counter — re-loading them on
             // startup would mean a user who hit the limit yesterday boots into
@@ -507,6 +538,82 @@ public sealed class MockInferenceEngine : IInferenceEngine
         set { lock (_gate) { _adaptiveFitSelectorEnabled = value; } }
     }
 
+    /// <summary>Engine-local mirror of <c>AppConfig.AutoProfilingEnabled</c> (Alpha-2
+    /// addendum). Defaults OFF. The App layer sets it from the AppConfig flag at startup
+    /// and then calls <see cref="ApplyAutoProfilingStartDefaults"/>. SenseEase.Infrastructure
+    /// cannot read SenseEase.App directly — same App-only-flag rule as the selector.</summary>
+    public bool AutoProfilingEnabled
+    {
+        get { lock (_gate) { return _autoProfilingEnabled; } }
+        set { lock (_gate) { _autoProfilingEnabled = value; } }
+    }
+
+    /// <summary>Alpha-2 addendum: seed a BRAND-NEW auto-profiling user at the neutral
+    /// TYPICAL profile + L5「中」 start (instead of RESILIENT/L1), from which the AdaptiveFit
+    /// selector converges. No-op unless the flag is ON AND the user is genuinely fresh
+    /// (no profile snapshot existed at load, zero prior calibrations, no persisted
+    /// vestibular signal) — an existing user's profile is never overwritten. App-driven
+    /// (called after the flag mirror is set), so flag-OFF construction stays byte-identical
+    /// to today. Q4.5-safe: never touches the habituation <c>_offset</c>.</summary>
+    public void ApplyAutoProfilingStartDefaults()
+    {
+        lock (_gate)
+        {
+            if (!_autoProfilingEnabled) return;
+            if (_profileExistedAtLoad || _loadedCalibrationCount > 0 || _vestibularProtection) return;
+
+            _habituation.SetProfile(HabituationProfile.Typical, "auto_profiling_default");
+            _vimsTier             = SenseDefaults.AutoProfilingStartLevel; // L5 median seed
+            _pendingTierCandidate = _vimsTier;
+            _pendingTierSinceUtc  = DateTime.MinValue;
+            Current.VimsTier         = _vimsTier;
+            Current.HabituationLevel = _habituation.HabituationLevel;
+            _profileSnapshotDirty    = true;
+            MaybePersistProfileSnapshot();
+        }
+    }
+
+    /// <summary>Alpha-2 addendum vestibular re-rooting: turn the PERSISTENT vestibular
+    /// protection ON/OFF outside the (cancelled) calibration Q5. ON applies the SAME
+    /// engine protection the vestibular calibration path applied — TriggerPressure-50
+    /// hard-override + SevereStrikeLimit=1 — and arms the in-memory signal the selector
+    /// guards (L9 floor / propose-stronger-only) and <c>HasVestibularDiagnosis</c> read.
+    /// OFF (the Settings "regret" toggle) reverts the overrides to defaults. Persisted via
+    /// <see cref="HabituationProfileSnapshot.VestibularProtectionEnabled"/> so it survives
+    /// restarts. Q4.5-safe: never touches the habituation <c>_offset</c>.</summary>
+    public void SetVestibularProtection(bool enabled, string source = "user")
+    {
+        lock (_gate)
+        {
+            _vestibularProtection = enabled;
+            if (enabled)
+            {
+                _habituation.EffectiveTrigger          = CalibrationProcessor.VestibularTriggerPressureOverride; // 50
+                _habituation.SevereStrikeLimitOverride = 1;
+            }
+            else
+            {
+                // Regret: the auto-profiling world has no calibration scale/override to
+                // restore, so revert to engine defaults.
+                _habituation.EffectiveTrigger          = SenseDefaults.TriggerPressure;
+                _habituation.SevereStrikeLimitOverride = null;
+            }
+            _profileSnapshotDirty = true;
+            MaybePersistProfileSnapshot();
+            AppendAdaptiveFitEvent("Habituation.VestibularProtection",
+                $"vestibular protection {(enabled ? "ENABLED" : "disabled")} (source={source})");
+        }
+    }
+
+    /// <summary>True when vestibular protection is active from EITHER world — the
+    /// persistent auto-profiling signal (<see cref="SetVestibularProtection"/> / restored
+    /// from snapshot) OR the legacy calibration advisory. The single predicate every
+    /// vestibular consumer in this engine keys off, so re-rooting kept all consumers intact.</summary>
+    private bool IsVestibularActive =>
+        _vestibularProtection
+        || string.Equals(_lastCalibrationResult?.MedicalAdvisory, "vestibular",
+                         StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The engine's current discrete intensity level (1..12) — the same
     /// value surfaced as <c>SenseState.VimsTier</c>. Reading it does not depend on
     /// the flag; it just exposes the tier under the engine lock.</summary>
@@ -675,9 +782,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // clamped to >= 9 on any set move (propose-stronger-only safety stance).
         // Non-advisory users keep their current rung. Keep the pending-debounce
         // bookkeeping in sync so UpdateVimsTier does not immediately walk it back.
-        if (string.Equals(_lastCalibrationResult?.MedicalAdvisory, "vestibular",
-                          StringComparison.OrdinalIgnoreCase)
-            && _vimsTier < 9)
+        // Re-rooted (Alpha-2 addendum): IsVestibularActive ORs the persistent
+        // auto-profiling signal with the legacy calibration advisory.
+        if (IsVestibularActive && _vimsTier < 9)
         {
             _vimsTier             = 9;
             _pendingTierCandidate = _vimsTier;
@@ -703,10 +810,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// the grid's clamps; this method governs the directional move gate.)</summary>
     private bool PassesVestibularGuard(GridCoord current, GridCoord target)
     {
-        bool vestibular =
-            string.Equals(_lastCalibrationResult?.MedicalAdvisory, "vestibular",
-                          StringComparison.OrdinalIgnoreCase);
-        if (!vestibular) return true;
+        // Re-rooted (Alpha-2 addendum): IsVestibularActive ORs the persistent
+        // auto-profiling signal with the legacy calibration advisory.
+        if (!IsVestibularActive) return true;
 
         // Propose-stronger-only: a move that LOWERS the intensity Band is blocked.
         return target.Band >= current.Band;
@@ -870,6 +976,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
     public int HabituationOffsetPp
     {
         get { lock (_gate) { return _habituation.HabituationOffset; } }
+    }
+
+    /// <summary>Alpha-2 addendum: the current state of the PERSISTENT vestibular protection
+    /// (the auto-profiling signal toggled by the one-time field / Settings). Source of truth
+    /// for the Settings "regret" toggle's checked state. Does NOT reflect the legacy
+    /// calibration advisory (that path is flag-off and uses its own snapshot fields).</summary>
+    public bool IsVestibularProtectionEnabled
+    {
+        get { lock (_gate) { return _vestibularProtection; } }
     }
 
     /// <summary>Apply a post-test calibration result. Computes the effective
@@ -1289,8 +1404,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
             CalibrationPath          = existing?.CalibrationPath,
             CalibrationResponses     = existing?.CalibrationResponses,
             SymptomDominancePrimary  = existing?.SymptomDominancePrimary,
-            MedicalAdvisoryShown     = existing?.MedicalAdvisoryShown,
+            // Alpha-2 addendum: an auto-profiling vestibular user (no calibration) must
+            // still surface the advisory to the chatbot's [habituation_state] block,
+            // which reads MedicalAdvisoryShown. Otherwise carry the calibration value forward.
+            MedicalAdvisoryShown     = _vestibularProtection
+                                         ? MedicalAdvisory.Vestibular
+                                         : existing?.MedicalAdvisoryShown,
             CalibrationConfidence    = existing?.CalibrationConfidence,
+            // Alpha-2 addendum: persist the auto-profiling vestibular signal so it
+            // survives restarts (restored in the ctor load path).
+            VestibularProtectionEnabled = _vestibularProtection,
         };
     }
 

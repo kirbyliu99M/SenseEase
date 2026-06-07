@@ -184,6 +184,18 @@ public sealed class HabituationProfileSnapshot
     [JsonPropertyName("calibration_confidence")]
     public CalibrationConfidence? CalibrationConfidence { get; set; }
 
+    /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
+    /// persistent vestibular-protection signal for the auto-profiling world, where
+    /// the cancelled calibration Q5 no longer sets it. Written by
+    /// <c>MockInferenceEngine.SetVestibularProtection</c> (driven by the one-time
+    /// first-use field + the permanent Settings toggle); read back at engine load to
+    /// re-apply the L9 floor / TriggerPressure-50 / SevereStrikeLimit-1 protection
+    /// across restarts. Additive (schema stays v3); default <c>false</c>, so existing
+    /// calibration-era snapshots are unaffected and the legacy
+    /// <c>CalibrationResponses.Q5RiskFactors</c> vestibular path is unchanged.</summary>
+    [JsonPropertyName("vestibular_protection_enabled")]
+    public bool VestibularProtectionEnabled { get; set; }
+
     /// <summary>True iff this snapshot was synthesized by the loader because
     /// habituation_profile.json was missing but other persistence artifacts
     /// (e.g. habituation.json) indicate prior app usage. Signals to upstream

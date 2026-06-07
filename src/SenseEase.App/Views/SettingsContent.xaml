@@ -609,6 +609,29 @@
                                 Cursor="Hand"
                                 Click="OnClearAllDataClicked"
                                 ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察與模型追蹤；保留校正設定檔。', En='Deletes the behaviour log, analysis index, longitudinal observations, and model trace; keeps your calibration profile.'}"/>
+
+                        <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
+                             "regret" toggle + the Reset that moved here from the console.
+                             Hidden unless AppConfig.AutoProfilingEnabled (set in OnLoaded). -->
+                        <StackPanel x:Name="AutoProfilingDataGroup" Visibility="Collapsed" Margin="0,18,0,0">
+                            <Border Background="{DynamicResource Separator}" Height="1" Margin="0,0,0,14"/>
+                            <CheckBox x:Name="VestibularProtectionToggle"
+                                      Content="{loc:T Zh='前庭／眩暈保護（最敏感防護）', En='Vestibular / dizziness protection (most-sensitive guard)'}"
+                                      Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                                      Checked="OnVestibularProtectionChanged"
+                                      Unchecked="OnVestibularProtectionChanged"/>
+                            <TextBlock Text="{loc:T Zh='若你有前庭或眩暈相關診斷，開啟此項會套用最敏感的防護。此設定可隨時更改。', En='If you have a vestibular or dizziness-related diagnosis, enabling this applies the most-sensitive protection. You can change this anytime.'}"
+                                       FontSize="11" Foreground="{DynamicResource TextTertiary}"
+                                       TextWrapping="Wrap" Margin="0,6,0,14"/>
+                            <Button x:Name="ResetStateButton"
+                                    Content="{loc:T Zh='重設個人化狀態', En='Reset personalisation state'}"
+                                    HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
+                                    Foreground="{DynamicResource ComfortHighText}"
+                                    Background="{DynamicResource ComfortHighWeak}"
+                                    BorderBrush="{DynamicResource ComfortHigh}" BorderThickness="1" Cursor="Hand"
+                                    Click="OnResetStateClicked"
+                                    ToolTip="{loc:T Zh='清除暫時的個人化（遮罩微調），保留你已養成的習慣化進度。', En='Clears transient personalisation (shader tweaks); keeps your earned habituation progress.'}"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

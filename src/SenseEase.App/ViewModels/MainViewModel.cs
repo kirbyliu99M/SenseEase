@@ -115,12 +115,85 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool HasVestibularDiagnosis()
     {
         var snap = _habituationProfileStore.Load();
-        if (snap?.CalibrationResponses?.Q5RiskFactors is null) return false;
-        foreach (var rf in snap.CalibrationResponses.Q5RiskFactors)
+        if (snap is null) return false;
+        // Alpha-2 addendum: the auto-profiling world records vestibular via the persistent
+        // VestibularProtectionEnabled field (the one-time first-use prompt / Settings toggle);
+        // the legacy calibration world records it via Q5RiskFactors. Honour BOTH so every
+        // vestibular UI guard keeps firing regardless of which world set it.
+        if (snap.VestibularProtectionEnabled) return true;
+        if (snap.CalibrationResponses?.Q5RiskFactors is { } rfs)
         {
-            if (rf == SenseEase.Core.Inference.RiskFactor.VestibularDiagnosed) return true;
+            foreach (var rf in rfs)
+                if (rf == SenseEase.Core.Inference.RiskFactor.VestibularDiagnosed) return true;
         }
         return false;
+    }
+
+    // ── Alpha-2 addendum: auto-profiling visibility + one-time vestibular prompt ──
+
+    /// <summary>True iff the auto-profiling world is active (explicit calibration
+    /// cancelled). Drives the console's calibration/reset entry visibility. While false
+    /// (the default) the console keeps today's calibration + reset entries.</summary>
+    public bool AutoProfilingActive => AppConfig.AutoProfilingEnabled;
+
+    /// <summary>Console "Calibration &amp; Demo" + welcome-banner calibration entry
+    /// visibility — shown only in the legacy (calibration) world.</summary>
+    public System.Windows.Visibility CalibrationEntryVisibility =>
+        AutoProfilingActive ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+
+    /// <summary>Console Reset button visibility — hidden when auto-profiling moves reset
+    /// into Settings.</summary>
+    public System.Windows.Visibility ConsoleResetVisibility =>
+        AutoProfilingActive ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+
+    // One-time vestibular prompt (auto-profiling world). Non-blocking bottom bar shown on
+    // first use until the user gives ANY response. "Asked once, not flashed-and-counted":
+    // VestibularPromptAnswered is set ONLY by the Yes/No commands (an actual click), so
+    // mere display never consumes the ask — closing the app without interacting reshows it.
+    private bool _vestibularPromptVisible =
+        AppConfig.AutoProfilingEnabled && !UserPreferences.Current.VestibularPromptAnswered;
+
+    /// <summary>Visibility of the one-time vestibular first-use prompt bar.</summary>
+    public System.Windows.Visibility VestibularPromptVisibility =>
+        _vestibularPromptVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public ICommand VestibularPromptYesCommand { get; private set; } = null!;
+    public ICommand VestibularPromptNoCommand  { get; private set; } = null!;
+
+    private void AnswerVestibularPrompt(bool hasDiagnosis)
+    {
+        UserPreferences.Current.VestibularPromptAnswered = true;
+        UserPreferences.Current.Save();
+        if (hasDiagnosis && _engine is MockInferenceEngine mock)
+            mock.SetVestibularProtection(true, source: "onetime_prompt");
+        _vestibularPromptVisible = false;
+        OnPropertyChanged(nameof(VestibularPromptVisibility));
+        OnPropertyChanged(nameof(VestibularProtectionEnabled));
+        AppendLog("Vestibular", hasDiagnosis
+            ? Loc("已啟用前庭保護。", "Vestibular protection enabled.")
+            : Loc("前庭詢問已回覆（未啟用）。", "Vestibular prompt answered (not enabled)."),
+            CurrentState);
+    }
+
+    /// <summary>Settings "regret" toggle source of truth — the PERSISTENT vestibular
+    /// protection. Permanently changeable, so a user who skipped the one-time prompt can
+    /// enable later (and a user who enabled can disable). Writes through the engine, which
+    /// applies/reverts the protection + persists it. Q4.5-safe (never touches _offset).</summary>
+    public bool VestibularProtectionEnabled
+    {
+        get => (_engine as MockInferenceEngine)?.IsVestibularProtectionEnabled ?? false;
+        set
+        {
+            if (_engine is MockInferenceEngine mock && mock.IsVestibularProtectionEnabled != value)
+            {
+                mock.SetVestibularProtection(value, source: "settings");
+                OnPropertyChanged(nameof(VestibularProtectionEnabled));
+                AppendLog("Vestibular",
+                    value ? Loc("已於設定啟用前庭保護。", "Vestibular protection enabled in Settings.")
+                          : Loc("已於設定關閉前庭保護。", "Vestibular protection disabled in Settings."),
+                    CurrentState);
+            }
+        }
     }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
@@ -618,6 +691,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (_engine is MockInferenceEngine mockEngineForSelector)
             mockEngineForSelector.AdaptiveFitSelectorEnabled = AppConfig.AdaptiveFitSelectorEnabled;
 
+        // Alpha-2 addendum (cancel explicit calibration → auto-profiling): mirror the
+        // AutoProfilingEnabled flag onto the engine the same way, THEN seed the fresh-user
+        // TYPICAL / L5「中」 start. Both are no-ops while the flag is OFF (the default), so the
+        // flag-off path stays byte-identical. Full activation pairs this with
+        // AdaptiveFitSelectorEnabled once M1 lands.
+        if (_engine is MockInferenceEngine mockEngineForAutoProfiling)
+        {
+            mockEngineForAutoProfiling.AutoProfilingEnabled = AppConfig.AutoProfilingEnabled;
+            mockEngineForAutoProfiling.ApplyAutoProfilingStartDefaults();
+        }
+
         // M3 7e+ fix: mirror every _log.Append into the dashboard's bound
         // EventLog ObservableCollection so entries originating outside
         // MainViewModel (M1 habituation events from MockInferenceEngine,
@@ -800,6 +884,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 HabituationPaused ? "再適應已暫停 (Habituation paused)" : "再適應已恢復 (Habituation resumed)",
                 CurrentState);
         });
+        // Alpha-2 addendum: one-time vestibular prompt responses (auto-profiling world).
+        VestibularPromptYesCommand = new RelayCommand(_ => AnswerVestibularPrompt(true));
+        VestibularPromptNoCommand  = new RelayCommand(_ => AnswerVestibularPrompt(false));
 
         _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
         // D3 liveness contract: subscribe once to the concrete WGC provider's
@@ -1229,7 +1316,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // Welcome banner state. Initialised from AppConfig.IsFirstRun so a brand-new
     // install shows the calibration prompt automatically; toggled false the
     // moment the user either completes or dismisses the setup wizard.
-    private bool _showFirstRunBanner = AppConfig.IsFirstRun;
+    // Alpha-2 addendum: the welcome banner IS the first-run calibration invite, so it
+    // is suppressed in the auto-profiling world (zero-setup start). Flag OFF ⇒ unchanged.
+    private bool _showFirstRunBanner = AppConfig.IsFirstRun && !AppConfig.AutoProfilingEnabled;
     public bool ShowFirstRunBanner
     {
         get => _showFirstRunBanner;
@@ -1418,24 +1507,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppendLog("Calibration",
             $"[diag] post-demo branching: loaded_calibration_count={calibrationCount}",
             CurrentState);
-        bool isFirstRunCalibration = calibrationCount <= 0;
-        if (isFirstRunCalibration)
+        // Alpha-2 addendum: in the auto-profiling world explicit calibration is
+        // cancelled, so the post-demo flow never routes to the calibration card /
+        // invitation banner. Flag OFF (default) ⇒ today's routing byte-identical.
+        if (AppConfig.AutoProfilingEnabled)
         {
-            TriggerCalibrationCard();
+            AppendLog("Calibration",
+                Loc("自動建檔模式：略過示範後校準路由。",
+                    "Auto-profiling: post-demo calibration routing skipped."),
+                CurrentState);
         }
         else
         {
-            // Stage 5a: invitation banner — DO NOT auto-trigger the card.
-            // Snapshot the demo sensor data so the LLM session has accurate
-            // current-run context if the user accepts the invitation.
-            ChatbotVm.LastDemoSensorData = new CalibrationSensorData(
-                PeakPressure: _demoPeakPressure,
-                MaskActivations: _demoMaskActivations,
-                PeakPressureAtSec: _demoPeakPressureAtSec);
-            ChatbotVm.ShowCalibrationInvitationBanner = true;
-            AppendLog("Calibration",
-                Loc("後續校準邀請橫幅已顯示。", "Subsequent-calibration invitation banner shown."),
-                CurrentState);
+            bool isFirstRunCalibration = calibrationCount <= 0;
+            if (isFirstRunCalibration)
+            {
+                TriggerCalibrationCard();
+            }
+            else
+            {
+                // Stage 5a: invitation banner — DO NOT auto-trigger the card.
+                // Snapshot the demo sensor data so the LLM session has accurate
+                // current-run context if the user accepts the invitation.
+                ChatbotVm.LastDemoSensorData = new CalibrationSensorData(
+                    PeakPressure: _demoPeakPressure,
+                    MaskActivations: _demoMaskActivations,
+                    PeakPressureAtSec: _demoPeakPressureAtSec);
+                ChatbotVm.ShowCalibrationInvitationBanner = true;
+                AppendLog("Calibration",
+                    Loc("後續校準邀請橫幅已顯示。", "Subsequent-calibration invitation banner shown."),
+                    CurrentState);
+            }
         }
         }
         catch (Exception ex)

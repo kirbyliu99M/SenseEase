@@ -111,6 +111,17 @@ public sealed class UserPreferences
     [JsonPropertyName("vestibular_warning_shown")]
     public bool VestibularWarningShown { get; set; } = false;
 
+    /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
+    /// "asked once" flag for the one-time vestibular first-use prompt that REPLACES the
+    /// cancelled calibration Q5. Set <c>true</c> only after the user gives ANY response
+    /// (yes / no / close) — mere display must NOT consume the ask, so closing the app
+    /// without interacting reshows it next launch ("asked once, not flashed-and-counted").
+    /// Default <c>false</c>; rolls forward like every other additive field, so old
+    /// preferences files load cleanly. Only consulted while
+    /// <c>AppConfig.AutoProfilingEnabled</c> is ON.</summary>
+    [JsonPropertyName("vestibular_prompt_answered")]
+    public bool VestibularPromptAnswered { get; set; } = false;
+
     /// <summary>Pop-up sprint Task 6 feature-flag dispatcher (spec §6).
     /// Default <c>true</c> = new bar/tray/card path. Setting to
     /// <c>false</c> routes spike events back through the legacy

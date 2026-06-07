@@ -15,6 +15,11 @@ public static class SenseDefaults
     public const double GridOpacity = 0.75;
     public const double NoiseGateThreshold = 8;
     public const double TriggerPressure = 85;
+    /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling): the
+    /// neutral starting level (1..12) a brand-new auto-profiling user is seeded at — L5
+    /// 「中」, the Set0 median — from which the AdaptiveFit selector converges. Used only by
+    /// <c>MockInferenceEngine.ApplyAutoProfilingStartDefaults</c> (flag-gated).</summary>
+    public const int AutoProfilingStartLevel = 5;
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;
     // Base decay alpha for a 100 ms step (tau ~= 2.81s).

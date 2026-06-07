@@ -158,6 +158,39 @@
 
     <DockPanel>
 
+        <!-- Alpha-2 addendum: one-time vestibular first-use prompt (auto-profiling world).
+             Non-blocking bottom bar; hidden unless AutoProfilingEnabled AND not-yet-answered.
+             "Asked once" — answering (Yes / No) marks it answered; closing the app without
+             interacting reshows it next launch. §6 non-medical wording (asks about a
+             diagnosis, makes no clinical claim). Permanently changeable later in Settings. -->
+        <Border DockPanel.Dock="Bottom"
+                Visibility="{Binding VestibularPromptVisibility}"
+                Background="{DynamicResource SurfaceMuted}"
+                BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
+                Padding="24,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondary}" FontSize="12"
+                           Text="{loc:T Zh='是否有前庭/眩暈相關診斷？（可略過，日後可於設定調整）', En='Do you have a vestibular / dizziness-related diagnosis? (Optional — you can change this later in Settings.)'}"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <Button Content="{loc:T Zh='是', En='Yes'}"
+                            Command="{Binding VestibularPromptYesCommand}"
+                            Background="{DynamicResource Accent}" Foreground="White" BorderThickness="0"
+                            Padding="16,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
+                            Template="{StaticResource RoundBtn}" Margin="0,0,8,0"/>
+                    <Button Content="{loc:T Zh='否 / 略過', En='No / Skip'}"
+                            Command="{Binding VestibularPromptNoCommand}"
+                            Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
+                            BorderThickness="0" Padding="16,6" FontSize="12" Cursor="Hand"
+                            Template="{StaticResource RoundBtn}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <!-- ══════════ HEADER ══════════ -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderSurface}"
                 BorderBrush="{DynamicResource Separator}" BorderThickness="0,0,0,1" Padding="28,14">
@@ -586,8 +619,11 @@
                                  it. The legacy plain-demo button (StartDemo
                                  without calibration) was removed — it had no
                                  use case once calibration is the default flow. -->
+                            <!-- Alpha-2 addendum: the explicit-calibration entry is hidden in
+                                 the auto-profiling world (suppressed, not removed). Flag OFF ⇒ shown. -->
                             <Button Content="Calibration &amp; Demo" Style="{StaticResource PrimaryBtn}"
                                     Command="{Binding StartSetupDemoCommand}"
+                                    Visibility="{Binding CalibrationEntryVisibility}"
                                     ToolTip="Plays a 60 s vection clip, then suggests a personalised preset based on your reaction. Re-running adds to existing preferences."
                                     Margin="0,0,8,8"/>
                             <!-- Quest 2 塊 A (UI Consolidation Sprint, 2026-05-30):
@@ -609,8 +645,11 @@
                                  bilingual explanation. Demo auto-enables overlay
                                  anyway. ToggleOverlayCommand binding still exists
                                  on MainViewModel for any programmatic invocations. -->
+                            <!-- Alpha-2 addendum: reset moves into Settings in the auto-profiling
+                                 world, so the console Reset is hidden there. Flag OFF ⇒ shown. -->
                             <Button Content="Reset State" Style="{StaticResource AlertBtn}"
                                     Command="{Binding ResetStateCommand}"
+                                    Visibility="{Binding ConsoleResetVisibility}"
                                     Margin="0,0,8,8"/>
                             <!-- Phase 5 Steps 5-6 (v0.11, 2026-05-31): manual
                                  'Switch Driver / Passenger' button removed.
