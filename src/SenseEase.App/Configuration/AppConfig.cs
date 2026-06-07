@@ -286,13 +286,13 @@ public static class AppConfig
 
     /// <summary>Alpha-2 core GROUP A: master gate for the entire Adaptive Fit
     /// selector (the 50-set grid + ResolveLevel/SetLevel + the stats/selector/
-    /// state-machine pipeline that lands in later groups). Defaults to
-    /// <c>false</c> — M1-gated: the selector's OFI/pressure norm-factor inputs
-    /// need real WGC calibration data (days away), so the foundation ships
-    /// dormant and is anchored only when M1 lands.
+    /// state-machine pipeline). ACTIVATED 2026-06-07 (default <c>true</c>, see the
+    /// activation note below): the selector acts on the SAME provisional OFI scale the
+    /// live overlay already uses; M1 capture VALIDATES/refines that factor as a follow-up,
+    /// it is NOT a prerequisite. Set to <c>false</c> to fully revert to today's static path.
     ///
-    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When this is
-    /// <c>false</c> (the default) NOTHING on the hot path reads the new grid:
+    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When set to
+    /// <c>false</c> (revert) NOTHING on the hot path reads the new grid:
     /// <c>MockInferenceEngine.Update</c> runs the existing
     /// <c>VimsLevels</c>/<c>ComposeFovRadius</c> path unchanged and never
     /// consults <c>SetGrid</c>/<c>ResolveLevel</c>. The new path is reachable
@@ -311,16 +311,15 @@ public static class AppConfig
     public static bool AdaptiveFitSelectorEnabled { get; set; } = true;
 
     /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
-    /// master gate for the zero-setup start. Defaults to <c>false</c> — M1-gated
-    /// and coupled to <see cref="AdaptiveFitSelectorEnabled"/>: cancelling explicit
-    /// calibration before auto-adaptation (the AdaptiveFit selector) + M1 norm-factors
-    /// are live would strand a brand-new user at a default they cannot adjust away
-    /// from. So this ships dormant; full activation is
-    /// <c>AutoProfilingEnabled=true</c> AND <c>AdaptiveFitSelectorEnabled=true</c>,
-    /// flipped only once M1 lands.
+    /// master gate for the zero-setup start. ACTIVATED 2026-06-07 (default <c>true</c>,
+    /// coupled with <see cref="AdaptiveFitSelectorEnabled"/> per Kirby's "both flags on"
+    /// decision; see the activation note below). The new-user-stranding risk the original
+    /// M1-gating guarded against is covered because the selector is live (it can adapt the
+    /// level) and M1 is a validation follow-up, not a prerequisite. Set to <c>false</c> to
+    /// restore the explicit-calibration flow (the calibration code is suppressed-not-removed).
     ///
-    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When <c>false</c>
-    /// (the default): the explicit 5-card / demo-reaction / LLM-dialog calibration
+    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When set to <c>false</c>
+    /// (revert): the explicit 5-card / demo-reaction / LLM-dialog calibration
     /// flow runs exactly as today, the new-user defaults stay RESILIENT/L1, the
     /// console keeps its Calibration &amp; Demo + Reset entries, and the one-time
     /// vestibular field never appears. When <c>true</c>: the calibration entry

@@ -1,6 +1,6 @@
 # Alpha-2 Core Reconstruction — Implementation Architecture (2026-06-06)
 
-Adaptive Fit Layer Stage 2 (P3 + P4). Built on the landed native 12-level scale. **M1-gated:** the selector's *inputs* (OFI/pressure norm-factors) need real WGC data (days); the selector *core* is built now from the 12-level SSOT and ships **behind a default-OFF flag** (`AppConfig.AdaptiveFitSelectorEnabled = false`), anchored when M1 lands. **No code fabricates calibration data.** Source spec: `SenseEase-Adaptive-Fit-Layer-v1.md` §1–§12; plan: `Alpha_1_MASTERPLAN.md` §13.2 (P3/P4).
+Adaptive Fit Layer Stage 2 (P3 + P4). Built on the landed native 12-level scale. **Selector ACTIVATED 2026-06-07** (`AppConfig.AdaptiveFitSelectorEnabled = true`): the *core* is built from the 12-level SSOT and is now live, acting on the same provisional OFI/pressure norm-factors the live overlay already uses; M1 capture (real WGC data) VALIDATES/refines those factors as a follow-up, not a prerequisite gate. **No code fabricates calibration data.** Source spec: `SenseEase-Adaptive-Fit-Layer-v1.md` §1–§12; plan: `Alpha_1_MASTERPLAN.md` §13.2 (P3/P4).
 
 ## Fork defaults (resolved under locked Q1–Q8; flagged for Kirby override)
 1. **Grid = 10×5 = 50 sets**, set#0 = `(Band 5, Shape 2)` median (default L5).
@@ -40,11 +40,13 @@ no-move-on-noise · adjacency-only · Q4-before-Q5 · dual-trigger-cooldown-prec
 
 ## Alpha-2 addendum — cancel explicit user calibration → auto-profiling (Kirby 2026-06-06)
 
-**Status: IMPLEMENTED behind `AppConfig.AutoProfilingEnabled` (default OFF — byte-identical
-when off). Activation remains M1-gated and is paired with `AppConfig.AdaptiveFitSelectorEnabled`.**
-The code now exists flag-gated; with the flag OFF the CURRENT explicit-calibration flow
-(`docs/CALIBRATION.md`) remains fully in effect, and turning it ON for real users still
-awaits M1 + the Adaptive Fit selector. New persisted field:
+**Status: ACTIVATED 2026-06-07 (`AppConfig.AutoProfilingEnabled` default `true`, paired with
+`AppConfig.AdaptiveFitSelectorEnabled`, per Kirby's "兩個flag同時來" decision). M1 capture
+(`baseline/M1-CALIBRATION-README.md`) now VALIDATES/refines the provisional norm-factor as a
+follow-up — it is no longer a prerequisite gate. Setting the flag `false` reverts to the explicit
+calibration flow byte-identically (the calibration code is suppressed-not-removed).**
+The code is flag-gated; with the flag OFF the CURRENT explicit-calibration flow
+(`docs/CALIBRATION.md`) remains fully in effect. New persisted field:
 `habituation_profile.json:vestibular_protection_enabled` carries the auto-profiling
 vestibular signal. The explicit-calibration CODE is **suppressed-not-removed** (the entry is
 hidden behind the flag, not deleted) so the legacy path stays intact and revertible.
