@@ -73,6 +73,14 @@ Citations supporting the profile thresholds and the tiered-pause logic:
   three-tier granularity. (Re-attributed from the earlier "Lukacova et al.",
   G-CITE.)
 
+> **`StepIntervalMs` has no direct literature precedent (DOC-UM3).** The sources
+> above concern *inter-session* (day-scale) vestibular progression or a *theoretical*
+> optokinetic-anchor approach — none validate the **within-session, minute-scale**
+> relaxation stepping that `StepIntervalMs` encodes. It is an **engineering decision**
+> (a pacing heuristic), its clinical validity is **untested**, and it must be labelled
+> as such in any regulatory / IRB-facing documentation. (`StableWindowMs` and
+> `StepMagnitudePp` have documentary support; `StepIntervalMs` does not.)
+
 ---
 
 ## 2 · Unit harmonisation
