@@ -113,16 +113,37 @@ public static class AtomicJsonWriter
     /// </summary>
     public static T? TryRead<T>(string path, JsonSerializerOptions? options = null)
     {
-        try
+        if (!File.Exists(path)) return default;
+
+        // Transient-lock resilience (NE: AV-scan / concurrent-writer hardening).
+        // An on-access antivirus scanner (e.g. Trend Micro) or a peer process mid-write
+        // can briefly hold the file open, so File.ReadAllText throws a TRANSIENT
+        // IOException / UnauthorizedAccessException at launch. Treating that as
+        // "file absent → defaults" silently discarded the user's entire saved state for
+        // the whole session — most visibly, head-tracking (and theme / language / follow
+        // mode) snapping back to its OFF default even though the on-disk prefs said ON.
+        // Retry a locked read a few times with a short backoff before giving up. A genuine
+        // parse error (JsonException) or a still-locked file after all attempts falls
+        // through to defaults — re-reading identical/again-locked bytes won't help.
+        const int maxAttempts = 5;
+        for (int attempt = 1; ; attempt++)
         {
-            if (!File.Exists(path)) return default;
-            string json = File.ReadAllText(path);
-            if (string.IsNullOrWhiteSpace(json)) return default;
-            return JsonSerializer.Deserialize<T>(json, options ?? _defaultOpts);
-        }
-        catch
-        {
-            return default;
+            try
+            {
+                string json = File.ReadAllText(path);
+                if (string.IsNullOrWhiteSpace(json)) return default;
+                return JsonSerializer.Deserialize<T>(json, options ?? _defaultOpts);
+            }
+            catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException)
+                                       && attempt < maxAttempts)
+            {
+                // Brief escalating backoff (40/80/120/160 ms), then retry the locked read.
+                try { Thread.Sleep(40 * attempt); } catch { /* ignore */ }
+            }
+            catch
+            {
+                return default; // missing/malformed, or still locked after maxAttempts
+            }
         }
     }
 }

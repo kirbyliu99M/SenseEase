@@ -185,8 +185,18 @@ public sealed class UserActivityModeDetector : IDisposable
             if (next != previous) _currentMode = next;
         }
 
-        IdleSampled?.Invoke(this, idleMs);
-        if (next != previous) ModeChanged?.Invoke(this, next);
+        // Best-effort, degrade-not-crash (matches the IsTypingActive read above): this
+        // runs on a ThreadPool timer thread, so an exception escaping a subscriber would
+        // be UNHANDLED and tear down the whole process. A subscriber whose target was
+        // disposed between ticks (e.g. during app/test shutdown) must not crash the host —
+        // swallow per-handler so one bad subscriber can't kill the poll loop or the app.
+        try { IdleSampled?.Invoke(this, idleMs); }
+        catch { /* subscriber threw (likely disposed during shutdown) — ignore */ }
+        if (next != previous)
+        {
+            try { ModeChanged?.Invoke(this, next); }
+            catch { /* subscriber threw (likely disposed during shutdown) — ignore */ }
+        }
     }
 
     /// <summary>

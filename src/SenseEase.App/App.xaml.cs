@@ -334,6 +334,17 @@ public partial class App : Application
                     : Configuration.HeadTrackingFollowModeKind.Balanced;
             Configuration.AppConfig.HeadTrackingEscapeHatchEnabled =
                 Configuration.UserPreferences.Current.HeadTrackingEscapeHatchEnabled;
+
+            // Diagnostic: record the RESOLVED head-tracking state at startup so a field
+            // report ("head-tracking isn't working") is self-explaining in the next diag —
+            // it pins whether the runtime flag matched the saved preference, or a transient
+            // prefs-load miss (now retried in AtomicJsonWriter.TryRead) reset it to default.
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.OnStartup] head-tracking hydrate: " +
+                $"AppConfig.HeadTrackingEnabled={Configuration.AppConfig.HeadTrackingEnabled} " +
+                $"prefs.HeadTrackingEnabled={Configuration.UserPreferences.Current.HeadTrackingEnabled} " +
+                $"followMode={Configuration.AppConfig.HeadTrackingFollowMode} " +
+                $"integrityFailed={IntegrityFailed}");
         }
         catch (Exception ex)
         {
