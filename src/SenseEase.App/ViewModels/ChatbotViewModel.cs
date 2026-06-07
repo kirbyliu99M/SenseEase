@@ -269,6 +269,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// pre-calibration / test contexts).</summary>
     public Func<HabituationProfileSnapshot?>? LoadHabituationSnapshot { get; set; }
 
+    /// <summary>UM5: host-wired reader for the daily behaviour aggregates
+    /// (behavior_log.jsonl) used to build the [behavior_trend] block. Same Infra-out-
+    /// of-the-VM pattern as <see cref="LoadHabituationSnapshot"/>. Null = block omitted
+    /// (graceful for test contexts / no behaviour history).</summary>
+    public Func<IReadOnlyList<DailyBehaviorAggregate>>? LoadBehaviorAggregates { get; set; }
+
     public ChatbotViewModel(
         IChatbotService chatbot,
         IInferenceEngine engine,
@@ -875,6 +881,16 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         if (!string.IsNullOrEmpty(habBlock))
         {
             sb.Append(habBlock).Append('\n');
+        }
+
+        // UM5: inject the [behavior_trend] block (longer-term exposure / adaptation
+        // arc from behavior_log) AFTER [habituation_state]. Omitted entirely with
+        // fewer than 7 days of data, or when no host reader is wired (test contexts).
+        var behaviorRows = LoadBehaviorAggregates?.Invoke();
+        string trendBlock = LongitudinalSummaryBuilder.BuildBlock(behaviorRows);
+        if (!string.IsNullOrEmpty(trendBlock))
+        {
+            sb.Append(trendBlock).Append('\n');
         }
 
         var sh = _engine.Current.Shader;

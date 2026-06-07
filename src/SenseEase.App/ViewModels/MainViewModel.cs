@@ -675,6 +675,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // _powerSaveActiveLookup callback set by MainWindow). Snapshot load
         // routes through the existing _habituationProfileStore.
         ChatbotVm.LoadHabituationSnapshot = () => _habituationProfileStore.Load();
+        // UM5: read the daily behaviour aggregates for the [behavior_trend] block. A
+        // fresh reader instance is fine (read-only; the writer holds the write lock).
+        ChatbotVm.LoadBehaviorAggregates  = () =>
+            new DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath).ReadAll();
         ChatbotVm.IsPowerSaveActive       = () => _powerSaveActiveLookup?.Invoke() ?? false;
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
         // Stage 5a/5b: wire the LLM calibration session factory. The factory

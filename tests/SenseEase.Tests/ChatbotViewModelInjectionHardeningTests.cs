@@ -141,6 +141,28 @@ public class ChatbotViewModelInjectionHardeningTests
     }
 
     [Fact]
+    public void UM5_BehaviorTrendBlock_InjectedIntoContextualInput_WhenEnoughHistory()
+    {
+        var vm = new ChatbotViewModel(
+            chatbot: new TraceSpyChatbotService(),
+            engine: new MockInferenceEngine(),
+            adjustmentLog: new StubAdjustmentLog(),
+            isOverlayVisible: () => false);
+
+        var rows = new List<DailyBehaviorAggregate>();
+        for (int i = 0; i < 10; i++)
+            rows.Add(new DailyBehaviorAggregate { Date = $"2026-06-{i + 1:00}", OfiP90 = 50, TierModal = 4 });
+        vm.LoadBehaviorAggregates = () => rows;
+
+        string ctx = vm.BuildContextualInput("how am I doing lately?");
+        Assert.Contains("[behavior_trend]", ctx); // UM5 block injected via the host hook
+
+        // With < 7 days the block is omitted.
+        vm.LoadBehaviorAggregates = () => new List<DailyBehaviorAggregate> { rows[0] };
+        Assert.DoesNotContain("[behavior_trend]", vm.BuildContextualInput("again?"));
+    }
+
+    [Fact]
     public void NE6_CancelledLlmCall_SurfacesCalmRetry_NotRawError()
     {
         // The interactive call cancels / times out (TaskCanceledException from
