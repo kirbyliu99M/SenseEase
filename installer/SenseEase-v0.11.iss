@@ -118,5 +118,30 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; Do not list {localappdata}\SenseEase here under any circumstances.
 
 [Code]
-// Reserved for future logic (e.g., GPU detection, CUDA12 capability check,
-// MediaPipe model integrity verification). Left empty for v0.11 Pre-Alpha.
+// H25 (PII): on uninstall, OFFER to delete the user's personal data directory.
+// [UninstallDelete] is intentionally empty so a normal reinstall preserves data;
+// this is the explicit, opt-in path for a user who wants a clean removal. Default
+// is Yes (recommended) but it never deletes without consent.
+//
+// %LOCALAPPDATA%\SenseEase holds settings.json, chat_history.jsonl,
+// calibration_history.jsonl, habituation_profile.json, the adjustment log, the
+// (dev-only) model trace, and sidecar/telemetry artifacts — i.e. all on-disk PII.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DataDir := ExpandConstant('{localappdata}\SenseEase');
+    if DirExists(DataDir) then
+    begin
+      if MsgBox('Also delete your SenseEase personal data (settings, chat history,'
+              + ' calibration, and logs)?' + #13#10 + #13#10
+              + 'Choose No to keep it for a future reinstall.',
+                mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES then
+      begin
+        DelTree(DataDir, True, True, True);
+      end;
+    end;
+  end;
+end;

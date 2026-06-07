@@ -1076,6 +1076,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private void Clear()
     {
         _chatbot.ClearHistory();
+        _chatbot.ClearOnDiskTrace(); // H24 (PII): wipe the on-disk model trace too
         Messages.Clear();
         try { _streamCts.Cancel(); } catch { /* ignore */ }
         _historyStore.DeleteFile();

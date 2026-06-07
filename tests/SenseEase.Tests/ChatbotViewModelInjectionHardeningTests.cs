@@ -109,6 +109,37 @@ public class ChatbotViewModelInjectionHardeningTests
         Assert.Equal(2, writes);
     }
 
+    /// <summary>Records whether ClearOnDiskTrace was invoked — pins the H24 wiring
+    /// that "clear chat" also wipes the on-disk model trace.</summary>
+    private sealed class TraceSpyChatbotService : IChatbotService
+    {
+        public bool TraceCleared { get; private set; }
+        public bool IsModelAvailable => true;
+        public bool IsModelLoaded => true;
+        public IReadOnlyList<ChatMessage> History { get; } = new List<ChatMessage>();
+        public Task LoadAsync() => Task.CompletedTask;
+        public Task<NluResult> SendAsync(string userMessage, CancellationToken ct = default)
+            => Task.FromResult(new NluResult { Intent = "Unknown", Response = "ok" });
+        public void ClearHistory() { }
+        public void ClearOnDiskTrace() => TraceCleared = true;
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public void H24_ClearChat_WipesOnDiskTrace()
+    {
+        var spy = new TraceSpyChatbotService();
+        var vm = new ChatbotViewModel(
+            chatbot: spy,
+            engine: new MockInferenceEngine(),
+            adjustmentLog: new StubAdjustmentLog(),
+            isOverlayVisible: () => false);
+
+        Assert.False(spy.TraceCleared);
+        vm.ClearCommand.Execute(null);
+        Assert.True(spy.TraceCleared); // H24: clear-chat wipes the on-disk trace too
+    }
+
     [Fact]
     public void NE6_CancelledLlmCall_SurfacesCalmRetry_NotRawError()
     {

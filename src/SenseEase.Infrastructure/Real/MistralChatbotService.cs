@@ -658,20 +658,40 @@ public sealed class MistralChatbotService : IChatbotService
     private static readonly string _modelTracePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SenseEase", "model_trace.jsonl");
+
+    /// <summary>H41 (PII): the model trace logs the user's chat text verbatim to
+    /// disk — a privacy sink that must be OFF in shipped builds. Gate it behind an
+    /// explicit developer opt-in. (The handover named <c>AppConfig.ModelTraceEnabled</c>,
+    /// but Infrastructure cannot reference the App layer, so the opt-in is read from
+    /// the environment: <c>SENSEEASE_DEV_MODE=1</c>.) Default — no env var — writes
+    /// nothing.</summary>
+    private static readonly bool _modelTraceEnabled =
+        string.Equals(Environment.GetEnvironmentVariable("SENSEEASE_DEV_MODE"), "1", StringComparison.Ordinal);
+
     private static void LogModelTrace(string userText, string? raw)
     {
+        if (!_modelTraceEnabled) return; // H41: no chat text to disk in shipped builds
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_modelTracePath)!);
             string line = System.Text.Json.JsonSerializer.Serialize(new
             {
-                t = DateTime.Now.ToString("HH:mm:ss.fff"),
+                t = DateTime.UtcNow.ToString("o"), // H41: UTC ISO-8601, not local time
                 user = userText,
                 raw = raw ?? string.Empty,
             });
             File.AppendAllText(_modelTracePath, line + Environment.NewLine);
         }
         catch { /* best-effort */ }
+    }
+
+    /// <summary>H24 (PII): delete the on-disk model trace (which can carry the
+    /// user's chat text). Wired into ChatbotViewModel.Clear so "clear chat" wipes
+    /// the trace too. Best-effort; never throws.</summary>
+    public void ClearOnDiskTrace()
+    {
+        try { if (File.Exists(_modelTracePath)) File.Delete(_modelTracePath); }
+        catch { /* best-effort PII cleanup */ }
     }
 
     /// <summary>Posts the contextual user prompt to the llama-server's
