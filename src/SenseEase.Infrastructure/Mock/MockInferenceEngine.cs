@@ -1089,8 +1089,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // Profile-store persistence is a separate, optional concern.
         if (_profileStore is not null)
         {
-            var snap = BuildProfileSnapshot();
-            if (snap is not null) _profileStore.Save(snap); // #2: null = transient read failure; don't clobber
+            // W2.0-C: persist through the store's atomic Update so the EM2 re-read
+            // (carry-forward of the chatbot/calibration-owned fields) and the Save
+            // happen under ONE store-lock span. Previously BuildProfileSnapshot did
+            // its own unsynchronised Load and the Save was separate, so the
+            // chatbot's concurrent LongitudinalObservationWriter could interleave
+            // and clobber an appended observation (or have its write reverted).
+            // BuildProfileSnapshot returns null to skip the write on a transient
+            // read failure (#2: don't clobber), which Update honours.
+            _profileStore.Update(BuildProfileSnapshot);
         }
 
         _lastSavedLevel         = level;
@@ -1200,18 +1207,24 @@ public sealed class MockInferenceEngine : IInferenceEngine
         catch { /* best-effort; event-log writes must never crash the engine */ }
     }
 
-    private HabituationProfileSnapshot? BuildProfileSnapshot()
+    /// <summary>EM2 carry-forward snapshot builder, now invoked as the mutator of
+    /// <see cref="IHabituationProfileStore.Update"/> (W2.0-C). <paramref name="existing"/>
+    /// is the snapshot the store read for us INSIDE its lock — a consistent view,
+    /// not a separate unsynchronised Load — so the carry-forward of fields owned by
+    /// OTHER writers of the same habituation_profile.json (the chatbot's
+    /// LongitudinalObservationWriter + the calibration applicator) can no longer
+    /// race against their concurrent writes.</summary>
+    private HabituationProfileSnapshot? BuildProfileSnapshot(HabituationProfileSnapshot? existing)
     {
         var p = _habituation.CurrentParams;
         // EM2: read-modify-write. This builds a FRESH snapshot from in-memory
         // engine state, but several fields are owned by OTHER writers of the SAME
         // habituation_profile.json (the chatbot's LongitudinalObservationWriter and
-        // the calibration applicator). Re-read the current on-disk snapshot and
-        // carry those fields forward so an engine persist no longer silently wipes
-        // them (the chatbot's longitudinal memory + the calibration_* enums).
-        var existing = _profileStore?.Load();
-        // #2 (EM2 hardening, review): if a profile EXISTED at boot but Load now
-        // returns null, that is a transient read failure (file briefly locked /
+        // the calibration applicator). Carry those fields forward from <existing>
+        // so an engine persist no longer silently wipes them (the chatbot's
+        // longitudinal memory + the calibration_* enums).
+        // #2 (EM2 hardening, review): if a profile EXISTED at boot but the in-lock
+        // re-read is null, that is a transient read failure (file briefly locked /
         // corrupt), NOT a first run. Rebuilding-and-overwriting here would null-fill
         // MedicalAdvisoryShown + the calibration_* fields and wipe the vestibular
         // safety advisory. Signal "skip this persist" by returning null.

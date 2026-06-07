@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
@@ -484,5 +485,71 @@ public class HabituationProfileStoreTests : IDisposable
 
         string raw = File.ReadAllText(_path);
         Assert.Contains("\"was_recovered_from_wipe\": false", raw);
+    }
+
+    // ── W2.0-C: atomic read-modify-write (Update) ────────────────────────────
+    // The engine's profile-snapshot persist and the chatbot's
+    // LongitudinalObservationWriter write the SAME habituation_profile.json from
+    // different threads. Update() must hold the store lock across the whole
+    // Load→mutate→Save span so concurrent writers cannot lose each other's updates.
+
+    [Fact]
+    public void Update_PersistsReturnedSnapshot()
+    {
+        IHabituationProfileStore store = new FileHabituationProfileStore(_path);
+        store.Save(MakeSnapshot());
+
+        store.Update(s =>
+        {
+            Assert.NotNull(s);          // Update feeds the mutator the current snapshot
+            s!.SevereStrikeCount = 9.0;
+            return s;
+        });
+
+        Assert.Equal(9.0, store.Load()!.SevereStrikeCount);
+    }
+
+    [Fact]
+    public void Update_MutatorReturnsNull_SkipsSave()
+    {
+        IHabituationProfileStore store = new FileHabituationProfileStore(_path);
+        var seed = MakeSnapshot();
+        seed.SevereStrikeCount = 3.0;
+        store.Save(seed);
+
+        // A null result is the "transient read failure / dedup no-op" signal —
+        // Update must NOT write, leaving the on-disk snapshot untouched.
+        store.Update(_ => null);
+
+        var loaded = store.Load();
+        Assert.NotNull(loaded);
+        Assert.Equal(3.0, loaded!.SevereStrikeCount);
+    }
+
+    [Fact]
+    public void Update_ConcurrentReadModifyWrite_NoLostUpdates()
+    {
+        // Regression for the W2.0-C lost-update race. Many threads each do a
+        // read-modify-write increment through Update(); every increment must land.
+        // With only the per-method Load/Save locks (the pre-W2.0-C behaviour —
+        // i.e. the non-atomic default Update) interleaved reads would clobber each
+        // other and the final count would fall short of the op count.
+        IHabituationProfileStore store = new FileHabituationProfileStore(_path);
+        var seed = MakeSnapshot();
+        seed.SevereStrikeCount = 0.0;
+        store.Save(seed);
+
+        const int ops = 200;
+        System.Threading.Tasks.Parallel.For(0, ops, _ =>
+            store.Update(s =>
+            {
+                if (s is null) return null;
+                s.SevereStrikeCount += 1.0;
+                return s;
+            }));
+
+        var loaded = store.Load();
+        Assert.NotNull(loaded);
+        Assert.Equal((double)ops, loaded!.SevereStrikeCount);
     }
 }

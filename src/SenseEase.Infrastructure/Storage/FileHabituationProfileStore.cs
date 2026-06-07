@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
@@ -154,6 +155,29 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
         // timestamps). The schema_floor_v2 flag is the robust signal — present iff
         // THIS install has already written v2, so a later v1 file is a downgrade.
         try { return File.Exists(_schemaFloorFlagPath); } catch { return false; }
+    }
+
+    /// <summary>W2.0-C: atomic read-modify-write. Holds <see cref="_gate"/>
+    /// across the entire Load→mutate→Save span so a concurrent writer of the
+    /// same file (the engine's profile persist vs the chatbot's
+    /// <c>LongitudinalObservationWriter</c>) cannot interleave between our read
+    /// and our write and lose an update. The per-method locks on
+    /// <see cref="Load"/>/<see cref="Save"/> only prevent torn individual ops;
+    /// the lost-update race is across the SPAN, which only this override closes.
+    /// <para>Reentrant by design: the inner <see cref="Load"/>/<see cref="Save"/>
+    /// calls re-acquire <see cref="_gate"/> on the same thread (a CLR
+    /// <c>Monitor</c> is reentrant), so no lock-free internal variants are
+    /// needed. A <c>null</c> mutator result skips the Save — the transient-
+    /// read-failure "don't clobber" path and the writer's dedup no-op both rely
+    /// on this.</para></summary>
+    public void Update(Func<HabituationProfileSnapshot?, HabituationProfileSnapshot?> mutate)
+    {
+        if (mutate is null) throw new ArgumentNullException(nameof(mutate));
+        lock (_gate)
+        {
+            var next = mutate(Load());
+            if (next is not null) Save(next);
+        }
     }
 
     public void Save(HabituationProfileSnapshot snapshot)

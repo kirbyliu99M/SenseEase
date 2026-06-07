@@ -69,26 +69,36 @@ public sealed class LongitudinalObservationWriter
         if (safe is null) return false;
         trimmed = safe;
 
-        var snapshot = _store.Load();
-        if (snapshot is null) return false;
+        // W2.0-C: append through the store's atomic Update so the Load→dedup→add→
+        // Save span holds the store lock as a unit. The engine's profile-snapshot
+        // persist writes the SAME file from another thread; a bare Load…Save here
+        // could interleave with it and lose either this observation or the engine's
+        // strike/advisory write (last-writer-wins). Returning null from the mutator
+        // skips the Save (no snapshot to append to, or a dedup hit).
+        bool appended = false;
+        _store.Update(snapshot =>
+        {
+            if (snapshot is null) return null; // no profile yet → nothing to append to
 
-        // NE20: dedup on the trimmed body, not the stamped string. The date
-        // prefix is constant within a day and would otherwise inflate Jaccard
-        // overlap (and mask same-day repeats); strip the stamp off existing
-        // entries before comparing so the body is matched against the body.
-        if (IsDuplicateOfRecent(trimmed, snapshot.LongitudinalObservations))
-            return false;
+            // NE20: dedup on the trimmed body, not the stamped string. The date
+            // prefix is constant within a day and would otherwise inflate Jaccard
+            // overlap (and mask same-day repeats); strip the stamp off existing
+            // entries before comparing so the body is matched against the body.
+            if (IsDuplicateOfRecent(trimmed, snapshot.LongitudinalObservations))
+                return null; // dedup hit → skip the write
 
-        string stamped = $"{DateTime.UtcNow:yyyy-MM-dd}: {trimmed}";
-        snapshot.LongitudinalObservations.Add(stamped);
+            string stamped = $"{DateTime.UtcNow:yyyy-MM-dd}: {trimmed}";
+            snapshot.LongitudinalObservations.Add(stamped);
 
-        // FIFO eviction past the cap. Loop to handle malformed snapshots
-        // whose lists have somehow grown beyond MaxObservations on disk.
-        while (snapshot.LongitudinalObservations.Count > MaxObservations)
-            snapshot.LongitudinalObservations.RemoveAt(0);
+            // FIFO eviction past the cap. Loop to handle malformed snapshots
+            // whose lists have somehow grown beyond MaxObservations on disk.
+            while (snapshot.LongitudinalObservations.Count > MaxObservations)
+                snapshot.LongitudinalObservations.RemoveAt(0);
 
-        _store.Save(snapshot);
-        return true;
+            appended = true;
+            return snapshot;
+        });
+        return appended;
     }
 
     /// <summary>H5: neutralise stored prompt-injection in a chatbot observation.
