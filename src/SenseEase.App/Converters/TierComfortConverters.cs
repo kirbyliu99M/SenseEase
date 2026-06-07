@@ -57,6 +57,16 @@ internal static class ComfortBands
         var band = TierColorPalette.BandForTier(tier);
         return english ? TierColorPalette.FeelLabelEn(band) : TierColorPalette.FeelLabel(band);
     }
+
+    /// <summary>Band-only screen-motion word (no "畫面動態 ·" / "Screen Motion ·" prefix)
+    /// for the pop-up card, which carries its own 「目前螢幕狀態 / Current screen status」
+    /// caption. Tier ≤ 0 is the pre-first-tick Idle state.</summary>
+    public static string FeelBandLocalized(int tier, bool english)
+    {
+        if (tier <= 0) return english ? "Getting ready" : "準備中";
+        var band = TierColorPalette.BandForTier(tier);
+        return english ? TierColorPalette.FeelBandEn(band) : TierColorPalette.FeelBand(band);
+    }
 }
 
 /// <summary>Tier → the 5級 動態感 motion label in the active language (single-value;

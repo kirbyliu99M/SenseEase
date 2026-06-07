@@ -365,12 +365,12 @@
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleRunAtStartup"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="登入 Windows 時自動啟動 SenseEase"
+                                      Content="{loc:T Zh='登入 Windows 時自動啟動 SenseEase', En='Start SenseEase automatically when you sign in to Windows'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleRunAtStartupChanged"
                                       Unchecked="OnToggleRunAtStartupChanged"/>
-                            <TextBlock Text="跟著 Windows 登入自動啟動並最小化到工作匣。"
+                            <TextBlock Text="{loc:T Zh='跟著 Windows 登入自動啟動並最小化到工作匣。', En='Starts with Windows sign-in and minimises to the tray.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -380,7 +380,7 @@
                                       Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
-                                <TextBlock Text="開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。"
+                                <TextBlock Text="{loc:T Zh='開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。', En='When on, SenseEase starts at Windows sign-in and goes straight to the tray without opening the main window. Implemented via an HKCU registry entry (no administrator rights needed).'}"
                                            FontSize="11"
                                            Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
@@ -433,7 +433,7 @@
                                         Click="OnRestartClicked"
                                         ToolTip="{loc:T Zh='點擊立即重啟 SenseEase 以套用頭部追蹤變更', En='Click to restart SenseEase now and apply head-tracking changes'}"/>
                             </StackPanel>
-                            <TextBlock Text="啟動 Python sidecar 並讀取 webcam，讓 FOV 遮罩跟著視線。"
+                            <TextBlock Text="{loc:T Zh='啟動 Python sidecar 並讀取 webcam，讓 FOV 遮罩跟著視線。', En='Starts a Python sidecar and reads the webcam so the FOV mask follows your gaze.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -444,7 +444,7 @@
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <StackPanel Margin="0,4,0,0">
-                                    <TextBlock Text="開啟時，啟動會啟動 Python sidecar 並讀取 webcam（MediaPipe 推論臉部姿態）讓 FOV 遮罩跟著你的視線移動。預設關閉以保護隱私。"
+                                    <TextBlock Text="{loc:T Zh='開啟時，啟動會啟動 Python sidecar 並讀取 webcam（MediaPipe 推論臉部姿態）讓 FOV 遮罩跟著你的視線移動。預設關閉以保護隱私。', En='When on, startup launches a Python sidecar and reads the webcam (MediaPipe infers face pose) so the FOV mask follows your gaze. Off by default to protect privacy.'}"
                                                FontSize="11"
                                                Foreground="{DynamicResource TextTertiary}"
                                                TextWrapping="Wrap"/>
@@ -471,7 +471,7 @@
                                          FontSize="13"
                                          Margin="22,2,0,0"
                                          Checked="OnFollowModeChanged"/>
-                            <TextBlock Text="遮罩中心限制在螢幕中央 80% 區域，周邊永遠維持部分遮蔽（臨床預設、減輕視覺動暈）。"
+                            <TextBlock Text="{loc:T Zh='遮罩中心限制在螢幕中央 80% 區域，周邊永遠維持部分遮蔽（臨床預設、減輕視覺動暈）。', En='The mask centre stays within the central 80% of the screen; the periphery always keeps partial masking (clinical default, eases visual motion sickness).'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -483,7 +483,7 @@
                                          FontSize="13"
                                          Margin="22,8,0,0"
                                          Checked="OnFollowModeChanged"/>
-                            <TextBlock Text="遮罩中心可走到螢幕角落，可以完整看到邊緣內容；周邊變化較大、可能感覺較不穩定。"
+                            <TextBlock Text="{loc:T Zh='遮罩中心可走到螢幕角落，可以完整看到邊緣內容；周邊變化較大、可能感覺較不穩定。', En='The mask centre can reach the screen corners so you can fully see edge content; the periphery shifts more and may feel less stable.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -666,7 +666,7 @@
                                        Text="{loc:T Zh='觸發 20 秒模擬頭部姿勢掃描 (橫向→縱向→圓形→中心持住)。用於無 webcam 機器驗證 wiring 端到端，與 AppConfig.HeadTrackingEnabled 無關。', En='Triggers a 20-second mock head-pose sweep (horizontal→vertical→circular→hold centre). Used to verify wiring end-to-end on webcam-less machines. Independent of AppConfig.HeadTrackingEnabled.'}"
                                        FontSize="11" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="連點兩下 Ctrl"
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:T Zh='連點兩下 Ctrl', En='Double-tap Ctrl'}"
                                        FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="2" Grid.Column="1"
                                        Text="{loc:T Zh='(400 ms 內) 觸發 FOV 遮罩 3 秒透明度 30% 的「偷瞄」逃生口。受上方「啟用暫時透明」開關控制；前庭敏感者強制停用。', En='(within 400 ms) triggers the FOV-mask peek escape hatch — 30% opacity for 3 seconds. Governed by the temporary-transparency toggle above; force-disabled for vestibular-sensitive users. Listed here for hotkey discoverability.'}"

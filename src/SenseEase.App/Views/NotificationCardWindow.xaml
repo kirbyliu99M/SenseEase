@@ -42,7 +42,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8"
+                                CornerRadius="{StaticResource Radius.pill}"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
@@ -184,7 +184,7 @@
                     Margin="0,0,0,10">
                 <StackPanel>
                     <TextBlock x:Name="ProposalHeaderText"
-                               Text="SenseEase 建議"
+                               Text="{loc:T Zh='SenseEase 建議', En='SenseEase suggests'}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource Accent}"
@@ -242,7 +242,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <Button x:Name="ProposalAcceptBtn"
-                                    Content="接受"
+                                    Content="{loc:T Zh='接受', En='Accept'}"
                                     Click="OnProposalAcceptClicked"
                                     Background="{DynamicResource Accent}"
                                     Foreground="White"
@@ -253,7 +253,7 @@
                                     FontWeight="SemiBold"
                                     Cursor="Hand"/>
                             <Button x:Name="ProposalDeclineBtn"
-                                    Content="拒絕"
+                                    Content="{loc:T Zh='拒絕', En='Decline'}"
                                     Click="OnProposalDeclineClicked"
                                     Background="{DynamicResource SurfaceMuted}"
                                     Foreground="{DynamicResource TextPrimary}"
@@ -263,7 +263,7 @@
                                     FontSize="12"
                                     Cursor="Hand"/>
                             <Button x:Name="ProposalLaterBtn"
-                                    Content="稍後"
+                                    Content="{loc:T Zh='稍後', En='Later'}"
                                     Click="OnProposalLaterClicked"
                                     Background="Transparent"
                                     Foreground="{DynamicResource TextSecondary}"
@@ -300,7 +300,7 @@
                     Margin="0,0,0,10">
                 <StackPanel>
                     <TextBlock x:Name="SetMoveHeaderText"
-                               Text="SenseEase 建議"
+                               Text="{loc:T Zh='SenseEase 建議', En='SenseEase suggests'}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource Accent}"
@@ -399,8 +399,15 @@
                     <!-- LEFT: status text, vertically centred to align with the
                          controls cluster on the right. -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,8,0">
-                        <!-- The 5級「動態感」status is the ONLY user-facing status; the label
-                             ("動態感 · 極低" / "Very Calm") is self-contained, no caption. -->
+                        <!-- UI/UX fine-tune (2026-06-08): a subtle caption frames the status;
+                             the BAND WORD below ("極低" / "Very Calm") is the prominent value
+                             (set in code via ComfortBands.FeelBandLocalized). The bar/tray/hero
+                             keep the full "畫面動態 · 極低" label — only this card drops the prefix
+                             because the caption already says "screen status". -->
+                        <TextBlock Text="{loc:T Zh='目前螢幕狀態', En='Current screen status'}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextTertiary}"
+                                   Margin="0,0,0,1"/>
 
                         <!-- HUD-card rework item 1: the LEFT primary label is the
                              PLAIN-LANGUAGE SCREEN STATUS (the band feel — what the
@@ -416,7 +423,7 @@
                         <TextBlock x:Name="TitleText"
                                    Text=""
                                    MinWidth="96"
-                                   FontSize="16" FontWeight="SemiBold"
+                                   FontSize="20" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimary}"
                                    VerticalAlignment="Center"
                                    TextTrimming="None"
@@ -433,8 +440,16 @@
 
                     <!-- RIGHT: controls — +/- depth pills, separator, 暫停 / 設定 /
                          flip — vertically centred so they align with the status label. -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <!-- UI/UX fine-tune (2026-06-08): a subtle caption sits above the
+                             12-level intensity adjuster (−/level/+). It is left-aligned so it
+                             frames the adjuster; 暫停 / 設定 / flip continue to its right. -->
+                        <TextBlock Text="{loc:T Zh='調整強度', En='Adjust intensity'}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextTertiary}"
+                                   HorizontalAlignment="Left"
+                                   Margin="2,0,0,3"/>
+                        <StackPanel Orientation="Horizontal">
                             <!-- HUD-card rework: intervention-depth cluster, now
                                  ordered [ − ] [ level ] [ + ] (minus LEFT, plus
                                  RIGHT) with the current level read out BETWEEN
@@ -477,7 +492,8 @@
                                  by the IsChecked trigger below. -->
                             <CheckBox x:Name="PowerSaveToggle"
                                       VerticalAlignment="Center"
-                                      Margin="0,0,6,0"
+                                      MinHeight="30"
+                                      Margin="0,0,8,0"
                                       Cursor="Hand"
                                       Foreground="{DynamicResource Accent}"
                                       ToolTip="{loc:T Zh='暫停或恢復所有防護（不會關閉應用程式）', En='Pause or resume all protection (does not quit the app)'}"
@@ -492,19 +508,32 @@
                                                 BorderBrush="{DynamicResource Separator}"
                                                 BorderThickness="1"
                                                 CornerRadius="{StaticResource Radius.pill}"
-                                                Padding="12,6"
+                                                Padding="14,6"
+                                                VerticalAlignment="Center"
                                                 SnapsToDevicePixels="True">
-                                            <TextBlock x:Name="PowerSaveLabel"
-                                                       Text="暫停"
-                                                       FontSize="12" FontWeight="SemiBold"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"/>
+                                            <!-- Two localized labels swapped by Visibility (a Trigger
+                                                 Setter can't hold a loc binding). Pause shows when
+                                                 running; Resume when paused (IsChecked trigger below). -->
+                                            <Grid>
+                                                <TextBlock x:Name="PowerSaveLabelPause"
+                                                           Text="{loc:T Zh='暫停', En='Pause'}"
+                                                           FontSize="12" FontWeight="SemiBold"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="PowerSaveLabelResume"
+                                                           Text="{loc:T Zh='恢復', En='Resume'}"
+                                                           Visibility="Collapsed"
+                                                           FontSize="12" FontWeight="SemiBold"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsChecked" Value="True">
                                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}"/>
                                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                                                <Setter TargetName="PowerSaveLabel" Property="Text" Value="恢復"/>
+                                                <Setter TargetName="PowerSaveLabelPause" Property="Visibility" Value="Collapsed"/>
+                                                <Setter TargetName="PowerSaveLabelResume" Property="Visibility" Value="Visible"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
@@ -537,6 +566,7 @@
                                     Click="OnFlipClicked"
                                     AutomationProperties.Name="{loc:T Zh='開啟對話', En='Open chat'}"
                                     ToolTip="{loc:T Zh='跟 SenseEase 說話', En='Talk to SenseEase'}"/>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Hidden legacy action buttons. Kept ONLY so the host's
@@ -618,7 +648,7 @@
 
                     <Button Grid.Row="0" Grid.Column="2"
                             x:Name="ChatSendBtn"
-                            Content="send"
+                            Content="{loc:T Zh='傳送', En='Send'}"
                             Click="OnChatSendClicked"
                             Style="{StaticResource PrimaryDeepBlueButtonStyle}"
                             Padding="14,6"/>

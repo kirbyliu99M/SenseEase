@@ -902,8 +902,10 @@ public partial class NotificationCardWindow : Window
     {
         if (_isPowerSaveActive)
         {
+            // Band-only value under the "目前螢幕狀態 / Current screen status" caption
+            // (UI/UX fine-tune 2026-06-08) — the caption frames it, so drop the "VIMS ·" prefix.
             TitleText.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
-                "VIMS · 已暫停", "VIMS · Paused");
+                "已暫停", "Paused");
             TelemetryText.Text = string.Empty;
             BodyText.Text  = SenseEase.App.Localization.LocalizationManager.Current.Pick(
                 "防護已暫停，點一下即可恢復。", "Protection is paused. Tap to resume.");
@@ -930,7 +932,10 @@ public partial class NotificationCardWindow : Window
             // ("動態感 · 極低" / "Very Calm"). Single source: ComfortBands.FeelLabelLocalized
             // (tier ≤ 0 → 準備中 / Getting ready). Re-picks live on a language toggle
             // (the LocalizationManager subscription re-runs this setter).
-            TitleText.Text = SenseEase.App.Converters.ComfortBands.FeelLabelLocalized(
+            // Band-only word ("極低" / "Very Calm") — the card's "目前螢幕狀態 / Current
+            // screen status" caption supplies the framing, so the "畫面動態 ·" prefix the
+            // bar/tray/hero use would be redundant here (UI/UX fine-tune 2026-06-08).
+            TitleText.Text = SenseEase.App.Converters.ComfortBands.FeelBandLocalized(
                 _lastTier, SenseEase.App.Localization.LocalizationManager.Current.IsEnglish);
             TelemetryText.Text = $"第 {_lastTier} 級 / 12　·　壓力 {Math.Round(_lastPressure)}";
         }

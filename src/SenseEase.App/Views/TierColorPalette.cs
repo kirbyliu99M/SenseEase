@@ -318,4 +318,29 @@ public static class TierColorPalette
 
     /// <summary>Convenience: 1–12 level → 5級 中文 label.</summary>
     public static string FeelLabelForTier(int tier) => FeelLabel(BandForTier(tier));
+
+    /// <summary>Band-only 中文 word (no "畫面動態 ·" prefix) — used by the pop-up card,
+    /// which carries its own 「目前螢幕狀態」 caption so the prefix would be redundant.
+    /// Other surfaces (bar / tray / hero) keep the full <see cref="FeelLabel"/>.</summary>
+    public static string FeelBand(TierBand band) => band switch
+    {
+        TierBand.VeryHigh => "極低",  // L1–2
+        TierBand.High     => "低",    // L3–4
+        TierBand.Medium   => "中",    // L5–7
+        TierBand.Low      => "高",    // L8–10
+        TierBand.VeryLow  => "極高",  // L11–12
+        _                 => "中",
+    };
+
+    /// <summary>Band-only English word (no "Screen Motion ·" prefix). Pairs with
+    /// <see cref="FeelBand"/> for the pop-up card.</summary>
+    public static string FeelBandEn(TierBand band) => band switch
+    {
+        TierBand.VeryHigh => "Very Calm",    // L1–2
+        TierBand.High     => "Calm",         // L3–4
+        TierBand.Medium   => "Moderate",     // L5–7
+        TierBand.Low      => "Dynamic",      // L8–10
+        TierBand.VeryLow  => "Very Dynamic", // L11–12
+        _                 => "Moderate",
+    };
 }
