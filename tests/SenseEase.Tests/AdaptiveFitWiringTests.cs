@@ -146,18 +146,20 @@ public class AdaptiveFitWiringTests
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void FlagMirror_AppConfigDefaultsFalse_SoAFreshlyWiredEngineIsOff()
+    public void FlagMirror_AppConfigDefaultsOn_SoAWiredEngineIsOn()
     {
-        // The startup flag-mirror sets engine.AdaptiveFitSelectorEnabled =
-        // AppConfig.AdaptiveFitSelectorEnabled. Since AppConfig defaults false, the
-        // mirrored engine is OFF — today's path, by construction.
-        Assert.False(AppConfig.AdaptiveFitSelectorEnabled);
+        // ACTIVATED 2026-06-07 (Kirby): AppConfig now defaults ON, so the startup
+        // flag-mirror (engine.AdaptiveFitSelectorEnabled = AppConfig.AdaptiveFitSelectorEnabled)
+        // turns the wired engine ON — the selector is live in the running app.
+        Assert.True(AppConfig.AdaptiveFitSelectorEnabled);
 
         var engine = new MockInferenceEngine();
         engine.AdaptiveFitSelectorEnabled = AppConfig.AdaptiveFitSelectorEnabled; // the startup mirror
-        Assert.False(engine.AdaptiveFitSelectorEnabled);
+        Assert.True(engine.AdaptiveFitSelectorEnabled);
 
-        // A brand-new engine (no explicit set) is OFF too — the instance field defaults off.
+        // A brand-new engine with NO mirror still defaults OFF at the instance level — the
+        // App layer is what turns it on by mirroring AppConfig, so engine-only tests stay on
+        // today's path unless they opt in explicitly.
         Assert.False(new MockInferenceEngine().AdaptiveFitSelectorEnabled);
     }
 

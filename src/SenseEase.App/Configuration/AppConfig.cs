@@ -303,7 +303,12 @@ public static class AppConfig
     /// <para>Same settable-static pattern as the other runtime feature flags
     /// here (AppConfig is a static class — no init-only properties); flipping
     /// requires explicit opt-in in code or a future settings UI.</para></summary>
-    public static bool AdaptiveFitSelectorEnabled { get; set; } = false;
+    // ACTIVATED 2026-06-07 (Kirby: "兩個flag同時來" — break the M1 gate, both flags on).
+    // The 50-set/12-level Adaptive-Fit selector now actively decides set-moves. It acts on
+    // the SAME provisional OFI scale (WgcMadNormFactor) the live overlay already uses today;
+    // M1 capture (baseline/M1-CALIBRATION-README.md) VALIDATES/refines that factor — it is a
+    // follow-up, not a prerequisite. Set back to false to fully revert to today's static path.
+    public static bool AdaptiveFitSelectorEnabled { get; set; } = true;
 
     /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
     /// master gate for the zero-setup start. Defaults to <c>false</c> — M1-gated
@@ -325,7 +330,12 @@ public static class AppConfig
     /// first-use field + a permanent Settings toggle instead of calibration Q5.</para>
     ///
     /// <para>Same settable-static pattern as the other runtime feature flags here.</para></summary>
-    public static bool AutoProfilingEnabled { get; set; } = false;
+    // ACTIVATED 2026-06-07 (Kirby: both flags on). Explicit calibration is now cancelled:
+    // the console calibration entry + post-demo Q&A are suppressed, a fresh user starts at
+    // L5「中」/TYPICAL, and vestibular diagnosis is captured by the one-time first-use field +
+    // the permanent Settings toggle (re-rooted; the 9 vestibular consumers still fire). Set
+    // back to false to restore the explicit-calibration flow (code is suppressed-not-removed).
+    public static bool AutoProfilingEnabled { get; set; } = true;
 
     /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven
     /// FOV mask centering. Defaults to false (privacy + stability). When

@@ -309,10 +309,14 @@ public class AdaptiveFitGridTests
     }
 
     [Fact]
-    public void AppConfig_AdaptiveFitSelector_DefaultsOff()
+    public void AppConfig_AdaptiveFitSelector_ActivatedByDefault()
     {
-        // The invariant's foundation: the master gate ships dormant.
-        Assert.False(AppConfig.AdaptiveFitSelectorEnabled);
+        // ACTIVATED 2026-06-07 (Kirby: "兩個flag同時來"): the master gate now defaults ON,
+        // so the 50-set/12-level selector decides set-moves at runtime. Flag-OFF
+        // byte-identical parity is still pinned by
+        // FlagOff_TwoIdenticallyDrivenEngines_ProduceAByteIdenticalStateStream (which forces
+        // the flag off explicitly), so "off ⇒ today's behaviour" remains guaranteed.
+        Assert.True(AppConfig.AdaptiveFitSelectorEnabled);
     }
 
     [Fact]
