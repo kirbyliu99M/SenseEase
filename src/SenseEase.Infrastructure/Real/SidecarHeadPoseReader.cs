@@ -129,6 +129,17 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     // dispatcher thread.
     private int _receivedSampleCount;
 
+    // Startup no-frame watchdog. If the spawned sidecar produces ZERO head-pose frames
+    // within StartupNoFrameWatchdogMs, log a clear diagnostic. The dominant real-world
+    // cause (observed on Kirby's machine 2026-06-07) is antivirus AMSI / behavioral
+    // scanning HANGING the UNSIGNED head_tracker.exe at native-import time: the process
+    // spawns (pid logged) but never reaches its emit loop, so ReadLatest stays null and
+    // the FOV mask sits pinned at center with NO other signal. Before this watchdog the
+    // failure was completely silent. One-shot Timer; ~8 s is well above the healthy
+    // ~1-2 s first-frame warm-up so it never false-positives on a slow-but-working start.
+    private System.Threading.Timer? _startupWatchdog;
+    private const int StartupNoFrameWatchdogMs = 8000;
+
     /// <summary>M5.1-C PRECONDITION: atomically read + reset the
     /// received-sample counter. Returns the count of successful parses since
     /// the last call (or since reader start). Safe to call from any thread.</summary>
@@ -306,12 +317,50 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 TaskScheduler.Default);
 
             _log?.Invoke($"[SidecarHeadPoseReader] Started pid={proc.Id} '{_sidecarExePath} {args}'");
+            ArmStartupWatchdog(proc);
         }
         catch (Exception ex)
         {
             _log?.Invoke($"[SidecarHeadPoseReader] Start failed: {ex.GetType().Name}: {ex.Message}. Sidecar disabled.");
             Interlocked.Exchange(ref _sidecarDead, 1);
         }
+    }
+
+    /// <summary>Arm a one-shot timer that fires <see cref="StartupNoFrameWatchdogMs"/> after a
+    /// successful spawn and, if NO head-pose frame has been received by then (and the process is
+    /// still this generation + alive + not already torn down), logs a clear, actionable
+    /// diagnostic. This converts the previously-silent "sidecar spawns but emits nothing" failure
+    /// (most often antivirus AMSI/behavioral scanning hanging the unsigned exe at native-import,
+    /// but also webcam-unavailable or a MediaPipe init failure) into a self-explaining log line.
+    /// Best-effort: any failure inside the callback is swallowed — a diagnostic must never crash
+    /// the reader.</summary>
+    private void ArmStartupWatchdog(Process proc)
+    {
+        int pid;
+        try { pid = proc.Id; } catch { return; }
+
+        try { _startupWatchdog?.Dispose(); } catch { }
+        _startupWatchdog = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                if (Volatile.Read(ref _disposed) == 1) return;
+                if (Interlocked.Read(ref _latestStoredAtMs) != 0) return; // frames ARE flowing — healthy, stay quiet
+                if (!ReferenceEquals(_process, proc)) return;             // superseded by a Restart generation
+                bool alive;
+                try { alive = !proc.HasExited; } catch { alive = false; }
+                if (!alive) return;                                       // an actual exit is logged by OnProcessExited
+                _log?.Invoke(
+                    $"[SidecarHeadPoseReader] WATCHDOG: sidecar pid={pid} spawned but produced 0 head-pose " +
+                    $"frames in {StartupNoFrameWatchdogMs / 1000}s — head-tracking will stay INACTIVE (the FOV " +
+                    "mask stays centered). Most likely the UNSIGNED sidecar is being hung at startup by " +
+                    "antivirus AMSI/behavioral scanning (add head_tracker.exe to your AV's trusted-program / " +
+                    "exception list, not just a folder file-scan exclusion), or the webcam is unavailable, or " +
+                    "MediaPipe failed to initialize. Confirm by running 'head_tracker.exe --input 0 --debug' " +
+                    "from a terminal — healthy output is one JSON line per ~66ms.");
+            }
+            catch { /* watchdog is a best-effort diagnostic */ }
+        }, null, StartupNoFrameWatchdogMs, System.Threading.Timeout.Infinite);
     }
 
     /// <summary>Returns the most recent head-pose sample, or null if:
@@ -385,6 +434,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         if (Volatile.Read(ref _started) == 0) return;
 
         Interlocked.Exchange(ref _sidecarDead, 1);
+        try { _startupWatchdog?.Dispose(); _startupWatchdog = null; } catch { }
         try { _cts?.Cancel(); } catch { }
 
         var proc = _process;
@@ -432,6 +482,11 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+
+        // Tear down the startup watchdog unconditionally up front — the gate-timeout
+        // branch below skips DoStop, and the callback already no-ops once _disposed=1,
+        // but disposing here releases the timer promptly regardless of the gate path.
+        try { _startupWatchdog?.Dispose(); _startupWatchdog = null; } catch { }
 
         // Phase 3 fix (2026-05-30): acquire the lifecycle gate so any
         // in-flight Power-Save-triggered Stop/Restart finishes before we
