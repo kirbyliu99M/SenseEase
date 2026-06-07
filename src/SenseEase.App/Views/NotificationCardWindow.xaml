@@ -456,10 +456,12 @@
                                     ToolTip="{loc:T Zh='跟 SenseEase 說話', En='Talk to SenseEase'}"/>
                     </StackPanel>
 
-                    <!-- Hidden legacy action buttons. Kept so the host's
-                         EngageClicked / MuteClicked / dashboard wiring still
-                         compiles; no longer surfaced in the new bar. The +
-                         pill ALSO raises EngageClicked (see code-behind). -->
+                    <!-- Hidden legacy action buttons. Kept ONLY so the host's
+                         EngageClicked / MuteClicked / OpenDashboard wiring still
+                         compiles; never surfaced in the redesigned card (Collapsed +
+                         IsHitTestVisible=False ⇒ unreachable by the user). NOTE: the +
+                         pill raises ONLY InterventionAdjustRequested (see
+                         OnInterventionUpClicked) — it does NOT raise EngageClicked. -->
                     <StackPanel Visibility="Collapsed" IsHitTestVisible="False">
                         <Button x:Name="OpenDashboardBtn" Click="OnOpenDashboardClicked" Content="開啟主視窗"/>
                         <Button x:Name="EngageBtn" Click="OnEngageClicked" Content="緩和畫面"/>

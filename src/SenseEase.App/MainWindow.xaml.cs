@@ -1055,15 +1055,13 @@ public partial class MainWindow : Window
             // The card stays OPEN across +/- so the user can keep nudging.
             _cardWindow.InterventionAdjustRequested += (_, dir) =>
             {
-                // #3: BOTH directions force the real-measurement provider + the overlay
-                // visible so the FOV nudge is actually perceptible on screen (previously
-                // only the + path did, so "−" looked dead). EaseView/WidenView route
-                // through the D5 deliberate-preference path (no discomfort recurrence,
-                // Q4.5 — earned habituation offset preserved).
-                _viewModel.SetSensingModeToWgc();
-                _viewModel.OverlayVisible = true;
-                if (dir >= 0) _viewModel.EaseView();   // + : tighten the clear field (more protection)
-                else          _viewModel.WidenView();  // − : widen the clear field (less)
+                // Pop-up +/- fine-tune the 12-LEVEL intensity scale (Kirby: "接上 12 level
+                // 刻度調節，讓 UX 更直觀"). NudgeIntensityLevel rides the 1..12 baseline floor so
+                // BOTH directions visibly change the peripheral dimming and the L-readout moves
+                // — fixes the prior FOV-offset mapping where "−" was a no-op at rest. It returns
+                // the new displayed level; push it straight to the card's L? readout.
+                int level = _viewModel.NudgeIntensityLevel(dir);
+                _cardWindow.SetLevel(level);
             };
             // Path Z bug-fix 7: when the user opens Settings via the card's
             // gear icon and changes a preference, repaint the bar immediately
@@ -1130,7 +1128,7 @@ public partial class MainWindow : Window
         // the [ − ] and [ + ] pills (e.g. "L5"). VimsTier is the native level on
         // the same 12-level scale the card clamps to; set it before Show() so the
         // cluster reads [ − ] [ L? ] [ + ] from the first paint.
-        _cardWindow.SetLevel(_viewModel.VimsTier);
+        _cardWindow.SetLevel(_viewModel.ResolveDisplayedTier(_viewModel.VimsTier));
         // M3 7e: if a chatbot proposal is pending (user clicked Later
         // earlier, or the proposal is fresh from a chatbot turn), wire +
         // re-surface it on this Card open. Filter expired proposals

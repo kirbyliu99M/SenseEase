@@ -1197,6 +1197,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ? Math.Max(naturalTier, PersistentOverlayBaselineTier)
             : naturalTier;
 
+    /// <summary>Pop-up card +/- pills: fine-tune the 12-level intensity scale (the level the
+    /// card reads out) with an immediate VISIBLE change in BOTH directions — the root fix for
+    /// the "+/- not functional" report. Previously +/- nudged the FOV offset, which clamps at
+    /// 0, so "−" was a silent no-op at rest and the L-readout never moved. Now it rides the
+    /// existing 1..12 always-on baseline floor: "+" raises the baseline (more peripheral
+    /// dimming), "−" lowers it; nudging down to L1 drops the floor entirely so the field
+    /// returns to the calm/immersive natural state. Forces the WGC provider + overlay visible
+    /// so the change is perceptible. Q4.5-safe (never touches the habituation offset). Returns
+    /// the new displayed level (1..12) so the caller can refresh the card's L-readout.</summary>
+    public int NudgeIntensityLevel(int direction)
+    {
+        int current = ResolveDisplayedTier(CurrentState.VimsTier);
+        int target  = Math.Clamp(current + (direction >= 0 ? 1 : -1), 1, 12);
+        SetSensingModeToWgc();
+        if (target <= 1)
+        {
+            // "−" to the floor: drop the always-on baseline so the field goes back to calm.
+            PersistentOverlayBaselineTier = 1;
+            PersistentOverlayEnabled      = false;
+        }
+        else
+        {
+            PersistentOverlayBaselineTier = target;                          // setter clamps 1..12
+            if (!PersistentOverlayEnabled) PersistentOverlayEnabled = true;  // auto-opens overlay
+        }
+        if (!OverlayVisible) OverlayVisible = true;
+        UpdateFromState(_engine.Current);
+        return ResolveDisplayedTier(CurrentState.VimsTier);
+    }
+
     private string _feedbackText = string.Empty;
     public string FeedbackText
     {
