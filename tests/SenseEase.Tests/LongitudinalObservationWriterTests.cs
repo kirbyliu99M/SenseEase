@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
@@ -7,9 +9,10 @@ using Xunit;
 namespace SenseEase.Tests;
 
 /// <summary>
-/// M3 (Phase 7g §4.3.8): contract tests for LongitudinalObservationWriter.
-/// Covers happy-path append, blank skip, length truncation, dedup, and
-/// FIFO eviction at the 50-entry cap.
+/// M3 (Phase 7g §4.3.8) + UM2: contract tests for LongitudinalObservationWriter.
+/// UM2 moved observations from a flat 50-entry FIFO to monthly buckets
+/// (LongitudinalObservationsV2, keyed "YYYY-MM"): 30 entries/bucket, same-month
+/// dedup, 12-month retention. These tests assert against the current month's bucket.
 /// </summary>
 public class LongitudinalObservationWriterTests
 {
@@ -21,8 +24,17 @@ public class LongitudinalObservationWriterTests
         public void Save(HabituationProfileSnapshot snapshot) => Snapshot = snapshot;
     }
 
+    /// <summary>The entries in the current ("YYYY-MM") month's bucket — where the
+    /// writer appends.</summary>
+    private static List<ObservationEntry> CurrentBucket(FakeProfileStore store)
+    {
+        string month = DateTime.UtcNow.ToString("yyyy-MM");
+        return store.Snapshot!.LongitudinalObservationsV2.TryGetValue(month, out var b)
+            ? b : new List<ObservationEntry>();
+    }
+
     [Fact]
-    public void Append_NormalString_AppendsWithDatePrefix()
+    public void Append_NormalString_AppendsToCurrentMonthBucket()
     {
         var store = new FakeProfileStore();
         var writer = new LongitudinalObservationWriter(store);
@@ -30,9 +42,12 @@ public class LongitudinalObservationWriterTests
         bool wrote = writer.Append("user reports symptoms worse on Mondays");
 
         Assert.True(wrote);
-        var obs = Assert.Single(store.Snapshot!.LongitudinalObservations);
-        Assert.Matches(@"^\d{4}-\d{2}-\d{2}:", obs);
-        Assert.Contains("Mondays", obs);
+        var entry = Assert.Single(CurrentBucket(store));
+        // UM2: body is stored clean (no date prefix); the timestamp is a separate ISO field.
+        Assert.Contains("Mondays", entry.Text);
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T", entry.Ts);
+        // The deprecated flat list is no longer written.
+        Assert.Empty(store.Snapshot!.LongitudinalObservations);
     }
 
     [Theory]
@@ -48,7 +63,7 @@ public class LongitudinalObservationWriterTests
         bool wrote = writer.Append(input);
 
         Assert.False(wrote);
-        Assert.Empty(store.Snapshot!.LongitudinalObservations);
+        Assert.Empty(CurrentBucket(store));
     }
 
     [Fact]
@@ -71,13 +86,13 @@ public class LongitudinalObservationWriterTests
 
         writer.Append(longText);
 
-        var stored = store.Snapshot!.LongitudinalObservations[0];
-        // Date prefix "YYYY-MM-DD: " = 12 chars, then up to 200 chars of body.
-        Assert.True(stored.Length <= 12 + LongitudinalObservationWriter.MaxObservationLength);
+        var entry = Assert.Single(CurrentBucket(store));
+        // UM2: body capped at MaxObservationLength (no date prefix on the body now).
+        Assert.True(entry.Text.Length <= LongitudinalObservationWriter.MaxObservationLength);
     }
 
     [Fact]
-    public void Append_DuplicateOfRecent_Skipped()
+    public void Append_DuplicateOfRecent_SameMonth_Skipped()
     {
         var store = new FakeProfileStore();
         var writer = new LongitudinalObservationWriter(store);
@@ -86,7 +101,7 @@ public class LongitudinalObservationWriterTests
         Assert.False(writer.Append("the user is feeling worse on weekends"));
         // Slightly different wording but same tokens → still dedup hit.
         Assert.False(writer.Append("the user is feeling worse on weekends now"));
-        Assert.Single(store.Snapshot!.LongitudinalObservations);
+        Assert.Single(CurrentBucket(store));
     }
 
     [Fact]
@@ -97,26 +112,26 @@ public class LongitudinalObservationWriterTests
 
         Assert.True(writer.Append("symptoms worse on weekends"));
         Assert.True(writer.Append("user prefers tighter mask in evenings"));
-        Assert.Equal(2, store.Snapshot!.LongitudinalObservations.Count);
+        Assert.Equal(2, CurrentBucket(store).Count);
     }
 
     [Fact]
-    public void Append_BeyondCap_OldestEvicted()
+    public void Append_BeyondBucketCap_OldestEvicted()
     {
         var store = new FakeProfileStore();
         var writer = new LongitudinalObservationWriter(store);
 
-        // 60 unique observations — 10 over the cap.
+        // 60 unique observations — well over the 30-per-bucket cap.
         for (int i = 0; i < 60; i++)
             writer.Append($"observation number {i} with unique tokens xyzzy_{i}");
 
-        Assert.Equal(LongitudinalObservationWriter.MaxObservations,
-                     store.Snapshot!.LongitudinalObservations.Count);
-        // First 10 evicted; the surviving 50 start from "observation number 10".
-        Assert.Contains(store.Snapshot.LongitudinalObservations,
-                        o => o.Contains("xyzzy_10"));
-        Assert.DoesNotContain(store.Snapshot.LongitudinalObservations,
-                              o => o.Contains("xyzzy_0 "));
+        var bucket = CurrentBucket(store);
+        Assert.Equal(LongitudinalObservationWriter.MaxObservationsPerBucket, bucket.Count);
+        // Cap 30 keeps the last 30 (i=30..59): newest survives, oldest evicted.
+        Assert.Contains(bucket, e => e.Text.Contains("xyzzy_59"));
+        Assert.Contains(bucket, e => e.Text.Contains("xyzzy_30"));
+        Assert.DoesNotContain(bucket, e => e.Text.Contains("xyzzy_0"));   // i=0 evicted
+        Assert.DoesNotContain(bucket, e => e.Text.Contains("xyzzy_29"));  // i=29 evicted
     }
 
     [Fact]

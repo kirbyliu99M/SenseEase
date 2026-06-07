@@ -98,10 +98,10 @@ public class CalibrationEndToEndSmoke : IDisposable
         Assert.Single(messages);
         Assert.Contains("Calibration 完成", messages[0].Content);
 
-        // Persisted snapshot exists and is v2-shaped.
+        // Persisted snapshot exists and is v3-shaped (UM2).
         var loaded = store.Load();
         Assert.NotNull(loaded);
-        Assert.Equal(2, loaded!.SchemaVersion);
+        Assert.Equal(3, loaded!.SchemaVersion);
         Assert.Equal("TYPICAL", loaded.Profile);
         Assert.Equal("calibration_demo", loaded.ProfileSource);
         // Stage 7f: a Complete result MUST bump calibration_count from 0 to 1
@@ -295,7 +295,7 @@ public class CalibrationEndToEndSmoke : IDisposable
         Assert.NotNull(loaded);
         Assert.True(loaded!.WasRecoveredFromWipe,
             "Wipe-detection failed — production wiring (Stage 7b) likely regressed.");
-        Assert.Equal(2, loaded.SchemaVersion);
+        Assert.Equal(3, loaded.SchemaVersion);
         Assert.Equal(0, loaded.CalibrationCount);
         // The "treat as first-run for calibration" pipeline relies on
         // CalibrationCount==0 here. MainViewModel.OnDemoVideoFinished

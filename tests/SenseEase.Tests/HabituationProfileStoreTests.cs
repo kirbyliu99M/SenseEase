@@ -76,7 +76,7 @@ public class HabituationProfileStoreTests : IDisposable
         var loaded = store.Load();
 
         Assert.NotNull(loaded);
-        Assert.Equal(2, loaded!.SchemaVersion);
+        Assert.Equal(3, loaded!.SchemaVersion);
         Assert.Equal("SENSITIVE", loaded.Profile);
         Assert.Equal("calibration_demo", loaded.ProfileSource);
         Assert.Equal(23.5, loaded.HabituationLevel);
@@ -268,7 +268,7 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.NotNull(loaded);
         Assert.Equal("RESILIENT", loaded!.Profile);
         Assert.Equal("default", loaded.ProfileSource);
-        Assert.Equal(2, loaded.SchemaVersion);
+        Assert.Equal(3, loaded.SchemaVersion);
     }
 
     [Fact]
@@ -374,6 +374,74 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.Contains("\"was_recovered_from_wipe\"", raw);
     }
 
+    // ── UM2: v2 → v3 monthly-bucket migration ────────────────────────────────
+
+    [Fact]
+    public void Load_V2File_MigratesFlatObservationsIntoCurrentMonthBucket()
+    {
+        const string v2Json = """
+            {
+              "schema_version": 2,
+              "profile": "TYPICAL",
+              "longitudinal_observations": ["obs alpha unique", "obs bravo unique"]
+            }
+            """;
+        File.WriteAllText(_path, v2Json);
+
+        var store = new FileHabituationProfileStore(_path);
+        var loaded = store.Load();
+
+        Assert.NotNull(loaded);
+        Assert.Equal(3, loaded!.SchemaVersion);          // migrated to v3
+        Assert.Empty(loaded.LongitudinalObservations);   // flat list cleared after migration
+
+        string month = DateTime.UtcNow.ToString("yyyy-MM");
+        Assert.True(loaded.LongitudinalObservationsV2.ContainsKey(month));
+        Assert.Equal(2, loaded.LongitudinalObservationsV2[month].Count);
+        Assert.Contains(loaded.LongitudinalObservationsV2[month], e => e.Text == "obs alpha unique");
+    }
+
+    [Fact]
+    public void Load_V2File_MigrationCapsCurrentMonthBucketAt30_OldestDropped()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < 40; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append('"').Append("obs number ").Append(i).Append(" xyzzy_").Append(i).Append('"');
+        }
+        string v2Json =
+            "{ \"schema_version\": 2, \"profile\": \"TYPICAL\", \"longitudinal_observations\": ["
+            + sb + "] }";
+        File.WriteAllText(_path, v2Json);
+
+        var store = new FileHabituationProfileStore(_path);
+        var loaded = store.Load();
+
+        string month = DateTime.UtcNow.ToString("yyyy-MM");
+        var bucket = loaded!.LongitudinalObservationsV2[month];
+        Assert.Equal(30, bucket.Count);                              // capped at 30
+        Assert.Contains(bucket, e => e.Text.Contains("xyzzy_39"));   // newest kept
+        Assert.DoesNotContain(bucket, e => e.Text.Contains("xyzzy_0")); // i=0 dropped (oldest)
+    }
+
+    [Fact]
+    public void Load_V3File_ReturnedAsIs_NoMigration()
+    {
+        var store = new FileHabituationProfileStore(_path);
+        var snap = MakeSnapshot(); // SchemaVersion default = 3
+        snap.LongitudinalObservationsV2["2026-06"] = new System.Collections.Generic.List<ObservationEntry>
+        {
+            new() { Ts = "2026-06-07T00:00:00Z", Text = "kept verbatim" },
+        };
+        store.Save(snap);
+
+        var loaded = store.Load();
+        Assert.Equal(3, loaded!.SchemaVersion);
+        Assert.Single(loaded.LongitudinalObservationsV2["2026-06"]);
+        Assert.Equal("kept verbatim", loaded.LongitudinalObservationsV2["2026-06"][0].Text);
+    }
+
     // ── H14: schema-downgrade guard ──────────────────────────────────────────
 
     [Fact]
@@ -426,7 +494,7 @@ public class HabituationProfileStoreTests : IDisposable
         Assert.NotNull(loaded);
         Assert.True(loaded!.WasRecoveredFromWipe,
             "Wipe-recovery flag should be set when probe artifact survives a profile-file wipe.");
-        Assert.Equal(2, loaded.SchemaVersion);
+        Assert.Equal(3, loaded.SchemaVersion);
         // Defaults — no calibration, RESILIENT-equivalent.
         Assert.Equal(0, loaded.CalibrationCount);
         Assert.Equal(1.0, loaded.PersonalPressureScale);

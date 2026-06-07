@@ -28,9 +28,14 @@ public sealed class LongitudinalObservationWriter
 {
     private readonly IHabituationProfileStore _store;
 
-    /// <summary>Maximum number of observations persisted in the snapshot.
-    /// Oldest evicted FIFO when this is exceeded.</summary>
-    public const int MaxObservations = 50;
+    /// <summary>UM2: max entries per monthly bucket; oldest evicted FIFO when a
+    /// month's bucket exceeds this. Public so the v2→v3 migration in
+    /// <see cref="FileHabituationProfileStore"/> caps migrated buckets identically.</summary>
+    public const int MaxObservationsPerBucket = 30;
+
+    /// <summary>UM2: number of most-recent month buckets retained. Older buckets are
+    /// pruned on every write (old observations are stale context).</summary>
+    public const int MaxBucketMonths = 12;
 
     /// <summary>Maximum character length per observation (after trim, before
     /// the date prefix). Longer text is truncated.</summary>
@@ -49,10 +54,10 @@ public sealed class LongitudinalObservationWriter
         _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
-    /// <summary>Append <paramref name="observation"/> to the snapshot's
-    /// <c>LongitudinalObservations</c> list. Returns true iff the write
-    /// actually happened (false for blank input, missing snapshot, or
-    /// dedup hit).</summary>
+    /// <summary>Append <paramref name="observation"/> to the CURRENT month's bucket
+    /// in the snapshot's <c>LongitudinalObservationsV2</c> (UM2). Returns true iff the
+    /// write actually happened (false for blank input, missing snapshot, or a
+    /// same-month dedup hit).</summary>
     public bool Append(string? observation)
     {
         if (string.IsNullOrWhiteSpace(observation)) return false;
@@ -70,30 +75,35 @@ public sealed class LongitudinalObservationWriter
         trimmed = safe;
 
         // W2.0-C: append through the store's atomic Update so the Load→dedup→add→
-        // Save span holds the store lock as a unit. The engine's profile-snapshot
-        // persist writes the SAME file from another thread; a bare Load…Save here
-        // could interleave with it and lose either this observation or the engine's
-        // strike/advisory write (last-writer-wins). Returning null from the mutator
-        // skips the Save (no snapshot to append to, or a dedup hit).
+        // Save span holds the store lock as a unit (the engine persists the SAME
+        // file from another thread). Returning null from the mutator skips the Save.
         bool appended = false;
         _store.Update(snapshot =>
         {
             if (snapshot is null) return null; // no profile yet → nothing to append to
 
-            // NE20: dedup on the trimmed body, not the stamped string. The date
-            // prefix is constant within a day and would otherwise inflate Jaccard
-            // overlap (and mask same-day repeats); strip the stamp off existing
-            // entries before comparing so the body is matched against the body.
-            if (IsDuplicateOfRecent(trimmed, snapshot.LongitudinalObservations))
-                return null; // dedup hit → skip the write
+            // UM2: append into the CURRENT month's bucket; dedup is scoped to that
+            // same month only (cross-month entries are different context).
+            var buckets = snapshot.LongitudinalObservationsV2 ??= new();
+            string month = DateTime.UtcNow.ToString("yyyy-MM");
+            if (!buckets.TryGetValue(month, out var bucket))
+            {
+                bucket = new List<ObservationEntry>();
+                buckets[month] = bucket;
+            }
 
-            string stamped = $"{DateTime.UtcNow:yyyy-MM-dd}: {trimmed}";
-            snapshot.LongitudinalObservations.Add(stamped);
+            if (IsDuplicateOfRecent(trimmed, bucket))
+                return null; // same-month dedup hit → skip the write
 
-            // FIFO eviction past the cap. Loop to handle malformed snapshots
-            // whose lists have somehow grown beyond MaxObservations on disk.
-            while (snapshot.LongitudinalObservations.Count > MaxObservations)
-                snapshot.LongitudinalObservations.RemoveAt(0);
+            bucket.Add(new ObservationEntry { Ts = DateTime.UtcNow.ToString("o"), Text = trimmed });
+
+            // Eviction: cap the month's bucket (drop oldest). Loop guards a malformed
+            // on-disk bucket that somehow grew past the cap.
+            while (bucket.Count > MaxObservationsPerBucket)
+                bucket.RemoveAt(0);
+
+            // Retention: keep only the most-recent MaxBucketMonths buckets.
+            PruneOldBuckets(buckets);
 
             appended = true;
             return snapshot;
@@ -128,19 +138,31 @@ public sealed class LongitudinalObservationWriter
         return cleaned.Length == 0 ? null : cleaned;
     }
 
-    /// <summary>NE20: <paramref name="candidate"/> is the bare trimmed body (no
-    /// date stamp). Existing entries are stamped, so strip their date prefix
-    /// before comparing body-to-body.</summary>
-    private static bool IsDuplicateOfRecent(string candidate, IList<string> existing)
+    /// <summary>NE20/UM2: <paramref name="candidate"/> is the bare trimmed body.
+    /// Compares against the recent entry bodies of the SAME-month bucket; StripDateStamp
+    /// defends against a migrated v2 entry whose Text still carries a date prefix.</summary>
+    private static bool IsDuplicateOfRecent(string candidate, IList<ObservationEntry> existing)
     {
         if (existing.Count == 0) return false;
         int from = Math.Max(0, existing.Count - DedupCompareCount);
         for (int i = existing.Count - 1; i >= from; i--)
         {
-            if (JaccardSimilarity(candidate, StripDateStamp(existing[i])) >= DedupSimilarityThreshold)
+            if (JaccardSimilarity(candidate, StripDateStamp(existing[i].Text)) >= DedupSimilarityThreshold)
                 return true;
         }
         return false;
+    }
+
+    /// <summary>UM2: retention — keep only the most-recent <see cref="MaxBucketMonths"/>
+    /// month buckets, dropping the oldest. Keys are "YYYY-MM", so an ordinal sort is
+    /// chronological. Runs on every write so the structure stays bounded.</summary>
+    private static void PruneOldBuckets(Dictionary<string, List<ObservationEntry>> buckets)
+    {
+        if (buckets.Count <= MaxBucketMonths) return;
+        var ordered = new List<string>(buckets.Keys);
+        ordered.Sort(StringComparer.Ordinal); // oldest first
+        int drop = buckets.Count - MaxBucketMonths;
+        for (int i = 0; i < drop; i++) buckets.Remove(ordered[i]);
     }
 
     /// <summary>Strip the "yyyy-MM-dd: " prefix written by <see cref="Append"/>

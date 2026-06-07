@@ -215,7 +215,7 @@ public class Phase8AcceptanceTests
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void ScenarioC_LlmEmitsObservationAdd_PersistedToSnapshot_AndCappedAt50()
+    public void ScenarioC_LlmEmitsObservationAdd_PersistedToSnapshot_AndCappedAt30PerBucket()
     {
         var snap = MakeSnapshot();
         var (_, profileStore, _, _, _, writer) = BuildFullStack(snap);
@@ -231,14 +231,17 @@ public class Phase8AcceptanceTests
 
         bool wrote = writer.Append(parsed.Observations[0]);
         Assert.True(wrote);
-        Assert.Single(profileStore.Snapshot!.LongitudinalObservations);
-        Assert.Contains("3 pm", profileStore.Snapshot.LongitudinalObservations[0]);
+        // UM2: observations live in the current month's bucket now.
+        string month = System.DateTime.UtcNow.ToString("yyyy-MM");
+        var bucket = profileStore.Snapshot!.LongitudinalObservationsV2[month];
+        Assert.Single(bucket);
+        Assert.Contains("3 pm", bucket[0].Text);
 
-        // Cap at 50: append 60 unique observations, snapshot ends at 50.
+        // Cap at 30 per month bucket: append 60 unique, the bucket ends at 30.
         for (int i = 0; i < 60; i++)
             writer.Append($"distinct observation index {i} xyzzy_{i}");
-        Assert.Equal(LongitudinalObservationWriter.MaxObservations,
-                     profileStore.Snapshot.LongitudinalObservations.Count);
+        Assert.Equal(LongitudinalObservationWriter.MaxObservationsPerBucket,
+                     profileStore.Snapshot.LongitudinalObservationsV2[month].Count);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -112,16 +112,11 @@ public static class HabituationStateBlockBuilder
             sb.Append("trajectory: ").Append(trajectorySummary!.Trim()).Append('\n');
         }
 
-        if (snapshot.LongitudinalObservations is { Count: > 0 })
+        var recentObs = CollectRecentObservations(snapshot, MaxObservations);
+        if (recentObs.Count > 0)
         {
             sb.Append("recent_observations:\n");
-            // Most-recent first, max MaxObservations entries. The list is
-            // append-ordered (oldest first) so we reverse + take.
-            var recent = snapshot.LongitudinalObservations
-                                 .AsEnumerable()
-                                 .Reverse()
-                                 .Take(MaxObservations);
-            foreach (var obs in recent)
+            foreach (var obs in recentObs)
             {
                 // H5 (defense-in-depth): even with write-time sanitization, encode
                 // structural chars on EMIT so any pre-existing on-disk payload can't
@@ -149,5 +144,33 @@ public static class HabituationStateBlockBuilder
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>UM2: the most-recent observation bodies across the monthly buckets
+    /// (newest month first, newest entry within a month first), falling back to any
+    /// not-yet-migrated flat v2 entries. Capped at <paramref name="max"/>. Replaces
+    /// the old flat-list reverse+take now that observations live in
+    /// <see cref="HabituationProfileSnapshot.LongitudinalObservationsV2"/>.</summary>
+    private static List<string> CollectRecentObservations(HabituationProfileSnapshot s, int max)
+    {
+        var result = new List<string>(max);
+        if (s.LongitudinalObservationsV2 is { Count: > 0 })
+        {
+            foreach (var month in s.LongitudinalObservationsV2.Keys.OrderByDescending(k => k, System.StringComparer.Ordinal))
+            {
+                var bucket = s.LongitudinalObservationsV2[month];
+                for (int i = bucket.Count - 1; i >= 0 && result.Count < max; i--)
+                    result.Add(bucket[i].Text);
+                if (result.Count >= max) break;
+            }
+        }
+        // Back-compat: a v2-in-memory snapshot (v1-loaded) may still carry flat
+        // entries not yet migrated to buckets; include them after the bucket entries.
+        if (result.Count < max && s.LongitudinalObservations is { Count: > 0 })
+        {
+            for (int i = s.LongitudinalObservations.Count - 1; i >= 0 && result.Count < max; i--)
+                result.Add(s.LongitudinalObservations[i]);
+        }
+        return result;
     }
 }

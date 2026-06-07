@@ -37,11 +37,12 @@ namespace SenseEase.Core.Models;
 /// <summary>Persistence snapshot for the habituation profile state. v2 schema.</summary>
 public sealed class HabituationProfileSnapshot
 {
-    /// <summary>Currently 2 (Stage 6). Loader accepts 2 directly and treats 1
-    /// as "v1 file → load with v2 defaults for new fields". Unknown versions
-    /// fall back to null + Debug.WriteLine (Q2).</summary>
+    /// <summary>Currently 3 (UM2). Loader accepts 3 directly, migrates 2 → 3
+    /// (flat longitudinal_observations → current-month bucket), and treats 1 as
+    /// "v1 file → load with v2 defaults" (unchanged). Unknown versions fall back
+    /// to null + Debug.WriteLine (Q2).</summary>
     [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
 
     /// <summary>ISO-8601 UTC ("o" format) — when the file was last written.</summary>
     [JsonPropertyName("updated_at_iso")]
@@ -144,12 +145,19 @@ public sealed class HabituationProfileSnapshot
     [JsonPropertyName("calibration_responses")]
     public CalibrationResponses? CalibrationResponses { get; set; }
 
-    /// <summary>Free-form longitudinal observations the chatbot accumulates
-    /// across calibrations (e.g. "user reports symptoms worsen on Mondays").
-    /// Empty list = none yet. Appended-to never popped from in v2; future
-    /// schemas may add eviction policy.</summary>
+    /// <summary>DEPRECATED in v3 (UM2). The flat global FIFO of v2. Retained only
+    /// so a v2 file can be read + migrated into <see cref="LongitudinalObservationsV2"/>
+    /// and for back-compat reads; the writer no longer appends here. Empty on a
+    /// freshly-written v3 snapshot.</summary>
     [JsonPropertyName("longitudinal_observations")]
     public List<string> LongitudinalObservations { get; set; } = new();
+
+    /// <summary>UM2 (schema v3): longitudinal observations bucketed by month
+    /// ("YYYY-MM" → entries). Replaces the flat v2 FIFO: 12 months retained,
+    /// 30 entries per bucket, dedup scoped to the same month. A v2 file's flat
+    /// entries are migrated into the current month's bucket on load.</summary>
+    [JsonPropertyName("longitudinal_observations_v2")]
+    public Dictionary<string, List<ObservationEntry>> LongitudinalObservationsV2 { get; set; } = new();
 
     /// <summary>Multiplicative pressure scale per spec §7. Clamped to
     /// [0.7, 1.5] by CalibrationProcessor; vestibular-diagnosed users hard-
@@ -185,6 +193,18 @@ public sealed class HabituationProfileSnapshot
     /// FileHabituationProfileStore.Load for the detection logic.</summary>
     [JsonPropertyName("was_recovered_from_wipe")]
     public bool WasRecoveredFromWipe { get; set; }
+}
+
+/// <summary>UM2 (schema v3): one longitudinal observation inside a monthly bucket.
+/// <c>ts</c> is the ISO-8601 UTC capture time; <c>text</c> is the (already
+/// write-time-sanitized) observation body.</summary>
+public sealed class ObservationEntry
+{
+    [JsonPropertyName("ts")]
+    public string Ts { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
 }
 
 /// <summary>Sub-record nested inside <see cref="HabituationProfileSnapshot.ParamsSnapshot"/>.

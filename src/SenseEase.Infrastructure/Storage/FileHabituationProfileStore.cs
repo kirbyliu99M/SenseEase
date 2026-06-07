@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
@@ -24,7 +25,8 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     private readonly string _path;
     private readonly string? _wipeProbePath;
     private readonly object _gate = new();
-    private const int SupportedSchemaVersion = 2;
+    private const int SupportedSchemaVersion = 3; // UM2: monthly observation buckets
+    private const int SchemaVersionV2 = 2;        // flat longitudinal_observations FIFO
     private const int LegacyV1SchemaVersion = 1;
 
     // H14: schema-downgrade guard. Editing the file to {"schema_version":1,...}
@@ -97,6 +99,13 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
                 case SupportedSchemaVersion:
                     return snap;
 
+                case SchemaVersionV2:
+                    // UM2: migrate the flat v2 observation FIFO into the v3 monthly
+                    // bucket structure. Lossless (entries move; only the >30-per-bucket
+                    // tail is dropped) and touches no safety field. The on-disk file
+                    // upgrades to v3 on the next Save.
+                    return MigrateV2ToV3(snap);
+
                 case LegacyV1SchemaVersion:
                     // Stage 6b: deserialise a v1 file. JsonSerializer already
                     // filled v1 fields; the v2 fields stayed at their CLR /
@@ -135,12 +144,44 @@ public sealed class FileHabituationProfileStore : IHabituationProfileStore
     /// Save upgrades it.</summary>
     private static HabituationProfileSnapshot LoadLegacyV1AsV2InMemory(HabituationProfileSnapshot snap)
     {
-        snap.SchemaVersion = SupportedSchemaVersion;
+        // UM2: v1 → v2 (NOT v3). v1 files carry no observations, so there is nothing
+        // to bucket; they stay on the unchanged v2 shape and reach v3 on a later load
+        // once written as v2. Explicit (not SupportedSchemaVersion) so this stays v2
+        // even as the supported version advances.
+        snap.SchemaVersion = SchemaVersionV2;
         // Defensive: explicit null-fill in case a future v2-field property
         // initialiser changes and a v1 deserialisation path leaves something
         // in an unexpected state. CLR defaults already cover this but the
         // explicit assignment documents the contract.
         snap.LongitudinalObservations ??= new();
+        snap.LongitudinalObservationsV2 ??= new();
+        return snap;
+    }
+
+    /// <summary>UM2: migrate a v2 snapshot (flat <c>longitudinal_observations</c>
+    /// FIFO) to v3 (monthly buckets). All flat entries move into the CURRENT month's
+    /// bucket, capped at <see cref="LongitudinalObservationWriter.MaxObservationsPerBucket"/>
+    /// (oldest dropped); the flat list is then cleared. No safety field is touched —
+    /// only the observation memory is restructured. The on-disk file upgrades to v3
+    /// on the next Save.</summary>
+    private static HabituationProfileSnapshot MigrateV2ToV3(HabituationProfileSnapshot snap)
+    {
+        snap.LongitudinalObservationsV2 ??= new();
+        if (snap.LongitudinalObservations is { Count: > 0 })
+        {
+            string month = DateTime.UtcNow.ToString("yyyy-MM");
+            if (!snap.LongitudinalObservationsV2.TryGetValue(month, out var bucket))
+            {
+                bucket = new List<ObservationEntry>();
+                snap.LongitudinalObservationsV2[month] = bucket;
+            }
+            foreach (string text in snap.LongitudinalObservations)
+                bucket.Add(new ObservationEntry { Ts = DateTime.UtcNow.ToString("o"), Text = text });
+            while (bucket.Count > LongitudinalObservationWriter.MaxObservationsPerBucket)
+                bucket.RemoveAt(0);
+            snap.LongitudinalObservations.Clear();
+        }
+        snap.SchemaVersion = SupportedSchemaVersion; // 3
         return snap;
     }
 

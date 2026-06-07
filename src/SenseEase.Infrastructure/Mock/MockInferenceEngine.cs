@@ -1269,6 +1269,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // EM2 — fields owned by OTHER writers of this file; preserved from the
             // existing on-disk snapshot so the engine's persist does not wipe them.
             LongitudinalObservations = existing?.LongitudinalObservations ?? new(),
+            // UM2: the monthly observation buckets are owned by LongitudinalObservation
+            // Writer; carry them forward too or an engine persist would erase them.
+            LongitudinalObservationsV2 = existing?.LongitudinalObservationsV2 ?? new(),
             CalibrationCompleteness  = existing?.CalibrationCompleteness,
             CalibrationPath          = existing?.CalibrationPath,
             CalibrationResponses     = existing?.CalibrationResponses,

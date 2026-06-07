@@ -395,15 +395,17 @@ public class HabituationTests
 
         var writer = new LongitudinalObservationWriter(store);
         Assert.True(writer.Append("user reports symptoms worsen on Mondays"));
-        Assert.Single(store.Load()!.LongitudinalObservations);   // precondition
+        string month = System.DateTime.UtcNow.ToString("yyyy-MM");
+        Assert.Single(store.Load()!.LongitudinalObservationsV2[month]);   // precondition (UM2 bucket)
 
         var engine = new MockInferenceEngine(profileStore: store);
         engine.SetHabituationProfile(HabituationProfile.Sensitive, "calibration_demo"); // triggers a profile-snapshot Save
 
-        // EM2: BuildProfileSnapshot read-modify-writes, so the observation survives.
+        // EM2 + UM2: BuildProfileSnapshot carries the observation buckets forward,
+        // so the observation survives the engine's persist.
         var after = store.Load()!;
-        Assert.Single(after.LongitudinalObservations);
-        Assert.Contains("Mondays", after.LongitudinalObservations[0]);
+        Assert.Single(after.LongitudinalObservationsV2[month]);
+        Assert.Contains("Mondays", after.LongitudinalObservationsV2[month][0].Text);
         Assert.Equal("SENSITIVE", after.Profile);                // the engine's change also landed
     }
 
