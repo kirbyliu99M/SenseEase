@@ -201,6 +201,38 @@ public class NotificationCardWindowTests
         });
     }
 
+    /// <summary>EM5: the idle auto-fade must defer while a chatbot proposal is
+    /// pending — otherwise the 60 s idle timer silently dismisses a card the user
+    /// still has to accept / decline. Only the proposal's own expiry watchdog may
+    /// retire it. Verified via the ShouldBeginIdleFade() decision seam (the live
+    /// 60 s timer is impractical to drive in a unit test).</summary>
+    [Fact]
+    public void NotificationCardWindow_IdleFade_DeferredWhileProposalPending()
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            w.ApplyTemplate();
+
+            // No proposal → idle fade is allowed.
+            Assert.True(w.ShouldBeginIdleFade());
+
+            w.ActiveProposal = new ProfileOverrideProposal(
+                Intent:        OverrideIntent.SwitchProfile,
+                TargetField:   "profile",
+                ProposedValue: "SENSITIVE",
+                Rationale:     "user reports easy nausea",
+                ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+
+            // Pending proposal → idle fade must defer (EM5).
+            Assert.False(w.ShouldBeginIdleFade());
+
+            // Once the proposal clears, the idle fade is allowed again.
+            w.ActiveProposal = null;
+            Assert.True(w.ShouldBeginIdleFade());
+        });
+    }
+
     /// <summary>Helper: runs <paramref name="body"/> on a fresh STA thread
     /// and re-throws any exception on the calling thread so xUnit reports
     /// the actual assertion failure instead of a generic timeout.</summary>

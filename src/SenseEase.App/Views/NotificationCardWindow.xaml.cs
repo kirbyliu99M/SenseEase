@@ -807,9 +807,29 @@ public partial class NotificationCardWindow : Window
         _idleTimer.Start();
     }
 
+    /// <summary>EM5: the idle auto-fade may only dismiss the card when there is
+    /// no pending chatbot proposal. A pending proposal is an explicit accept /
+    /// decline the user must see; auto-fading it away would silently drop a
+    /// decision (POPUP-AND-HABITUATION-INTEGRATION-AUDIT: "proposal stays
+    /// pending, user might miss it"). Internal for unit coverage.</summary>
+    internal bool ShouldBeginIdleFade() => _activeProposal is null;
+
     private void OnIdleTimerTick(object? sender, EventArgs e)
     {
         _idleTimer.Stop();
+
+        // EM5: the idle auto-fade must NEVER silently dismiss the card while a
+        // chatbot proposal is pending — that proposal is an explicit accept /
+        // decline the user has to see, and only its own expiry watchdog
+        // (_expiryCountdownTimer) may retire it. Defer the idle dismiss by
+        // re-arming the timer; once the proposal clears (accept / decline /
+        // expiry), a later idle tick is free to fade as normal.
+        if (!ShouldBeginIdleFade())
+        {
+            RestartIdleTimer();
+            return;
+        }
+
         // Start the fade. Reversible — MouseMove during the fade pulls
         // opacity back to 1 via OnCardMouseMove above.
         var fade = new DoubleAnimation(1.0, 0.0, new Duration(FadeDuration));
