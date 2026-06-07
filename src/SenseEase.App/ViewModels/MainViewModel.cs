@@ -823,6 +823,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChatbotVm.LongitudinalObservationCallback = obs => _observationWriter.Append(obs);
         ChatbotVm.ProposalReceived += OnChatbotProposalReceived;
         ChatbotVm.ProfilePickerSelected += OnChatbotProfilePickerSelected;
+        // Phase 7 (RESUME_ACKNOWLEDGE): the chatbot relays the user's in-chat confirmation to
+        // continue from a tier>=8 PausedAwaitingUserConfirm check-in. The engine method is a
+        // guarded no-op unless actually awaiting confirm; resume continues the habituation
+        // program (protection stays at the current tier). The quote is logged for audit.
+        ChatbotVm.AcknowledgeResumeCallback = quote =>
+        {
+            if (_engine is MockInferenceEngine mockResume)
+            {
+                mockResume.AcknowledgeAndResumeHabituation();
+                AppendLog("Habituation", Loc(
+                    $"使用者於對話確認恢復習慣化（\"{quote}\"）。",
+                    $"User confirmed habituation resume in chat (\"{quote}\")."), CurrentState);
+                UpdateFromState(_engine.Current);
+            }
+        };
 
         // M2 (Phase 6c): wire host-side lookups so ChatbotViewModel can build
         // the [habituation_state] block per turn. Power Save state comes from

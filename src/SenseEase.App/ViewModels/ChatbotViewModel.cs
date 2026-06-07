@@ -670,6 +670,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                     }
                 }
 
+                // Phase 7 (RESUME_ACKNOWLEDGE): the user confirmed IN CHAT that they're ready
+                // to continue from a tier>=8 PausedAwaitingUserConfirm check-in. Act ONLY on an
+                // explicit user_confirmed:true (the structured contract carries the user's quote
+                // for the audit trail). Safe: the engine method is a guarded no-op unless it is
+                // actually awaiting confirm, resume continues the habituation PROGRAM (not a
+                // protection on/off), and it is reactive to this user turn — so a stray ack is
+                // harmless and the user can re-pause at any time.
+                if (parsedOverride.ResumeAck is { UserConfirmed: true } resumeAck
+                    && AcknowledgeResumeCallback is { } resumeCb)
+                {
+                    try { resumeCb(resumeAck.UserQuote); }
+                    catch { /* best-effort; a failed resume must never break the chat turn */ }
+                }
+
                 // M3 reliability: if the LLM didn't emit a parseable
                 // PROFILE_OVERRIDE block, fall back to the deterministic
                 // lexicon. Catches explicit user requests like "調鬆 sensitivity"
@@ -1173,6 +1187,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// so chatbot accumulations land in <c>habituation_profile.json</c>.
     /// Null = no host wiring (test contexts).</summary>
     public Action<string>? LongitudinalObservationCallback { get; set; }
+
+    /// <summary>Phase 7 (RESUME_ACKNOWLEDGE): invoked when the LLM relays an explicit
+    /// user_confirmed:true that the user is ready to continue from a tier>=8
+    /// PausedAwaitingUserConfirm check-in. Carries the user's confirming quote for the audit
+    /// trail. Host wires this to <c>MockInferenceEngine.AcknowledgeAndResumeHabituation</c>
+    /// (a guarded no-op unless actually awaiting confirm). Null = no host wiring (test contexts).</summary>
+    public Action<string>? AcknowledgeResumeCallback { get; set; }
 
     /// <summary>M3 7e+: raised when the user clicks a profile option in the
     /// chat-bubble picker. Carries the chosen profile name (RESILIENT /

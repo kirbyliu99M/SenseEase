@@ -101,4 +101,76 @@ public class PersonalPressureScalePersistenceTests
         }
         finally { Cleanup(path); }
     }
+
+    // ── Phase 7 write-durability: chatbot strike-limit override persists across restart ──
+
+    [Fact]
+    public void PersistedStrikeLimitOverride_IsRestored_OnLoad()
+    {
+        string path = TempPath();
+        try
+        {
+            // A non-vestibular user whose accepted chatbot AdjustStrikeLimit set the override to 4.
+            new FileHabituationProfileStore(path).Save(new HabituationProfileSnapshot
+            {
+                UpdatedAtIso              = "2026-06-01T08:00:00.0000000Z",
+                Profile                   = "TYPICAL",
+                ProfileSource             = "chatbot_adjust_strike_limit",
+                SevereStrikeLimitOverride = 4,
+                VestibularProtectionEnabled = false,
+            });
+
+            var engine = new MockInferenceEngine(profileStore: new FileHabituationProfileStore(path));
+
+            Assert.Equal(4, engine.HabituationSevereStrikeLimitOverride);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public void NoStrikeLimitOverride_RestoresNull_OnLoad()
+    {
+        string path = TempPath();
+        try
+        {
+            new FileHabituationProfileStore(path).Save(new HabituationProfileSnapshot
+            {
+                UpdatedAtIso  = "2026-06-01T08:00:00.0000000Z",
+                Profile       = "TYPICAL",
+                ProfileSource = "default",
+                // SevereStrikeLimitOverride left null (no override).
+            });
+
+            var engine = new MockInferenceEngine(profileStore: new FileHabituationProfileStore(path));
+
+            Assert.Null(engine.HabituationSevereStrikeLimitOverride);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public void VestibularHardCap_WinsOverPersistedStrikeOverride_OnLoad()
+    {
+        string path = TempPath();
+        try
+        {
+            // Even if a stale override of 4 were on disk, a vestibular user's hard-cap (=1)
+            // re-derived from the flag must win (the ctor restores the override BEFORE the
+            // vestibular branch). In practice BuildProfileSnapshot persists null for vestibular
+            // users, but pin the precedence defensively against a hand-edited file.
+            new FileHabituationProfileStore(path).Save(new HabituationProfileSnapshot
+            {
+                UpdatedAtIso              = "2026-06-01T08:00:00.0000000Z",
+                Profile                   = "SENSITIVE",
+                ProfileSource             = "calibration_demo",
+                SevereStrikeLimitOverride = 4,
+                VestibularProtectionEnabled = true,
+            });
+
+            var engine = new MockInferenceEngine(profileStore: new FileHabituationProfileStore(path));
+
+            Assert.Equal(1, engine.HabituationSevereStrikeLimitOverride);
+        }
+        finally { Cleanup(path); }
+    }
 }

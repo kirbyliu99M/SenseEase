@@ -257,6 +257,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
             {
                 _lastCalibrationAtUtc = lastCalAt;
             }
+            // Phase 7 write-durability: restore a user-confirmed chatbot strike override so the
+            // AI's accepted tuning survives restart (was session-only). Restored BEFORE the
+            // vestibular branch below so a vestibular user's hard-cap (=1) re-derived from the
+            // flag intentionally OVERWRITES this. Clamp defensively to the processor's [1,5].
+            if (savedSnapshot.SevereStrikeLimitOverride is int savedStrikeOverride)
+                _habituation.SevereStrikeLimitOverride = Math.Clamp(savedStrikeOverride, 1, 5);
             // Alpha-2 addendum: restore the PERSISTENT vestibular protection so the
             // auto-profiling world's TriggerPressure-50 + SevereStrikeLimit-1 (and the
             // selector L9 floor / propose-stronger-only guards via IsVestibularActive)
@@ -1651,6 +1657,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
             CurrentVimsTier         = _vimsTier,
             SevereStrikeCount       = _habituation.SevereStrikeCount,
             SevereStrikeLimit       = p.SevereStrikeLimit,
+            // Phase 7 write-durability: persist a NON-vestibular user-confirmed chatbot strike
+            // override so it survives restart. For a vestibular user we persist null and let the
+            // vestibular hard-cap (=1) be re-derived from VestibularProtectionEnabled on load —
+            // that path intentionally WINS, so we must not double-source it here.
+            SevereStrikeLimitOverride = IsVestibularActive ? (int?)null : _habituation.SevereStrikeLimitOverride,
             EngineState             = EngineStateToString(_habituation.CurrentEngineState),
             ExternallyPaused        = _habituation.IsExternallyPaused,
             AwaitingUserConfirm     = _habituation.IsAwaitingUserConfirm,

@@ -82,6 +82,15 @@ public sealed class HabituationProfileSnapshot
     [JsonPropertyName("severe_strike_limit")]
     public double SevereStrikeLimit { get; set; }
 
+    /// <summary>Phase 7 write-durability: a user-confirmed chatbot AdjustStrikeLimit override
+    /// (range [1,5]), persisted so it survives a restart instead of reverting to the profile
+    /// default. null = no override (use the profile default). Additive nullable field; schema
+    /// stays back-compat (older files deserialize to null). NOTE: the vestibular hard-cap (=1)
+    /// is NOT carried here — it is re-derived from <see cref="VestibularProtectionEnabled"/> on
+    /// load and intentionally WINS over this override.</summary>
+    [JsonPropertyName("severe_strike_limit_override")]
+    public int? SevereStrikeLimitOverride { get; set; }
+
     /// <summary>"RUNNING" / "COOLDOWN" / "PAUSED_AWAITING_USER_CONFIRM".</summary>
     [JsonPropertyName("engine_state")]
     public string EngineState { get; set; } = "RUNNING";
