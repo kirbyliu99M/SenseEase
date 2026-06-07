@@ -710,7 +710,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         int    tier        = Math.Clamp(state.VimsTier, 1, 12);
         double tierFraction = (tier - 1) / 11.0;                 // 0 at L1, 1 at L12
         double gv          = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
-        double ceiling     = Math.Min(1.0, 0.40 + (0.80 * gv));
+        double ceiling     = GridCeiling(gv);
         double target      = Math.Clamp(tierFraction * ceiling * (0.55 + (0.45 * _smoothedIntensity)),
                                         0.0, ceiling);
 
@@ -727,4 +727,21 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double pressureTerm = Math.Clamp(state.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
         return Math.Clamp((flowTerm * 0.35) + (pressureTerm * 0.85), 0.0, 1.0);
     }
+
+    /// <summary>
+    /// Maps grid-visibility knob → max grid opacity (the per-frame ceiling used by
+    /// <see cref="ApplyGridIntensity"/>). Extracted as a pure static so the curve is
+    /// unit-testable without spinning up the WPF window.
+    ///
+    /// BUG FIX (live user test): the chatbot "/grid off" sets GridVisibility=0 and
+    /// reports "格線已隱藏 / Grid hidden", but the grid stayed visible. The old curve
+    /// 0.40 + 0.80*gv produced ceiling=0.40 at gv=0, so the anchor grid still rendered
+    /// up to 40%*tierFraction whenever tier>1 — never truly off. We now gate the 0.40
+    /// floor behind gv>0: gv=0 yields ceiling=0 exactly, forcing target opacity to 0
+    /// (ApplyGridIntensity clamps target to [0, ceiling]). For all gv>0 the curve is
+    /// unchanged, so the tuned default gv=0.75 stays byte-identical (ceiling=1.00,
+    /// grid floor 0.30) — see ShaderParams.DefaultGridVisibility.
+    /// </summary>
+    internal static double GridCeiling(double gv)
+        => gv > 0.0 ? Math.Min(1.0, 0.40 + (0.80 * gv)) : 0.0;
 }

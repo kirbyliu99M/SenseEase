@@ -3,29 +3,25 @@ using SenseEase.Core.Models;
 namespace SenseEase.Core.Abstractions;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage 4 — Calibration LLM dialog test seam.
+// Local-LLM dialog test seam (originally Stage-4 calibration; the calibration
+// card was removed 2026-06-08 and this is now consumed by the User-Model
+// retrospective analyzer).
 //
-// The production CalibrationChatbotService talks HTTP to the local llama-server
-// subprocess (spawned by MistralChatbotService). For unit testing we don't want
-// to start a real server, so the service consumes this abstraction instead of
-// calling HTTP directly. Tests inject a stub that returns canned LLM replies.
+// The implementation talks HTTP to the local llama-server subprocess (spawned by
+// MistralChatbotService). For unit testing we don't want to start a real server,
+// so consumers use this abstraction instead of calling HTTP directly; tests
+// inject a stub that returns canned LLM replies.
 //
-// This is INTENTIONALLY a separate abstraction from IChatbotService:
-//   • IChatbotService models the NLU-during-runtime path (returns NluResult
-//     with shader deltas).
-//   • ICalibrationLlmClient models the calibration-dialog path (returns the
-//     raw text reply; the [CALIBRATION_DELTA] block is parsed by a separate
-//     parser, not embedded in the abstraction).
-// Mixing the two would create an awkward union type and bleed concerns.
+// INTENTIONALLY separate from IChatbotService: that models the NLU-during-runtime
+// path (NluResult with shader deltas), while this returns the assistant's raw
+// text reply for a multi-turn dialog. Mixing the two would bleed concerns.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// Thin contract over the local llama-server chat endpoint for the
-/// calibration-dialog path. The caller supplies the (immutable) system prompt
-/// plus the running list of user/assistant turns. Implementations send all
-/// three to the LLM and return the assistant's raw text reply. The reply may
-/// contain a [CALIBRATION_DELTA] block — parsing that out is the caller's
-/// responsibility (see <c>CalibrationLlmDeltaParser</c>).
+/// Thin contract over the local llama-server chat endpoint for a multi-turn
+/// dialog. The caller supplies the (immutable) system prompt plus the running
+/// list of user/assistant turns; implementations send all three to the LLM and
+/// return the assistant's raw text reply (the caller parses any structured block).
 /// </summary>
 public interface ICalibrationLlmClient
 {

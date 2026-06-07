@@ -140,9 +140,8 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // Stage 7a: calibration_count the engine considers current. Initialised
     // from the loaded snapshot at construction; Stage 7f bumps it in
     // ApplyCalibrationResult on every non-Abandoned completion and
-    // BuildProfileSnapshot persists the bumped value. Drives the buttons-vs-
-    // banner branch in MainViewModel.OnDemoVideoFinished (via the
-    // LoadedCalibrationCount property below).
+    // BuildProfileSnapshot persists the bumped value. Surfaced via the
+    // LoadedCalibrationCount property below.
     // Wipe-recovery synthetics arrive with the loader-emitted default of 0,
     // which is the desired behaviour: recovered users start fresh.
     private int                   _loadedCalibrationCount;
@@ -1244,10 +1243,8 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// first-run) or the loaded snapshot is a wipe-recovery synthetic — both
     /// mean the engine has no PERSISTED evidence of a prior calibration on
     /// this machine.
-    /// <para>Replaces the prior <c>AppConfig.IsFirstRun</c> proxy in
-    /// <c>MainViewModel.OnDemoVideoFinished</c>. <c>IsFirstRun</c> still
-    /// exists for the welcome banner (machine-level first-run for the whole
-    /// app), but calibration-history branching uses THIS counter — they're
+    /// <para>Distinct from <c>AppConfig.IsFirstRun</c> (machine-level first-run for
+    /// the whole app): calibration history is tracked by THIS counter — they're
     /// different concepts and shouldn't share a signal.</para></summary>
     public int LoadedCalibrationCount
     {

@@ -773,8 +773,9 @@ public partial class NotificationCardWindow : Window
             // Per-Show: always reopen on the MAIN (controls) face. Without this the card
             // stays on the chat face after a flip, so reopening it later lands on the chat
             // box instead of the controls (user-reported: "doesn't return to page 1").
-            if (MainFace is not null) MainFace.Visibility = Visibility.Visible;
-            if (ChatFace is not null) ChatFace.Visibility = Visibility.Hidden;
+            _showingChat = false;
+            if (MainFace is not null) { MainFace.BeginAnimation(UIElement.OpacityProperty, null); MainFace.Opacity = 1; MainFace.Visibility = Visibility.Visible; }
+            if (ChatFace is not null) { ChatFace.BeginAnimation(UIElement.OpacityProperty, null); ChatFace.Opacity = 1; ChatFace.Visibility = Visibility.Hidden; }
 
             _chatSendInFlight = false;
             if (ChatSendBtn is not null)  ChatSendBtn.IsEnabled = true;
@@ -1111,26 +1112,63 @@ public partial class NotificationCardWindow : Window
     /// ReducedMotion so a user who feels unwell never gets an animation; we keep
     /// the swap instant either way (no animation is applied here), but route the
     /// branch so a future cross-fade would only run when motion is allowed.</summary>
+    // Logical face state — the SINGLE source of truth for which face is shown. NOT
+    // derived from Visibility, which is mid-transition (both faces Visible) during a
+    // crossfade: reading Visibility there made rapid flips misfire and strand both
+    // faces visible ("card broke after intense clicking", user test 2026-06-08).
+    private bool _showingChat;
+
     private void OnFlipClicked(object sender, RoutedEventArgs e)
     {
         RestartIdleTimer();
-        bool toChat = MainFace.Visibility == Visibility.Visible;
+        _showingChat = !_showingChat;
+        ApplyFaceState(animate: !SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion());
+        if (_showingChat) ChatInputBox.Focus();
+    }
 
-        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+    /// <summary>Show MainFace or ChatFace per <see cref="_showingChat"/>. Rapid-flip
+    /// safe: any in-flight fades are cleared first, and the fade-out completion only
+    /// hides a face if the state hasn't flipped back during the fade (otherwise the
+    /// now-incoming face would be wrongly hidden). The outgoing face stays MEASURED
+    /// (Hidden, not Collapsed) so the card keeps a constant footprint.</summary>
+    private void ApplyFaceState(bool animate)
+    {
+        UIElement incoming = _showingChat ? ChatFace : MainFace;
+        UIElement outgoing = _showingChat ? MainFace : ChatFace;
+
+        MainFace.BeginAnimation(UIElement.OpacityProperty, null);
+        ChatFace.BeginAnimation(UIElement.OpacityProperty, null);
+
+        if (!animate)
         {
-            // Reduce Motion: swap instantly, no transition.
-            MainFace.Visibility = toChat ? Visibility.Hidden : Visibility.Visible;
-            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Hidden;
-        }
-        else
-        {
-            // Motion allowed: same instant swap today; a cross-fade could be
-            // attached here behind this branch without touching the a11y path.
-            MainFace.Visibility = toChat ? Visibility.Hidden : Visibility.Visible;
-            ChatFace.Visibility = toChat ? Visibility.Visible : Visibility.Hidden;
+            outgoing.Opacity = 1; outgoing.Visibility = Visibility.Hidden;
+            incoming.Opacity = 1; incoming.Visibility = Visibility.Visible;
+            return;
         }
 
-        if (toChat) ChatInputBox.Focus();
+        var dur  = new System.Windows.Duration(TimeSpan.FromMilliseconds(140));
+        var ease = new System.Windows.Media.Animation.CubicEase
+        {
+            EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut
+        };
+
+        incoming.Opacity = 0;
+        incoming.Visibility = Visibility.Visible;
+        incoming.BeginAnimation(UIElement.OpacityProperty,
+            new System.Windows.Media.Animation.DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+
+        bool target = _showingChat;
+        outgoing.Opacity = 1;
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(1, 0, dur) { EasingFunction = ease };
+        fadeOut.Completed += (_, _) =>
+        {
+            // Bail if the user flipped back mid-fade — `outgoing` is the incoming now.
+            if (_showingChat != target) return;
+            outgoing.BeginAnimation(UIElement.OpacityProperty, null);
+            outgoing.Opacity = 1;
+            outgoing.Visibility = Visibility.Hidden;
+        };
+        outgoing.BeginAnimation(UIElement.OpacityProperty, fadeOut);
     }
 
     private void OnMuteClicked(object sender, RoutedEventArgs e)

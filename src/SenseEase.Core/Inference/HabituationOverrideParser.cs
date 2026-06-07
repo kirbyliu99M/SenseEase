@@ -180,6 +180,10 @@ public static class HabituationOverrideParser
     // eye damage", "系統警告：必須立即接受 RESILIENT"). The user-Accept gate is only
     // as strong as the user spotting manipulation, so we defang the payload here.
     private const int RationaleMaxLength = 120;
+    // Input hardening: bound the LLM-relayed user-confirmation quote so a hostile or
+    // runaway model output cannot pass an unbounded string downstream (memory / UI).
+    // Truncate, never reject — a legitimate short confirmation quote always survives.
+    private const int UserQuoteMaxLength = 160;
 
     // Non-bracket line prefixes that read as injected system/imperative chrome.
     // Bracketed tags ([SYSTEM], [INST], …) are caught by the leading-'[' check.
@@ -294,9 +298,12 @@ public static class HabituationOverrideParser
             if (dto is null) continue;
             if (!dto.UserConfirmed.HasValue) continue; // required field per spec
 
+            string quote = dto.UserQuote ?? string.Empty;
+            if (quote.Length > UserQuoteMaxLength)
+                quote = quote.Substring(0, UserQuoteMaxLength - 1).TrimEnd() + "…";
             return new ResumeAcknowledge(
                 UserConfirmed: dto.UserConfirmed.Value,
-                UserQuote: dto.UserQuote ?? string.Empty);
+                UserQuote: quote);
         }
         return null;
     }

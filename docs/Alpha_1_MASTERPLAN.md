@@ -333,13 +333,13 @@ Kirby delegated both the colour ramp and the labels to the **ui-ux-pro-max** plu
 
 | 級 (動態感, spec-locked) | 檔位 | EN label (§6-safe) | proposed hue | resting α | hover α |
 |---|---|---|---|---|---|
-| **極高** | L1–2 | Most Natural | `#9BB4D4` airy blue-grey | 0.15 | 0.65 |
-| **高** | L3–4 | Light | `#6F93C2` light calm blue | 0.22 | 0.74 |
-| **中** (default L5) | L5–7 | Balanced | `#4A77B5` mid calm blue | 0.30 | 0.83 |
-| **低** | L8–10 | Steady | `#345E97` deeper blue | 0.38 | 0.92 |
-| **極低** | L11–12 | Most Steady | `#243F6B` deep calm slate | 0.45 | 1.00 |
+| **極低** | L1–2 | Very Calm | `#9BB4D4` airy blue-grey | 0.15 | 0.65 |
+| **低** | L3–4 | Calm | `#6F93C2` light calm blue | 0.22 | 0.74 |
+| **中** (default L5) | L5–7 | Moderate | `#4A77B5` mid calm blue | 0.30 | 0.83 |
+| **高** | L8–10 | Dynamic | `#345E97` deeper blue | 0.38 | 0.92 |
+| **極高** | L11–12 | Very Dynamic | `#243F6B` deep calm slate | 0.45 | 1.00 |
 
-Polarity (spec): "動態感" describes the **screen** — 極高 = most natural (least intervention), 極低 = most stabilized — the deliberately non-alarming framing. Labels are §6-safe (no diagnosis/treatment/optimisation claims); the §6 banned-phrase lint runs as part of 1-a-ii. **Colours are a proposal pending a visual hard-stop (UVHS)** — implemented in 1-a-ii, then signed off on a rendered screenshot before final.
+**Polarity — CORRECTED 2026-06-07 (unified-measurement directive).** "動態感" describes the **screen's motion**: **極低 (Very Calm) = L1–2 = most stable screen; 極高 (Very Dynamic) = L11–12 = most motion** — low tier = calm, high tier = dynamic. This SUPERSEDES the earlier reversed "極高 = most natural (L1–2)" framing. User-facing zh label is "動態感 · 〔極低 / 低 / 中 / 高 / 極高〕"; EN uses the Calm⇄Dynamic root (Very Calm / Calm / Moderate / Dynamic / Very Dynamic) so the direction reads at a glance. The **5級 動態感 status is the ONLY status shown to end users**; VimsTier / pressure / the 12-檔 scale are internal/advanced only (one axis, three granularities). **Colours + α are UNCHANGED** (term + polarity only) — the ramp now reads light = calm, deep = dynamic, matching the corrected polarity. Implemented in code 2026-06-07 (`TierColorPalette.FeelLabel/FeelLabelEn`); pending Kirby's UVHS sign-off on a rendered screenshot. §6-safe (no diagnosis/treatment/optimisation claims).
 
 > **Confirm-chain RECORD (2026-06-06 — closes the traceability gap):** Kirby's 2nd-confirm for the Stage-1 native rebuild AND the Reading-A habituation-sever choice (§13.5 Stage 1 + the open clarification at §13.5 "⚠️ One open clarification") were both **given and are realized in code**: dd8f458 (1-a-i, native 12-level scale), 3907a60 (1-a-ii, 3-band → 5級 + §6 lint), d86a9a8 (1-b, Reading-A habituation sever).
 >

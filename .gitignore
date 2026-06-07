@@ -79,3 +79,15 @@ tools/head-tracker-sidecar/fixtures/*.mp4
 tools/head-tracker-sidecar/fixtures/*.webm
 tools/head-tracker-sidecar/fixtures/*.mov
 tools/head-tracker-sidecar/fixtures/*.mkv
+
+# ── Build / publish / validation artifacts (regeneratable; never commit) ──
+publish-test/
+**/bin-validate/
+soak_report.json
+
+# Stray repo-root binaries (the sidecar model ships under tools/; root copies are scratch)
+/face_landmarker.task
+/hp.jpg
+
+# Claude Code agent worktrees (per-run scratch checkouts)
+.claude/worktrees/

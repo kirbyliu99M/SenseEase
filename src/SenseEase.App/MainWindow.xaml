@@ -291,43 +291,8 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="24,20,24,24">
 
-                <!-- ── First-run welcome banner ──
-                     Shown only on a fresh install (no first-run-complete.flag in
-                     %LocalAppData%\SenseEase\). Either button dismisses it: Run
-                     Setup launches the calibration video demo; Skip just marks
-                     the flag so we don't pester next launch. -->
-                <Border CornerRadius="{StaticResource Radius.md}" Padding="20,14" Margin="0,0,0,16"
-                        Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Separator}" BorderThickness="1"
-                        Effect="{StaticResource Elev.2}"
-                        Visibility="{Binding ShowFirstRunBanner, Converter={StaticResource BoolToVis}}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="{loc:T Zh='● 歡迎使用 SenseEase', En='● Welcome to SenseEase'}"
-                                       Foreground="{DynamicResource TextPrimary}" FontSize="12" FontWeight="Bold"/>
-                            <TextBlock Text="{loc:T Zh='先跑 60 秒的 setup demo，系統會依您的反應建議個人化預設值', En='Run the 60 s setup demo so SenseEase can suggest personalised defaults based on your reaction.'}"
-                                       Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                            <Button Content="Skip"
-                                    Command="{Binding SkipSetupCommand}"
-                                    Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
-                                    BorderThickness="0"
-                                    Padding="14,6" FontSize="12" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}"
-                                    Margin="0,0,8,0"/>
-                            <Button Content="Run Setup Demo"
-                                    Command="{Binding StartSetupDemoCommand}"
-                                    Background="{DynamicResource Accent}" Foreground="White"
-                                    BorderThickness="0"
-                                    Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                <!-- First-run welcome banner REMOVED (2026-06-08): it was the only entry to
+                     the calibration video demo (Run Setup Demo), which has been excised. -->
 
                 <!-- ── D1 Comfort Hero ──
                      Calm, plain-language status — what SenseEase is doing for the
@@ -659,16 +624,19 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center"
+                                        ToolTip="{loc:T Zh='持續平靜時上升，不適應事件時下降 — 引擎動態調整保護層級', En='Rises with sustained calm, decreases on discomfort — engine adapts protection dynamically'}">
                                 <ProgressBar Value="{Binding HabituationLevel, Mode=OneWay}" Maximum="100"
                                              Height="6" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource ComfortSteady}"
                                              BorderThickness="0"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                     <TextBlock Style="{StaticResource CardLabel}"
-                                               Text="{loc:T Zh='再適應進度', En='Progress'}"/>
+                                               Text="{loc:T Zh='再適應程度', En='Adaptation Level'}"/>
                                     <TextBlock Style="{StaticResource CardLabel}"
                                                Text="{Binding HabituationLevel, StringFormat=': {0}%'}"/>
                                 </StackPanel>
+                                <TextBlock Style="{StaticResource CardLabel}" Opacity="0.7" Margin="0,2,0,0"
+                                           Text="{loc:T Zh='0%=完整支援 · 100%=完全寬鬆', En='0%=Full support · 100%=Fully eased'}"/>
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource GhostBtn}"
                                     Margin="12,0,0,0" VerticalAlignment="Center"
@@ -941,37 +909,16 @@
             <!-- ── Tab 3: AI Assistant ── -->
             <TabItem x:Name="AiAssistantTab" Header="{loc:T Zh='智能助理', En='AI Assistant'}">
                 <Grid DataContext="{Binding ChatbotVm}" Background="{DynamicResource Canvas}">
+                    <!-- Calibration card / invitation banner / Recalibrate header REMOVED
+                         (2026-06-08) along with the dead calibration Q&A subsystem. -->
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>  <!-- Recalibrate header (Stage 5b) -->
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>  <!-- Invitation banner (Stage 5a) -->
-                        <RowDefinition Height="Auto"/>  <!-- Calibration card (Stage 3d) -->
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>     <!-- Chat history -->
+                        <RowDefinition Height="Auto"/>  <!-- Status bar -->
+                        <RowDefinition Height="Auto"/>  <!-- Input row -->
                     </Grid.RowDefinitions>
 
-                    <!-- Stage 5b: small Recalibrate entry. Right-aligned above the
-                         chat history so users can re-enter calibration any time
-                         without needing a fresh demo run.
-                         Auto-profiling addendum: hidden when AutoProfilingEnabled (explicit
-                         calibration is cancelled — the engine auto-profiles instead), so the
-                         5-card / LLM calibration QA is no longer reachable from the chat tab. -->
-                    <Grid Grid.Row="0" Margin="24,16,24,0"
-                          Visibility="{Binding ShowCalibrationEntry, Converter={StaticResource BoolToVis}}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="1"
-                                Content="{loc:T Zh='重新校準', En='Recalibrate'}"
-                                Command="{Binding RecalibrateCommand}"
-                                Style="{StaticResource GhostBtn}"
-                                Padding="14,6" FontSize="12" MinHeight="44"
-                                ToolTip="{loc:T Zh='重新開始校準（5 題卡片），不需重跑示範。', En='Reopen calibration (the 5-card form) without re-running a demo.'}"/>
-                    </Grid>
-
                     <!-- Chat history -->
-                    <Border Grid.Row="1" Margin="24,8,24,8"
+                    <Border Grid.Row="0" Margin="24,8,24,8"
                             Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}" Padding="0"
                             BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                             Effect="{StaticResource Elev.2}">
@@ -990,9 +937,13 @@
                                                     Background="{DynamicResource Accent}" CornerRadius="12,12,2,12"
                                                     Padding="12,8" Margin="60,0,0,0" HorizontalAlignment="Right">
                                                 <StackPanel>
-                                                    <TextBlock Text="{Binding Content}"
-                                                               FontSize="14" Foreground="{DynamicResource TextOnComfort}"
-                                                               TextWrapping="Wrap"/>
+                                                    <!-- Read-only TextBox so the user's own text is selectable/copyable
+                                                         (TextBlock isn't). Transparent + borderless so the bubble shows through. -->
+                                                    <TextBox Text="{Binding Content, Mode=OneWay}"
+                                                             IsReadOnly="True" IsReadOnlyCaretVisible="False" IsTabStop="False"
+                                                             BorderThickness="0" Background="Transparent" Padding="0"
+                                                             FontSize="14" Foreground="{DynamicResource TextOnComfort}"
+                                                             TextWrapping="Wrap"/>
                                                     <TextBlock Text="{Binding Timestamp}"
                                                                FontSize="12" Foreground="{DynamicResource TextOnComfort}"
                                                                HorizontalAlignment="Right" Margin="0,4,0,0"/>
@@ -1048,10 +999,15 @@
                                                     <!-- Real reply text: rendered as inline runs by MarkdownInlines
                                                          so the bot can use **bold**, *italic*, `code`, and bullets
                                                          (•) in its replies. Hidden when the typing indicator is up. -->
-                                                    <TextBlock Visibility="{Binding ContentVisibility}"
-                                                               views:MarkdownInlines.Source="{Binding Content}"
-                                                               FontSize="14" Foreground="{DynamicResource TextPrimary}"
-                                                               TextWrapping="Wrap"/>
+                                                    <!-- Read-only TextBox so assistant replies are selectable/copyable.
+                                                         MarkdownInlines.Source on a TextBox renders a plain, marker-stripped
+                                                         version (selection beats inline formatting for "copy the advice"). -->
+                                                    <TextBox Visibility="{Binding ContentVisibility}"
+                                                             views:MarkdownInlines.Source="{Binding Content}"
+                                                             IsReadOnly="True" IsReadOnlyCaretVisible="False" IsTabStop="False"
+                                                             BorderThickness="0" Background="Transparent" Padding="0"
+                                                             FontSize="14" Foreground="{DynamicResource TextPrimary}"
+                                                             TextWrapping="Wrap"/>
 
                                                     <!-- Followup option cards. Only visible when the message carries
                                                          FollowupOptions (i.e. the bot wants a structured quick reply).
@@ -1127,68 +1083,10 @@
                         </ScrollViewer>
                     </Border>
 
-                    <!-- Stage 5a: subsequent-calibration invitation banner.
-                         Shown after a demo finishes when the user already has
-                         at least one prior calibration. Auto-dismisses after
-                         30 s or on either button click. Two actions: Start
-                         (opens the LLM dialog) or Skip (silent dismiss). -->
-                    <Border Grid.Row="2" Margin="24,0,24,8"
-                            CornerRadius="{StaticResource Radius.md}" Padding="20,14"
-                            Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Separator}" BorderThickness="1"
-                            Effect="{StaticResource Elev.2}"
-                            Visibility="{Binding ShowCalibrationInvitationBanner, Converter={StaticResource BoolToVis}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                <TextBlock Text="{loc:T Zh='想更新你的設定嗎？跟系統聊聊剛才的感覺。', En='Want to refresh your settings? Chat about what you just felt.'}"
-                                           Foreground="{DynamicResource TextPrimary}" FontSize="14" FontWeight="SemiBold"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                        VerticalAlignment="Center" Margin="16,0,0,0">
-                                <Button Content="{loc:T Zh='跳過', En='Skip'}"
-                                        Command="{Binding SkipCalibrationInvitationCommand}"
-                                        Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
-                                        BorderThickness="0"
-                                        Padding="14,6" FontSize="12" Cursor="Hand"
-                                        Template="{StaticResource RoundBtn}"
-                                        Margin="0,0,8,0"/>
-                                <Button Content="{loc:T Zh='開始 calibration', En='Start calibration'}"
-                                        Command="{Binding StartInvitedCalibrationCommand}"
-                                        Background="{DynamicResource Accent}" Foreground="White"
-                                        BorderThickness="0"
-                                        Padding="14,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
-                                        Template="{StaticResource RoundBtn}"/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-
-                    <!-- Calibration card host (Stage 3d).
-                         Visible only when IsCalibrationCardActive == true.
-                         DataContext flows to the inner ContentPresenter via
-                         ActiveCalibrationCard binding so the card sees its
-                         own CalibrationCardViewModel rather than ChatbotVm. -->
-                    <Border Grid.Row="3" Margin="24,0,24,8"
-                            Visibility="{Binding IsCalibrationCardActive, Converter={StaticResource BoolToVis}}">
-                        <views:CalibrationCardView DataContext="{Binding ActiveCalibrationCard}"/>
-                    </Border>
-
-                    <!-- H11 calibration confirmation card host.
-                         Shares Grid.Row 3 with the calibration card; the two are
-                         mutually exclusive (the Q-card is dismissed before the
-                         confirm card appears), gated on IsCalibrationConfirmCardActive. -->
-                    <Border Grid.Row="3" Margin="24,0,24,8"
-                            Visibility="{Binding IsCalibrationConfirmCardActive, Converter={StaticResource BoolToVis}}">
-                        <views:CalibrationConfirmCardView DataContext="{Binding ActiveCalibrationConfirmCard}"/>
-                    </Border>
-
                     <!-- Status bar — collapses entirely when idle (HasStatus=false) so the
                          steady-state has no empty bordered box. Only shows for transient
                          loading / load-failure / model-missing states. -->
-                    <Border Grid.Row="4" Margin="24,0,24,8"
+                    <Border Grid.Row="1" Margin="24,0,24,8"
                             Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}"
                             Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}" Padding="14,7"
                             BorderBrush="{DynamicResource Separator}" BorderThickness="1"
@@ -1199,7 +1097,7 @@
                     </Border>
 
                     <!-- Input row -->
-                    <Grid Grid.Row="5" Margin="24,0,24,20">
+                    <Grid Grid.Row="2" Margin="24,0,24,20">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>

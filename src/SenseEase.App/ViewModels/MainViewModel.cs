@@ -142,11 +142,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// (the default) the console keeps today's calibration + reset entries.</summary>
     public bool AutoProfilingActive => AppConfig.AutoProfilingEnabled;
 
-    /// <summary>Console "Calibration &amp; Demo" + welcome-banner calibration entry
-    /// visibility — shown only in the legacy (calibration) world.</summary>
-    public System.Windows.Visibility CalibrationEntryVisibility =>
-        AutoProfilingActive ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
-
     /// <summary>Console Reset button visibility — hidden when auto-profiling moves reset
     /// into Settings.</summary>
     public System.Windows.Visibility ConsoleResetVisibility =>
@@ -692,7 +687,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private readonly INluService _nlu;
-    private readonly DispatcherTimer _demoTimer;
     private readonly DispatcherTimer _idleTimer; // keeps decay visible in Demo Mode when slider is idle
     private readonly DispatcherTimer _metricsTimer;
     private DateTime _lastDemoInputAtUtc = DateTime.UtcNow;
@@ -715,7 +709,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private const int BehaviorFlushPeriodSeconds = 60; // crash-durability cadence
 
     private bool _lastMaskActive;
-    private double _demoOfi;
 
     // Display Comfort (LuxController) removed at v0.11 (UI Consolidation
     // Sprint Phase 4) — feature decommissioned. See CHANGELOG.md.
@@ -851,29 +844,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             new DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath).ReadAll();
         ChatbotVm.IsPowerSaveActive       = () => _powerSaveActiveLookup?.Invoke() ?? false;
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
-        // Stage 5a/5b: wire the LLM calibration session factory. The factory
-        // constructs a CalibrationChatbotService and kicks StartAsync — the VM
-        // just surfaces the active session for the chat tab to render.
-        // Alpha-2 audit: under AutoProfilingEnabled the entire explicit-calibration flow
-        // is cancelled (Recalibrate / invitation banner / post-demo card are all suppressed),
-        // so these two wires would dangle for a flow that can never fire. Only attach them in
-        // the legacy (flag-OFF) world; flag-ON leaves them null and the entry methods already
-        // hard-return. (The LLM-calibration session UI was never built anyway — see the
-        // OpenCalibrationCardCallback hotfix note — so the factory is doubly inert when ON.)
-        if (!AppConfig.AutoProfilingEnabled)
-        {
-            ChatbotVm.LlmCalibrationFactory = BuildLlmCalibrationSession;
-            // v0.9.1 hotfix: route the banner's Start button (and the Recalibrate
-            // entry) through the working button-card UI rather than the LLM
-            // session that has no UI binding. See ChatbotViewModel.StartInvitedCalibration.
-            ChatbotVm.OpenCalibrationCardCallback = TriggerCalibrationCard;
-        }
+        // Calibration CARD removed (2026-06-08): the 5-card Q&A, confirm card, the
+        // invitation/recalibrate banners and the LLM-calibration session are gone (dead,
+        // unreachable UI). The engine's CalibrationProcessor / CalibrationResult plumbing
+        // and the User-Model LLM client are kept.
         _nlu = new ChatbotNluService(mistral);
 
         _sensing = ProviderFor(AppConfig.Mode);
 
-        _demoTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _demoTimer.Tick += OnDemoTick;
 
         // Fires every 300 ms to keep the LeakyIntegrator decaying when no real samples arrive.
         // Demo mode: push 0 (idle) or current slider value (active).
@@ -881,7 +859,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _idleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _idleTimer.Tick += (_, _) =>
         {
-            if (AppConfig.UseMockSensing && !IsRunning)
+            if (AppConfig.UseMockSensing)
             {
                 bool idle = (DateTime.UtcNow - _lastDemoInputAtUtc).TotalMilliseconds >= 300;
                 _mockSensing.Push(idle ? 0.0 : _opticalFlowIndex);
@@ -940,15 +918,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         };
         _metricsTimer.Start();
 
-        StartDemoCommand  = new RelayCommand(_ => StartDemo(),  _ => !IsRunning);
-        StartSetupDemoCommand = new RelayCommand(_ => StartSetupDemo(), _ => !IsRunning);
-        SkipSetupCommand  = new RelayCommand(_ =>
-        {
-            AppConfig.MarkFirstRunComplete();
-            ShowFirstRunBanner = false;
-            AppendLog("Setup", Loc("使用者略過首次校正。", "User dismissed first-run setup."), CurrentState);
-        });
-        StopDemoCommand   = new RelayCommand(_ => StopDemo(),   _ => IsRunning);
         ResetStateCommand = new RelayCommand(_ => ResetState());
         // Dashboard profile pills are the USER's own pick: drive the engine directly
         // via SetHabituationProfile (NOT the severed chatbot SwitchProfile path —
@@ -956,7 +925,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // is the canonical profile string "RESILIENT"/"TYPICAL"/"SENSITIVE".
         SelectProfileCommand = new RelayCommand(o => OnUserProfileSelected(o as string ?? string.Empty));
         ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
-        ToggleDemoModeCommand = new RelayCommand(_ => ToggleDemoMode());
         AnalyzeFeedbackCommand = new RelayCommand(async _ => await SubmitFeedbackAsync(),
                                                   _ => !string.IsNullOrWhiteSpace(FeedbackText));
         ToggleHabituationCommand = new RelayCommand(_ =>
@@ -999,24 +967,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppendLog("System", Loc("SenseEase 已啟動，推論迴圈就緒。", "SenseEase started, inference loop ready."), CurrentState);
     }
 
-    private void ToggleDemoMode()
-    {
-        // Cycle is now Cursor <-> WGC only. SensingMode.Demo is no longer
-        // user-cycleable: the dedicated Calibration & Demo button owns it and
-        // is the only legitimate way to enter that mode at runtime. The enum
-        // value stays (tests + StartSyntheticOfiRamp still reference it).
-        var next = AppConfig.Mode == SensingMode.Wgc
-            ? SensingMode.Cursor
-            : SensingMode.Wgc;
-        SetSensingMode(next, Loc("感測模式切換", "Sensing mode switched"));
-    }
 
     /// <summary>Switch to the given sensing provider, unsubscribing the previous
     /// one and subscribing the new one. Idempotent: setting the current mode is
-    /// a no-op. On failure, the previous provider is restored. Centralised here
-    /// so both <see cref="ToggleDemoMode"/> (user-driven cycle) and the Demo
-    /// video flow (which needs to force WGC and restore on exit) share the same
-    /// sub/unsub logic.</summary>
+    /// a no-op. On failure, the previous provider is restored. Centralised so the
+    /// various sensing-mode callers share the same sub/unsub logic. (The demo
+    /// video flow that also used this was removed 2026-06-08.)</summary>
     private void SetSensingMode(SensingMode target, string logPrefix)
     {
         if (AppConfig.Mode == target) return;
@@ -1281,6 +1237,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ? Math.Max(naturalTier, PersistentOverlayBaselineTier)
             : naturalTier;
 
+    /// <summary>Companion to <see cref="ResolveDisplayedTier"/>. When the always-on floor
+    /// elevates the displayed tier above the engine's RAW tier, the selector's
+    /// <c>MaskPeakAlphaOverride</c> — resolved by the engine for the raw tier (≈0 / L1 when the
+    /// screen is calm) — would blank the always-on mask, because it overrides the tier-keyed
+    /// alpha in <c>OverlayWindow.ApplyFovMask</c>. Re-resolve the override for the DISPLAYED tier
+    /// so the baseline dimming renders at the active set's depth for that tier. Pass-through when
+    /// there is no override (-1 ⇒ selector flag OFF) so the flag-off path stays byte-identical.</summary>
+    public double ResolveDisplayedMaskOverride(int displayedTier, double rawOverride)
+        => rawOverride < 0.0
+            ? rawOverride
+            : ((_engine as MockInferenceEngine)?.ResolveLevel(displayedTier).PeakMaskAlpha ?? rawOverride);
+
     /// <summary>Pop-up card +/- pills: fine-tune the 12-level intensity scale (the level the
     /// card reads out) with an immediate VISIBLE change in BOTH directions — the root fix for
     /// the "+/- not functional" report. Previously +/- nudged the FOV offset, which clamps at
@@ -1332,17 +1300,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public Visibility NluResponseVisible =>
         string.IsNullOrEmpty(_nluResponse) ? Visibility.Collapsed : Visibility.Visible;
 
-    private bool _isRunning;
-    public bool IsRunning
-    {
-        get => _isRunning;
-        private set
-        {
-            if (!Set(ref _isRunning, value)) return;
-            ((RelayCommand)StartDemoCommand).RaiseCanExecuteChanged();
-            ((RelayCommand)StopDemoCommand).RaiseCanExecuteChanged();
-        }
-    }
 
     public ObservableCollection<EventLogEntry> EventLog { get; } = new();
     public SenseState CurrentState { get; private set; }
@@ -1420,474 +1377,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public event EventHandler<double>? PressureSpikeDetected;
 
-    public ICommand StartDemoCommand { get; }
-    public ICommand StopDemoCommand { get; }
     public ICommand ResetStateCommand { get; }
     public ICommand ToggleOverlayCommand { get; }
-    public ICommand ToggleDemoModeCommand { get; }
     public ICommand AnalyzeFeedbackCommand { get; }
     public ICommand ToggleHabituationCommand { get; }
-    public ICommand StartSetupDemoCommand { get; }
-    public ICommand SkipSetupCommand { get; }
     public ICommand SelectProfileCommand { get; }
 
-    // Welcome banner state. Initialised from AppConfig.IsFirstRun so a brand-new
-    // install shows the calibration prompt automatically; toggled false the
-    // moment the user either completes or dismisses the setup wizard.
-    // Alpha-2 addendum: the welcome banner IS the first-run calibration invite, so it
-    // is suppressed in the auto-profiling world (zero-setup start). Flag OFF ⇒ unchanged.
-    private bool _showFirstRunBanner = AppConfig.IsFirstRun && !AppConfig.AutoProfilingEnabled;
-    public bool ShowFirstRunBanner
-    {
-        get => _showFirstRunBanner;
-        set => Set(ref _showFirstRunBanner, value);
-    }
-
-    // Stage 5d: StartSetupDemo previously toggled an _isSetupRun flag so the
-    // post-demo flow could differentiate calibration vs plain runs. Now that
-    // DemoSummaryWindow is gone and the post-demo branch is purely a function
-    // of AppConfig.IsFirstRun (first run → card, subsequent → banner), the
-    // setup-demo command is a thin alias around StartDemo. The button is kept
-    // (welcome banner + dashboard "Calibration & Demo") so external bindings
-    // continue to work, but the flag-and-fallback logic is gone.
-    private void StartSetupDemo() => StartDemo();
+    // Calibration video DEMO + calibration CARD fully removed (2026-06-08): the first-run
+    // welcome banner, StartSetupDemo/StartDemo/StopDemo/synthetic-ramp/OnDemoTick, the
+    // DemoVideoWindow (WPF MediaElement), the 5-card Q&A / confirm card / LLM session and
+    // ShowFirstRunBanner are all gone — no codec dependency, no bundled video, no dead QA UI.
+    // Engine-side CalibrationProcessor / CalibrationResult are kept (not part of the card).
 
     // ?? Demo loop ??????????????????????????????????????????????????????????
 
-    // Demo now plays a real first-person-view vection clip in its own window;
-    // the existing WgcSensingProvider captures the primary monitor, so the
-    // video's optical flow flows naturally through inference -> mask -> chatbot
-    // -- i.e. the demo exercises the full real pipeline, not a synthetic OFI
-    // ramp. If the video file is missing OR WGC fails to start, we fall back
-    // to the legacy OFI auto-increment so a demo of *something* still runs.
 
-    private Views.DemoVideoWindow? _demoVideoWindow;
-    private SensingMode? _modeBeforeDemo;
-    private bool?    _overlayBeforeDemo;
-    private DateTime _demoStartedAt;
-    private int      _demoMaskActivations;
-    private double   _demoPeakPressure;
-    // Seconds-since-_demoStartedAt at which _demoPeakPressure was last updated.
-    // Stage 5c: closes the Stage 3 Q4 carve-out by feeding Q1-vs-sensor
-    // alignment a real timestamp instead of the hard-coded zero CalibrationProcessor
-    // previously had to treat as "no claim".
-    private double   _demoPeakPressureAtSec;
 
-    private void StartDemo()
-    {
-        if (IsRunning) return;
-
-        string videoPath = AppConfig.DemoVideoPath;
-        if (string.IsNullOrEmpty(videoPath))
-        {
-            AppendLog("Demo", Loc("找不到示範影片，改以合成 OFI 漸增模擬。", "Demo video not found, running synthetic OFI ramp instead."), CurrentState);
-            StartSyntheticOfiRamp();
-            return;
-        }
-
-        // Reset run-scoped stats. We snapshot peak pressure / mask count over
-        // the demo window so the summary log line reflects only this run.
-        _demoStartedAt          = DateTime.Now;
-        _demoMaskActivations    = 0;
-        _demoPeakPressure       = 0;
-        _demoPeakPressureAtSec  = 0;
-
-        // Force WGC so the video's pixel motion actually drives the pipeline.
-        // In Demo mode the sensor is MockSensingProvider (slider-fed) and
-        // would ignore the on-screen video entirely.
-        _modeBeforeDemo = AppConfig.Mode;
-        SetSensingMode(SensingMode.Wgc, Loc("示範啟動，切換感測", "Demo start — switching sensing"));
-
-        // Auto-enable the overlay so the mask is visible the moment pressure
-        // crosses threshold — the whole point of the demo is to SHOW the
-        // intervention happening on screen. Restore the prior state on close
-        // (a user who had the overlay off pre-demo gets it off again after).
-        _overlayBeforeDemo = OverlayVisible;
-        if (!OverlayVisible) OverlayVisible = true;
-
-        try
-        {
-            _demoVideoWindow = new Views.DemoVideoWindow(videoPath);
-            _demoVideoWindow.DemoFinished += OnDemoVideoFinished;
-            _demoVideoWindow.Owner = Application.Current?.MainWindow;
-            _demoVideoWindow.Show();
-
-            IsRunning = true;
-            AppendLog("Demo", Loc($"示範開始 — 透過螢幕擷取播放 {Path.GetFileName(videoPath)}。", $"Demo started — playing {Path.GetFileName(videoPath)} via WGC sensing."), CurrentState);
-        }
-        catch (Exception ex)
-        {
-            AppendLog("Error", Loc($"示範影片啟動失敗：{ex.GetType().Name}：{ex.Message}", $"Demo video failed to start: {ex.GetType().Name}: {ex.Message}"), CurrentState);
-            if (_modeBeforeDemo is { } prior)
-            {
-                SetSensingMode(prior, Loc("示範還原感測", "Demo — restoring sensing"));
-                _modeBeforeDemo = null;
-            }
-            StartSyntheticOfiRamp();
-        }
-    }
-
-    private void StartSyntheticOfiRamp()
-    {
-        _demoOfi = 0;
-        OpticalFlowIndex = 0;
-        IsRunning = true;
-        _demoTimer.Start();
-        AppendLog("Demo", Loc("OFI 自動遞增執行中（合成備援）。", "OFI auto-increment running (synthetic fallback)."), CurrentState);
-    }
-
-    private void StopDemo()
-    {
-        // Synthetic-ramp branch -- original behaviour preserved.
-        if (_demoTimer.IsEnabled)
-        {
-            _demoTimer.Stop();
-            IsRunning = false;
-            AppendLog("Demo", Loc($"示範已停止，最終 OFI = {OpticalFlowIndex:F1}", $"Demo stopped, final OFI = {OpticalFlowIndex:F1}"), CurrentState);
-            return;
-        }
-
-        // Video branch -- closing the window triggers OnDemoVideoFinished,
-        // which is where the real teardown / summary lives.
-        if (_demoVideoWindow is { } w)
-        {
-            try { w.Close(); } catch { /* already closing */ }
-        }
-        else
-        {
-            IsRunning = false;
-        }
-    }
-
-    private void OnDemoVideoFinished(object? sender, EventArgs e)
-    {
-        if (_demoVideoWindow is { } w)
-        {
-            w.DemoFinished -= OnDemoVideoFinished;
-            _demoVideoWindow = null;
-        }
-
-        if (_modeBeforeDemo is { } prior)
-        {
-            SetSensingMode(prior, Loc("示範結束，還原感測", "Demo end — restoring sensing"));
-            _modeBeforeDemo = null;
-        }
-
-        // Restore overlay visibility to whatever the user had before Demo.
-        if (_overlayBeforeDemo is { } priorOverlay)
-        {
-            if (OverlayVisible != priorOverlay) OverlayVisible = priorOverlay;
-            _overlayBeforeDemo = null;
-        }
-
-        // Clear any spike state that accumulated while detection was suppressed.
-        // Without this the first post-demo sample sees a fresh baseline and the
-        // detector could fire a stale "spike" from the demo's peak pressure
-        // decaying back to idle.
-        _spikeDetector.Reset();
-
-        TimeSpan dur = DateTime.Now - _demoStartedAt;
-        AppendLog("Demo",
-            Loc($"示範結束 — 時長 {dur.TotalSeconds:F0}s，遮罩啟動 {_demoMaskActivations} 次，峰值壓力 {_demoPeakPressure:F0}。",
-                $"Demo ended — {dur.TotalSeconds:F0}s, mask activated {_demoMaskActivations}×, peak pressure {_demoPeakPressure:F0}."),
-            CurrentState);
-
-        // v0.9.1 diagnostic: Bug 2 reported "no calibration card / banner after demo"
-        // — wrap the branching so we surface the failure point in the event log if
-        // it ever throws silently again. The try/catch is no-cost on the happy path.
-        try
-        {
-        // ── Post-demo branching ─────────────────────────────────────────────
-        // First-time CALIBRATION users get the 5-card buttons UI in the chat
-        // tab; subsequent runs get a banner offering an LLM dialog.
-        //
-        // Stage 7a: the "first-time" signal is the PERSISTED
-        // habituation_profile.json's calibration_count field (surfaced via
-        // MockInferenceEngine.LoadedCalibrationCount at startup), NOT
-        // AppConfig.IsFirstRun. The two concepts diverged once Schema v2
-        // landed:
-        //   • AppConfig.IsFirstRun = "user has never used SenseEase on this
-        //     machine" (drives the dashboard welcome banner).
-        //   • LoadedCalibrationCount = "user has never completed calibration
-        //     on this machine" (drives this branch).
-        // They share most of their truth table on first install, but a user
-        // who launched SenseEase once, skipped the welcome banner, then ran
-        // a demo months later is "not first-run for the app" yet "first-run
-        // for calibration" — and SHOULD see the button card, not the LLM
-        // banner.
-        //
-        // Wipe-recovery synthetics arrive with CalibrationCount=0 (the
-        // FileHabituationProfileStore wipe path returns defaults-only), which
-        // is the intended behaviour: a recovered user is effectively starting
-        // calibration over and gets the buttons UI again.
-        int calibrationCount = (_engine is MockInferenceEngine mockForCount)
-            ? mockForCount.LoadedCalibrationCount
-            : -1;
-        AppendLog("Calibration",
-            $"[diag] post-demo branching: loaded_calibration_count={calibrationCount}",
-            CurrentState);
-        // Alpha-2 addendum: in the auto-profiling world explicit calibration is
-        // cancelled, so the post-demo flow never routes to the calibration card /
-        // invitation banner. Flag OFF (default) ⇒ today's routing byte-identical.
-        if (AppConfig.AutoProfilingEnabled)
-        {
-            AppendLog("Calibration",
-                Loc("自動建檔模式：略過示範後校準路由。",
-                    "Auto-profiling: post-demo calibration routing skipped."),
-                CurrentState);
-        }
-        else
-        {
-            bool isFirstRunCalibration = calibrationCount <= 0;
-            if (isFirstRunCalibration)
-            {
-                TriggerCalibrationCard();
-            }
-            else
-            {
-                // Stage 5a: invitation banner — DO NOT auto-trigger the card.
-                // Snapshot the demo sensor data so the LLM session has accurate
-                // current-run context if the user accepts the invitation.
-                ChatbotVm.LastDemoSensorData = new CalibrationSensorData(
-                    PeakPressure: _demoPeakPressure,
-                    MaskActivations: _demoMaskActivations,
-                    PeakPressureAtSec: _demoPeakPressureAtSec);
-                ChatbotVm.ShowCalibrationInvitationBanner = true;
-                AppendLog("Calibration",
-                    Loc("後續校準邀請橫幅已顯示。", "Subsequent-calibration invitation banner shown."),
-                    CurrentState);
-            }
-        }
-        }
-        catch (Exception ex)
-        {
-            AppendLog("Error",
-                $"Post-demo calibration branching failed: {ex.GetType().Name}: {ex.Message}",
-                CurrentState);
-        }
-
-        IsRunning = false;
-    }
-
-    // ── Stage 3e/3f: calibration card trigger + completion handlers ─────────
-
-    /// <summary>Stash of sensor observations the calibration processor will
-    /// consume on Completed/Cancelled. Captured at demo-end so the processor
-    /// sees the run that prompted the card, not whatever state has accrued
-    /// while the user was answering questions.</summary>
-    private CalibrationSensorData? _pendingCalibrationSensorData;
-
-    private void TriggerCalibrationCard()
-    {
-        // Snapshot sensor stats now so they survive even if pressure drifts
-        // during the user's answer time. Stage 5c: PeakPressureAtSec is now
-        // tracked inline in UpdateFromState (stamped each time _demoPeakPressure
-        // rises), so Q1-vs-sensor alignment can make a real start/middle/end
-        // claim instead of the prior "no claim" carve-out.
-        _pendingCalibrationSensorData = new CalibrationSensorData(
-            PeakPressure: _demoPeakPressure,
-            MaskActivations: _demoMaskActivations,
-            PeakPressureAtSec: _demoPeakPressureAtSec);
-
-        var card = new CalibrationCardViewModel();
-        card.Completed += OnCalibrationCompleted;
-        card.Cancelled += OnCalibrationCancelled;
-
-        ChatbotVm.ActiveCalibrationCard = card;
-        ChatbotVm.IsCalibrationCardActive = true;
-
-        AppendLog("Calibration", Loc("校正卡開啟（首次校正）。", "Calibration card opened (first run)."), CurrentState);
-    }
-
-    private void OnCalibrationCompleted(object? sender, CalibrationResponses responses)
-    {
-        // H11: compute the result with the PURE processor (NO engine mutation),
-        // then gate the apply behind a confirmation card — the engine changes only
-        // after the user accepts. Resolve the sensor BEFORE dismissing the Q-card
-        // (DismissCalibrationCard clears _pendingCalibrationSensorData).
-        var sensor = ResolveCalibrationSensor();
-        CalibrationResult result = CalibrationProcessor.Process(responses, sensor);
-
-        DismissCalibrationCard();
-
-        if (result.Completeness == CalibrationCompleteness.Abandoned)
-        {
-            // Nothing to apply or confirm — keep the silent-dismiss behaviour.
-            AppendLog("Calibration",
-                Loc("校正卡已關閉（未完成 Q3，無紀錄）。", "Card dismissed before Q3 — no profile change."),
-                CurrentState);
-            return;
-        }
-
-        PromptCalibrationConfirmation(responses, result);
-    }
-
-    private void OnCalibrationCancelled(object? sender, CalibrationResponses responses)
-    {
-        // Delegate to the shared applicator so the engine + Messages mutation
-        // rules live in one place (CalibrationApplicator). Abandoned classifies
-        // to a no-op engine result with no messages posted, exactly what we
-        // want for "user closed before Q3".
-        ApplyAndAnnounceCalibration(responses);
-    }
-
-    /// <summary>The demo sensor snapshot the calibration result is computed from.
-    /// Falls back to the loose demo-peak fields when no explicit pending snapshot
-    /// was captured. Resolve this BEFORE <see cref="DismissCalibrationCard"/>,
-    /// which clears <c>_pendingCalibrationSensorData</c>.</summary>
-    private CalibrationSensorData ResolveCalibrationSensor()
-        => _pendingCalibrationSensorData
-           ?? new CalibrationSensorData(_demoPeakPressure, _demoMaskActivations, _demoPeakPressureAtSec);
-
-    /// <summary>Direct apply path used by the CANCEL/partial flow (not gated by the
-    /// H11 confirm card — a mid-flow cancel is the user dismissing, not committing).
-    /// Hands off to <see cref="CalibrationApplicator.Apply"/> for the engine
-    /// mutation + Messages append, then dismisses + announces.</summary>
-    private void ApplyAndAnnounceCalibration(CalibrationResponses responses)
-    {
-        var sensor = ResolveCalibrationSensor();
-
-        CalibrationResult result;
-        if (_engine is MockInferenceEngine mock)
-        {
-            result = CalibrationApplicator.Apply(responses, sensor, mock, ChatbotVm.Messages);
-        }
-        else
-        {
-            // Defensive: not the production engine flavour. Still classify so
-            // we log the right thing, but skip the engine mutation.
-            result = CalibrationProcessor.Process(responses, sensor);
-        }
-
-        DismissCalibrationCard();
-        AnnounceCalibrationResult(result);
-    }
-
-    /// <summary>H11: present the confirmation card for an already-computed result.
-    /// The engine is NOT mutated here — only when the user accepts. Decline keeps
-    /// the current settings unchanged.</summary>
-    private void PromptCalibrationConfirmation(CalibrationResponses responses, CalibrationResult result)
-    {
-        var confirm = new CalibrationConfirmCardViewModel(responses, result);
-        confirm.Accepted += (_, _) =>
-        {
-            DismissCalibrationConfirmCard();
-            ApplyComputedAndAnnounce(responses, result);
-        };
-        confirm.Declined += (_, _) =>
-        {
-            DismissCalibrationConfirmCard();
-            // H11: user reviewed and chose to keep current settings — NO engine
-            // change. Still mark first-run complete so calibration doesn't auto-
-            // retrigger; the Stage 5a invitation banner offers recalibration later.
-            AppConfig.MarkFirstRunComplete();
-            ShowFirstRunBanner = false;
-            AppendLog("Calibration",
-                Loc("您已檢視校正結果並選擇維持目前設定（未套用變更）。",
-                    "You reviewed the calibration and kept your current settings (no change applied)."),
-                CurrentState);
-        };
-        ChatbotVm.ActiveCalibrationConfirmCard = confirm;
-        ChatbotVm.IsCalibrationConfirmCardActive = true;
-    }
-
-    /// <summary>H11: apply an already-computed result to the engine (the ONLY
-    /// calibration→engine mutation on the Complete path) + announce. Invoked from
-    /// the confirm card's Accept handler.</summary>
-    private void ApplyComputedAndAnnounce(CalibrationResponses responses, CalibrationResult result)
-    {
-        if (_engine is MockInferenceEngine mock)
-        {
-            CalibrationApplicator.ApplyComputed(result, responses, mock, ChatbotVm.Messages);
-        }
-        AnnounceCalibrationResult(result);
-    }
-
-    /// <summary>Shared post-apply bookkeeping: mark first-run complete + log the
-    /// outcome. Abandoned results are a no-op announce.</summary>
-    private void AnnounceCalibrationResult(CalibrationResult result)
-    {
-        // Abandoned → silent dismiss, no first-run bookkeeping, no log noise.
-        if (result.Completeness == CalibrationCompleteness.Abandoned)
-        {
-            AppendLog("Calibration",
-                Loc("校正卡已關閉（未完成 Q3，無紀錄）。", "Card dismissed before Q3 — no profile change."),
-                CurrentState);
-            return;
-        }
-
-        AppConfig.MarkFirstRunComplete();
-        ShowFirstRunBanner = false;
-
-        bool partial = result.Completeness == CalibrationCompleteness.Partial;
-        AppendLog("Calibration",
-            partial
-                ? Loc($"校正部分完成 — profile={result.Profile}, scale={result.PersonalPressureScale:F2}。",
-                      $"Calibration partial — profile={result.Profile}, scale={result.PersonalPressureScale:F2}.")
-                : Loc($"校正完成 — profile={result.Profile}, scale={result.PersonalPressureScale:F2}。",
-                      $"Calibration complete — profile={result.Profile}, scale={result.PersonalPressureScale:F2}."),
-            CurrentState);
-    }
-
-    private void DismissCalibrationConfirmCard()
-    {
-        ChatbotVm.IsCalibrationConfirmCardActive = false;
-        ChatbotVm.ActiveCalibrationConfirmCard = null;
-    }
-
-    private void DismissCalibrationCard()
-    {
-        if (ChatbotVm.ActiveCalibrationCard is { } prev)
-        {
-            prev.Completed -= OnCalibrationCompleted;
-            prev.Cancelled -= OnCalibrationCancelled;
-        }
-        ChatbotVm.IsCalibrationCardActive = false;
-        ChatbotVm.ActiveCalibrationCard = null;
-        _pendingCalibrationSensorData = null;
-    }
-
-    // ── Stage 5a/5b — LLM calibration session factory ───────────────────────
-
-    /// <summary>Construct and start a CalibrationChatbotService session.
-    /// Invoked via the ChatbotViewModel's LlmCalibrationFactory delegate so
-    /// the VM stays infrastructure-free. Reads the previous-snapshot from
-    /// the profile store so the system prompt's [USER_CONTEXT] block can
-    /// reference longitudinal facts.</summary>
-    private CalibrationChatbotService? BuildLlmCalibrationSession(CalibrationSensorData sensor)
-    {
-        try
-        {
-            var client = new LlamaServerCalibrationClient();
-            var session = new CalibrationChatbotService(client, AppConfig.CalibrationHistoryPath);
-            HabituationProfileSnapshot? prev = null;
-            try { prev = _habituationProfileStore.Load(); } catch { /* corrupt or absent */ }
-            // Fire-and-forget StartAsync — the service exposes IsActive/Completed
-            // events the chat tab subscribes to. Errors surface via those.
-            _ = session.StartAsync(prev, sensor);
-            return session;
-        }
-        catch
-        {
-            // Construction failed (likely LlamaServerCalibrationClient threw on
-            // an unrelated init issue). Return null so the VM treats it as
-            // "LLM unavailable" and doesn't surface a half-constructed session.
-            return null;
-        }
-    }
-
-    // Stage 5d: removed ShowLegacyDemoSummary / DerivePreset /
-    // ApplySetupDemoPreset / LogShaderDelta. Post-demo flow now branches into
-    // either the first-time calibration card or the Stage 5a invitation
-    // banner — the modal DemoSummaryWindow is gone, and with it the
-    // setup-demo preset wired through Views.CalibrationPreset (also deleted).
-    // Personalisation now flows exclusively through CalibrationProcessor /
-    // CalibrationApplicator, so we don't need the alternate "tier preset"
-    // path the legacy window used to apply.
 
     private void ResetState()
     {
-        if (IsRunning) StopDemo();
         OpticalFlowIndex = 0;
         _engine.ResetPersonalization();
         _spikeDetector.Reset();
@@ -1898,17 +1406,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppendLog("System", Loc("狀態已重設。", "State reset."), CurrentState);
     }
 
-    private void OnDemoTick(object? sender, EventArgs e)
-    {
-        _demoOfi = Math.Min(_demoOfi + 3.5, 150);
-        OpticalFlowIndex = _demoOfi;
-
-        if (_demoOfi >= 150)
-        {
-            StopDemo();
-            AppendLog("Demo", Loc("OFI 達到上限 150，示範結束。", "OFI reached max 150, demo ended."), CurrentState);
-        }
-    }
 
     // ?? Inference loop ?????????????????????????????????????????????????????
 
@@ -1961,23 +1458,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (state.RawOpticalFlowIndex > SessionPeakOfi) SessionPeakOfi = state.RawOpticalFlowIndex;
         if (state.Pressure > SessionPeakPressure) SessionPeakPressure = state.Pressure;
 
-        // ── Demo-run stats (only meaningful while a video demo is active) ──
-        // The fields are also accumulated when the synthetic ramp is running,
-        // which is harmless: OnDemoVideoFinished is the only consumer, and the
-        // ramp branch routes through StopDemo() instead.
-        if (_demoVideoWindow is not null)
-        {
-            if (state.Pressure > _demoPeakPressure)
-            {
-                _demoPeakPressure      = state.Pressure;
-                // Stage 5c: stamp the seconds-since-demo-start at which this
-                // new peak occurred. CalibrationProcessor uses this for Q1-vs-
-                // sensor alignment (start/middle/end window claim).
-                _demoPeakPressureAtSec = (DateTime.Now - _demoStartedAt).TotalSeconds;
-            }
-            if (state.MaskActive && !_prevMaskActiveForIntercept) _demoMaskActivations++;
-        }
-
         // FOV intercept: count the rising edge of MaskActive. Captured into a local
         // so UM1's daily collector can count the same rising edge as a mask activation.
         bool maskRising = state.MaskActive && !_prevMaskActiveForIntercept;
@@ -2017,15 +1497,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         StateChanged?.Invoke(this, state);
 
-        // Suppress spike detection (and therefore the popup AND the chatbot
-        // follow-up bubble) during a demo run. The demo is intentionally a
-        // vection stress test — the whole point is for the user to *experience*
-        // the discomfort end-to-end before the calibration summary uses that
-        // reaction to seed a preset. Interrupting them mid-clip with "Did you
-        // feel a spike?" defeats the experiment AND clutters the chat thread
-        // with auto-generated questions that aren't part of the user's
-        // organic conversation.
-        bool spike = _demoVideoWindow is null && _spikeDetector.Push(state.Pressure, DateTime.UtcNow);
+        // Spike detection drives the pop-up + chatbot follow-up. (The demo run
+        // that used to suppress this was removed 2026-06-08.)
+        bool spike = _spikeDetector.Push(state.Pressure, DateTime.UtcNow);
         if (spike)
         {
             PressureSpikeDetected?.Invoke(this, _spikeDetector.LastNormalizedSpike);
@@ -2045,7 +1519,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// never break the inference loop.</summary>
     private void SampleBehavior(SenseState state, bool spike, bool maskRising)
     {
-        if (IsRunning) return; // demo video / synthetic ramp — not organic exposure
         try
         {
             DateTime nowLocal = DateTime.Now;

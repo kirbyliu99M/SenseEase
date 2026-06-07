@@ -717,6 +717,11 @@ public partial class MainWindow : Window
         // current tier (user-initiated → bypasses mute per spec).
         _trayIcon.LeftClicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true, allowSetMoveSurface: true);
 
+        // 2026-06-08: single click opens the pop-up card (above); double click opens the
+        // main console. The tray service debounces so the single action waits out a
+        // possible double-click.
+        _trayIcon.DoubleClicked += (_, _) => SurfaceMainWindowFromTray();
+
         // Task 5: Settings menu opens the dedicated SettingsWindow.
         _trayIcon.SettingsRequested += (_, _) => ShowSettingsWindow();
 
@@ -1560,11 +1565,19 @@ public partial class MainWindow : Window
             // Mutate the engine-shared SenseState in place — the engine never reads
             // VimsTier as input, so this is a forward-only display override.
             int original = state.VimsTier;
-            state.VimsTier = _viewModel.ResolveDisplayedTier(original);
+            int displayed = _viewModel.ResolveDisplayedTier(original);
+            double originalOverride = state.MaskPeakAlphaOverride;
+            state.VimsTier = displayed;
+            // When the floor ELEVATES the tier, the engine's MaskPeakAlphaOverride was resolved
+            // for the raw (calm ≈ L1 ⇒ ~0) tier and would blank the always-on mask in
+            // ApplyFovMask. Re-resolve it for the displayed tier so the baseline dimming shows.
+            if (displayed != original)
+                state.MaskPeakAlphaOverride = _viewModel.ResolveDisplayedMaskOverride(displayed, originalOverride);
             _overlay.ApplyState(state);
             // Restore so any other subscriber (or the engine's next-tick logging)
-            // sees the un-elevated value.
-            state.VimsTier = original;
+            // sees the un-elevated values.
+            state.VimsTier             = original;
+            state.MaskPeakAlphaOverride = originalOverride;
         }
     }
 

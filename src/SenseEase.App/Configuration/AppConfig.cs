@@ -129,52 +129,9 @@ public static class AppConfig
         return GuardResolvedPath(inBin);
     }
 
-    // Demo Mode video file. Demo Mode now runs a real vection clip through the
-    // WGC pixel-diff sensor (instead of the old OFI slider ramp), so we resolve
-    // the same way as ModelPath: try the EXE-bundled samples folder first, then
-    // walk up to find the repo's samples/ during dev. Empty string when nothing
-    // is found — caller falls back to the legacy OFI ramp.
-    // Use the H.264 transcode of the original AV1 file. WPF MediaElement on
-    // stock Windows can't decode AV1 reliably even with the MS Store AV1
-    // extension installed (the source clip's specific profile flags trip the
-    // extension's MF integration); H.264 plays natively on every Windows since
-    // Vista. The AV1 master file is retained in samples/ for reference but
-    // gitignored alongside the H.264 transcode (samples/*.mp4).
-    private const string DemoVideoRelative = "samples/FPV-vid-h264.mp4";
-
-    public static string DemoVideoPath { get; } = ResolveDemoVideoPath();
-
-    public static IReadOnlyList<string> DemoVideoProbes { get; private set; } = Array.Empty<string>();
-
-    private static string ResolveDemoVideoPath()
-    {
-        var probes = new List<string>();
-        string rel = DemoVideoRelative.Replace('/', Path.DirectorySeparatorChar);
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory
-                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-        string inBin = Path.Combine(baseDir, rel);
-        probes.Add(inBin);
-        if (File.Exists(inBin)) { DemoVideoProbes = probes; return GuardResolvedPath(inBin); }
-
-#if DEBUG
-        // H40: dev-only walk-up (see ResolveModelPath). A shipped build must
-        // resolve only to the install-adjacent path; the walk-up that can
-        // escape BaseDirectory is gated behind #if DEBUG.
-        var info = new DirectoryInfo(baseDir);
-        for (int i = 0; i < 8 && info is not null; i++)
-        {
-            info = info.Parent;
-            if (info is null) break;
-            string candidate = Path.Combine(info.FullName, rel);
-            probes.Add(candidate);
-            if (File.Exists(candidate)) { DemoVideoProbes = probes; return GuardResolvedPath(candidate); }
-        }
-#endif
-
-        DemoVideoProbes = probes;
-        return string.Empty;
-    }
+    // Demo/calibration video REMOVED (2026-06-08): the vection-clip demo and its
+    // WPF MediaElement player were excised (no codec dependency, no bundled video).
+    // DemoVideoRelative / DemoVideoPath / DemoVideoProbes / ResolveDemoVideoPath are gone.
 
     // Phase 2.4: per-user personalization adjustment log (JSON Lines, survives restarts).
     public static string AdjustmentLogPath { get; } = Path.Combine(

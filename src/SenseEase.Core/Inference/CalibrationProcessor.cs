@@ -330,8 +330,8 @@ public static class CalibrationProcessor
 
     /// <summary>Q1-segment-vs-sensor alignment heuristic for the §8 confidence
     /// rule "Q1 時段與 sensor 峰值吻合 (±5 秒)". We need a demo duration to
-    /// turn segments into time windows; using a conservative 60 s assumed-
-    /// duration (the bundled FPV-vid.mp4 is 59 s, matches). Segments split
+    /// turn segments into time windows; using a conservative 60 s assumed
+    /// duration. Segments split
     /// the duration into thirds. Sensor peak's <c>PeakPressureAtSec</c> in
     /// the matching third (with ±5 s slack across boundaries) counts as aligned.</summary>
     private static bool Q1AlignsWithSensorPeak(UncomfortableSegment? seg, CalibrationSensorData sensor)

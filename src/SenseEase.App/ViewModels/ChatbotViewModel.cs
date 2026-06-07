@@ -88,135 +88,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
-    // ── Calibration card (Stage 3d) ─────────────────────────────────────────
-    // The 5-card calibration UI is embedded above the input region in the chat
-    // tab. It is NOT a ChatMessage — Messages stays a pure transcript. The host
-    // (MainViewModel) constructs and assigns ActiveCalibrationCard then flips
-    // IsCalibrationCardActive on; the completion handler clears both and posts
-    // a single transcript-summary ChatMessage with the outcome.
-
-    private bool _isCalibrationCardActive;
-    public bool IsCalibrationCardActive
-    {
-        get => _isCalibrationCardActive;
-        set => Set(ref _isCalibrationCardActive, value);
-    }
-
-    private CalibrationCardViewModel? _activeCalibrationCard;
-    public CalibrationCardViewModel? ActiveCalibrationCard
-    {
-        get => _activeCalibrationCard;
-        set => Set(ref _activeCalibrationCard, value);
-    }
-
-    // ── H11 calibration confirmation card ───────────────────────────────────
-    // Shown by the host (MainViewModel) AFTER the 5-card calibration completes
-    // but BEFORE the result mutates the engine. The host sets ActiveCalibration
-    // ConfirmCard + flips IsCalibrationConfirmCardActive on; the card's Accept/
-    // Decline are wired by the host to apply-or-keep, then it clears both.
-
-    private bool _isCalibrationConfirmCardActive;
-    public bool IsCalibrationConfirmCardActive
-    {
-        get => _isCalibrationConfirmCardActive;
-        set => Set(ref _isCalibrationConfirmCardActive, value);
-    }
-
-    private CalibrationConfirmCardViewModel? _activeCalibrationConfirmCard;
-    public CalibrationConfirmCardViewModel? ActiveCalibrationConfirmCard
-    {
-        get => _activeCalibrationConfirmCard;
-        set => Set(ref _activeCalibrationConfirmCard, value);
-    }
-
-    // ── Calibration invitation banner (Stage 5a) ────────────────────────────
-    // On subsequent demo runs (calibration_count >= 1) the host sets
-    // ShowCalibrationInvitationBanner = true at OnDemoVideoFinished instead of
-    // auto-opening the card. The banner offers two actions: Start (opens an
-    // LLM calibration session via _llmCalibrationFactory) or Skip (just
-    // dismisses). Auto-dismisses after 30 s if the user doesn't act.
-
-    /// <summary>Auto-profiling addendum (<see cref="AppConfig.AutoProfilingEnabled"/>):
-    /// explicit calibration is cancelled, so the chatbot tab's "Recalibrate" entry — and
-    /// the whole 5-card / LLM-calibration QA it opens — must be unreachable. The Recalibrate
-    /// header binds its Visibility to this; the banner getter and the two entry methods below
-    /// hard-gate on the same flag (defense in depth, so no stray caller can resurface the QA).
-    /// Flag OFF ⇒ byte-identical to the prior calibration UX.</summary>
-    public bool ShowCalibrationEntry => !AppConfig.AutoProfilingEnabled;
-
-    private bool _showCalibrationInvitationBanner;
-    public bool ShowCalibrationInvitationBanner
-    {
-        // Hard-gated: under auto-profiling the banner never surfaces even if the field
-        // was somehow set, because there is no calibration to invite the user into.
-        get => _showCalibrationInvitationBanner && !AppConfig.AutoProfilingEnabled;
-        set
-        {
-            if (!Set(ref _showCalibrationInvitationBanner, value)) return;
-            if (value) StartAutoDismissTimer();
-            else       StopAutoDismissTimer();
-        }
-    }
-
-    // Active LLM calibration session. Bound by the chat tab so the host can
-    // surface dialog state (transcript, completion handlers wired up by
-    // MainViewModel). Null when no session is active.
-    private CalibrationChatbotService? _activeLlmCalibration;
-    public CalibrationChatbotService? ActiveLlmCalibration
-    {
-        get => _activeLlmCalibration;
-        set => Set(ref _activeLlmCalibration, value);
-    }
-
-    /// <summary>Set by MainViewModel at wire-up time. Constructs and starts an
-    /// LLM calibration session given the sensor snapshot the command should
-    /// pass to <see cref="CalibrationChatbotService.StartAsync"/>. The factory
-    /// is the only thing in this VM that knows about the production
-    /// infrastructure types (LlamaServerCalibrationClient, transcript path,
-    /// previous-snapshot lookup); separating it lets headless tests inject a
-    /// stub. Returning null = "LLM unavailable, do not show a session"; the
-    /// commands then no-op without surfacing an error.</summary>
-    public Func<CalibrationSensorData, CalibrationChatbotService?>? LlmCalibrationFactory { get; set; }
-
-    /// <summary>Sensor snapshot captured at the most recent demo's end.
-    /// MainViewModel sets this in OnDemoVideoFinished before flipping the
-    /// banner on. Recalibrate (from the chatbot tab, no recent demo) uses a
-    /// zero-valued record instead.</summary>
-    public CalibrationSensorData LastDemoSensorData { get; set; } = new(0.0, 0, 0.0);
-
-    private DispatcherTimer? _bannerDismissTimer;
-    /// <summary>How long the banner stays visible before auto-dismiss.
-    /// Spec §5a: 30 s. Exposed as a public field so headless tests can shrink
-    /// the window for the auto-dismiss test (or skip it).</summary>
-    public TimeSpan BannerAutoDismissAfter { get; set; } = TimeSpan.FromSeconds(30);
-
-    private void StartAutoDismissTimer()
-    {
-        StopAutoDismissTimer();
-        // Best-effort dispatcher timer. In headless tests (no Application.Current)
-        // the timer construction itself works but Tick never fires without a
-        // running dispatcher loop — that's acceptable, the auto-dismiss test is
-        // marked as a manual-acceptance step in that environment.
-        try
-        {
-            _bannerDismissTimer = new DispatcherTimer { Interval = BannerAutoDismissAfter };
-            _bannerDismissTimer.Tick += (_, _) =>
-            {
-                StopAutoDismissTimer();
-                // Only auto-dismiss if still visible — guards against a race
-                // where the user clicked Start/Skip just as the timer fired.
-                if (_showCalibrationInvitationBanner) ShowCalibrationInvitationBanner = false;
-            };
-            _bannerDismissTimer.Start();
-        }
-        catch { /* dispatcher unavailable in this thread — skip */ }
-    }
-
-    private void StopAutoDismissTimer()
-    {
-        try { _bannerDismissTimer?.Stop(); } catch { /* ignore */ }
-        _bannerDismissTimer = null;
-    }
+    // ── Calibration CARD members REMOVED (2026-06-08) ───────────────────────
+    // The 5-card Q&A, the H11 confirm card, the invitation banner, the LLM
+    // calibration session + its auto-dismiss timer, and ShowCalibrationEntry /
+    // Recalibrate were dead, unreachable UI and are gone. (Engine-side
+    // CalibrationProcessor / CalibrationResult are kept — see MainViewModel.)
 
     public bool IsGenerating
     {
@@ -268,10 +144,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     public ICommand SendCommand { get; }
     public ICommand ClearCommand { get; }
 
-    // Stage 5a/5b commands. Constructed in the ctor below.
-    public ICommand StartInvitedCalibrationCommand { get; private set; } = null!;
-    public ICommand SkipCalibrationInvitationCommand { get; private set; } = null!;
-    public ICommand RecalibrateCommand { get; private set; } = null!;
 
     /// <summary>M2 (Phase 6c): host-provided lookup for "is Power Save
     /// currently active?". Used by <see cref="BuildContextualInput"/> to
@@ -311,8 +183,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // Headless tests: Application.Current is null, so we fall back to the
         // CALLING thread's dispatcher (xunit's). Async methods that call
         // _dispatcher.Invoke still work; the tests that exercise async paths
-        // either don't construct ChatbotViewModel at all (CalibrationApplicator
-        // covers them) or pump the dispatcher on an STA thread.
+        // either don't construct ChatbotViewModel at all or pump the dispatcher
+        // on an STA thread.
         // Prefer the app's UI dispatcher in production. Use it ONLY when the
         // constructing thread actually owns it (CheckAccess) and it is not shutting
         // down. Under xUnit, a prior WPF test on a parallel STA thread can leave an
@@ -334,10 +206,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             _ => !IsGenerating && !IsPaused && !string.IsNullOrWhiteSpace(InputText));
         ClearCommand = new RelayCommand(_ => Clear());
 
-        // Stage 5a/5b — banner + recalibrate commands.
-        StartInvitedCalibrationCommand   = new RelayCommand(_ => StartInvitedCalibration());
-        SkipCalibrationInvitationCommand = new RelayCommand(_ => SkipCalibrationInvitation());
-        RecalibrateCommand               = new RelayCommand(_ => Recalibrate());
 
         // Idle/standby shows NOTHING (Kirby: the "ready" badge is needless chrome). The
         // status border only appears for actionable states: a transient "loading…" on the
@@ -827,76 +695,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     // ── Stage 5a/5b — banner + recalibrate command implementations ──────────
 
-    /// <summary>v0.9.1 hotfix: host-supplied callback that opens the button-
-    /// based calibration card. Set by MainViewModel at wire-up. Null in test
-    /// contexts. When null, falls back to the LLM-session factory path (legacy
-    /// behaviour). When non-null, Start button on the invitation banner opens
-    /// the card UI directly — the LLM-session UI surface was never built, so
-    /// the LLM path silently fails for end users. Stage 5a banner + Stage 3d
-    /// card share the same completion handlers in MainViewModel, so routing
-    /// here gives both first-run and subsequent-run users the same working
-    /// calibration UX.</summary>
-    public Action? OpenCalibrationCardCallback { get; set; }
-
-    private void StartInvitedCalibration()
-    {
-        if (AppConfig.AutoProfilingEnabled) return; // calibration cancelled under auto-profiling
-        ShowCalibrationInvitationBanner = false;
-        // v0.9.1 hotfix: prefer the button-card path. The LLM session has no
-        // UI binding — clicking Start used to silently launch an invisible
-        // session.
-        if (OpenCalibrationCardCallback is { } openCard)
-        {
-            openCard();
-            return;
-        }
-        StartLlmCalibrationSession(LastDemoSensorData);
-    }
-
-    private void SkipCalibrationInvitation()
-    {
-        ShowCalibrationInvitationBanner = false;
-        // Skip is a pure dismiss — no LLM session, no engine mutation, no log
-        // bubble. The user can re-enter via the chatbot tab's Recalibrate
-        // button if they change their mind.
-    }
-
-    private void Recalibrate()
-    {
-        // Auto-profiling addendum: with explicit calibration cancelled there is no
-        // questionnaire to reopen — the button is hidden via ShowCalibrationEntry, and this
-        // guard ensures even a programmatic invocation can't resurface the QA in the chat.
-        if (AppConfig.AutoProfilingEnabled) return;
-        // Recalibrate entry from the chatbot tab. v0.9.1: also prefer the
-        // button-card path when host wired the callback — same UX argument
-        // as StartInvitedCalibration. Falls back to LLM session for tests
-        // and for the future LLM-UI rebuild.
-        ShowCalibrationInvitationBanner = false;
-        if (OpenCalibrationCardCallback is { } openCard)
-        {
-            openCard();
-            return;
-        }
-        StartLlmCalibrationSession(new CalibrationSensorData(0.0, 0, 0.0));
-    }
-
-    /// <summary>Construct (via the host-supplied factory) a new LLM
-    /// calibration session and surface it as <see cref="ActiveLlmCalibration"/>.
-    /// The factory is expected to invoke <see cref="CalibrationChatbotService.StartAsync"/>
-    /// itself — the host owns the previousSnapshot lookup and any event
-    /// wiring. No-op when the factory is null (test environments without
-    /// LLM infrastructure).</summary>
-    private void StartLlmCalibrationSession(CalibrationSensorData sensor)
-    {
-        if (LlmCalibrationFactory is null) return;
-        try
-        {
-            var session = LlmCalibrationFactory(sensor);
-            if (session is null) return;
-            ActiveLlmCalibration = session;
-        }
-        catch { /* factory threw — session not created, nothing to clean up */ }
-    }
 
     /// <summary>
     /// Inject a system-initiated assistant message that opens a followup picker.

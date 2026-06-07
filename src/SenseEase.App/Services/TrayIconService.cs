@@ -73,10 +73,22 @@ public sealed class TrayIconService : IDisposable
     // HICON every StateChanged tick. Released in Dispose().
     private readonly System.Collections.Generic.Dictionary<TierColorPalette.TierBand, System.Drawing.Icon> _distinctIconCache = new();
 
+    // Single/double click disambiguation (2026-06-08): a single tray click opens the
+    // pop-up card, a double click the main console. A double-click also raises a first
+    // single up-event, so the single action is DEFERRED by this timer and only fires
+    // (LeftClicked) if no double-click cancels it within the window (~ default DCT).
+    private readonly System.Windows.Threading.DispatcherTimer _clickDebounce =
+        new() { Interval = TimeSpan.FromMilliseconds(260) };
+
     /// <summary>Raised when the user single-left-clicks the tray icon.
     /// Task 3 has no card to expand, so this event has no subscribers in
     /// Task 3 wiring. Task 4 will subscribe and open the notification card.</summary>
     public event EventHandler? LeftClicked;
+
+    /// <summary>Raised on a tray-icon DOUBLE left-click (2026-06-08). Host opens the
+    /// main console. Single vs double is disambiguated by <see cref="_clickDebounce"/>:
+    /// a single click fires <see cref="LeftClicked"/> only if no double-click follows.</summary>
+    public event EventHandler? DoubleClicked;
 
     /// <summary>Raised when the user clicks the Settings menu item. Task 5's
     /// settings panel will subscribe; for now the host (MainWindow) can
@@ -169,7 +181,18 @@ public sealed class TrayIconService : IDisposable
             Icon        = BuildDistinctTrayIcon(TierColorPalette.BandForTier(
                               UserPreferences.Current.BarTrayColorEnabled ? _vm.VimsTier : 1)),
         };
-        _tray.TrayLeftMouseUp += (_, _) => LeftClicked?.Invoke(this, EventArgs.Empty);
+        // Single click → deferred LeftClicked (card); double click → cancel + DoubleClicked (console).
+        _clickDebounce.Tick += (_, _) =>
+        {
+            _clickDebounce.Stop();
+            LeftClicked?.Invoke(this, EventArgs.Empty);
+        };
+        _tray.TrayLeftMouseUp     += (_, _) => { _clickDebounce.Stop(); _clickDebounce.Start(); };
+        _tray.TrayMouseDoubleClick += (_, _) =>
+        {
+            _clickDebounce.Stop();
+            DoubleClicked?.Invoke(this, EventArgs.Empty);
+        };
 
         // Initial labels reflect current state; refreshed on every state change.
         RefreshLabels(_vm.CurrentState);
@@ -834,6 +857,7 @@ public sealed class TrayIconService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        try { _clickDebounce.Stop(); } catch { }
         // diag-4: stop the visibility watchdog so its DispatcherTimer +
         // closure don't pin the tray service after disposal.
         try { _visibilityWatchdog?.Stop(); } catch { }

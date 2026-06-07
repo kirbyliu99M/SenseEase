@@ -40,13 +40,49 @@ public static class MarkdownInlines
 
     private static void OnSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
+        string? text = e.NewValue as string;
+
+        // Selectable chat bubbles (2026-06-08): a WPF TextBlock can't be selected/
+        // copied, so the chat surface uses read-only TextBoxes. On a TextBox we render
+        // a marker-stripped PLAIN version (the light markdown — **bold**, `code`,
+        // - bullets — reduces to clean selectable text; single * / _ are left verbatim
+        // so technical terms like behavior_log aren't mangled).
+        if (d is TextBox tbx)
+        {
+            tbx.Text = ToPlainText(text);
+            return;
+        }
+
         if (d is not TextBlock tb) return;
         tb.Inlines.Clear();
-        string? text = e.NewValue as string;
         if (string.IsNullOrEmpty(text)) return;
 
         foreach (var inline in Parse(text!))
             tb.Inlines.Add(inline);
+    }
+
+    /// <summary>Strip the supported markdown markers to clean plain text for a
+    /// selectable <see cref="TextBox"/>: drops ** (bold) and ` (code) markers and
+    /// turns leading "- " / "* " list markers into "• ". Single * / _ are left as-is.</summary>
+    private static string ToPlainText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        string[] lines = text!.Replace("\r\n", "\n").Split('\n');
+        var sb = new StringBuilder(text!.Length);
+        for (int li = 0; li < lines.Length; li++)
+        {
+            string line = lines[li];
+            string trimmed = line.TrimStart();
+            if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
+            {
+                string indent = line.Substring(0, line.Length - trimmed.Length);
+                line = indent + "• " + trimmed.Substring(2);
+            }
+            line = line.Replace("**", string.Empty).Replace("`", string.Empty);
+            sb.Append(line);
+            if (li < lines.Length - 1) sb.Append('\n');
+        }
+        return sb.ToString();
     }
 
     private static IEnumerable<Inline> Parse(string text)

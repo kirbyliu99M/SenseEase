@@ -390,7 +390,11 @@
                         Click="OnCloseClicked"/>
 
                 <!-- ── MAIN FACE (default) ──────────────────────────────────── -->
-                <Grid x:Name="MainFace" Grid.Row="1">
+                <!-- Top-aligned (UI/UX fine-tune 2026-06-08): both faces hug the top of the
+                     band with a caption row on top, so the primary row (value/controls) lands
+                     at the SAME Y as the chat face's input row. When the chat reply grows the
+                     band, this face stays put instead of drifting to the band centre. -->
+                <Grid x:Name="MainFace" Grid.Row="1" VerticalAlignment="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>      <!-- status text -->
                         <ColumnDefinition Width="Auto"/>   <!-- controls -->
@@ -564,7 +568,7 @@
                                     Padding="0" BorderThickness="0"
                                     Background="Transparent"
                                     Foreground="{DynamicResource TextTertiary}"
-                                    FontSize="16"
+                                    FontSize="13"
                                     Cursor="Hand"
                                     VerticalAlignment="Center"
                                     Click="OnFlipClicked"
@@ -593,18 +597,30 @@
                      resize / re-centre jump). VerticalAlignment=Center centres the chat row in
                      that band — the SAME band MainFace's content is centred in, so the visible
                      content no longer jumps to a different position when the user flips. -->
-                <Grid x:Name="ChatFace" Grid.Row="1" Visibility="Hidden" VerticalAlignment="Center">
+                <!-- Top-aligned + caption-on-top so the input row lands at the SAME Y as the
+                     main face's content row (kills the flip jump). The status/reply row grows
+                     DOWNWARD only, so it never shifts the two aligned rows. -->
+                <Grid x:Name="ChatFace" Grid.Row="1" Visibility="Hidden" VerticalAlignment="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>     <!-- input -->
                         <ColumnDefinition Width="Auto"/>  <!-- send -->
                         <ColumnDefinition Width="Auto"/>  <!-- flip (same right-edge spot as the main face) -->
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>  <!-- caption (matches the main face caption row) -->
+                        <RowDefinition Height="Auto"/>  <!-- input / send / flip (primary row) -->
+                        <RowDefinition Height="Auto"/>  <!-- status / reply (grows downward) -->
                     </Grid.RowDefinitions>
 
-                    <TextBox Grid.Row="0" Grid.Column="0"
+                    <!-- Caption matching the main face's caption rhythm — its presence is what
+                         drops the input row to the same Y as the main content row. -->
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="{loc:T Zh='對話', En='Chat'}"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextTertiary}"
+                               Margin="2,0,0,1"/>
+
+                    <TextBox Grid.Row="1" Grid.Column="0"
                              x:Name="ChatInputBox"
                              Background="{DynamicResource SurfaceMuted}"
                              Foreground="{DynamicResource TextPrimary}"
@@ -634,7 +650,7 @@
                         </TextBox.Style>
                     </TextBox>
 
-                    <Button Grid.Row="0" Grid.Column="1"
+                    <Button Grid.Row="1" Grid.Column="1"
                             x:Name="ChatSendBtn"
                             Content="{loc:T Zh='傳送', En='Send'}"
                             Click="OnChatSendClicked"
@@ -642,25 +658,24 @@
                             Padding="14,6"
                             Margin="0,0,8,0"/>
 
-                    <!-- Flip BACK to the status face. Identical glyph (↩) + right-edge position
-                         to the main face's FlipBtn so the flip affordance stays in place across
-                         the flip (seamless). RowSpan=2 + VerticalAlignment=Center → centred across
-                         the input+status rows, matching the main face flip's band-centre Y. -->
-                    <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                    <!-- Flip BACK to the status face. Identical glyph (↩) + right-edge position to
+                         the main face's FlipBtn so the affordance stays in place across the flip
+                         (seamless). In the input row (Row 1), centred → same Y as the main flip. -->
+                    <Button Grid.Row="1" Grid.Column="2"
                             x:Name="FlipBackBtn"
                             Content="&#x21A9;"
                             Width="22" Height="22"
                             Padding="0" BorderThickness="0"
                             Background="Transparent"
                             Foreground="{DynamicResource TextTertiary}"
-                            FontSize="16"
+                            FontSize="13"
                             Cursor="Hand"
                             VerticalAlignment="Center"
                             Click="OnFlipClicked"
                             AutomationProperties.Name="{loc:T Zh='返回', En='Back'}"
                             ToolTip="{loc:T Zh='返回畫面狀態', En='Back to status'}"/>
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
                                x:Name="ChatStatusText"
                                Text=""
                                FontSize="10"

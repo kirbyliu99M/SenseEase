@@ -101,14 +101,21 @@ public class AdaptiveFitWiringTests
         return stream;
     }
 
-    /// <summary>Drive <paramref name="ticks"/> Update() ticks at a fixed <paramref name="ofi"/>
-    /// and capture only the discrete VimsTier per tick — the discretizer's output. Used to
-    /// prove the per-set Scale wiring is byte-identical at Set0.</summary>
+    /// <summary>Drive a GRADUAL OFI ramp from ~0 up to <paramref name="ofi"/> over
+    /// <paramref name="ticks"/> ticks (100 ms apart), capturing the discrete VimsTier per tick —
+    /// the discretizer's output. The gradual ramp is deliberate: a CONSTANT high OFI surges past
+    /// the fast-onset gap and snaps the tier straight to a plateau (one distinct value, cf.
+    /// VimsTier_FastOnsetBypass), whereas a slow ramp lets the tier climb ±1 through several
+    /// DISTINCT tiers so the parity check below is non-vacuous. The whole ramp stays far under
+    /// SettlingMinSeconds (60 s) so the selector never evaluates and the active set stays Set0.</summary>
     private static List<int> DriveTierStream(MockInferenceEngine engine, double ofi, int ticks)
     {
         var tiers = new List<int>();
         for (int i = 0; i < ticks; i++)
-            tiers.Add(engine.Update(ofi, "Passenger", ClockBase.AddSeconds(i * TickSeconds)).VimsTier);
+        {
+            double ofiNow = ofi * (i + 1) / ticks;   // ~0 → ofi gradual ramp (avoids the fast-onset snap)
+            tiers.Add(engine.Update(ofiNow, "Passenger", ClockBase.AddMilliseconds(i * 100)).VimsTier);
+        }
         return tiers;
     }
 
@@ -236,13 +243,15 @@ public class AdaptiveFitWiringTests
         bool original = AppConfig.AdaptiveFitSelectorEnabled;
         try
         {
-            // 20 ticks × 2 s = 40 s < SettlingMinSeconds (60 s), so the flag-ON selector never
-            // evaluates and the active set stays pinned at Set0. The ONLY thing the flag could
-            // change across this window is the discretizer GAIN (now the active set's Scale).
-            // Set0.Scale == 11.0, so the flag-ON tier stream must equal the flag-OFF stream
-            // tick-for-tick — proof the Scale wiring is byte-identical at Set0.
-            const int Ticks = 20;
-            const double Ofi = 140.0; // sustained high OFI → pressure climbs through the tiers
+            // 70 ticks × 100 ms = 7 s ≪ SettlingMinSeconds (60 s), so the flag-ON selector never
+            // evaluates and the active set stays pinned at Set0. DriveTierStream ramps OFI ~0→200
+            // gradually so the tier climbs through several DISTINCT tiers (not a fast-onset
+            // plateau). The ONLY thing the flag could change across this window is the discretizer
+            // GAIN (now the active set's Scale); Set0.Scale == 11.0, so the flag-ON tier stream
+            // must equal the flag-OFF stream tick-for-tick — proof the Scale wiring is
+            // byte-identical at Set0.
+            const int Ticks = 70;
+            const double Ofi = 200.0; // ramp ceiling; the gradual climb spans several tiers
 
             AppConfig.AdaptiveFitSelectorEnabled = false;
             var off = new MockInferenceEngine();                // instance flag OFF
@@ -298,6 +307,31 @@ public class AdaptiveFitWiringTests
             Assert.Equal(ShaderParams.DefaultGridVisibility, s.Shader.GridVisibility, 6);
         }
         finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // 1d. PERSISTENT-OVERLAY FLOOR × selector mask-depth override (regression).
+    //     Bug found in user test 2026-06-08: with the always-on floor at L12 on a CALM
+    //     screen, the engine's MaskPeakAlphaOverride is resolved for the RAW tier (1 ⇒ L1 =
+    //     0.00) and would BLANK the always-on mask — it overrides the tier-keyed alpha in
+    //     OverlayWindow.ApplyFovMask. The fix (MainWindow.OnStateChanged +
+    //     MainViewModel.ResolveDisplayedMaskOverride) re-resolves the override for the
+    //     DISPLAYED (floored) tier. This pins the engine contract that re-resolution relies on:
+    //     the displayed-tier depth is non-zero and far above the calm raw-tier depth.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ResolveLevel_DisplayedBaselineTier_GivesNonZeroDepth_UnlikeCalmRawTier()
+    {
+        var engine = new MockInferenceEngine { AdaptiveFitSelectorEnabled = true };
+
+        double calmRawDepth  = engine.ResolveLevel(1).PeakMaskAlpha;   // raw calm tier (L1 day-1 floor)
+        double baselineDepth = engine.ResolveLevel(12).PeakMaskAlpha;  // always-on baseline floor (L12)
+
+        Assert.Equal(0.00, calmRawDepth, 6);                                 // L1 = 0.00 — the blank-out source
+        Assert.Equal(OverlayWindow.VimsLevels[11].Alpha, baselineDepth, 6);  // 0.92 (set0 == VimsLevels)
+        Assert.True(baselineDepth > calmRawDepth,
+            "the always-on mask must render at the DISPLAYED baseline depth, not the calm raw-tier depth");
     }
 
     // ──────────────────────────────────────────────────────────────────────────

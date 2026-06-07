@@ -40,13 +40,11 @@ internal static class LlamaSessionKey
 //
 // Does NOT spawn a server — only talks to one MistralChatbotService already
 // brought up. When the server isn't running, calls return null and the
-// caller (CalibrationChatbotService) treats it as "LLM unavailable" and
-// surfaces fallback to the UI layer.
+// caller (the User-Model retrospective analyzer) treats it as "LLM unavailable".
 //
-// Extracted from CalibrationChatbotService.cs (Stage 4 review): the HTTP
-// client is plumbing, not service logic, and lives more cleanly in its
-// own file. Same namespace + lifetime as the service so a single using
-// import covers both at construction sites.
+// (The calibration card that originally used this was removed 2026-06-08; the
+// HTTP client is generic local-LLM plumbing, now consumed by
+// UserModelRetrospectiveAnalyzer via ICalibrationLlmClient.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed class LlamaServerCalibrationClient : ICalibrationLlmClient, IDisposable

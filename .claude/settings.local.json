@@ -39,7 +39,24 @@
       "PowerShell($log = \"$env:LOCALAPPDATA\\\\SenseEase\\\\llama-server.log\"; if \\(Test-Path $log\\) { Write-Output \"--- llama-server.log \\(last 80 lines\\) ---\"; Get-Content $log -Tail 80 } else { Write-Output \"no llama-server.log present\" })",
       "PowerShell($t = \"$env:LOCALAPPDATA\\\\SenseEase\\\\model_trace.jsonl\"; if \\(Test-Path $t\\) { Write-Output \"--- model_trace.jsonl \\(last 15 lines\\) ---\"; Get-Content $t -Tail 15 } else { Write-Output \"no model_trace.jsonl yet\" })",
       "PowerShell($t = \"$env:LOCALAPPDATA\\\\SenseEase\\\\model_trace.jsonl\"; if \\(Test-Path $t\\) { Write-Output \"--- model_trace.jsonl \\(last 20 entries\\) ---\"; Get-Content $t -Tail 20 } else { Write-Output \"no model_trace.jsonl yet\" })",
-      "PowerShell($log = \"$env:LOCALAPPDATA\\\\SenseEase\\\\llama-server.log\"; if \\(Test-Path $log\\) { Write-Output \"--- llama-server.log \\(last 50 lines\\) ---\"; Get-Content $log -Tail 50 } else { Write-Output \"no log\" })"
+      "PowerShell($log = \"$env:LOCALAPPDATA\\\\SenseEase\\\\llama-server.log\"; if \\(Test-Path $log\\) { Write-Output \"--- llama-server.log \\(last 50 lines\\) ---\"; Get-Content $log -Tail 50 } else { Write-Output \"no log\" })",
+      "Bash(Get-ChildItem -Path . -Recurse -Include *.csproj)",
+      "Bash(Select-Object -First 5)",
+      "Bash(xargs grep -l \"currentState\\\\|StateChanged\\\\|MainViewModel\")",
+      "Bash(dir)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\kirby\\\\Desktop\\\\SenseEase APP\" -Recurse -Filter \"*.sln\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(file *)",
+      "Bash(grep -r \"C:\\\\\\\\\\\\\\\\\" . --include=\"*.cs\" --include=\"*.xaml\")",
+      "Bash(git -C \"C:\\\\Users\\\\kirby\\\\Desktop\\\\SenseEase APP\" diff -- src/SenseEase.App/Configuration/AppConfig.cs)",
+      "Bash(ls -la face_landmarker.task)",
+      "Bash(ls -la tools/head-tracker-sidecar/)",
+      "Bash(ls -la models/)",
+      "Bash(cat tools/head-tracker-sidecar/.venv/pyvenv.cfg)",
+      "Bash(cat tools/head-tracker-sidecar/requirements.txt)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\kirby\\\\Desktop\\\\SenseEase APP\" -Recurse -Depth 2)",
+      "PowerShell(head -100)",
+      "Bash(Get-ChildItem -Path \"src\\\\SenseEase.App\\\\ViewModels\" -Filter \"*.cs\")"
     ]
   }
 }
