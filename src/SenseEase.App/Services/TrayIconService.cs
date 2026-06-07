@@ -141,7 +141,11 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(_openDashboardItem);
-        menu.Items.Add(_toggleBarItem);
+        // Only surface the "toggle bar" item when the persistent-bar feature is on.
+        // With AppConfig.PersistentBarEnabled=false (default) the bar is never created,
+        // so the item would be a no-op that reads as a broken menu entry — hide it.
+        if (SenseEase.App.Configuration.AppConfig.PersistentBarEnabled)
+            menu.Items.Add(_toggleBarItem);
         menu.Items.Add(settingsItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(quitItem);

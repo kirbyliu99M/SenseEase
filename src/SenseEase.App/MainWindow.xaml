@@ -410,18 +410,16 @@
                 </Border>
 
                 <!-- ── Profile quick-access (個人化設定檔) ──
-                     Compact light pills under the D1 hero. Bound to the SAME
-                     SelectProfileCommand contract used by the in-chat profile
-                     picker, passing the canonical profile string as the
-                     CommandParameter (the command's RelayCommand already accepts
-                     a string: `else if (o is string s) OnProfileSelected(s)`).
-                     UNCERTAINTY: SelectProfileCommand lives on the per-message
-                     ChatMessageViewModel, not on MainViewModel (the Dashboard's
-                     DataContext), so this binding does not resolve here at
-                     runtime. Per the brief we wire to the existing command with
-                     the string parameter rather than invent a new one; surfacing
-                     a MainViewModel-level command (or RelayCommand →
-                     OnChatbotProfilePickerSelected) would make it live. -->
+                     Compact light pills under the D1 hero. Bound to MainViewModel's
+                     SelectProfileCommand (the Dashboard's DataContext), passing the
+                     canonical profile string ("RESILIENT"/"TYPICAL"/"SENSITIVE") as the
+                     CommandParameter. WIRED: SelectProfileCommand is constructed on
+                     MainViewModel and drives the engine directly via
+                     OnUserProfileSelected → MockInferenceEngine.SetHabituationProfile
+                     (the user's own pick — distinct from the SEVERED chatbot
+                     SwitchProfile path, Reading A). The active pill highlights via
+                     {Binding CurrentProfile}, raised in OnUserProfileSelected +
+                     UpdateFromState. -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Text="{loc:T Zh='個人化設定檔', En='Profile'}"
@@ -647,8 +645,10 @@
                                  on MainViewModel for any programmatic invocations. -->
                             <!-- Alpha-2 addendum: reset moves into Settings in the auto-profiling
                                  world, so the console Reset is hidden there. Flag OFF ⇒ shown. -->
+                            <!-- Destructive (discards earned habituation progress) → confirm
+                                 in code-behind before executing ResetStateCommand. -->
                             <Button Content="Reset State" Style="{StaticResource AlertBtn}"
-                                    Command="{Binding ResetStateCommand}"
+                                    Click="OnConsoleResetClicked"
                                     Visibility="{Binding ConsoleResetVisibility}"
                                     Margin="0,0,8,8"/>
                             <!-- Phase 5 Steps 5-6 (v0.11, 2026-05-31): manual
@@ -1051,7 +1051,7 @@
                                 Command="{Binding RecalibrateCommand}"
                                 Style="{StaticResource GhostBtn}"
                                 Padding="14,6" FontSize="12" MinHeight="44"
-                                ToolTip="Open the LLM calibration dialog without requiring a fresh demo."/>
+                                ToolTip="{loc:T Zh='重新開始校準（5 題卡片），不需重跑示範。', En='Reopen calibration (the 5-card form) without re-running a demo.'}"/>
                     </Grid>
 
                     <!-- Chat history -->
@@ -1321,7 +1321,7 @@
                                 Command="{Binding SendCommand}" Margin="0,0,8,0" MinHeight="44"/>
                         <Button Grid.Column="2"
                                 Content="Clear" Style="{StaticResource GhostBtn}"
-                                Command="{Binding ClearCommand}" MinHeight="44"/>
+                                Click="OnChatClearClicked" MinHeight="44"/>
                     </Grid>
                 </Grid>
             </TabItem>

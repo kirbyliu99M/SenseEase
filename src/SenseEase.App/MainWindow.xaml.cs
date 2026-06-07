@@ -731,6 +731,30 @@ public partial class MainWindow : Window
 
     private SettingsWindow? _settingsWindow;
 
+    /// <summary>Confirm before the destructive console Reset. View-layer MessageBox keeps
+    /// ResetState/ResetStateCommand testable (no UI in the VM). ResetState is Q4.5-safe
+    /// (clears transient shader/FOV personalisation; PRESERVES the earned habituation offset).</summary>
+    private void OnConsoleResetClicked(object sender, RoutedEventArgs e)
+    {
+        var r = MessageBox.Show(
+            SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），但保留你已養成的習慣化進度。",
+                "Reset personalisation state?\n\nThis clears transient personalisation (shader tweaks) but keeps your earned habituation progress."),
+            "SenseEase", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (r == MessageBoxResult.OK) _viewModel.ResetStateCommand.Execute(null);
+    }
+
+    /// <summary>Confirm before clearing the chat (wipes history + the on-disk model trace).</summary>
+    private void OnChatClearClicked(object sender, RoutedEventArgs e)
+    {
+        var r = MessageBox.Show(
+            SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                "確定要清除對話紀錄嗎？此動作無法復原。",
+                "Clear the chat history? This cannot be undone."),
+            "SenseEase", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (r == MessageBoxResult.OK) _viewModel.ChatbotVm.ClearCommand.Execute(null);
+    }
+
     private void ShowSettingsWindow()
     {
         if (_settingsWindow is not null && _settingsWindow.IsLoaded)
