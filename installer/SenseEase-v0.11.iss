@@ -126,9 +126,11 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; now-deleted EXE (a broken/ghost autostart on every login).
 ; Flags:
 ;   uninsdeletevalue  -- delete this value when the app is uninstalled
-;   dontcreatevalue   -- Setup must NOT create the value at install time
-;                        (autostart stays user-opt-in, owned by the running app)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "SenseEase"; Flags: uninsdeletevalue dontcreatevalue
+;   dontcreatekey     -- Setup must NOT create the key/value at install time
+;                        (autostart stays user-opt-in, owned by the running app).
+;                        Inno's documented "delete-on-uninstall-only" pairing with
+;                        uninsdeletevalue; "dontcreatevalue" is not a valid flag.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "SenseEase"; Flags: uninsdeletevalue dontcreatekey
 
 [Code]
 // H25 (PII): on uninstall, OFFER to delete the user's personal data directory.

@@ -165,23 +165,12 @@ $modelSize = [math]::Round((Get-Item (Join-Path $modelDest "Ministral-3-3B-Instr
 Write-Host "  copied: Q4_K_M.gguf ($modelSize MB)"
 
 # -----------------------------------------------------------------------------
-# 3. Bundle setup demo video
+# 3. (REMOVED 2026-06-08) Demo-video bundling
 # -----------------------------------------------------------------------------
-Write-Section "Bundle setup demo video"
-$videoSrc = "samples/FPV-vid-h264.mp4"
-if (-not (Test-Path $videoSrc)) {
-    Write-Warning "Demo video not found at $videoSrc. Calibration & Demo will fall back to synthetic OFI ramp."
-} else {
-    $samplesDest = Join-Path $Dist "samples"
-    New-Item -ItemType Directory -Path $samplesDest -Force | Out-Null
-    Copy-Item $videoSrc $samplesDest -Force
-    $videoSize = [math]::Round((Get-Item (Join-Path $samplesDest "FPV-vid-h264.mp4")).Length / 1MB, 0)
-    Write-Host "  copied: FPV-vid-h264.mp4 ($videoSize MB)"
-}
-# Explicitly NOT copying:
-#   - samples/FPV-vid.mp4 (AV1 master, reference-only, not played at runtime)
-#   - samples/demo_event_log.json (dev fixture, zero src/ references)
-#   - samples/demo_nlu_response.json (dev fixture, zero src/ references)
+# The vection-clip demo and its WPF MediaElement player were excised in the
+# explicit-calibration dead-code sweep — nothing plays a video at runtime, so
+# samples/ is no longer staged into the dist. (The repo's samples/ holds only
+# dev-fixture JSON with zero src/ references.)
 
 # -----------------------------------------------------------------------------
 # 4. Bundle head-tracker PyInstaller sidecar
