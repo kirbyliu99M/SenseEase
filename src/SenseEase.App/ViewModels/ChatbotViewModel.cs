@@ -55,6 +55,19 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// the dispatcher thread.</summary>
     private int _persistedLineCount;
 
+    /// <summary>NE6: hard ceiling (seconds) on a single interactive LLM call so a
+    /// stalled model surfaces a calm retry hint instead of hanging the typing
+    /// indicator forever. The HTTP client has its own timeout; this caps the call
+    /// cooperatively end-to-end and lets a superseding turn abort it.</summary>
+    private const int InteractiveLlmTimeoutSeconds = 60;
+
+    /// <summary>H5: per-session ceiling on OBSERVATION_ADD persistence. The parser
+    /// already caps observations at 2 PER RESPONSE; this bounds the TOTAL across a
+    /// chat session so a looping / injected model can't slowly fill the profile's
+    /// longitudinal memory (a stored prompt-injection vector). Reset by Clear().</summary>
+    private const int MaxObservationWritesPerSession = 2;
+    private int _observationWritesThisSession;
+
     /// <summary>Total cap on fake-stream animation duration, regardless of reply length.</summary>
     private const int FakeStreamMaxMs = 1500;
     private const int FakeStreamStepMs = 30;
@@ -473,7 +486,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         {
             string contextualInput = BuildContextualInput(text);
 
-            var result = await _chatbot.SendAsync(contextualInput, CancellationToken.None).ConfigureAwait(false);
+            // NE6: thread cancellation + a 60 s ceiling into the interactive LLM
+            // call, replacing the previous uncancellable CancellationToken.None.
+            // Linked to streamToken so a superseding turn aborts it; CancelAfter
+            // gives a hard interactive cap surfaced as a calm retry hint (see the
+            // OperationCanceledException catch) instead of the HttpClient timeout
+            // bubbling up as a raw "[Error] A task was canceled".
+            using var callCts = CancellationTokenSource.CreateLinkedTokenSource(streamToken);
+            callCts.CancelAfter(TimeSpan.FromSeconds(InteractiveLlmTimeoutSeconds));
+            var result = await _chatbot.SendAsync(contextualInput, callCts.Token).ConfigureAwait(false);
 
             // M3 7e: extract write-side structured tokens BEFORE the reply
             // reaches the UI. The parser produces zero, one or both of:
@@ -564,7 +585,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 {
                     foreach (var obs in parsedOverride.Observations)
                     {
-                        try { obsCb(obs); } catch { /* per-observation failure swallowed */ }
+                        // H5: hard-cap OBSERVATION_ADD persistence at 2 PER SESSION.
+                        // The parser already caps at 2 per response; this bounds the
+                        // TOTAL across the session so a looping / injected model can't
+                        // slowly fill the profile's longitudinal memory.
+                        if (_observationWritesThisSession >= MaxObservationWritesPerSession) break;
+                        try { obsCb(obs); }
+                        catch { continue; } // a failed write doesn't consume the budget
+                        _observationWritesThisSession++;
                     }
                 }
 
@@ -618,6 +646,23 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                             Messages.Add(new ChatMessageViewModel(summaryToShow, ChatRole.Assistant)));
                 });
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // NE6: the interactive call hit the 60 s ceiling (or a newer turn
+            // superseded it). TaskCanceledException from HttpClient.Timeout also
+            // lands here (it derives from OperationCanceledException). Surface a
+            // calm bilingual retry hint, never a raw "[Error] canceled", and
+            // always clear the typing indicator.
+            _dispatcher.Invoke(() =>
+            {
+                if (placeholder is not null) Messages.Remove(placeholder);
+                Messages.Add(new ChatMessageViewModel(
+                    LocalizationManager.Current.Pick(
+                        "回應花的時間有點久，請再試一次。",
+                        "That took a while to answer — please try again."),
+                    ChatRole.Assistant));
+            });
         }
         catch (Exception ex)
         {
@@ -1017,6 +1062,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // NE18: the file is gone, so reset the in-session line counter — the welcome
         // bubble re-added below is never persisted, so disk is now empty.
         _persistedLineCount = 0;
+        // H5: Clear() starts a fresh session → restore the observation-write budget.
+        _observationWritesThisSession = 0;
         Messages.Add(new ChatMessageViewModel(WelcomeMessage, ChatRole.Assistant));
     }
 
