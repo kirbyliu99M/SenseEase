@@ -553,13 +553,17 @@
                                     AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}"
                                     ToolTip="{loc:T Zh='設定', En='Settings'}"/>
 
-                            <!-- BOTTOM-RIGHT: flip to chat face (↩). -->
+                            <!-- Flip to chat face. UI/UX fine-tune (2026-06-08): subtle chrome
+                                 glyph matching the × close (22×22, TextTertiary — was 28×28 Accent).
+                                 The chat face carries an IDENTICAL glyph at the SAME right-edge,
+                                 band-centred position so flipping feels seamless (the affordance
+                                 stays put). -->
                             <Button x:Name="FlipBtn"
                                     Content="&#x21A9;"
-                                    Width="28" Height="28"
+                                    Width="22" Height="22"
                                     Padding="0" BorderThickness="0"
                                     Background="Transparent"
-                                    Foreground="{DynamicResource Accent}"
+                                    Foreground="{DynamicResource TextTertiary}"
                                     FontSize="16"
                                     Cursor="Hand"
                                     VerticalAlignment="Center"
@@ -591,32 +595,16 @@
                      content no longer jumps to a different position when the user flips. -->
                 <Grid x:Name="ChatFace" Grid.Row="1" Visibility="Hidden" VerticalAlignment="Center">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>  <!-- back arrow -->
                         <ColumnDefinition Width="*"/>     <!-- input -->
                         <ColumnDefinition Width="Auto"/>  <!-- send -->
+                        <ColumnDefinition Width="Auto"/>  <!-- flip (same right-edge spot as the main face) -->
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- flip-back affordance (back arrow). -->
-                    <Button Grid.Row="0" Grid.Column="0"
-                            x:Name="FlipBackBtn"
-                            Content="&#x2190;"
-                            Width="28" Height="28"
-                            Padding="0" BorderThickness="0"
-                            Background="Transparent"
-                            Foreground="{DynamicResource Accent}"
-                            FontSize="16"
-                            Cursor="Hand"
-                            VerticalAlignment="Center"
-                            Margin="0,0,8,0"
-                            Click="OnFlipClicked"
-                            AutomationProperties.Name="{loc:T Zh='返回', En='Back'}"
-                            ToolTip="{loc:T Zh='返回', En='Back'}"/>
-
-                    <TextBox Grid.Row="0" Grid.Column="1"
+                    <TextBox Grid.Row="0" Grid.Column="0"
                              x:Name="ChatInputBox"
                              Background="{DynamicResource SurfaceMuted}"
                              Foreground="{DynamicResource TextPrimary}"
@@ -646,14 +634,33 @@
                         </TextBox.Style>
                     </TextBox>
 
-                    <Button Grid.Row="0" Grid.Column="2"
+                    <Button Grid.Row="0" Grid.Column="1"
                             x:Name="ChatSendBtn"
                             Content="{loc:T Zh='傳送', En='Send'}"
                             Click="OnChatSendClicked"
                             Style="{StaticResource PrimaryDeepBlueButtonStyle}"
-                            Padding="14,6"/>
+                            Padding="14,6"
+                            Margin="0,0,8,0"/>
 
-                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                    <!-- Flip BACK to the status face. Identical glyph (↩) + right-edge position
+                         to the main face's FlipBtn so the flip affordance stays in place across
+                         the flip (seamless). RowSpan=2 + VerticalAlignment=Center → centred across
+                         the input+status rows, matching the main face flip's band-centre Y. -->
+                    <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                            x:Name="FlipBackBtn"
+                            Content="&#x21A9;"
+                            Width="22" Height="22"
+                            Padding="0" BorderThickness="0"
+                            Background="Transparent"
+                            Foreground="{DynamicResource TextTertiary}"
+                            FontSize="16"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            Click="OnFlipClicked"
+                            AutomationProperties.Name="{loc:T Zh='返回', En='Back'}"
+                            ToolTip="{loc:T Zh='返回畫面狀態', En='Back to status'}"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
                                x:Name="ChatStatusText"
                                Text=""
                                FontSize="10"
