@@ -465,55 +465,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch { return null; }
     }
 
-    /// <summary>M3 7e+: user picked a profile from the in-chat picker. Builds
-    /// a SwitchProfile proposal and runs it through the standard Applicator
-    /// path (same safety intercept + action-log audit as a chatbot-driven
-    /// proposal). Pushes a confirmation / safety-block message back into
-    /// the chat thread so the user sees the outcome inline rather than
-    /// hunting in the event log.</summary>
-    private void OnChatbotProfilePickerSelected(object? sender, string profileName)
-    {
-        string canon = (profileName ?? string.Empty).Trim().ToUpperInvariant();
-        if (!Enum.TryParse<HabituationProfile>(canon, ignoreCase: true, out _))
-        {
-            ChatbotVm.PushAssistantBubble($"未知 profile：{profileName}。");
-            return;
-        }
-
-        var proposal = new ProfileOverrideProposal(
-            Intent: OverrideIntent.SwitchProfile,
-            TargetField: "profile",
-            ProposedValue: canon,
-            Rationale: "user picked from in-chat profile picker",
-            ExpiresAtUtc: DateTime.UtcNow.AddHours(48));
-
-        _chatbotActionLog.Record(ChatbotActionKind.Proposed, proposal);
-        var result = _overrideApplicator.ApplyAccepted(proposal);
-
-        if (result.IsSuccess)
-        {
-            ChatbotVm.PushAssistantBubble($"已切換到 {canon} profile。");
-        }
-        else if (result.BlockedBySafety)
-        {
-            ChatbotVm.PushAssistantBubble(
-                $"⚠ 無法切換到 {canon}：{result.Reason}");
-        }
-        else
-        {
-            ChatbotVm.PushAssistantBubble(
-                $"切換失敗：{result.Reason ?? "unknown"}");
-        }
-    }
-
     /// <summary>USER dashboard profile pills (RESILIENT / TYPICAL / SENSITIVE).
-    /// Unlike the in-chat picker (<see cref="OnChatbotProfilePickerSelected"/>),
-    /// which must stay on the SEVERED chatbot SwitchProfile path (Reading A: the
-    /// chatbot can no longer live-switch the profile), the user's own pick drives
-    /// the engine directly via the calibration-grade
-    /// <see cref="MockInferenceEngine.SetHabituationProfile"/> setter. These are two
-    /// genuinely separate paths — the sever touches ONLY the chatbot one, so the
-    /// dashboard pills work while the chatbot override stays a no-op.</summary>
+    /// The user's own pick drives the engine directly via the calibration-grade
+    /// <see cref="MockInferenceEngine.SetHabituationProfile"/> setter. (The chatbot
+    /// can no longer live-switch the profile — Reading A severed that path — so the
+    /// dashboard pills are the only profile-change entry point. The old in-chat
+    /// picker + its OnChatbotProfilePickerSelected handler were removed with the
+    /// LLM-calibration-subsystem cleanup.)</summary>
     private void OnUserProfileSelected(string profileName)
     {
         string canon = (profileName ?? string.Empty).Trim().ToUpperInvariant();
@@ -815,7 +773,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
             actionLog:    _chatbotActionLog);
         ChatbotVm.LongitudinalObservationCallback = obs => _observationWriter.Append(obs);
         ChatbotVm.ProposalReceived += OnChatbotProposalReceived;
-        ChatbotVm.ProfilePickerSelected += OnChatbotProfilePickerSelected;
         // Phase 7 (RESUME_ACKNOWLEDGE): the chatbot relays the user's in-chat confirmation to
         // continue from a tier>=8 PausedAwaitingUserConfirm check-in. The engine method is a
         // guarded no-op unless actually awaiting confirm; resume continues the habituation

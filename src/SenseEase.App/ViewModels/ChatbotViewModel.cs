@@ -363,9 +363,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // to the user (a guaranteed-fail UI; flagged "defunct — product follow-up" in
         // Phase8AcceptanceTests.ScenarioE). So instead of a doomed picker, acknowledge and
         // redirect to the dashboard's working profile pills (OnUserProfileSelected →
-        // SetHabituationProfile). No LLM round-trip. NOTE: this leaves the (now-unfired)
-        // ProfilePickerSelected event + OnChatbotProfilePickerSelected handler as harmless dead
-        // code, to be removed with the broader LLM-calibration-subsystem cleanup.
+        // SetHabituationProfile). No LLM round-trip. (The old in-chat picker's
+        // ProfilePickerSelected event + OnChatbotProfilePickerSelected handler — the unfired
+        // dead code this redirect replaced — were removed in the LLM-calibration cleanup.)
         if (HabituationProposalLexicon.TryDetectProfilePickerRequest(text))
         {
             InputText = string.Empty;
@@ -992,13 +992,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// trail. Host wires this to <c>MockInferenceEngine.AcknowledgeAndResumeHabituation</c>
     /// (a guarded no-op unless actually awaiting confirm). Null = no host wiring (test contexts).</summary>
     public Action<string>? AcknowledgeResumeCallback { get; set; }
-
-    /// <summary>M3 7e+: raised when the user clicks a profile option in the
-    /// chat-bubble picker. Carries the chosen profile name (RESILIENT /
-    /// TYPICAL / SENSITIVE). Host validates + applies via
-    /// <see cref="HabituationOverrideApplicator"/> and pushes a confirmation
-    /// reply back through <see cref="PushAssistantBubble"/>.</summary>
-    public event EventHandler<string>? ProfilePickerSelected;
 
     /// <summary>M3 7e+: host-side helper for the profile picker reply path.
     /// Pushes an assistant message into <see cref="Messages"/> on the
