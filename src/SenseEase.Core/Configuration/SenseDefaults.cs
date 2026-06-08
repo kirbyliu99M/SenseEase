@@ -49,6 +49,17 @@ public static class SenseDefaults
     public const double OverlayBrushRadius = 0.85;
     /// <summary>F2: overlay brush corner-margin multiplier for the dynamic radius.</summary>
     public const double OverlayBrushRadiusCornerMargin = 1.10;
+    /// <summary>F2: feathering-halo fix — overlay dynamic-radius ASYMMETRIC envelope half-lives (ms),
+    /// consumed by <c>OverlayWindow.ApplyHeadPoseToBrush</c> and asserted by OverlayHeadPoseTests.
+    /// The dynamic radius (corner reach) is otherwise recomputed raw every render frame; applied
+    /// to a RelativeToBoundingBox brush that makes the feather band translate AND scale in screen
+    /// pixels as the head moves → a "breathing" edge perceived as a halo/comet tail. The envelope
+    /// damps the radius: fast ATTACK (grow ≈ instantly so a newly-fixated corner stays covered —
+    /// preserves the M5 UX-iter 3 corner reach) + slow RELEASE (shrink slowly so the edge never
+    /// pumps while the head moves). Center follow is left fully responsive — only the radius is
+    /// smoothed. Inactive snaps to <see cref="OverlayBrushRadius"/> (byte-identical v0.9 baseline).</summary>
+    public const double OverlayRadiusAttackHalfLifeMs  = 25.0;   // grow toward a larger radius — near-instant
+    public const double OverlayRadiusReleaseHalfLifeMs = 600.0;  // shrink back — slow, kills the breathing edge
 
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;

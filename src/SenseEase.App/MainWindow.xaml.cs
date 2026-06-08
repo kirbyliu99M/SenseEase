@@ -628,7 +628,8 @@ public partial class MainWindow : Window
             _overlay.UpdateHeadGazeCenter(
                 headGazeX: _displayedCx,
                 headGazeY: _displayedCy,
-                active:    active);
+                active:    active,
+                dtMs:      dtMs);
 
             // M8 head-tracking sprint: per-frame perf log gated behind
             // AppConfig.HeadTrackingPerfLogEnabled (default false). The two

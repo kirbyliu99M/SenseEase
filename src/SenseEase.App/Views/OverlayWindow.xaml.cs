@@ -147,6 +147,21 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// <summary>Packed (r&lt;&lt;24|g&lt;&lt;16|b&lt;&lt;8|peakAlpha) — skip mutation when unchanged.</summary>
     private int _lastFovBrushKey = -1;
 
+    // ── Feathering-halo fix: asymmetric radius envelope ──────────────────────
+    // The dynamic radius (max(BrushRadius, farthestCorner*Margin)) is a continuous
+    // function of head position. Applied raw every render frame to the
+    // RelativeToBoundingBox brush, it makes the 0.35→0.95 feather band translate
+    // AND scale in screen pixels as the head moves → a "breathing" soft edge
+    // perceived as a halo/comet tail. We damp ONLY the radius with an asymmetric
+    // time-based envelope (fast attack / slow release, half-lives in SenseDefaults);
+    // the Center follow is left fully responsive. The ~165 Hz CompositionTarget.
+    // Rendering pump (real dtMs) owns the envelope; the ~3.3 Hz engine-tick state
+    // path (dtMs = 0) snaps to target only when no pump has run recently (unit
+    // tests / pump stalled), so the pre-envelope behaviour and tests are preserved.
+    private double _smoothedRadius = SenseDefaults.OverlayBrushRadius;
+    private long   _lastPumpTickMs = long.MinValue / 2; // safe "far past" sentinel (no overflow)
+    private const long PumpOwnershipWindowMs = 250;
+
     // ── FIX #2: cached, frozen grid opacity-mask brush ───────────────────────
 
     /// <summary>
@@ -560,24 +575,29 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// public surface.</summary>
     internal RadialGradientBrush? FovBrushForTests => _fovBrush;
 
-    /// <summary>M5 UX-iter 3 Fix C: high-frequency entry point for the head-pose
-    /// dispatcher timer (~30 Hz). Bypasses the full ApplyState grid/mask color
-    /// recomputation and updates ONLY the brush's <c>Center</c> + <c>Radius</c>.
-    /// Decouples mask-follows-head smoothness from the engine tick (~3.3 Hz)
-    /// which was the perceived "lag / inconsistent framerate" reported during
-    /// Demo B. Must run on UI thread (mutates DependencyObjects).</summary>
-    public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active)
+    /// <summary>High-frequency entry point for the head-pose pump. Originally a
+    /// ~30 Hz DispatcherTimer (M5 UX-iter 3 Fix C); since M5.1-C iter 2 the pump
+    /// is <c>CompositionTarget.Rendering</c> (~display refresh, ~165 Hz). Bypasses
+    /// the full ApplyState grid/mask colour recomputation and updates ONLY the
+    /// brush's <c>Center</c> + <c>Radius</c>. <paramref name="dtMs"/> is the real
+    /// inter-frame delta from the pump; it drives the asymmetric radius envelope
+    /// (see <see cref="ApplyHeadPoseToBrush"/>). Callers that pass 0 (the engine-
+    /// tick state path / unit tests) snap the radius instead of easing it. Must
+    /// run on UI thread (mutates DependencyObjects).</summary>
+    public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
     {
         if (_fovBrush is null) return;
-        ApplyHeadPoseToBrush(headGazeX, headGazeY, active);
+        ApplyHeadPoseToBrush(headGazeX, headGazeY, active, dtMs);
     }
 
     /// <summary>M5 UX-iter 3: shared head-pose → brush mutation. Both the
-    /// state-driven path (ApplyFovMask, engine tick) and the timer-driven
-    /// path (UpdateHeadGazeCenter, 30 Hz) call this so the brush state
-    /// stays consistent. Active=false snaps to v0.9 baseline (center 0.5/0.5,
-    /// radius BrushRadius).</summary>
-    private void ApplyHeadPoseToBrush(double headGazeX, double headGazeY, bool active)
+    /// state-driven path (ApplyFovMask, engine tick) and the pump path
+    /// (UpdateHeadGazeCenter, ~165 Hz CompositionTarget.Rendering) call this so
+    /// the brush state stays consistent. Active=false snaps to v0.9 baseline
+    /// (center 0.5/0.5, radius BrushRadius). <paramref name="dtMs"/> &gt; 0 marks
+    /// the pump path and drives the asymmetric radius envelope; dtMs = 0 (state
+    /// path / tests) snaps the radius when no pump is currently driving it.</summary>
+    private void ApplyHeadPoseToBrush(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
     {
         if (_fovBrush is null) return;
 
@@ -609,18 +629,51 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // Fix B: dynamic radius scales to the farthest screen corner so
         // even at full-corner center, opposite (0, 0) sits inside gradient
         // at smoothstep ~0.91. v0.9 baseline (active=false) keeps 0.85.
-        double radius;
+        double targetRadius;
         if (active)
         {
             double farX = Math.Max(cx, 1.0 - cx);
             double farY = Math.Max(cy, 1.0 - cy);
             double farthestCorner = Math.Sqrt(farX * farX + farY * farY);
-            radius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
+            targetRadius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
         }
         else
         {
-            radius = BrushRadius;
+            targetRadius = BrushRadius;
         }
+
+        // Feathering-halo fix: asymmetric radius envelope. The raw targetRadius
+        // above is a continuous function of head position; applying it every
+        // frame breathes the feather edge (halo). Damp it: fast attack (grow,
+        // so corner reach stays instant) + slow release (shrink, so the edge
+        // doesn't pump while the head moves). Ownership: the pump (dtMs > 0) is
+        // the sole driver while active; the state path (dtMs = 0) snaps only
+        // when no pump has run within PumpOwnershipWindowMs (tests / pump
+        // stalled) — otherwise it defers to the pump's eased value. Inactive
+        // snaps to the v0.9 baseline immediately (no slow-release on disable).
+        bool fromPump = dtMs > 0.0;
+        if (fromPump)
+            _lastPumpTickMs = Environment.TickCount64;
+
+        if (!active)
+        {
+            _smoothedRadius = targetRadius; // == BrushRadius
+        }
+        else if (fromPump)
+        {
+            double halfLifeMs = (targetRadius > _smoothedRadius)
+                ? SenseDefaults.OverlayRadiusAttackHalfLifeMs
+                : SenseDefaults.OverlayRadiusReleaseHalfLifeMs;
+            double factor = 1.0 - Math.Exp(-dtMs * Math.Log(2.0) / halfLifeMs);
+            _smoothedRadius += factor * (targetRadius - _smoothedRadius);
+        }
+        else if (Environment.TickCount64 - _lastPumpTickMs >= PumpOwnershipWindowMs)
+        {
+            _smoothedRadius = targetRadius; // no live pump → snap (pre-envelope behaviour)
+        }
+        // else: a live pump owns the envelope — leave _smoothedRadius untouched.
+
+        double radius = _smoothedRadius;
         if (_fovBrush.RadiusX != radius)
         {
             _fovBrush.RadiusX = radius;

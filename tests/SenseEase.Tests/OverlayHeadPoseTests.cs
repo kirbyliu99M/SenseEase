@@ -446,9 +446,11 @@ public class OverlayHeadPoseTests
         });
     }
 
-    /// <summary>M5 UX-iter 3 Fix C: UpdateHeadGazeCenter applies the same
-    /// brush mutation as ApplyFovMask's state-driven path. Verifies the
-    /// 30 Hz timer's entry point produces consistent brush state.</summary>
+    /// <summary>UpdateHeadGazeCenter applies the same brush mutation as
+    /// ApplyFovMask's state-driven path. Verifies the head-pose pump's entry
+    /// point (~165 Hz CompositionTarget.Rendering) produces consistent brush
+    /// state. Called here with the default dtMs = 0 (no live pump), so the
+    /// radius envelope snaps to target — identical to the pre-envelope renderer.</summary>
     [Fact]
     public void OverlayWindow_UpdateHeadGazeCenter_AppliesSameBrushMutation()
     {
@@ -471,7 +473,7 @@ public class OverlayHeadPoseTests
             var brush = w.FovBrushForTests;
             Assert.NotNull(brush);
 
-            // Now exercise the timer's entry point directly.
+            // Now exercise the pump's entry point directly (dtMs = 0 → snap).
             w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: true);
             Assert.Equal(0.7, brush!.Center.X, 3);
             Assert.Equal(0.3, brush.Center.Y, 3);
@@ -484,6 +486,163 @@ public class OverlayHeadPoseTests
             Assert.Equal(0.5, brush.Center.X, 3);
             Assert.Equal(0.5, brush.Center.Y, 3);
             Assert.Equal(0.85, brush.RadiusX, 3);
+        });
+    }
+
+    // ── 7) Feathering-halo fix: asymmetric radius envelope ─────────────────
+    //
+    // The dynamic radius (corner reach) is no longer applied raw every frame;
+    // the ~165 Hz pump (dtMs > 0) eases it with a fast-attack / slow-release
+    // envelope so the feather edge stops "breathing" while the head moves.
+    // These tests drive the pump entry point with explicit dt so the envelope
+    // is deterministic. (The existing radius tests above use the state/test
+    // path with dtMs = 0, which snaps — proving the pre-envelope behaviour and
+    // the v0.9 flag-off baseline are preserved.)
+
+    /// <summary>Fast ATTACK: a large-dt pump frame toward a corner converges the
+    /// smoothed radius to the head-coupled target — corner reach (the M5 UX-iter
+    /// 3 behaviour the dynamic radius was built for) is intact.</summary>
+    [Fact]
+    public void OverlayWindow_RadiusEnvelope_FastAttack_ConvergesToTarget()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                // Seed brush + baseline radius via a flag-off ApplyState.
+                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+                var brush = w.FovBrushForTests;
+                Assert.NotNull(brush);
+                Assert.Equal(0.85, brush!.RadiusX, 3);
+
+                // One large-dt pump frame toward the corner → attack converges to target.
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
+                double target = Math.Sqrt(2.0) * 1.10;
+                Assert.Equal(target, brush.RadiusX, 3);
+                Assert.Equal(target, brush.RadiusY, 3);
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
+        });
+    }
+
+    /// <summary>Attack is GRADUAL within a single ~60 fps frame: from baseline
+    /// 0.85 toward the corner target (~1.556), one 16 ms pump frame lands
+    /// strictly between the two (grows, but does not snap) — so the edge moves
+    /// smoothly rather than in one jump.</summary>
+    [Fact]
+    public void OverlayWindow_RadiusEnvelope_Attack_IsGradualWithinAFrame()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+                var brush = w.FovBrushForTests!;
+
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 16);
+                double target = Math.Sqrt(2.0) * 1.10;
+                Assert.True(brush.RadiusX > 0.85, $"radius should grow from baseline, was {brush.RadiusX}");
+                Assert.True(brush.RadiusX < target, $"radius should not snap to target in one 16 ms frame, was {brush.RadiusX}");
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
+        });
+    }
+
+    /// <summary>Slow RELEASE: after the radius has grown to a corner, returning
+    /// the head toward center does NOT collapse the radius in one frame — it
+    /// decays slowly. This is the property that kills the "breathing" edge.</summary>
+    [Fact]
+    public void OverlayWindow_RadiusEnvelope_SlowRelease_DoesNotCollapseInOneFrame()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+                var brush = w.FovBrushForTests!;
+
+                // Grow to corner (attack converges).
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
+                Assert.True(brush.RadiusX > 1.5, $"precondition: radius grown to corner, was {brush.RadiusX}");
+
+                // Return head to center: target drops to 0.85, but one 16 ms
+                // release frame barely moves the (much larger) radius.
+                w.UpdateHeadGazeCenter(headGazeX: 0.5, headGazeY: 0.5, active: true, dtMs: 16);
+                Assert.True(brush.RadiusX > 1.4, $"radius must release slowly, was {brush.RadiusX}");
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
+        });
+    }
+
+    /// <summary>Disabling tracking SNAPS the radius back to the v0.9 baseline
+    /// (0.85) immediately — no slow-release on disable — even after the radius
+    /// had grown to a corner. Preserves the byte-identical flag-off baseline.</summary>
+    [Fact]
+    public void OverlayWindow_RadiusEnvelope_InactiveSnapsToBaseline()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+                var brush = w.FovBrushForTests!;
+
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
+                Assert.True(brush.RadiusX > 1.5);
+
+                // Tracking drops out → immediate baseline (no 600 ms decay).
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: false, dtMs: 16);
+                Assert.Equal(0.85, brush.RadiusX, 3);
+                Assert.Equal(0.85, brush.RadiusY, 3);
+                Assert.Equal(0.5, brush.Center.X, 3);
+                Assert.Equal(0.5, brush.Center.Y, 3);
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
+        });
+    }
+
+    /// <summary>Micro-jitter around a central gaze does not pulse the radius:
+    /// within the central box the head-coupled target is floored at the baseline
+    /// 0.85, so small frame-to-frame gaze jitter leaves the radius pinned at 0.85
+    /// (no breathing from sensor noise).</summary>
+    [Fact]
+    public void OverlayWindow_RadiusEnvelope_CentralJitter_StaysAtFloor()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+                var brush = w.FovBrushForTests!;
+
+                // Jitter within the central box where farthestCorner*1.10 < 0.85.
+                double[] xs = { 0.50, 0.52, 0.48, 0.51, 0.49 };
+                foreach (var x in xs)
+                    w.UpdateHeadGazeCenter(headGazeX: x, headGazeY: 0.5, active: true, dtMs: 16);
+
+                Assert.Equal(0.85, brush.RadiusX, 3);
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
