@@ -230,17 +230,20 @@ public partial class SettingsContent : UserControl
             && (HasVestibularDiagnosis?.Invoke() ?? false)
             && !UserPreferences.Current.VestibularWarningShown)
         {
-            var result = MessageBox.Show(
-                "你的 calibration 紀錄顯示你曾被診斷過前庭相關狀況。\n\n" +
-                "關閉顏色變化會讓系統的即時提示完全靜默。\n" +
-                "建議至少保留顏色變化，作為視覺壓力的 ambient signal。",
-                "SenseEase 安全提示",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Warning);
+            bool confirmedTurnOff = ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "你的紀錄顯示你曾回報過前庭相關狀況。\n\n" +
+                    "關閉顏色變化會讓系統的即時提示完全靜默。\n" +
+                    "建議至少保留顏色變化，作為視覺壓力的 ambient signal。",
+                    "Your record indicates you reported a vestibular-related condition.\n\n" +
+                    "Turning colour changes off fully silences the system's live cues.\n" +
+                    "Consider keeping colour changes on at least, as an ambient signal of visual pressure."),
+                DialogKind.Warning);
 
             UserPreferences.Current.VestibularWarningShown = true;
 
-            if (result != MessageBoxResult.OK)
+            if (!confirmedTurnOff)
             {
                 _wiring = true;
                 ToggleColor.IsChecked = true;
@@ -274,12 +277,18 @@ public partial class SettingsContent : UserControl
             _wiring = true;
             ToggleRunAtStartup.IsChecked = !desired;
             _wiring = false;
-            MessageBox.Show(
-                "無法寫入登入啟動設定。可能的原因：\n" +
-                "- 系統管理員或安全性軟體限制了登入啟動項目。\n" +
-                "- 註冊表權限不足。\n\n" +
-                "你可以手動把 SenseEase 加到 Windows「啟動」資料夾作為替代方案。",
-                "SenseEase 設定", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "無法寫入登入啟動設定。可能的原因：\n" +
+                    "- 系統管理員或安全性軟體限制了登入啟動項目。\n" +
+                    "- 註冊表權限不足。\n\n" +
+                    "你可以手動把 SenseEase 加到 Windows「啟動」資料夾作為替代方案。",
+                    "Couldn't save the run-at-startup setting. Possible causes:\n" +
+                    "- An administrator or security software is blocking startup entries.\n" +
+                    "- Insufficient registry permissions.\n\n" +
+                    "As a workaround, add SenseEase to the Windows Startup folder manually."),
+                DialogKind.Warning);
             return;
         }
         UserPreferences.Current.RunAtWindowsStartup = desired;
@@ -375,15 +384,12 @@ public partial class SettingsContent : UserControl
     /// fall back to a MessageBox so the user is never silently stranded.</para></summary>
     private void OnRestartClicked(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(
-            LocalizationManager.Current.Pick(
-                "重啟 SenseEase 以套用變更？",
-                "Restart SenseEase to apply changes?"),
-            "SenseEase",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question);
-
-        if (result != MessageBoxResult.OK) return;
+        if (!ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "重啟 SenseEase 以套用變更？",
+                    "Restart SenseEase to apply changes?")))
+            return;
 
         try
         {
@@ -394,11 +400,12 @@ public partial class SettingsContent : UserControl
                 ?? Process.GetCurrentProcess().MainModule?.FileName;
             if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
             {
-                MessageBox.Show(
+                ThemedDialog.Notify(
+                    Window.GetWindow(this),
                     LocalizationManager.Current.Pick(
                         "無法定位 SenseEase 執行檔，請手動重啟。",
                         "Unable to locate the SenseEase executable; please restart manually."),
-                    "SenseEase", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    DialogKind.Warning);
                 return;
             }
 
@@ -419,11 +426,12 @@ public partial class SettingsContent : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
                 LocalizationManager.Current.Pick(
                     $"重啟失敗：{ex.Message}",
                     $"Restart failed: {ex.Message}"),
-                "SenseEase", MessageBoxButton.OK, MessageBoxImage.Error);
+                DialogKind.Error);
         }
     }
 
@@ -448,16 +456,14 @@ public partial class SettingsContent : UserControl
     /// to the host's ResetStateCommand (Q4.5-safe — preserves the earned habituation offset).</summary>
     private void OnResetStateClicked(object sender, RoutedEventArgs e)
     {
-        var confirm = MessageBox.Show(
-            LocalizationManager.Current.Pick(
-                "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），" +
-                "但保留你已養成的習慣化進度。",
-                "Reset personalisation state?\n\nThis clears transient personalisation " +
-                "(shader tweaks) but keeps your earned habituation progress."),
-            "SenseEase",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.OK) return;
+        if (!ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），" +
+                    "但保留你已養成的習慣化進度。",
+                    "Reset personalisation state?\n\nThis clears transient personalisation " +
+                    "(shader tweaks) but keeps your earned habituation progress.")))
+            return;
         ResetRequested?.Invoke();
     }
 
@@ -467,19 +473,18 @@ public partial class SettingsContent : UserControl
 
     private void OnClearAllDataClicked(object sender, RoutedEventArgs e)
     {
-        var confirm = MessageBox.Show(
-            LocalizationManager.Current.Pick(
-                "確定要清除 SenseEase 為你建立的長期模型並重設嗎？\n\n" +
-                "這會刪除行為紀錄、分析索引、長期觀察與模型診斷追蹤。\n" +
-                "你的校正設定檔（profile／強度）會保留。此動作無法復原。",
-                "Clear the long-term model SenseEase built about you and reset?\n\n" +
-                "This deletes the behaviour log, analysis index, longitudinal observations, " +
-                "and the model trace.\nYour calibration profile (profile / strength) is kept. " +
-                "This cannot be undone."),
-            "SenseEase",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.OK) return;
+        if (!ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "確定要清除 SenseEase 為你建立的長期模型並重設嗎？\n\n" +
+                    "這會刪除行為紀錄、分析索引、長期觀察與模型診斷追蹤。\n" +
+                    "你的校正設定檔（profile／強度）會保留。此動作無法復原。",
+                    "Clear the long-term model SenseEase built about you and reset?\n\n" +
+                    "This deletes the behaviour log, analysis index, longitudinal observations, " +
+                    "and the model trace.\nYour calibration profile (profile / strength) is kept. " +
+                    "This cannot be undone."),
+                DialogKind.Warning))
+            return;
 
         try
         {
@@ -494,19 +499,21 @@ public partial class SettingsContent : UserControl
             try { if (File.Exists(AppConfig.ModelTracePath)) File.Delete(AppConfig.ModelTracePath); }
             catch { /* best-effort PII cleanup */ }
 
-            MessageBox.Show(
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
                 LocalizationManager.Current.Pick(
                     "已清除所有使用者模型資料。",
                     "All user-model data cleared."),
-                "SenseEase", MessageBoxButton.OK, MessageBoxImage.Information);
+                DialogKind.Info);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
                 LocalizationManager.Current.Pick(
                     $"清除失敗：{ex.Message}",
                     $"Clear failed: {ex.Message}"),
-                "SenseEase", MessageBoxButton.OK, MessageBoxImage.Error);
+                DialogKind.Error);
         }
     }
 }

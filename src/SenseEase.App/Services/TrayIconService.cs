@@ -55,6 +55,7 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly MainViewModel _vm;
     private readonly TaskbarIcon _tray;
+    private readonly ContextMenu _contextMenu;
     private readonly Func<bool> _isBarVisible;
     private readonly Action<bool> _setBarVisible;
     private readonly MenuItem _statusItem;
@@ -161,6 +162,35 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add(settingsItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(quitItem);
+
+        // UI/UX (2026-06-09): de-nativise the tray menu. It's a WPF ContextMenu, so skin it
+        // to the app's look (rounded Surface card, token colours, calm SurfaceMuted highlight)
+        // instead of the default native Windows menu. A popup isn't parented to a themed
+        // window, so merge the theme into the menu's OWN resources for the tokens to resolve;
+        // ThemeManager.TrackElement then keeps it light/dark-correct (incl. a live OS flip).
+        // Degrade-not-crash (tray invariant): any failure leaves the default functional menu.
+        _contextMenu = menu;
+        try
+        {
+            menu.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml", UriKind.Absolute)
+            });
+            menu.Style = (Style)menu.FindResource("SenseEaseContextMenu");
+            var menuItemStyle = (Style)menu.FindResource("SenseEaseMenuItem");
+            var menuSepStyle  = (Style)menu.FindResource("SenseEaseMenuSeparator");
+            foreach (var entry in menu.Items)
+            {
+                if (entry is MenuItem mi) mi.Style = menuItemStyle;
+                else if (entry is Separator sep) sep.Style = menuSepStyle;
+            }
+            SenseEase.App.Theme.ThemeManager.TrackElement(menu);
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [Tray] menu theming failed (left default menu): {ex.GetType().Name}: {ex.Message}");
+        }
 
         _tray = new TaskbarIcon
         {
@@ -870,6 +900,9 @@ public sealed class TrayIconService : IDisposable
         // Live-language toggle: singleton INotifyPropertyChanged — MUST -= or the
         // service (and its transitive graph) is pinned for the process lifetime.
         LocalizationManager.Current.PropertyChanged -= OnLanguageChanged;
+        // UI/UX: stop tracking the tray menu's light/dark theme. Weak-ref inside, but pair
+        // Track with Untrack on teardown per the ThemeManager contract. Best-effort.
+        try { SenseEase.App.Theme.ThemeManager.UntrackElement(_contextMenu); } catch { }
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
         // M12 (TrayDistinct): release the locally code-drawn band icons. The
         // Icon(Stream) ctor takes ownership of the HICON it allocates, so

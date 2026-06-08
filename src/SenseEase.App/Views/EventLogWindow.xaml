@@ -25,14 +25,21 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
-            <!-- Column-header chrome (the MainWindow-local implicit GridViewColumnHeader
-                 style isn't in scope here; re-declared with the same token-driven look). -->
+            <!-- Column-header chrome (UI/UX 2026-06-09 dark-mode fix): the old header used
+                 Accent (link-blue) text, DEFAULT-CENTERED content (so "Action" sat centred
+                 over its left-aligned data), and a SurfaceMuted band that read as native grid
+                 chrome — that's what looked "weird" in Dark. Now: muted TextSecondary text,
+                 LEFT-aligned to match the data, transparent fill with a single Separator
+                 hairline underline. Token-driven, so Light + Dark get the SAME clean fix. -->
             <Style TargetType="GridViewColumnHeader">
-                <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
-                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="Padding" Value="8,6"/>
-                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
+                <Setter Property="BorderThickness" Value="0,0,0,1"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>

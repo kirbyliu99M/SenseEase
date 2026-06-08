@@ -125,7 +125,7 @@
             CornerRadius="{StaticResource Radius.md}"
             Effect="{StaticResource Elev.3}"
             Padding="24" Margin="6">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}">
             <!-- M3 regroup (2026-06-06): the formerly flat single scroll is now
                  organised into three visually-grouped {StaticResource Surface}
                  section cards (Radius.md + Elev.2), each opened by a

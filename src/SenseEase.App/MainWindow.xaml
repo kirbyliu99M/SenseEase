@@ -208,37 +208,26 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border VerticalAlignment="Center"
-                            CornerRadius="20" Padding="14,5">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding SensingModeLabel}" Value="DEMO MODE">
-                                        <Setter Property="Background" Value="{DynamicResource ComfortRising}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding SensingModeLabel}" Value="SCREEN CAPTURE">
-                                        <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <TextBlock Text="{Binding SensingModeLabel, StringFormat='● {0}'}"
-                                   Foreground="White" FontSize="11" FontWeight="Bold"/>
-                    </Border>
+                    <!-- Sensing-mode badge ("● SCREEN CAPTURE" / "DEMO MODE") removed per UI
+                         audit (2026-06-09): it surfaced an internal capture-mode detail with no
+                         user value, and was English-only in both languages. The VM's
+                         SensingModeLabel property is left intact (harmless; no longer shown). -->
 
-                    <!-- HP co-brand chip: SenseEase ships as a companion app for HP
-                         laptops. A white rounded chip keeps the blue HP roundel (whose
-                         "hp" letters are white cut-outs) legible in BOTH light + dark
-                         themes, and matches the white-card design language. -->
-                    <Border VerticalAlignment="Center" Margin="12,0,0,0"
-                            Background="White" CornerRadius="8" Padding="8,5"
-                            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1">
-                        <Image Source="pack://application:,,,/SenseEase.App;component/Resources/hp-logo.jpg"
-                               Width="26" Height="26" Stretch="Uniform"
-                               RenderOptions.BitmapScalingMode="HighQuality"
-                               ToolTip="{loc:T Zh='專為 HP 筆電設計', En='Designed for HP laptops'}"/>
-                    </Border>
+                    <!-- HP co-brand mark. Dark-mode fix (2026-06-09): the asset is the blue
+                         HP roundel on a WHITE background, and the old white chip rendered as
+                         an "absurd" bright square in Dark mode. The roundel is self-contained
+                         (its white "hp" cut-outs read fine on the blue circle in any theme), so
+                         we drop the chip entirely and CLIP the image to a circle — only the blue
+                         roundel shows, clean on light OR dark. The ImageBrush Viewbox crops the
+                         JPG's thin white margin so no white ring survives at the circle edge. -->
+                    <Ellipse Width="28" Height="28" VerticalAlignment="Center" Margin="12,0,0,0"
+                             ToolTip="{loc:T Zh='專為 HP 筆電設計', En='Designed for HP laptops'}">
+                        <Ellipse.Fill>
+                            <ImageBrush ImageSource="pack://application:,,,/SenseEase.App;component/Resources/hp-logo.jpg"
+                                        Stretch="UniformToFill"
+                                        Viewbox="0.05,0.05,0.90,0.90"/>
+                        </Ellipse.Fill>
+                    </Ellipse>
                 </StackPanel>
             </Grid>
         </Border>
@@ -288,7 +277,7 @@
 
             <!-- ── Tab 1: Dashboard ── -->
             <TabItem Header="{loc:T Zh='儀表板', En='Dashboard'}">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}">
             <StackPanel Margin="24,20,24,24">
 
                 <!-- First-run welcome banner REMOVED (2026-06-08): it was the only entry to
@@ -659,7 +648,7 @@
 
             <!-- ── Tab 2: Eye-Protection Statistics ── -->
             <TabItem Header="{loc:T Zh='護眼', En='Eye Care'}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}">
                     <StackPanel Margin="24,20,24,24">
 
                         <!-- H4 (audit): D1 comfort hero — leads the Eye-Protection
@@ -922,7 +911,7 @@
                             Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}" Padding="0"
                             BorderBrush="{DynamicResource Separator}" BorderThickness="1"
                             Effect="{StaticResource Elev.2}">
-                        <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" Padding="16,12">
+                        <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" Padding="16,12" Style="{DynamicResource AutoHideScroll}">
                             <ItemsControl ItemsSource="{Binding Messages}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>

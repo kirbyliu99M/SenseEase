@@ -83,6 +83,14 @@ public partial class MainWindow : Window
     // legacy Grey under the 5級 動態感 relabel).
     private TierColorPalette.TierBand _lastBand = TierColorPalette.TierBand.VeryHigh;
 
+    // Blank-dashboard-on-autostart fix (2026-06-09): true while the --minimized autostart
+    // window is parked off-screen awaiting its first render (see ctor + ContentRendered).
+    // A WPF window Hide()-d before its first render composes no surface → it paints
+    // permanently BLANK when later surfaced from the tray/card; parking it off-screen lets
+    // it render safely instead, and we Hide() only after the render is confirmed.
+    private bool _trayStartupPark;
+    private const int OffScreenParkPx = -32000;   // standard off-screen park; still composites/renders
+
     public MainWindow()
     {
         InitializeComponent();
@@ -209,13 +217,25 @@ public partial class MainWindow : Window
             }
         };
 
-        // Path Z UX iter 5: when launched with --minimized (set by the
-        // AutoStartRegistry entry on Windows login), don't show the
-        // MainWindow at all. The Loaded event still fires (so tray + bar
-        // + sensing all initialise), but the window itself stays hidden.
-        // User surfaces it later via tray "Open Dashboard" or the
-        // notification card. Subscribed BEFORE the show-side wiring so
-        // the Hide() lands before any deferred render passes.
+        // Path Z UX iter 5 + blank-dashboard fix (2026-06-09): at Windows-login autostart
+        // the app launches with --minimized and must come up hidden-to-tray. The ORIGINAL
+        // code Hide()-d the window at SourceInitialized — but a WPF window hidden BEFORE its
+        // first render composes no surface, so the later tray/card "Open Dashboard" Show()
+        // paints a permanently-BLANK dashboard (exact symptom: blank, login-autostart only,
+        // never recovers). Fix: PARK the window off-screen + non-activating so it renders
+        // without being seen (no flash, no taskbar button, no focus-steal at login) instead
+        // of hiding it; then Hide() it only once it has actually rendered (ContentRendered),
+        // restoring an on-screen position so the eventual Show() surfaces a real dashboard.
+        if (App.StartMinimizedToTray)
+        {
+            _trayStartupPark      = true;
+            ShowActivated         = false;                          // pre-show: no focus-steal at login
+            ShowInTaskbar         = false;                          // no taskbar button during the off-screen render
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = OffScreenParkPx;                                 // off-screen, but still composites/renders
+            Top  = OffScreenParkPx;
+        }
+
         SourceInitialized += (_, _) =>
         {
             // Taskbar-icon fix (dotnet/wpf#11308): on Windows 11 the taskbar object
@@ -226,21 +246,25 @@ public partial class MainWindow : Window
             // icons (SetClassLongPtr) + WM_SETICON here so the taskbar uses it instead
             // of the default. Best-effort; the HWND exists by SourceInitialized.
             SenseEase.App.Interop.ShellTaskbarIcon.RegisterForWindow(this);
-
-            if (App.StartMinimizedToTray)
-            {
-                // ShowInTaskbar stays true so once the user does open the
-                // dashboard, it appears in Alt-Tab normally. Hide() just
-                // suppresses the initial visual; no taskbar flicker either.
-                Hide();
-            }
+            // NOTE: the autostart Hide() that used to live here is GONE — hiding before the
+            // first render is exactly what caused the blank-dashboard regression. The window
+            // is parked off-screen (above) and Hide()-d in ContentRendered once it's rendered.
         };
 
         // Belt-and-suspenders: re-apply once content has rendered and the taskbar
         // button definitely exists, covering the race where the button is created a
         // hair after SourceInitialized. Idempotent — re-sets the same embedded icon.
+        // Also resolves the autostart off-screen park: the window has now composed a real
+        // surface, so it is finally safe to Hide() it + bring its on-screen placement back.
         ContentRendered += (_, _) =>
+        {
             SenseEase.App.Interop.ShellTaskbarIcon.RegisterForWindow(this);
+            if (_trayStartupPark)
+            {
+                _trayStartupPark = false;
+                UnparkOffscreenWindow(hideAfter: true);
+            }
+        };
 
         // Display Comfort decommissioned at v0.11 (UI Consolidation Sprint
         // Phase 4). The historical TODO(lux-removal) revive seam is removed
@@ -751,12 +775,12 @@ public partial class MainWindow : Window
     /// (clears transient shader/FOV personalisation; PRESERVES the earned habituation offset).</summary>
     private void OnConsoleResetClicked(object sender, RoutedEventArgs e)
     {
-        var r = MessageBox.Show(
-            SenseEase.App.Localization.LocalizationManager.Current.Pick(
-                "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），但保留你已養成的習慣化進度。",
-                "Reset personalisation state?\n\nThis clears transient personalisation (shader tweaks) but keeps your earned habituation progress."),
-            "SenseEase", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (r == MessageBoxResult.OK) _viewModel.ResetStateCommand.Execute(null);
+        if (SenseEase.App.Views.ThemedDialog.Confirm(
+                this,
+                SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                    "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），但保留你已養成的習慣化進度。",
+                    "Reset personalisation state?\n\nThis clears transient personalisation (shader tweaks) but keeps your earned habituation progress.")))
+            _viewModel.ResetStateCommand.Execute(null);
     }
 
     /// <summary>Open the Event Log in its own window (UI/UX fine-tune 2026-06-07:
@@ -782,12 +806,12 @@ public partial class MainWindow : Window
     /// <summary>Confirm before clearing the chat (wipes history + the on-disk model trace).</summary>
     private void OnChatClearClicked(object sender, RoutedEventArgs e)
     {
-        var r = MessageBox.Show(
-            SenseEase.App.Localization.LocalizationManager.Current.Pick(
-                "確定要清除對話紀錄嗎？此動作無法復原。",
-                "Clear the chat history? This cannot be undone."),
-            "SenseEase", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (r == MessageBoxResult.OK) _viewModel.ChatbotVm.ClearCommand.Execute(null);
+        if (SenseEase.App.Views.ThemedDialog.Confirm(
+                this,
+                SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                    "確定要清除對話紀錄嗎？此動作無法復原。",
+                    "Clear the chat history? This cannot be undone.")))
+            _viewModel.ChatbotVm.ClearCommand.Execute(null);
     }
 
     private void ShowSettingsWindow()
@@ -1494,6 +1518,15 @@ public partial class MainWindow : Window
     /// both surfaces behave identically.</summary>
     private void SurfaceMainWindowFromTray()
     {
+        // Blank-dashboard fix fallback: if the autostart window is still parked off-screen
+        // (ContentRendered hasn't fired yet, or an off-screen render was culled), bring it
+        // back on-screen now + clear the park flag so ContentRendered won't later re-hide it.
+        // Becoming visible on a real monitor forces the first render → never blank.
+        if (_trayStartupPark)
+        {
+            _trayStartupPark = false;
+            UnparkOffscreenWindow(hideAfter: false);
+        }
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Show();
         Activate();
@@ -1501,6 +1534,22 @@ public partial class MainWindow : Window
         // without permanently pinning the dashboard.
         Topmost = true;
         Topmost = false;
+    }
+
+    /// <summary>Blank-dashboard fix: bring the off-screen-parked autostart window back on-
+    /// screen (centered on the work area) and restore taskbar/activation. Called from
+    /// ContentRendered (<paramref name="hideAfter"/>:true — render confirmed, hide until the
+    /// user opens it) and as a fallback from SurfaceMainWindowFromTray (false — surface now).</summary>
+    private void UnparkOffscreenWindow(bool hideAfter)
+    {
+        ShowInTaskbar = true;
+        ShowActivated = true;
+        var wa = SystemParameters.WorkArea;
+        double w = ActualWidth  > 0 ? ActualWidth  : (double.IsNaN(Width)  ? 0 : Width);
+        double h = ActualHeight > 0 ? ActualHeight : (double.IsNaN(Height) ? 0 : Height);
+        Left = wa.Left + System.Math.Max(0, (wa.Width  - w) / 2);
+        Top  = wa.Top  + System.Math.Max(0, (wa.Height - h) / 2);
+        if (hideAfter) Hide();
     }
 
     // B2/B4: Recreate overlay if null or already unloaded; sync OverlayVisible on external close.

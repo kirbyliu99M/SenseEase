@@ -538,7 +538,14 @@
                                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                                                 <Setter TargetName="PowerSaveLabelPause" Property="Visibility" Value="Collapsed"/>
                                                 <Setter TargetName="PowerSaveLabelResume" Property="Visibility" Value="Visible"/>
-                                                <Setter Property="Foreground" Value="White"/>
+                                                <!-- Bug fix (2026-06-09): the active "恢復/Resume" label was invisible —
+                                                     same colour as the Accent fill. The labels inherit the CheckBox's
+                                                     LOCAL Foreground={Accent} (set for the unchecked "Pause" label on
+                                                     SurfaceMuted), and a local value out-precedences this template
+                                                     trigger — so the old `<Setter Property="Foreground" Value="White"/>`
+                                                     never applied. Target the visible label directly so it contrasts on
+                                                     the Accent fill (matches the white-on-Accent −/+ buttons). -->
+                                                <Setter TargetName="PowerSaveLabelResume" Property="Foreground" Value="{DynamicResource TextOnComfort}"/>
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
                                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>

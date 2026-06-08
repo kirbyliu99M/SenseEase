@@ -9,7 +9,7 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
-        Background="#E2ECFF">
+        Background="{DynamicResource Canvas}">
     <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): thin Window chrome
          hosting the shared SettingsContent UserControl. All toggle UI +
          handlers live in SettingsContent so this Window and the main
@@ -20,9 +20,21 @@
          Close button stays here (window-specific affordance — the tab
          version has no Close because tabs don't close).
 
-         Phase 1.5 user feedback (2026-05-30): Window background + Close
-         button restyled from dark Pop-up sprint theme (#101418) to the
-         light main console palette (#E2ECFF / White cards / #024AD8). -->
+         Theme (2026-06-09 dark-mode fix): the Window background + Close button
+         are theme TOKENS (Canvas / Accent / TextOnComfort), NOT hardcoded
+         colours. The old #E2ECFF / #024AD8 literals (a 2026-05-30 light-only
+         restyle) stayed light in Dark mode, leaving a periwinkle frame around
+         the already-dark SettingsContent cards — "not true dark". SenseEaseTheme.xaml
+         is merged view-locally below so the tokens resolve in Light mode;
+         ThemeManager merges Palette.Dark.xaml over it for Dark (Window.Loaded class
+         handler + TrackElement in the code-behind for live OS flips). Mirrors EventLogWindow. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -34,8 +46,8 @@
                 HorizontalAlignment="Right"
                 Padding="18,8"
                 Margin="0,12,6,0"
-                Background="#024AD8"
-                Foreground="White"
+                Background="{DynamicResource Accent}"
+                Foreground="{DynamicResource TextOnComfort}"
                 BorderThickness="0"
                 FontSize="12"
                 FontWeight="SemiBold"

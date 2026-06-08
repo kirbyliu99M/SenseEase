@@ -337,6 +337,41 @@ public static class ThemeManager
     {
         if (w is null) return;
         ApplyTo(w.Resources);
+        TrySetImmersiveDarkTitleBar(w, ShouldUseDark());
+    }
+
+    // ── Dark window frame / title bar ───────────────────────────────────────
+    // WPF does NOT theme the OS-drawn non-client area (title bar + frame), so a
+    // "dark" window otherwise still shows a light title bar — exactly the "not
+    // true dark" gap. This DWM attribute (Win10 2004+/Win11) paints the frame to
+    // match. Driven from ApplyTo(Window) so it tracks Light/Dark + live OS flips
+    // alongside the palette merge. Degrade-not-crash: any failure (pre-Win10, DWM
+    // unavailable) just leaves the default light frame and never throws.
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll", SetLastError = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;             // Win10 2004+ / Win11
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19; // Win10 1809–1909 fallback
+
+    /// <summary>Paint window <paramref name="w"/>'s OS title bar / frame dark or
+    /// light to match the effective theme. HWND-based; a no-op until the window is
+    /// sourced (it is re-applied on the window's Loaded via the class handler).
+    /// Best-effort and never throws.</summary>
+    private static void TrySetImmersiveDarkTitleBar(Window w, bool dark)
+    {
+        try
+        {
+            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+            if (hwnd == IntPtr.Zero) return; // not yet sourced — re-applied on Loaded
+            int useDark = dark ? 1 : 0;
+            // Newer attribute id first; fall back to the pre-20H1 id on older builds.
+            if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int)) != 0)
+                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useDark, sizeof(int));
+        }
+        catch
+        {
+            // DWM absent / attribute unsupported (pre-Win10): keep the default frame.
+        }
     }
 
     /// <summary>

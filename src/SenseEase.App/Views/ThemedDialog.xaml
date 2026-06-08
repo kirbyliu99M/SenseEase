@@ -1,0 +1,88 @@
+<Window x:Class="SenseEase.App.Views.ThemedDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SenseEase"
+        Width="430" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Canvas}"
+        FontFamily="{DynamicResource Font.UI}">
+    <!-- UI/UX (2026-06-09): themed, app-LOCALIZED replacement for native MessageBox.
+         Native MessageBox can't be themed (always light/native chrome) and its buttons
+         follow the OS language, not the app's — so an English message showed 確定/取消.
+         This is a normal window, so the ThemeManager Window.Loaded class handler themes it
+         (merges the dark palette + paints the dark title bar) automatically; SenseEaseTheme
+         is merged below so the tokens resolve in Light mode. Button labels are picked by the
+         APP language in code-behind. Confirm() shows both buttons; Notify() hides Cancel. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <!-- Rounded dialog button (scoped to this window). OK = Accent fill; Cancel =
+                 SurfaceMuted. Both token-driven so Light + Dark are correct. -->
+            <Style TargetType="Button">
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="MinWidth" Value="88"/>
+                <Setter Property="Padding" Value="16,8"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                    CornerRadius="{StaticResource Radius.sm}"
+                                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.88"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.75"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="24,22">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Kind accent dot — a calm tier cue (never an alarm icon), tinted per kind. -->
+        <Ellipse x:Name="KindDot" Grid.Row="0" Grid.Column="0"
+                 Width="10" Height="10" VerticalAlignment="Top" Margin="0,5,12,0"
+                 Fill="{DynamicResource Accent}"/>
+
+        <TextBlock x:Name="MessageText" Grid.Row="0" Grid.Column="1"
+                   Style="{StaticResource Type.Body}"
+                   Foreground="{DynamicResource TextPrimary}"/>
+
+        <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                    Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button x:Name="CancelBtn" Margin="0,0,10,0"
+                    Background="{DynamicResource SurfaceMuted}"
+                    Foreground="{DynamicResource TextSecondary}"
+                    Click="OnCancel"/>
+            <Button x:Name="OkBtn"
+                    Background="{DynamicResource Accent}"
+                    Foreground="{DynamicResource TextOnComfort}"
+                    IsDefault="True"
+                    Click="OnOk"/>
+        </StackPanel>
+    </Grid>
+</Window>

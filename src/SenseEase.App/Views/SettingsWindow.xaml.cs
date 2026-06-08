@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using SenseEase.App.Theme;
 
 namespace SenseEase.App.Views;
 
@@ -36,6 +37,13 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         ContentHost.HasVestibularDiagnosis  = hasVestibularDiagnosis ?? (() => false);
         ContentHost.PreferencesChanged     += (s, e) => PreferencesChanged?.Invoke(this, e);
+
+        // Dark-mode fix (2026-06-09): keep this window's OWN chrome (Canvas background +
+        // Accent Close button, declared with theme tokens in XAML) light/dark-correct,
+        // including a live OS theme flip while the dialog is open. Mirrors EventLogWindow;
+        // the hosted SettingsContent tracks itself separately.
+        Loaded += (_, _) => ThemeManager.TrackElement(this);
+        Closed += (_, _) => ThemeManager.UntrackElement(this);
     }
 
     /// <summary>Alpha-2 addendum: optional host wiring for the auto-profiling Settings
