@@ -295,7 +295,7 @@ public partial class NotificationCardWindow : Window
         // safety-note callout (the M8 Border supplies the ⚠ glyph + chip).
         if (result.BlockedBySafety && _activeProposal is not null)
         {
-            ProposalSafetyNoteText.Text = $"系統介入：{result.Reason}";
+            ProposalSafetyNoteText.Text = Loc("系統介入：", "System intervention: ") + result.Reason;
             ProposalSafetyNoteText.Visibility = Visibility.Visible;
             // Disable Accept so the user has to Decline or Later (clicking Accept
             // again would just re-block).
@@ -357,7 +357,7 @@ public partial class NotificationCardWindow : Window
                 ProposalAcceptBtn.IsEnabled = false;
                 ProposalLaterBtn.IsEnabled = false;
                 ProposalDeclineBtn.IsEnabled = false; // NE27: the tombstone is fully non-interactive (Decline was left clickable)
-                ProposalExpiryText.Text = "已過期";
+                ProposalExpiryText.Text = Loc("已過期", "Expired");
                 // NE27: clear the logical active proposal so no stale reference
                 // survives the expiry. Assign the backing field directly (NOT the
                 // ActiveProposal setter) so the visible 已過期 tombstone — disabled
@@ -381,7 +381,7 @@ public partial class NotificationCardWindow : Window
         TimeSpan remaining = proposal.ExpiresAtUtc - DateTime.UtcNow;
         if (remaining <= TimeSpan.Zero)
         {
-            ProposalExpiryText.Text = "已過期";
+            ProposalExpiryText.Text = Loc("已過期", "Expired");
             return;
         }
         // Render at minute granularity above 1h, else minute:second.
@@ -599,10 +599,10 @@ public partial class NotificationCardWindow : Window
 
     private void OnCardSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        // Only the top-center fallback needs the late re-anchor (its X depends on
-        // the settled width). A remembered/dragged position is absolute and must
-        // be left exactly where the user put it.
-        if (!_hasRememberedPosition) AnchorTopCenter();
+        // Only the default (bottom-right) fallback needs the late re-anchor (both Left
+        // AND Top depend on the settled width/height). A remembered/dragged position is
+        // absolute and must be left exactly where the user put it.
+        if (!_hasRememberedPosition) AnchorBottomRight();
     }
 
     /// <summary>HUD-card rework item 4: place the card. If UserPreferences has a
@@ -633,7 +633,7 @@ public partial class NotificationCardWindow : Window
         }
         else
         {
-            AnchorTopCenter();
+            AnchorBottomRight();
         }
     }
 
@@ -651,19 +651,22 @@ public partial class NotificationCardWindow : Window
         return left >= vl - 8 && top >= vt - 8 && left + 48 <= vr && top + 48 <= vb;
     }
 
-    /// <summary>Top-center revision: anchor the card horizontally centered at the
-    /// TOP of the working area (12 dip down from the top edge). Re-run on
-    /// SizeChanged so the SizeToContent=Height measurement keeps the pill
-    /// centered as its width is the only fixed dimension. Wrapped in the
-    /// persist-suppress guard so the programmatic move isn't saved as a user
-    /// drag.</summary>
-    private void AnchorTopCenter()
+    /// <summary>Default anchor (2026-06-09): BOTTOM-RIGHT of the working area (16 dip in
+    /// from the right + bottom edges, i.e. just above the taskbar). Used only when the
+    /// user has no remembered/dragged position (drag still wins + persists). Re-run on
+    /// SizeChanged because BOTH Left and Top depend on the SizeToContent-settled size.
+    /// Wrapped in the persist-suppress guard so the programmatic move isn't saved as a
+    /// user drag.</summary>
+    private void AnchorBottomRight()
     {
         _suppressPositionPersist = true;
         try
         {
-            Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2.0;
-            Top = SystemParameters.WorkArea.Top + 12;
+            var wa = SystemParameters.WorkArea;
+            double w = ActualWidth  > 0 ? ActualWidth  : (double.IsNaN(Width)  ? 0 : Width);
+            double h = ActualHeight > 0 ? ActualHeight : (double.IsNaN(Height) ? 0 : Height);
+            Left = wa.Right  - w - 16;
+            Top  = wa.Bottom - h - 16;
         }
         finally { _suppressPositionPersist = false; }
     }
@@ -896,7 +899,7 @@ public partial class NotificationCardWindow : Window
     public void SetLevel(int level)
     {
         int clamped = Math.Max(1, Math.Min(12, level));
-        if (LevelText is not null) LevelText.Text = $"L{clamped}";
+        if (LevelText is not null) LevelText.Text = $"Lv.{clamped}";
     }
 
     private void ApplyContentToUi()
@@ -938,7 +941,8 @@ public partial class NotificationCardWindow : Window
             // bar/tray/hero use would be redundant here (UI/UX fine-tune 2026-06-08).
             TitleText.Text = SenseEase.App.Converters.ComfortBands.FeelBandLocalized(
                 _lastTier, SenseEase.App.Localization.LocalizationManager.Current.IsEnglish);
-            TelemetryText.Text = $"第 {_lastTier} 級 / 12　·　壓力 {Math.Round(_lastPressure)}";
+            TelemetryText.Text = Loc($"第 {_lastTier} 級 / 12　·　壓力 {Math.Round(_lastPressure)}",
+                                     $"Level {_lastTier} / 12　·　Pressure {Math.Round(_lastPressure)}");
         }
         else
         {
@@ -1315,6 +1319,12 @@ public partial class NotificationCardWindow : Window
         }
     }
 
+    /// <summary>Language-aware pick for the imperatively-set card strings (chat status,
+    /// proposal expiry / safety note). 2026-06-09: these were hardcoded Chinese, so they
+    /// stayed Chinese in English mode — A1 i18n fix.</summary>
+    private static string Loc(string zh, string en)
+        => SenseEase.App.Localization.LocalizationManager.Current.Pick(zh, en);
+
     private async Task TrySendChatAsync()
     {
         if (_chatSendInFlight) return;
@@ -1322,14 +1332,15 @@ public partial class NotificationCardWindow : Window
         if (string.IsNullOrEmpty(text)) return;
         if (SendChatMessage is null)
         {
-            ChatStatusText.Text = "Chatbot 尚未連線。";
+            ChatStatusText.Text = Loc("Chatbot 尚未連線。", "Chatbot isn't connected.");
             return;
         }
 
         _chatSendInFlight = true;
         ChatSendBtn.IsEnabled = false;
         ChatInputBox.IsEnabled = false;
-        ChatStatusText.Text = "傳送中…";
+        ChatStatusText.Text = Loc("傳送中…", "Sending…");
+        bool sendFailed = false;
         // Treat any in-card activity as user interaction — defer the idle fade.
         RestartIdleTimer();
 
@@ -1340,7 +1351,8 @@ public partial class NotificationCardWindow : Window
         }
         catch (Exception ex)
         {
-            ChatStatusText.Text = $"傳送失敗：{ex.GetType().Name}";
+            sendFailed = true;
+            ChatStatusText.Text = Loc("傳送失敗：", "Send failed: ") + ex.GetType().Name;
         }
         finally
         {
@@ -1353,9 +1365,9 @@ public partial class NotificationCardWindow : Window
             {
                 ChatStatusText.Text = reply;
             }
-            else if (ChatStatusText.Text == "傳送中…")
+            else if (!sendFailed)   // status still the "sending…" placeholder ⇒ applied OK
             {
-                ChatStatusText.Text = "已套用。";
+                ChatStatusText.Text = Loc("已套用。", "Done.");
             }
             RestartIdleTimer();
         }

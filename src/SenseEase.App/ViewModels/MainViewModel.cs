@@ -1019,9 +1019,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _maskActive;
     public bool MaskActive { get => _maskActive; private set => Set(ref _maskActive, value); }
 
-    private int _fmsScore;
-    public int FmsScore { get => _fmsScore; private set => Set(ref _fmsScore, value); }
-
     // VIMS tier (0..10). Mirrored from SenseState as a proper notifying property
     // because CurrentState is replaced wholesale by UpdateFromState and does NOT
     // raise PropertyChanged itself, so bindings like {Binding CurrentState.VimsTier}
@@ -1400,7 +1397,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Pressure = state.Pressure;
         FovRadiusPercent = state.FovRadiusPercent;
         MaskActive = state.MaskActive;
-        FmsScore = state.FmsScore;
         HabituationLevel  = state.HabituationLevel;
         HabituationPaused = state.HabituationPaused;
         VimsTier          = state.VimsTier;

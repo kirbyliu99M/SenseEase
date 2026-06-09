@@ -64,9 +64,6 @@ public class SenseState
     /// <summary>Foreground application name (MVP: a fixed demo value).</summary>
     public string ForegroundApp { get; set; } = "Demo";
 
-    /// <summary>Fast Motion Sickness score (0–20 style scale).</summary>
-    public int FmsScore { get; set; }
-
     /// <summary>Opacity of the static anchor grid in the overlay.</summary>
     public double GridOpacity { get; set; }
 

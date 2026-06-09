@@ -1,6 +1,7 @@
 <Window x:Class="SenseEase.App.Views.PersistentBarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
         Title="SenseEase"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -12,7 +13,7 @@
         Width="80" Height="4"
         WindowStartupLocation="Manual"
         Focusable="False"
-        AutomationProperties.Name="Comfort Level Indicator / 舒適度指示">
+        AutomationProperties.Name="{loc:T Zh='舒適度指示器', En='Comfort level indicator'}">
     <!-- Pop-up sprint Task 2: persistent ambient bar.
          4 dip × 80 dip top-centre, rounded corners. NO animation. NO interaction
          in Task 2 (IsHitTestVisible=false makes it pass-through for clicks; hover

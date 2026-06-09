@@ -142,7 +142,6 @@ public partial class SettingsContent : UserControl
                 LanguageChinese.IsChecked = true;
 
             ToggleAuto.IsChecked           = UserPreferences.Current.AutoExpandNotifications;
-            ToggleColor.IsChecked          = UserPreferences.Current.BarTrayColorEnabled;
             ToggleMinimizeToTray.IsChecked = UserPreferences.Current.MinimizeToTrayOnClose;
             // Prefer the registry's actual state for run-at-startup so an
             // externally-edited registry doesn't desync from what we display.
@@ -157,28 +156,6 @@ public partial class SettingsContent : UserControl
                 StringComparison.OrdinalIgnoreCase);
             FollowModeBalanced.IsChecked = !isFullFollow;
             FollowModeFull.IsChecked     =  isFullFollow;
-
-            ToggleEscapeHatch.IsChecked =
-                UserPreferences.Current.HeadTrackingEscapeHatchEnabled;
-
-            // Escape hatch × vestibular guard (M8 Item 3). Read-only
-            // consumption — never writes to Habituation state.
-            bool vest = HasVestibularDiagnosis?.Invoke() ?? false;
-            if (vest)
-            {
-                ToggleEscapeHatch.IsEnabled = false;
-                ToggleEscapeHatch.ToolTip = LocalizationManager.Current.Pick(
-                    "因為偵測到前庭敏感，暫時透明功能已停用以維持視覺保護。",
-                    "Disabled because vestibular sensitivity detected; temporary " +
-                    "transparency would compromise visual protection.");
-                EscapeHatchVestibularNote.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                ToggleEscapeHatch.IsEnabled = true;
-                ToggleEscapeHatch.ToolTip   = null;
-                EscapeHatchVestibularNote.Visibility = Visibility.Collapsed;
-            }
 
             // Alpha-2 addendum: the vestibular "regret" toggle + the moved Reset are shown
             // ONLY in the auto-profiling world AND only when the host wired the callbacks
@@ -213,47 +190,6 @@ public partial class SettingsContent : UserControl
     {
         if (_wiring) return;
         UserPreferences.Current.AutoExpandNotifications = ToggleAuto.IsChecked == true;
-        UserPreferences.Current.Save();
-        PreferencesChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void OnToggleColorChanged(object sender, RoutedEventArgs e)
-    {
-        if (_wiring) return;
-        bool newValue = ToggleColor.IsChecked == true;
-        bool wasOn    = UserPreferences.Current.BarTrayColorEnabled;
-
-        // Vestibular safety warning: only fires on a true → false transition,
-        // only if user has a vestibular diagnosis on file, only if the
-        // warning hasn't been shown before. Single-warning rule per spec §4.
-        if (wasOn && !newValue
-            && (HasVestibularDiagnosis?.Invoke() ?? false)
-            && !UserPreferences.Current.VestibularWarningShown)
-        {
-            bool confirmedTurnOff = ThemedDialog.Confirm(
-                Window.GetWindow(this),
-                LocalizationManager.Current.Pick(
-                    "你的紀錄顯示你曾回報過前庭相關狀況。\n\n" +
-                    "關閉顏色變化會讓系統的即時提示完全靜默。\n" +
-                    "建議至少保留顏色變化，作為視覺壓力的 ambient signal。",
-                    "Your record indicates you reported a vestibular-related condition.\n\n" +
-                    "Turning colour changes off fully silences the system's live cues.\n" +
-                    "Consider keeping colour changes on at least, as an ambient signal of visual pressure."),
-                DialogKind.Warning);
-
-            UserPreferences.Current.VestibularWarningShown = true;
-
-            if (!confirmedTurnOff)
-            {
-                _wiring = true;
-                ToggleColor.IsChecked = true;
-                _wiring = false;
-                UserPreferences.Current.Save(); // persist warning-shown flag even on cancel
-                return;
-            }
-        }
-
-        UserPreferences.Current.BarTrayColorEnabled = newValue;
         UserPreferences.Current.Save();
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -362,15 +298,6 @@ public partial class SettingsContent : UserControl
         UserPreferences.Current.Save();
     }
 
-    private void OnToggleEscapeHatchChanged(object sender, RoutedEventArgs e)
-    {
-        if (_wiring) return;
-        bool desired = ToggleEscapeHatch.IsChecked == true;
-        UserPreferences.Current.HeadTrackingEscapeHatchEnabled = desired;
-        UserPreferences.Current.Save();
-        AppConfig.HeadTrackingEscapeHatchEnabled = desired;
-    }
-
     /// <summary>Phase 1.5 user-feedback polish (2026-05-30): the "需重新啟動"
     /// badge became an actionable Button. Click prompts confirmation, then
     /// hands off to a detached <c>cmd /c timeout 2 &amp; start &lt;exe&gt;</c>
@@ -459,10 +386,9 @@ public partial class SettingsContent : UserControl
         if (!ThemedDialog.Confirm(
                 Window.GetWindow(this),
                 LocalizationManager.Current.Pick(
-                    "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），" +
-                    "但保留你已養成的習慣化進度。",
-                    "Reset personalisation state?\n\nThis clears transient personalisation " +
-                    "(shader tweaks) but keeps your earned habituation progress.")))
+                    "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化，但會保留你原始的習慣紀錄。",
+                    "Reset personalisation state?\n\nThis clears transient personalisation, " +
+                    "but keeps your original habituation record.")))
             return;
         ResetRequested?.Invoke();
     }

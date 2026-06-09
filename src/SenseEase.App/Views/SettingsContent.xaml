@@ -154,12 +154,7 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Type.Heading}"
                                    Text="{loc:T Zh='外觀', En='Appearance'}"
-                                   Margin="0,0,0,4"/>
-                        <TextBlock Text="{loc:T Zh='選擇介面主題，或跟隨 Windows 系統設定。', En='Choose the interface theme, or follow your Windows system setting.'}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,0,0,14"/>
+                                   Margin="0,0,0,12"/>
 
                         <!-- Segmented control: one SurfaceMuted track wrapping
                              three equal-width RadioButton segments. The track is
@@ -216,12 +211,7 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Type.Heading}"
                                    Text="{loc:T Zh='語言', En='Language'}"
-                                   Margin="0,0,0,4"/>
-                        <TextBlock Text="{loc:T Zh='選擇介面語言。', En='Choose the interface language.'}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,0,0,14"/>
+                                   Margin="0,0,0,12"/>
 
                         <!-- Segmented control: one SurfaceMuted track wrapping
                              two equal-width RadioButton segments, mirroring the
@@ -267,57 +257,20 @@
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleAuto"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='讓 SenseEase 主動展開通知卡', En='Let SenseEase expand notification cards automatically'}"
+                                      Content="{loc:T Zh='讓 SenseEase 主動提醒', En='Let SenseEase remind me proactively'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleAutoChanged"
                                       Unchecked="OnToggleAutoChanged"/>
-                            <TextBlock Text="{loc:T Zh='偵測到中度以上不適時自動展開通知卡。', En='Auto-expands a notification card when moderate-or-higher discomfort is detected.'}"
+                            <TextBlock Text="{loc:T Zh='偵測到中度以上不適時自動通知', En='Notifies automatically on moderate-or-higher discomfort.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
-                            <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
-                                      FontSize="11"
-                                      Foreground="{DynamicResource TextTertiary}"
-                                      IsExpanded="False"
-                                      Margin="22,2,0,0">
-                                <TextBlock Text="{loc:T Zh='開啟時，系統偵測到中度以上不適會自動展開通知卡。預設關閉以避免非預期視覺干擾。', En='When on, the system auto-expands a notification card on moderate-or-higher discomfort. Off by default to avoid unexpected visual interruptions.'}"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource TextTertiary}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,4,0,0"/>
-                            </Expander>
                         </StackPanel>
 
-                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
-
-                        <!-- Toggle B: bar/tray colour -->
-                        <StackPanel Orientation="Vertical">
-                            <CheckBox x:Name="ToggleColor"
-                                      Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='Bar 與 Tray 顏色隨 tier 變化', En='Bar &amp; tray colour follows the tier'}"
-                                      Foreground="{DynamicResource TextPrimary}"
-                                      FontSize="13"
-                                      Checked="OnToggleColorChanged"
-                                      Unchecked="OnToggleColorChanged"/>
-                            <TextBlock Text="{loc:T Zh='bar 與 tray icon 顏色依視覺壓力 tier 變化。', En='The bar and tray icon colour change with the visual-pressure tier.'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                            <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
-                                      FontSize="11"
-                                      Foreground="{DynamicResource TextTertiary}"
-                                      IsExpanded="False"
-                                      Margin="22,2,0,0">
-                                <TextBlock Text="{loc:T Zh='開啟時，bar 與 tray icon 顏色會依視覺壓力 tier 變化（灰 / 琥珀 / 紅）；關閉時永遠維持灰色透明。', En='When on, the bar and tray icon colour follow the visual-pressure tier (grey / amber / red); when off they stay grey and translucent.'}"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource TextTertiary}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,4,0,0"/>
-                            </Expander>
-                        </StackPanel>
+                        <!-- Bar/Tray colour toggle removed (2026-06-09, user request).
+                             UserPreferences.BarTrayColorEnabled stays for the tray icon. -->
                     </StackPanel>
                 </Border>
 
@@ -331,18 +284,18 @@
                         Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='背景常駐', En='Background &amp; startup'}"
+                                   Text="{loc:T Zh='背景模式', En='Background mode'}"
                                    Margin="0,0,0,14"/>
 
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleMinimizeToTray"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='關閉視窗時最小化到工作匣 (不結束程式)', En='Minimise to the tray when the window closes (keep running)'}"
+                                      Content="{loc:T Zh='關閉視窗時最小化到系統匣 (不結束程式)', En='Minimise to the tray when the window closes (keep running)'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleMinimizeToTrayChanged"
                                       Unchecked="OnToggleMinimizeToTrayChanged"/>
-                            <TextBlock Text="{loc:T Zh='按下主視窗的 X 只會收到工作匣，背景持續偵測。', En='Pressing X on the main window just sends it to the tray; detection keeps running in the background.'}"
+                            <TextBlock Text="{loc:T Zh='按下主視窗的 X 只會收到系統匣，背景持續偵測。', En='Pressing X on the main window just sends it to the tray; detection keeps running in the background.'}"
                                        FontSize="11"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
@@ -352,7 +305,7 @@
                                       Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
-                                <TextBlock Text="{loc:T Zh='開啟時，按下主視窗的 X 只會把視窗收到右下角的工作匣，SenseEase 持續在背景偵測。要完全結束請用工作匣選單的「退出 SenseEase」。', En='When on, pressing X on the main window sends it to the system tray (bottom-right) and SenseEase keeps detecting in the background. To quit completely, use Quit SenseEase in the tray menu.'}"
+                                <TextBlock Text="{loc:T Zh='開啟時，按下主視窗的 X 只會把視窗收到右下角的系統匣，SenseEase 持續在背景偵測。要完全結束請用系統匣選單的「退出 SenseEase」。', En='When on, pressing X on the main window sends it to the system tray (bottom-right) and SenseEase keeps detecting in the background. To quit completely, use Quit SenseEase in the tray menu.'}"
                                            FontSize="11"
                                            Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
@@ -365,27 +318,11 @@
                         <StackPanel Orientation="Vertical">
                             <CheckBox x:Name="ToggleRunAtStartup"
                                       Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='登入 Windows 時自動啟動 SenseEase', En='Start SenseEase automatically when you sign in to Windows'}"
+                                      Content="{loc:T Zh='開機時自動啟動 SenseEase', En='Start SenseEase automatically at startup'}"
                                       Foreground="{DynamicResource TextPrimary}"
                                       FontSize="13"
                                       Checked="OnToggleRunAtStartupChanged"
                                       Unchecked="OnToggleRunAtStartupChanged"/>
-                            <TextBlock Text="{loc:T Zh='跟著 Windows 登入自動啟動並最小化到工作匣。', En='Starts with Windows sign-in and minimises to the tray.'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                            <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
-                                      FontSize="11"
-                                      Foreground="{DynamicResource TextTertiary}"
-                                      IsExpanded="False"
-                                      Margin="22,2,0,0">
-                                <TextBlock Text="{loc:T Zh='開啟時，SenseEase 會跟著 Windows 登入自動啟動並直接最小化到工作匣，不會彈出主視窗。透過 HKCU 註冊表項目實作（不需系統管理員權限）。', En='When on, SenseEase starts at Windows sign-in and goes straight to the tray without opening the main window. Implemented via an HKCU registry entry (no administrator rights needed).'}"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource TextTertiary}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,4,0,0"/>
-                            </Expander>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -420,7 +357,7 @@
                                      release the single-instance mutex before the new
                                      instance launches. -->
                                 <Button x:Name="RestartButton"
-                                        Content="{loc:T Zh='需重新啟動 / 立即重啟', En='Restart needed / Restart now'}"
+                                        Content="{loc:T Zh='需重新啟動', En='Restart needed'}"
                                         Margin="10,0,0,0"
                                         Padding="10,5"
                                         FontSize="12"
@@ -433,34 +370,12 @@
                                         Click="OnRestartClicked"
                                         ToolTip="{loc:T Zh='點擊立即重啟 SenseEase 以套用頭部追蹤變更', En='Click to restart SenseEase now and apply head-tracking changes'}"/>
                             </StackPanel>
-                            <TextBlock Text="{loc:T Zh='啟動 Python sidecar 並讀取 webcam，讓 FOV 遮罩跟著視線。', En='Starts a Python sidecar and reads the webcam so the FOV mask follows your gaze.'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                            <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
-                                      FontSize="11"
-                                      Foreground="{DynamicResource TextTertiary}"
-                                      IsExpanded="False"
-                                      Margin="22,2,0,0">
-                                <StackPanel Margin="0,4,0,0">
-                                    <TextBlock Text="{loc:T Zh='開啟時，啟動會啟動 Python sidecar 並讀取 webcam（MediaPipe 推論臉部姿態）讓 FOV 遮罩跟著你的視線移動。預設關閉以保護隱私。', En='When on, startup launches a Python sidecar and reads the webcam (MediaPipe infers face pose) so the FOV mask follows your gaze. Off by default to protect privacy.'}"
-                                               FontSize="11"
-                                               Foreground="{DynamicResource TextTertiary}"
-                                               TextWrapping="Wrap"/>
-                                    <TextBlock Text="When on, app launch spawns a Python sidecar and reads the webcam (MediaPipe face-landmark inference) so the FOV mask follows your gaze. Default off for privacy. See docs/HEAD-TRACKING-PRIVACY.md."
-                                               FontSize="11"
-                                               Foreground="{DynamicResource TextTertiary}"
-                                               TextWrapping="Wrap"
-                                               Margin="0,2,0,0"/>
-                                </StackPanel>
-                            </Expander>
                         </StackPanel>
 
                         <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
 
                         <StackPanel Orientation="Vertical">
-                            <TextBlock Text="{loc:T Zh='跟隨模式', En='Follow Mode'}"
+                            <TextBlock Text="{loc:T Zh='追蹤模式', En='Tracking mode'}"
                                        FontSize="12" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimary}"
                                        Margin="22,0,0,4"/>
@@ -471,48 +386,17 @@
                                          FontSize="13"
                                          Margin="22,2,0,0"
                                          Checked="OnFollowModeChanged"/>
-                            <TextBlock Text="{loc:T Zh='遮罩中心限制在螢幕中央 80% 區域，周邊永遠維持部分遮蔽（臨床預設、減輕視覺動暈）。', En='The mask centre stays within the central 80% of the screen; the periphery always keeps partial masking (clinical default, eases visual motion sickness).'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="42,2,0,0"/>
                             <RadioButton x:Name="FollowModeFull"
                                          GroupName="HeadTrackingFollowMode"
-                                         Content="{loc:T Zh='完整跟隨 (邊緣較完整，可能感覺較不穩定)', En='Full follow (more complete edges, may feel less stable)'}"
+                                         Content="{loc:T Zh='完整追蹤（邊緣較完整）', En='Full tracking (more complete edges)'}"
                                          Foreground="{DynamicResource TextPrimary}"
                                          FontSize="13"
                                          Margin="22,8,0,0"
                                          Checked="OnFollowModeChanged"/>
-                            <TextBlock Text="{loc:T Zh='遮罩中心可走到螢幕角落，可以完整看到邊緣內容；周邊變化較大、可能感覺較不穩定。', En='The mask centre can reach the screen corners so you can fully see edge content; the periphery shifts more and may feel less stable.'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="42,2,0,0"/>
                         </StackPanel>
 
-                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
-
-                        <StackPanel Orientation="Vertical">
-                            <CheckBox x:Name="ToggleEscapeHatch"
-                                      Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='啟用暫時透明', En='Enable temporary transparency'}"
-                                      Foreground="{DynamicResource TextPrimary}"
-                                      FontSize="13"
-                                      Checked="OnToggleEscapeHatchChanged"
-                                      Unchecked="OnToggleEscapeHatchChanged"/>
-                            <TextBlock Text="{loc:T Zh='連點兩下 Ctrl — 短暫降低 FOV 遮罩到 30% 透明度 3 秒，方便偷瞄螢幕角落。', En='Double-tap Ctrl — briefly lowers the FOV mask to 30% opacity for 3 seconds so you can peek at the screen corners.'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                            <TextBlock x:Name="EscapeHatchVestibularNote"
-                                       Visibility="Collapsed"
-                                       Text="{loc:T Zh='（你的 calibration 紀錄顯示前庭敏感，此功能已停用以維持視覺保護。）', En='(Disabled because vestibular sensitivity detected; temporary transparency would compromise visual protection.)'}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource ComfortHighText}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                        </StackPanel>
+                        <!-- 「啟用暫時透明」 escape-hatch section (toggle + description +
+                             vestibular note) removed entirely (2026-06-09, user request). -->
                     </StackPanel>
                 </Border>
 
@@ -533,11 +417,6 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Type.Heading}"
                                    Text="{loc:T Zh='事件記錄', En='Event Log'}"
-                                   Margin="0,0,0,4"/>
-                        <TextBlock Text="{loc:T Zh='在獨立視窗查看 SenseEase 的事件與診斷紀錄（啟動、遮罩啟動／解除、示範、感測切換等）。', En='View the event &amp; diagnostic log in its own window (startup, mask on/off, demos, sensing switches, and more).'}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap"
                                    Margin="0,0,0,12"/>
                         <Button x:Name="OpenEventLogButton"
                                 Content="{loc:T Zh='開啟事件記錄', En='Open event log'}"
@@ -566,7 +445,7 @@
                         <TextBlock Style="{StaticResource Type.Heading}"
                                    Text="{loc:T Zh='資料與隱私', En='Data &amp; privacy'}"
                                    Margin="0,0,0,14"/>
-                        <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期模型：行為紀錄、分析索引與長期觀察，並刪除模型診斷追蹤。你的校正設定檔（profile／強度）會保留。此動作無法復原。', En='Clear the long-term model SenseEase has built about you — the behaviour log, analysis index, and longitudinal observations — plus the model diagnostic trace. Your calibration profile (profile / strength) is kept. This cannot be undone.'}"
+                        <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析，並刪除模型診斷追蹤。你的校正設定檔會保留，此動作無法復原。', En='Clear the long-term behaviour log and analysis SenseEase has built about you, and delete the model diagnostic trace. Your calibration profile is kept. This cannot be undone.'}"
                                    FontSize="11"
                                    Foreground="{DynamicResource TextTertiary}"
                                    TextWrapping="Wrap"
@@ -591,11 +470,11 @@
                         <StackPanel x:Name="AutoProfilingDataGroup" Visibility="Collapsed" Margin="0,18,0,0">
                             <Border Background="{DynamicResource Separator}" Height="1" Margin="0,0,0,14"/>
                             <CheckBox x:Name="VestibularProtectionToggle"
-                                      Content="{loc:T Zh='前庭／眩暈保護（最敏感防護）', En='Vestibular / dizziness protection (most-sensitive guard)'}"
+                                      Content="{loc:T Zh='暈眩防護（敏感模式）', En='Dizziness protection (sensitive mode)'}"
                                       Foreground="{DynamicResource TextPrimary}" FontSize="12"
                                       Checked="OnVestibularProtectionChanged"
                                       Unchecked="OnVestibularProtectionChanged"/>
-                            <TextBlock Text="{loc:T Zh='若你有前庭或眩暈相關診斷，開啟此項會套用最敏感的防護。此設定可隨時更改。', En='If you have a vestibular or dizziness-related diagnosis, enabling this applies the most-sensitive protection. You can change this anytime.'}"
+                            <TextBlock Text="{loc:T Zh='若您感到暈眩或不適，可開啟此防護。', En='If you feel dizzy or uncomfortable, you can enable this protection.'}"
                                        FontSize="11" Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap" Margin="0,6,0,14"/>
                             <Button x:Name="ResetStateButton"

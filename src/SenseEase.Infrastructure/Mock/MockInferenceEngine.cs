@@ -393,7 +393,6 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 ? (int)Math.Round(Math.Clamp(pressure / effTrigger * 100.0, 0, 100))
                 : 0;
             Current.Mode = mode;
-            Current.FmsScore = (int)Math.Clamp(pressure / 10.0, 0, 20);
 
             // Hysteresis: trigger at 100, release at 85 to avoid sticky behavior/flicker.
             bool shouldMaskOn = pressure >= SenseDefaults.TriggerPressure;

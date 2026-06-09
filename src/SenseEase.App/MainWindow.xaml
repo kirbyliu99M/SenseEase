@@ -33,6 +33,7 @@
         <conv:TierToComfortLabelConverter x:Key="TierToComfortLabel"/>
         <conv:TierToComfortBandConverter  x:Key="TierToComfortBand"/>
         <conv:TierToFeelLabelConverter    x:Key="TierToFeelLabel"/>
+        <conv:TierToFillPercentConverter  x:Key="TierToFillPercent"/>
 
         <!-- ── Card ──
              Clean rounded surface (myHP / HP Smart look): Radius.md corner,
@@ -203,7 +204,7 @@
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                     <TextBlock Text="SenseEase"
                                FontSize="22" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
-                    <TextBlock Text="OS-level Preventive Visual Comfort Prototype"
+                    <TextBlock Text="{loc:T Zh='OS 層級預防性視覺舒適原型', En='OS-level Preventive Visual Comfort Prototype'}"
                                Foreground="{DynamicResource TextTertiary}" FontSize="12"/>
                 </StackPanel>
 
@@ -317,14 +318,16 @@
                             </Border>
                         </StackPanel>
 
-                        <!-- ComfortMeter: fill ← DisplayStressPercent (0-100, P1
-                             personalized = pressure as a % of THIS user's trigger).
-                             EMPTY at rest (no "always-on protection" illusion); fills
-                             only as real strain rises. Colour keys off the tier band. -->
-                        <ProgressBar Value="{Binding DisplayStressPercent, Mode=OneWay}" Maximum="100"
+                        <!-- ComfortMeter (2026-06-09): fill ← the live motion TIER (via
+                             TierToFillPercent: tier 1 → 0% empty/calm, tier 12 → 100% full).
+                             Bound to the SAME VimsTier as the title band label and the overlay
+                             mask, so fill ⇄ label ⇄ overlay agree and update together. (Was
+                             DisplayStressPercent — a different signal that disagreed with the
+                             label and often sat near 0.) Colour keys off the tier band. -->
+                        <ProgressBar Value="{Binding VimsTier, Converter={StaticResource TierToFillPercent}, Mode=OneWay}" Maximum="100"
                                      Height="6" Margin="0,16,0,0" BorderThickness="0"
                                      Background="{DynamicResource SurfaceMuted}"
-                                     AutomationProperties.Name="Comfort level">
+                                     AutomationProperties.Name="{loc:T Zh='舒適度', En='Comfort level'}">
                             <ProgressBar.Style>
                                 <Style TargetType="ProgressBar">
                                     <Setter Property="Foreground" Value="{DynamicResource ComfortSteady}"/>
@@ -351,85 +354,17 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
                                        Foreground="{DynamicResource TextTertiary}"
-                                       Text="{loc:T Zh='平穩', En='calm'}"/>
-                            <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       HorizontalAlignment="Center" TextAlignment="Center"
-                                       Text="{loc:T Zh='相對於你的個人閾值', En='Relative to your personal threshold'}"/>
+                                       Text="{loc:T Zh='低', En='Low'}"/>
                             <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
                                        Foreground="{DynamicResource TextTertiary}"
-                                       Text="{loc:T Zh='高', En='high'}"/>
+                                       Text="{loc:T Zh='高', En='High'}"/>
                         </Grid>
                     </StackPanel>
                 </Border>
 
-                <!-- ── Profile quick-access (個人化設定檔) ──
-                     Compact light pills under the D1 hero. Bound to MainViewModel's
-                     SelectProfileCommand (the Dashboard's DataContext), passing the
-                     canonical profile string ("RESILIENT"/"TYPICAL"/"SENSITIVE") as the
-                     CommandParameter. WIRED: SelectProfileCommand is constructed on
-                     MainViewModel and drives the engine directly via
-                     OnUserProfileSelected → MockInferenceEngine.SetHabituationProfile
-                     (the user's own pick — distinct from the SEVERED chatbot
-                     SwitchProfile path, Reading A). The active pill highlights via
-                     {Binding CurrentProfile}, raised in OnUserProfileSelected +
-                     UpdateFromState. -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Text="{loc:T Zh='個人化設定檔', En='Profile'}"
-                                   Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
-                        <WrapPanel Orientation="Horizontal">
-                            <Button Content="{loc:T Zh='穩健', En='RESILIENT'}"
-                                    Command="{Binding SelectProfileCommand}"
-                                    CommandParameter="RESILIENT"
-                                    AutomationProperties.Name="{loc:T Zh='設定檔 RESILIENT', En='Profile RESILIENT'}"
-                                    Margin="0,0,8,0">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding CurrentProfile}" Value="RESILIENT">
-                                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                                                <Setter Property="Foreground" Value="White"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                            <Button Content="{loc:T Zh='一般', En='TYPICAL'}"
-                                    Command="{Binding SelectProfileCommand}"
-                                    CommandParameter="TYPICAL"
-                                    AutomationProperties.Name="{loc:T Zh='設定檔 TYPICAL', En='Profile TYPICAL'}"
-                                    Margin="0,0,8,0">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding CurrentProfile}" Value="TYPICAL">
-                                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                                                <Setter Property="Foreground" Value="White"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                            <Button Content="{loc:T Zh='敏感', En='SENSITIVE'}"
-                                    Command="{Binding SelectProfileCommand}"
-                                    CommandParameter="SENSITIVE"
-                                    AutomationProperties.Name="{loc:T Zh='設定檔 SENSITIVE', En='Profile SENSITIVE'}"
-                                    Margin="0">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource ProfilePill}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding CurrentProfile}" Value="SENSITIVE">
-                                                <Setter Property="Background" Value="{DynamicResource Accent}"/>
-                                                <Setter Property="Foreground" Value="White"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
+                <!-- 個人化設定檔 (穩健/一般/敏感 profile pills) card removed (2026-06-09,
+                     user request). SelectProfileCommand / CurrentProfile stay on
+                     MainViewModel (unused by the dashboard UI now). -->
 
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
                 <Expander Header="{loc:T Zh='進階數據', En='Advanced'}" IsExpanded="False" Margin="0,0,0,16"
@@ -444,7 +379,7 @@
                     <!-- OFI -->
                     <Border Style="{StaticResource Card}" Margin="0,0,12,0">
                         <StackPanel>
-                            <TextBlock Text="Optical Flow Index" Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{loc:T Zh='光流指數', En='Optical Flow Index'}" Style="{StaticResource CardLabel}"/>
                             <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding OpticalFlowIndex}" Maximum="150"
@@ -457,33 +392,33 @@
                     <!-- VIMS Pressure -->
                     <Border Style="{StaticResource Card}" Margin="0,0,12,0">
                         <StackPanel>
-                            <TextBlock Text="VIMS Pressure" Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{loc:T Zh='VIMS 壓力', En='VIMS Pressure'}" Style="{StaticResource CardLabel}"/>
                             <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding Pressure, Mode=OneWay}" Maximum="200"
                                          Height="4" Background="{DynamicResource ComfortHighWeak}" Foreground="{DynamicResource ComfortHigh}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
-                            <TextBlock Text="Leaky Integrator" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
+                            <TextBlock Text="{loc:T Zh='漏積分器', En='Leaky Integrator'}" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
                     </Border>
 
                     <!-- FOV Radius -->
                     <Border Style="{StaticResource Card}" Margin="0,0,12,0">
                         <StackPanel>
-                            <TextBlock Text="FOV Radius" Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{loc:T Zh='FOV 半徑', En='FOV Radius'}" Style="{StaticResource CardLabel}"/>
                             <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
                                        Style="{StaticResource CardValue}"/>
                             <ProgressBar Value="{Binding FovRadiusPercent, Mode=OneWay}" Maximum="100"
                                          Height="4" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
-                            <TextBlock Text="Clear zone" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
+                            <TextBlock Text="{loc:T Zh='清晰區', En='Clear zone'}" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
                         </StackPanel>
                     </Border>
 
                     <!-- Current Mode -->
                     <Border Style="{StaticResource Card}" Margin="0">
                         <StackPanel>
-                            <TextBlock Text="Current Mode" Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{loc:T Zh='目前模式', En='Current Mode'}" Style="{StaticResource CardLabel}"/>
                             <TextBlock Text="{Binding Mode}" Style="{StaticResource CardValue}"/>
                             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                 <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,6,0">
@@ -517,14 +452,12 @@
 
                 </UniformGrid>
 
-                <!-- Status strip (FMS / Overlay diagnostics) -->
+                <!-- Status strip (overlay-visibility diagnostic). The "FMS Score" readout was
+                     removed (2026-06-09): it was a synthetic pressure/10 proxy, not real FMS. -->
                 <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="12,8" Margin="0,8,0,0">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="FMS Score: " Style="{StaticResource CardLabel}"/>
-                            <TextBlock Text="{Binding FmsScore}" Foreground="{DynamicResource TextPrimary}"
-                                       FontWeight="Bold" FontSize="12"/>
-                            <TextBlock Text="   |   Overlay: " Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{loc:T Zh='遮罩： ', En='Overlay: '}" Style="{StaticResource CardLabel}"/>
                             <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
@@ -542,7 +475,7 @@
                              strip reads as developer/diagnostic info, not a daily metric. -->
                         <TextBlock Style="{StaticResource Type.Caption}"
                                    Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
-                                   Text="{loc:T Zh='診斷數值,日常使用可忽略', En='Diagnostic values — safe to ignore in everyday use.'}"/>
+                                   Text="{loc:T Zh='詳細數據,日常使用可忽略', En='Detailed data — safe to ignore in everyday use.'}"/>
                     </StackPanel>
                 </Border>
                 </StackPanel>
@@ -590,7 +523,7 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{loc:T Zh='基準強度', En='Baseline intensity'}"
+                            <TextBlock Grid.Column="0" Text="{loc:T Zh='基礎強度', En='Baseline intensity'}"
                                        Style="{StaticResource CardLabel}"
                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Slider Grid.Column="1"
@@ -599,39 +532,17 @@
                                     IsSnapToTickEnabled="True"
                                     VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="2"
-                                       Text="{Binding PersistentOverlayBaselineTier, StringFormat='L{0}'}"
+                                       Text="{Binding PersistentOverlayBaselineTier, StringFormat='Lv.{0}'}"
                                        Foreground="{DynamicResource TextPrimary}" FontWeight="Bold"
                                        Width="36" TextAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Grid>
 
-                        <Separator Background="{DynamicResource Separator}" Margin="0,16"/>
-                        <TextBlock Text="{loc:T Zh='再適應', En='Habituation Engine'}"
-                                   Style="{StaticResource CardLabel}" Margin="0,0,0,8"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" VerticalAlignment="Center"
-                                        ToolTip="{loc:T Zh='持續平靜時上升，不適應事件時下降 — 引擎動態調整保護層級', En='Rises with sustained calm, decreases on discomfort — engine adapts protection dynamically'}">
-                                <ProgressBar Value="{Binding HabituationLevel, Mode=OneWay}" Maximum="100"
-                                             Height="6" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource ComfortSteady}"
-                                             BorderThickness="0"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                    <TextBlock Style="{StaticResource CardLabel}"
-                                               Text="{loc:T Zh='再適應程度', En='Adaptation Level'}"/>
-                                    <TextBlock Style="{StaticResource CardLabel}"
-                                               Text="{Binding HabituationLevel, StringFormat=': {0}%'}"/>
-                                </StackPanel>
-                                <TextBlock Style="{StaticResource CardLabel}" Opacity="0.7" Margin="0,2,0,0"
-                                           Text="{loc:T Zh='0%=完整支援 · 100%=完全寬鬆', En='0%=Full support · 100%=Fully eased'}"/>
-                            </StackPanel>
-                            <Button Grid.Column="1" Style="{StaticResource GhostBtn}"
-                                    Margin="12,0,0,0" VerticalAlignment="Center"
-                                    Content="{Binding HabituationButtonText}"
-                                    Command="{Binding ToggleHabituationCommand}"/>
-                        </Grid>
+                        <!-- 再適應 (Habituation Engine) progress + pause button removed from the
+                             dashboard (2026-06-09, user request). The habituation engine keeps
+                             running underneath; HabituationLevel / ToggleHabituationCommand /
+                             HabituationButtonText stay on MainViewModel (unused by the UI now). -->
+
                     </StackPanel>
                 </Border>
 
@@ -682,10 +593,12 @@
                                                    Foreground="{DynamicResource TextSecondary}"/>
                                     </Border>
                                 </StackPanel>
-                                <ProgressBar Value="{Binding DisplayStressPercent, Mode=OneWay}" Maximum="100"
+                                <!-- ComfortMeter (2026-06-09): fill ← live motion TIER (TierToFillPercent),
+                                     same VimsTier as the title label + overlay (see Dashboard hero). -->
+                                <ProgressBar Value="{Binding VimsTier, Converter={StaticResource TierToFillPercent}, Mode=OneWay}" Maximum="100"
                                              Height="6" Margin="0,16,0,0" BorderThickness="0"
                                              Background="{DynamicResource SurfaceMuted}"
-                                             AutomationProperties.Name="Comfort level">
+                                             AutomationProperties.Name="{loc:T Zh='舒適度', En='Comfort level'}">
                                     <ProgressBar.Style>
                                         <Style TargetType="ProgressBar">
                                             <Setter Property="Foreground" Value="{DynamicResource ComfortSteady}"/>
@@ -712,14 +625,10 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
                                                Foreground="{DynamicResource TextTertiary}"
-                                               Text="{loc:T Zh='平穩', En='calm'}"/>
-                                    <TextBlock Grid.Column="1" Style="{StaticResource Type.Caption}"
-                                               Foreground="{DynamicResource TextTertiary}"
-                                               HorizontalAlignment="Center" TextAlignment="Center"
-                                               Text="{loc:T Zh='相對於你的個人閾值', En='Relative to your personal threshold'}"/>
+                                               Text="{loc:T Zh='低', En='Low'}"/>
                                     <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
                                                Foreground="{DynamicResource TextTertiary}"
-                                               Text="{loc:T Zh='高', En='high'}"/>
+                                               Text="{loc:T Zh='高', En='High'}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -736,14 +645,14 @@
                                         <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Optical Flow" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='光流', En='Optical Flow'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="VIMS Pressure" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='VIMS 壓力', En='VIMS Pressure'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
@@ -751,14 +660,14 @@
                                                    HorizontalAlignment="Center">
                                             <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 12"/>
                                         </TextBlock>
-                                        <TextBlock Text="VIMS Tier" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='VIMS 階', En='VIMS Tier'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
                                         <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="FOV Radius" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='FOV 半徑', En='FOV Radius'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center">
@@ -776,7 +685,7 @@
                                                 </Style>
                                             </TextBlock.Style>
                                         </TextBlock>
-                                        <TextBlock Text="Mask State" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='遮罩狀態', En='Mask State'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center"/>
                                     </StackPanel>
                                 </UniformGrid>
@@ -801,11 +710,11 @@
                                         </Ellipse>
                                         <TextBlock Text="{Binding ActivityStatus}" Style="{StaticResource CardLabel}"
                                                    VerticalAlignment="Center"
-                                                   AutomationProperties.Name="OS-chrome activity suppression status"/>
+                                                   AutomationProperties.Name="{loc:T Zh='系統介面活動抑制狀態', En='OS-chrome activity suppression status'}"/>
                                     </StackPanel>
                                     <TextBlock Text="{Binding AutoModeText}" Style="{StaticResource CardLabel}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               AutomationProperties.Name="Auto driver / passenger mode"/>
+                                               AutomationProperties.Name="{loc:T Zh='自動駕駛／乘客模式', En='Auto driver / passenger mode'}"/>
                                 </UniformGrid>
                             </StackPanel>
                         </Border>
@@ -816,7 +725,7 @@
                              language labels only; raw OFI/Pressure NUMBERS stay on the Dashboard. -->
                         <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                             <StackPanel>
-                                <TextBlock Text="{loc:T Zh='防護活動', En='Protection activity'}"
+                                <TextBlock Text="{loc:T Zh='保護紀錄', En='Protection record'}"
                                            Style="{StaticResource SectionTitle}"/>
                                 <TextBlock Text="{loc:T Zh='畫面動態與防護強度的即時軌跡', En='Live trace of screen motion and protection'}"
                                            Style="{StaticResource CardLabel}" Margin="0,0,0,10" TextWrapping="Wrap"/>
@@ -848,35 +757,35 @@
                                         <TextBlock Text="{Binding SessionFovIntercepts}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="FOV Intercepts" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='FOV 攔截次數', En='FOV Intercepts'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakOfi, StringFormat='{}{0:F1}'}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Peak Optical Flow" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='尖峰光流', En='Peak Optical Flow'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionPeakPressure, StringFormat='{}{0:F1}'}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Peak VIMS Pressure" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='尖峰 VIMS 壓力', En='Peak VIMS Pressure'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionMaskActiveText}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Mask Active Time" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='遮罩啟用時間', En='Mask Active Time'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                     <StackPanel HorizontalAlignment="Center" Margin="6">
                                         <TextBlock Text="{Binding SessionUptimeText}"
                                                    Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
                                                    HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Session Uptime" Style="{StaticResource CardLabel}"
+                                        <TextBlock Text="{loc:T Zh='工作階段時間', En='Session Uptime'}" Style="{StaticResource CardLabel}"
                                                    HorizontalAlignment="Center" TextAlignment="Center"/>
                                     </StackPanel>
                                 </UniformGrid>
@@ -1082,7 +991,7 @@
                             Effect="{StaticResource Elev.2}">
                         <TextBlock Text="{Binding StatusText}"
                                    FontSize="12" Foreground="{DynamicResource TextTertiary}" TextWrapping="Wrap"
-                                   AutomationProperties.Name="AI assistant status"/>
+                                   AutomationProperties.Name="{loc:T Zh='AI 助理狀態', En='AI assistant status'}"/>
                     </Border>
 
                     <!-- Input row -->
@@ -1123,10 +1032,10 @@
                             </TextBox>
                         </Border>
                         <Button Grid.Column="1"
-                                Content="Send" Style="{StaticResource PrimaryBtn}"
+                                Content="{loc:T Zh='傳送', En='Send'}" Style="{StaticResource PrimaryBtn}"
                                 Command="{Binding SendCommand}" Margin="0,0,8,0" MinHeight="44"/>
                         <Button Grid.Column="2"
-                                Content="Clear" Style="{StaticResource GhostBtn}"
+                                Content="{loc:T Zh='清除', En='Clear'}" Style="{StaticResource GhostBtn}"
                                 Click="OnChatClearClicked" MinHeight="44"/>
                     </Grid>
                 </Grid>

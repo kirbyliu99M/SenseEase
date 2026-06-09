@@ -69,6 +69,24 @@ internal static class ComfortBands
     }
 }
 
+/// <summary>Tier (1–12) → hero-meter fill percent (0–100): tier 1 → 0 (empty / calm),
+/// tier 12 → 100 (full / most motion). Drives the Home + Eye-Care hero meter so its
+/// fill tracks the SAME tier as the title band label and the overlay-mask intensity
+/// (2026-06-09 fix: the meter used to bind DisplayStressPercent, a different signal that
+/// disagreed with the label and often sat near 0). One-way (read-only source).</summary>
+public sealed class TierToFillPercentConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        int tier = value is int t ? t : 0;
+        double pct = (tier - 1) / 11.0 * 100.0;
+        return Math.Max(0.0, Math.Min(100.0, pct));
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 /// <summary>Tier → the 5級 動態感 motion label in the active language (single-value;
 /// re-picks on tier change). Used for read-only a11y names; live language-toggle
 /// surfaces use <see cref="TierToFeelLabelConverter"/>.</summary>

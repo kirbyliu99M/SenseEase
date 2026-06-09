@@ -147,7 +147,7 @@
     <Border x:Name="CardBorder"
             Background="{DynamicResource Surface}"
             CornerRadius="{StaticResource Radius.md}"
-            Padding="14,10"
+            Padding="14,7"
             BorderBrush="{DynamicResource CardBorder}"
             BorderThickness="1"
             MouseMove="OnCardMouseMove"
@@ -448,7 +448,7 @@
                         <!-- UI/UX fine-tune (2026-06-08): a subtle caption sits above the
                              12-level intensity adjuster (−/level/+). It is left-aligned so it
                              frames the adjuster; 暫停 / 設定 / flip continue to its right. -->
-                        <TextBlock Text="{loc:T Zh='調整強度', En='Adjust intensity'}"
+                        <TextBlock Text="{loc:T Zh='調整強度', En='Intensity'}"
                                    FontSize="11"
                                    Foreground="{DynamicResource TextTertiary}"
                                    HorizontalAlignment="Left"
@@ -467,8 +467,8 @@
                                     AutomationProperties.Name="{loc:T Zh='減弱介入', En='Adjust down'}"
                                     ToolTip="{loc:T Zh='減弱介入', En='Ease less'}"/>
                             <TextBlock x:Name="LevelText"
-                                       Text="L1"
-                                       MinWidth="26"
+                                       Text="Lv.1"
+                                       MinWidth="40"
                                        FontSize="13" FontWeight="SemiBold"
                                        Foreground="{DynamicResource Accent}"
                                        TextAlignment="Center"

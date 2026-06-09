@@ -23,7 +23,7 @@ namespace SenseEase.Core.AdaptiveFit;
 /// <param name="CalmRatio">
 /// Fraction of samples below the stable-pressure fraction, [0..1].</param>
 /// <param name="FmsAggregate">
-/// Rolling mean of FmsScore (0..20); 0 when no FMS field is present.</param>
+/// Rolling mean of any per-entry FMS value (0..20); 0 when no FMS field is present.</param>
 /// <param name="SampleCount">
 /// Window sample count (drives the min-samples confidence gate).</param>
 public sealed record UserIntensityStats(
