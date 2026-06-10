@@ -33,6 +33,7 @@ def _load_module():
 
 _HT = _load_module()
 AdaptiveEma2D = _HT.AdaptiveEma2D
+JumpFilter    = _HT.JumpFilter
 
 
 class AdaptiveEma2DAlphaCurveTests(unittest.TestCase):
@@ -199,6 +200,220 @@ class AdaptiveEma2DRegimeTransitionTests(unittest.TestCase):
         # α should be strictly between LOW and MED_LOW, not at either.
         self.assertGreater(s.current_alpha, AdaptiveEma2D.ALPHA_LOW)
         self.assertLess(s.current_alpha, AdaptiveEma2D.ALPHA_MED_LOW)
+
+
+class JumpFilterDropoutRecoveryTests(unittest.TestCase):
+    """SIDE-01 spec (a): face dropout at extreme yaw -> re-acquire near center
+    -> consistency unlatch lets filter accept the new pose within 3 frames.
+
+    Scenario mirrors the real failure: user turns to ~42° yaw (extreme),
+    face drops out (face_present=0), then head returns toward ~5° center.
+    Without the consistency unlatch, last_valid is stuck at 42° and every
+    center frame (delta ~37°) is rejected forever.  With the unlatch,
+    3 self-consistent frames at ~5° must cause acceptance.
+    """
+
+    def _make_filter(self) -> "JumpFilter":
+        return JumpFilter(0.5, 0.5)
+
+    def test_recovery_within_3_frames_after_dropout_at_extreme(self):
+        """Latch captures extreme (42°), then face drops out, then returns to
+        5° center. The consistency unlatch must accept by frame 3 of
+        re-acquisition (i.e., is_valid == True no later than the 3rd
+        returned-to-center frame)."""
+        f = self._make_filter()
+        t = 0.0
+
+        # Phase 1: establish valid latch at extreme yaw=42.
+        is_valid, cx, cy = f.process(42.0, 0.0, 0.977, 0.5, 1.0, t)
+        self.assertTrue(is_valid)
+        self.assertAlmostEqual(f.last_valid_yaw, 42.0, places=3)
+
+        # Phase 2: face dropout for 2 frames (short — no absence reset).
+        t += 0.067  # ~1 frame @ 15 Hz
+        is_valid, cx, cy = f.process(None, None, 0.5, 0.5, 0.0, t)
+        self.assertFalse(is_valid)
+        t += 0.067
+        is_valid, cx, cy = f.process(None, None, 0.5, 0.5, 0.0, t)
+        self.assertFalse(is_valid)
+        # Latch still at 42° (absence timer < 1s).
+        self.assertAlmostEqual(f.last_valid_yaw, 42.0, places=3)
+
+        # Phase 3: head returns to ~5° — delta from latch=42° is ~37° > 25°.
+        # Without unlatch, every frame would be rejected.  With consistency
+        # unlatch (N=3), the 3rd self-consistent frame must be accepted.
+        recovered_by_frame = 3
+        accepted_at: int | None = None
+        for frame_idx in range(recovered_by_frame):
+            t += 0.067
+            is_valid, cx, cy = f.process(5.0, 0.0, 0.617, 0.5, 1.0, t)
+            if is_valid and accepted_at is None:
+                accepted_at = frame_idx + 1  # 1-based
+
+        self.assertIsNotNone(accepted_at,
+            "Filter never accepted re-acquired center pose within 3 frames")
+        self.assertLessEqual(accepted_at, recovered_by_frame,
+            f"Expected acceptance by frame {recovered_by_frame}, got frame {accepted_at}")
+        # After acceptance the latch should be re-seeded at ~5°.
+        self.assertAlmostEqual(f.last_valid_yaw, 5.0, places=3)
+
+    def test_no_single_frame_false_accept_during_dropout(self):
+        """During a brief face dropout the filter must not accept a frame
+        with face_present=0 as valid regardless of the yaw value."""
+        f = self._make_filter()
+        t = 0.0
+        f.process(10.0, 0.0, 0.733, 0.5, 1.0, t)  # seed latch
+        t += 0.067
+        is_valid, _, _ = f.process(10.0, 0.0, 0.733, 0.5, 0.0, t)
+        self.assertFalse(is_valid,
+            "Frame with face_present=0 must never be accepted as valid")
+
+
+class JumpFilterSpikeRejectionTests(unittest.TestCase):
+    """SIDE-01 spec (b): a single-frame 30° yaw spike must still be rejected.
+
+    The consistency unlatch requires N=3 consecutive self-consistent rejected
+    frames — one isolated spike never builds enough history to unlock.
+    """
+
+    def test_single_frame_30deg_spike_rejected(self):
+        """Latch at yaw=5°. Single frame at 35° (delta=30° > 25°) must be
+        rejected; subsequent return to 5° must be accepted immediately."""
+        f = JumpFilter(0.5, 0.5)
+        t = 0.0
+        # Seed latch.
+        f.process(5.0, 0.0, 0.617, 0.5, 1.0, t)
+        self.assertAlmostEqual(f.last_valid_yaw, 5.0, places=3)
+
+        # Single spike frame.
+        t += 0.067
+        is_valid, cx, cy = f.process(35.0, 0.0, 0.815, 0.5, 1.0, t)
+        self.assertFalse(is_valid, "Single 30° spike must be rejected")
+        # Latch must not have moved.
+        self.assertAlmostEqual(f.last_valid_yaw, 5.0, places=3)
+
+        # Immediate return to normal — must be accepted (rejection history
+        # cleared / not enough consecutive rejections at spike value).
+        t += 0.067
+        is_valid, cx, cy = f.process(6.0, 0.0, 0.640, 0.5, 1.0, t)
+        self.assertTrue(is_valid,
+            "Frame near original latch after spike must be accepted")
+
+    def test_spike_does_not_accumulate_into_unlatch(self):
+        """Two spikes at different yaw values must NOT accumulate into the
+        consistency unlatch (they are inconsistent with each other)."""
+        f = JumpFilter(0.5, 0.5)
+        t = 0.0
+        f.process(5.0, 0.0, 0.617, 0.5, 1.0, t)
+
+        # Spike 1 at 35°.
+        t += 0.067
+        is_valid1, _, _ = f.process(35.0, 0.0, 0.815, 0.5, 1.0, t)
+        # Spike 2 at 35° + 30° = 65° (inconsistent with first spike too,
+        # but more importantly inconsistent with latch).
+        t += 0.067
+        is_valid2, _, _ = f.process(65.0, 0.0, 0.99, 0.5, 1.0, t)
+        # Spike 3 back at 35° (inconsistent with spike 2 at 65°).
+        t += 0.067
+        is_valid3, _, _ = f.process(35.0, 0.0, 0.815, 0.5, 1.0, t)
+        # None of these should have been accepted; the inconsistent history
+        # must have cleared the unlatch accumulation.
+        self.assertFalse(is_valid1, "Spike 1 at 35° must be rejected")
+        self.assertFalse(is_valid2, "Spike 2 at 65° must be rejected")
+        self.assertFalse(is_valid3,
+            "Spike 3 at 35° inconsistent with spike 2 at 65° must be rejected")
+        # Latch must still be at 5°.
+        self.assertAlmostEqual(f.last_valid_yaw, 5.0, places=3)
+
+
+class JumpFilterAbsenceResetTests(unittest.TestCase):
+    """SIDE-01 spec (c): after >1.0s of face_present==0, the latch is
+    cleared so the first re-acquired frame seeds cleanly.
+
+    This ensures that a user who physically walks away and returns does not
+    fight a stale extreme-angle latch from before the interruption.
+    """
+
+    def test_long_absence_resets_latch(self):
+        """Seed latch at yaw=42°. Then drive face_present=0 for >1.0 s.
+        The latch must be cleared; the first re-acquired frame at 5° must
+        be accepted without requiring consistency unlatch."""
+        f = JumpFilter(0.5, 0.5)
+        t = 0.0
+        # Seed latch at extreme yaw.
+        f.process(42.0, 0.0, 0.977, 0.5, 1.0, t)
+        self.assertAlmostEqual(f.last_valid_yaw, 42.0, places=3)
+
+        # Drive no-face frames for just over 1.0 s.
+        t += 0.067
+        while t < 1.15:
+            f.process(None, None, 0.5, 0.5, 0.0, t)
+            t += 0.067
+
+        # Latch must now be None (absence reset fired).
+        self.assertIsNone(f.last_valid_yaw,
+            "last_valid_yaw must be None after >1s absence")
+        self.assertIsNone(f.last_valid_pitch,
+            "last_valid_pitch must be None after >1s absence")
+
+        # Re-acquire at 5° — since latch is None, must be accepted on
+        # the very first frame (no last_valid to compare against).
+        is_valid, cx, cy = f.process(5.0, 0.0, 0.617, 0.5, 1.0, t)
+        self.assertTrue(is_valid,
+            "First re-acquired frame after absence reset must be accepted")
+        self.assertAlmostEqual(f.last_valid_yaw, 5.0, places=3)
+
+    def test_short_absence_does_not_reset_latch(self):
+        """Face dropout shorter than 1.0 s must NOT reset the latch.
+        The old spike-rejection behavior must remain intact after brief
+        dropout (user just blinked or turned head quickly)."""
+        f = JumpFilter(0.5, 0.5)
+        t = 0.0
+        f.process(10.0, 0.0, 0.733, 0.5, 1.0, t)
+        self.assertAlmostEqual(f.last_valid_yaw, 10.0, places=3)
+
+        # Dropout for 0.5 s (shorter than ABSENCE_RESET_S=1.0).
+        t += 0.067
+        while t < 0.55:
+            f.process(None, None, 0.5, 0.5, 0.0, t)
+            t += 0.067
+
+        # Latch must still be intact.
+        self.assertIsNotNone(f.last_valid_yaw,
+            "Latch must NOT reset after <1s absence")
+        self.assertAlmostEqual(f.last_valid_yaw, 10.0, places=3)
+
+    def test_absence_timer_resets_on_face_return(self):
+        """If face returns and then drops out again, the 1.0 s timer must
+        restart from the new dropout, not from the original one."""
+        f = JumpFilter(0.5, 0.5)
+        t = 0.0
+        f.process(10.0, 0.0, 0.733, 0.5, 1.0, t)
+
+        # First dropout: 0.8 s (not enough to reset).
+        t += 0.067
+        while t < 0.85:
+            f.process(None, None, 0.5, 0.5, 0.0, t)
+            t += 0.067
+
+        # Face comes back briefly.
+        t += 0.067
+        f.process(10.0, 0.0, 0.733, 0.5, 1.0, t)
+        self.assertAlmostEqual(f.last_valid_yaw, 10.0, places=3)
+
+        # Second dropout: 0.8 s more (total from start = 1.7 s, but timer
+        # restarted, so must NOT reset after only 0.8 s again).
+        t += 0.067
+        t_second_dropout_start = t
+        while t - t_second_dropout_start < 0.85:
+            f.process(None, None, 0.5, 0.5, 0.0, t)
+            t += 0.067
+
+        # Latch must still be intact (timer restarted, only 0.8 s elapsed
+        # since the second dropout began).
+        self.assertIsNotNone(f.last_valid_yaw,
+            "Latch must NOT reset: timer restarted after face returned")
+        self.assertAlmostEqual(f.last_valid_yaw, 10.0, places=3)
 
 
 if __name__ == "__main__":

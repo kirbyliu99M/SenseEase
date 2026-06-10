@@ -509,6 +509,140 @@ def _cpu_model() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Layer-1 jump filter (extracted for testability — D-11 unlock)
+# ---------------------------------------------------------------------------
+# Locked parameters (do NOT change without sprint sign-off):
+#   MAX_JUMP_PER_FRAME_DEG = 25.0
+#   CONSISTENCY_UNLATCH_N  = 3        (consecutive rejected frames must agree)
+#   ABSENCE_RESET_S        = 1.0      (face absent this long resets latch)
+#
+# Unlatch rules (SIDE-01 2026-06-11):
+#   1. Consistency: if N consecutive REJECTED frames agree with EACH OTHER
+#      within MAX_JUMP_PER_FRAME_DEG, the latest is accepted and last_valid_*
+#      is re-seeded. A self-consistent sustained pose is real; single-frame
+#      spikes are not.
+#   2. Absence: when face_present has been 0 for > ABSENCE_RESET_S seconds,
+#      last_valid_yaw/pitch are cleared to None so the next re-acquired frame
+#      re-seeds without fighting a stale extreme-angle latch.
+#
+# LOCKED (do NOT modify): AdaptiveEma2D smoothing, dead-zone, face-presence
+# decision logic. Only the jump-filter's own memory is touched here.
+
+class JumpFilter:
+    """Layer-1 frame validity filter for yaw/pitch jump detection.
+
+    Accepts or rejects each incoming (yaw, pitch) pose based on whether it
+    jumped too far from the last accepted sample. Two unlatch rules prevent
+    permanent latch after face dropout at extreme angles:
+
+    Consistency unlatch: once CONSISTENCY_UNLATCH_N consecutive rejected
+    frames agree with each other within MAX_JUMP_PER_FRAME_DEG, the latest
+    is force-accepted and last_valid_* is re-seeded from it.
+
+    Absence reset: if face_present has been 0 for longer than
+    ABSENCE_RESET_S seconds, last_valid_yaw/pitch are cleared so the next
+    re-acquired frame re-seeds without a stale latch.
+    """
+
+    MAX_JUMP_PER_FRAME_DEG: float = 25.0
+    CONSISTENCY_UNLATCH_N:  int   = 3
+    ABSENCE_RESET_S:        float = 1.0
+
+    def __init__(self, default_cx: float, default_cy: float) -> None:
+        self.last_valid_yaw:   Optional[float] = None
+        self.last_valid_pitch: Optional[float] = None
+        self.last_valid_cx:    float = default_cx
+        self.last_valid_cy:    float = default_cy
+
+        # Consistency-unlatch history: list of (yaw, pitch) for consecutive
+        # rejected frames. Reset to [] whenever a frame is accepted.
+        self._rejected_history: list[tuple[float, float]] = []
+
+        # Absence-reset bookkeeping: tracks when face_present last turned 1.0.
+        # _no_face_since_mono is set to the monotonic timestamp of the first
+        # frame with face_present == 0 after a valid-face run (or at init).
+        # Set to None while face is present (no absence timer running).
+        self._no_face_since_mono: Optional[float] = None
+
+    def process(
+        self,
+        yaw:        Optional[float],
+        pitch:      Optional[float],
+        cx_raw:     float,
+        cy_raw:     float,
+        face_present: float,
+        now_mono:   float,
+    ) -> tuple[bool, float, float]:
+        """Evaluate one frame. Returns (is_valid, cx_out, cy_out).
+
+        is_valid: True if this frame's pose is accepted (caller should update
+                  the EMA smoother with cx_out/cy_out as a real measurement).
+        cx_out / cy_out: if accepted, the raw values passed in; if rejected,
+                  the last-valid values (feed to smoother as glitch bypass).
+
+        Caller must NOT modify last_valid_* state; this method owns it.
+        """
+        # --- Absence-reset bookkeeping (runs unconditionally) ---
+        if face_present <= 0.5:
+            if self._no_face_since_mono is None:
+                # Start the absence timer.
+                self._no_face_since_mono = now_mono
+            elif now_mono - self._no_face_since_mono > self.ABSENCE_RESET_S:
+                # Face absent long enough: clear the jump-filter's latch so
+                # the next re-acquired frame re-seeds cleanly.
+                self.last_valid_yaw   = None
+                self.last_valid_pitch = None
+                self._rejected_history = []
+        else:
+            # Face present: cancel the absence timer.
+            self._no_face_since_mono = None
+
+        # --- Jump check ---
+        frame_is_valid = face_present > 0.5
+        if frame_is_valid and self.last_valid_yaw is not None:
+            yaw_jump   = abs(yaw   - self.last_valid_yaw)   if yaw   is not None else 0.0
+            pitch_jump = abs(pitch - self.last_valid_pitch) if pitch is not None else 0.0
+            if yaw_jump > self.MAX_JUMP_PER_FRAME_DEG or pitch_jump > self.MAX_JUMP_PER_FRAME_DEG:
+                frame_is_valid = False
+
+        # --- Consistency unlatch (only runs when frame was just rejected) ---
+        if not frame_is_valid and face_present > 0.5 and yaw is not None and pitch is not None:
+            # Candidate rejected frame; check whether it agrees with recent
+            # rejected frames. If the history is long enough AND all entries
+            # are within MAX_JUMP_PER_FRAME_DEG of each other, accept.
+            history = self._rejected_history
+            consistent = True
+            for (hy, hp) in history:
+                if (abs(yaw - hy) > self.MAX_JUMP_PER_FRAME_DEG or
+                        abs(pitch - hp) > self.MAX_JUMP_PER_FRAME_DEG):
+                    consistent = False
+                    break
+            if not consistent:
+                # "Consecutive" means the window restarts on disagreement —
+                # otherwise one outlier stuck in history blocks the unlatch
+                # forever and the list grows without bound at frame rate.
+                history.clear()
+            history.append((yaw, pitch))
+            if consistent and len(history) >= self.CONSISTENCY_UNLATCH_N:
+                # N consecutive rejected frames all agree — accept this one
+                # and re-seed the latch from it.
+                frame_is_valid = True
+
+        # --- Update state ---
+        if not frame_is_valid:
+            # Glitch or dropout: repeat the last-valid (cx, cy) to the smoother.
+            return False, self.last_valid_cx, self.last_valid_cy
+        else:
+            # Accepted: update latch and clear rejection history.
+            self.last_valid_yaw   = yaw
+            self.last_valid_pitch = pitch
+            self.last_valid_cx    = cx_raw
+            self.last_valid_cy    = cy_raw
+            self._rejected_history = []
+            return True, cx_raw, cy_raw
+
+
+# ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 def run(
@@ -550,11 +684,9 @@ def run(
     # (cx, cy). Diagnose analysis showed max legitimate single-frame jump
     # ≈ 13° during rapid mixed motion; threshold at 25° catches detection
     # glitches without false-positives at observed motion ceilings.
-    MAX_JUMP_PER_FRAME_DEG = 25.0
-    last_valid_yaw: Optional[float] = None
-    last_valid_pitch: Optional[float] = None
-    last_valid_cx_raw: float = DEFAULT_CX
-    last_valid_cy_raw: float = DEFAULT_CY
+    # SIDE-01 (2026-06-11): extracted to JumpFilter class (D-11 unlock);
+    # consistency-unlatch and absence-reset are now encapsulated there.
+    jump_filter = JumpFilter(DEFAULT_CX, DEFAULT_CY)
     skipped_frame_count = 0
 
     t0_mono = time.monotonic()
@@ -633,29 +765,18 @@ def run(
             else:
                 face_present = 0.0
 
-            # M5.1-A Layer 1: validity check. If face missing OR pose jumped
-            # too far from the last valid sample, treat this frame as a
-            # detection glitch and repeat the last valid (cx, cy).
-            frame_is_valid = face_present > 0.5
-            if frame_is_valid and last_valid_yaw is not None:
-                yaw_jump   = abs(raw_yaw   - last_valid_yaw)   if raw_yaw   is not None else 0.0
-                pitch_jump = abs(raw_pitch - last_valid_pitch) if raw_pitch is not None else 0.0
-                if yaw_jump > MAX_JUMP_PER_FRAME_DEG or pitch_jump > MAX_JUMP_PER_FRAME_DEG:
-                    frame_is_valid = False
-
+            # M5.1-A Layer 1: validity check via JumpFilter (SIDE-01 2026-06-11).
+            # JumpFilter owns last_valid_* state; caller feeds smoother with
+            # cx_raw/cy_raw returned by process() regardless of validity so the
+            # EMA always gets a value (last-valid on glitch, real on accept).
+            # raw_yaw / raw_pitch left as-is for diag CSV so rejections are
+            # visible in the trace.
+            frame_is_valid, cx_raw, cy_raw = jump_filter.process(
+                raw_yaw, raw_pitch, cx_raw, cy_raw, face_present,
+                now_mono=time.monotonic(),
+            )
             if not frame_is_valid:
-                # Skip glitch / dropout: feed the smoother the last valid
-                # raw (so EMA continues converging) instead of injecting
-                # noise. raw_yaw / raw_pitch left as-is for diag CSV so the
-                # rejection is visible in the trace.
-                cx_raw = last_valid_cx_raw
-                cy_raw = last_valid_cy_raw
                 skipped_frame_count += 1
-            else:
-                last_valid_yaw   = raw_yaw
-                last_valid_pitch = raw_pitch
-                last_valid_cx_raw = cx_raw
-                last_valid_cy_raw = cy_raw
 
             # M5.1-C adaptive EMA: pass yaw/pitch for velocity-driven α.
             # When face_present == 0 the Layer 1 filter substituted cx_raw/
@@ -664,8 +785,8 @@ def run(
             # by keeping previous velocity unchanged).
             cx, cy = smoother.update(
                 cx_raw, cy_raw,
-                yaw_deg=  (raw_yaw   if raw_yaw   is not None else (last_valid_yaw   or 0.0)),
-                pitch_deg=(raw_pitch if raw_pitch is not None else (last_valid_pitch or 0.0)),
+                yaw_deg=  (raw_yaw   if raw_yaw   is not None else (jump_filter.last_valid_yaw   or 0.0)),
+                pitch_deg=(raw_pitch if raw_pitch is not None else (jump_filter.last_valid_pitch or 0.0)),
             )
             # Clamp again post-smoothing for safety.
             cx, cy = clamp01(cx), clamp01(cy)
