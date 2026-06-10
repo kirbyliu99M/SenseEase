@@ -40,11 +40,12 @@ namespace SenseEase.App.Services;
 /// same shape both libraries expose; the swap is a mechanical
 /// namespace-qualifier change.</para>
 ///
-/// <para>Localization: the tray menu is currently zh-only. The app has no
-/// localization service; spinning one up just for the tray is scope creep
-/// (per Task 3 guidance 2026-05-26). When an i18n service lands in a future
-/// sprint, replace the literal strings with resource lookups here. The TODO
-/// is logged in docs/POPUP-OVERLAY.md (Task 7).</para>
+/// <para>Localization: the tray menu is fully bilingual via
+/// <see cref="LocalizationManager.Pick"/> — every visible string (status band
+/// label, Open Dashboard / Settings / Quit items, power-save and fault verdicts,
+/// tooltip) re-picks on a live EN / 繁體中文 flip through
+/// <see cref="RefreshLanguageDependentLabels"/>. (Historical: the menu was zh-only
+/// until the i18n service landed; UX-04 closed the last hardcoded-zh strays.)</para>
 ///
 /// <para>Disposal: caller (MainWindow) owns the lifetime and calls
 /// <see cref="Dispose"/> on app close. The underlying
@@ -61,6 +62,11 @@ public sealed class TrayIconService : IDisposable
     private readonly MenuItem _statusItem;
     private readonly MenuItem _toggleBarItem;
     private readonly MenuItem _openDashboardItem;
+    // UX-04: promoted from ctor locals to fields so RefreshLanguageDependentLabels
+    // can re-pick their headers on a live EN / 繁體中文 flip — the menu's other items
+    // already re-pick; these two were the last hardcoded-zh strays.
+    private readonly MenuItem _settingsItem;
+    private readonly MenuItem _quitItem;
     private bool _disposed;
     // overlay-bar-redesign diag-4: visibility watchdog. Logs Visibility +
     // IconHandle every 5s so a post-ctor flip to Hidden or a handle change
@@ -144,11 +150,13 @@ public sealed class TrayIconService : IDisposable
         };
         _openDashboardItem.Click += (_, _) => OpenDashboardRequested?.Invoke(this, EventArgs.Empty);
 
-        var settingsItem = new MenuItem { Header = "設定" };
-        settingsItem.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
+        // UX-04: both headers now localized via LocalizationManager.Pick and re-picked
+        // in RefreshLanguageDependentLabels — no more hardcoded-zh menu strays.
+        _settingsItem = new MenuItem { Header = LocalizationManager.Current.Pick("設定", "Settings") };
+        _settingsItem.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
 
-        var quitItem = new MenuItem { Header = "退出 SenseEase" };
-        quitItem.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
+        _quitItem = new MenuItem { Header = LocalizationManager.Current.Pick("退出 SenseEase", "Quit SenseEase") };
+        _quitItem.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
 
         var menu = new ContextMenu();
         menu.Items.Add(_statusItem);
@@ -159,9 +167,9 @@ public sealed class TrayIconService : IDisposable
         // so the item would be a no-op that reads as a broken menu entry — hide it.
         if (SenseEase.App.Configuration.AppConfig.PersistentBarEnabled)
             menu.Items.Add(_toggleBarItem);
-        menu.Items.Add(settingsItem);
+        menu.Items.Add(_settingsItem);
         menu.Items.Add(new Separator());
-        menu.Items.Add(quitItem);
+        menu.Items.Add(_quitItem);
 
         // UI/UX (2026-06-09): de-nativise the tray menu. It's a WPF ContextMenu, so skin it
         // to the app's look (rounded Surface card, token colours, calm SurfaceMuted highlight)
@@ -324,9 +332,9 @@ public sealed class TrayIconService : IDisposable
 
     // Live EN / 繁體中文 toggle handler. Marshals to the tray's dispatcher and
     // re-picks every language-dependent string via RefreshLanguageDependentLabels
-    // (status band label, Open Dashboard header, toggle-bar header, tooltip, and
-    // the bilingual fault indicator) so the menu follows the toggle without a
-    // restart.
+    // (status band label, Open Dashboard / Settings / Quit headers, toggle-bar
+    // header, tooltip, and the bilingual power-save + fault indicators) so the menu
+    // follows the toggle without a restart.
     private void OnLanguageChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_disposed) return;
@@ -348,31 +356,40 @@ public sealed class TrayIconService : IDisposable
 
     // Re-applies every language-dependent tray string for the CURRENT state. The
     // band-label status + toggle-bar header + tooltip flow through RefreshLabels;
-    // the Open Dashboard header and the (bilingual) fault indicator strings are
-    // re-picked here because they live outside RefreshLabels. The power-save
-    // header is zh-only, so it has nothing to re-pick.
+    // the Open Dashboard / Settings / Quit headers, the power-save header, and the
+    // fault indicator strings are re-picked here because they live outside
+    // RefreshLabels (UX-04 closed the formerly-hardcoded-zh strays).
     private void RefreshLanguageDependentLabels()
     {
         _openDashboardItem.Header = LocalizationManager.Current.Pick("顯示主視窗", "Open Dashboard");
+        // UX-04: re-pick the two formerly-hardcoded-zh menu items on a language flip,
+        // like the other items.
+        _settingsItem.Header = LocalizationManager.Current.Pick("設定", "Settings");
+        _quitItem.Header     = LocalizationManager.Current.Pick("退出 SenseEase", "Quit SenseEase");
 
-        // Refresh the band-label status + toggle-bar header + tooltip first. This
-        // refreshes the stashed power-save snapshot (_preSavedStatusText) too, so a
+        // UX-04: re-pick the power-save header (formerly zh-only "已暫停 · 點此恢復")
+        // in the active language. While power save is ON it lives in the visible
+        // _statusItem.Header; while OFF its stash is null and ApplyState owns the
+        // header — so only rewrite the visible header when we're actually in PS.
+        if (_preSavedStatusText != null)
+            _statusItem.Header = PowerSaveStatusText(LocalizationManager.Current.IsEnglish);
+
+        // Refresh the band-label status + toggle-bar header + tooltip. RefreshLabels
+        // is now fault-aware: when a fault is showing it refreshes the STASH and
+        // leaves the visible header/tooltip alone (INTENT-05), so the fault override
+        // below is NOT clobbered. It still refreshes the power-save snapshot so a
         // later SetPowerSaveIndicator(false) restores the band label in the active
-        // language. NOTE: RefreshLabels writes the visible _statusItem.Header /
-        // tooltip whenever power-save is NOT active — so when a FAULT is showing we
-        // must re-apply the fault override AFTER this call or it gets clobbered.
+        // language.
         RefreshLabels(_vm.CurrentState);
 
-        // Re-pick the fault indicator's visible strings in the new language. Done
-        // last so RefreshLabels' band-label write above can't overwrite them. The
-        // power-save header ("已暫停 · 點此恢復") is zh-only — not a bilingual pair —
-        // so it is intentionally left as-is.
+        // Re-pick the fault indicator's visible strings in the new language. The copy
+        // is the honest automatic-recovery verdict (UX-03 / CW-8) — never "paused",
+        // never a fake "tap to retry". RefreshLabels above no longer touches these
+        // while a fault is active, but we re-pick here so the language flip lands.
         if (_preFaultStatusText != null)
         {
-            _statusItem.Header = LocalizationManager.Current.Pick(
-                "暫時無法偵測畫面 · 點一下重試", "Sensing paused — tap to retry");
-            _tray.ToolTipText = LocalizationManager.Current.Pick(
-                "SenseEase — 暫時無法偵測 · 點一下重試", "SenseEase — sensing paused — tap to retry");
+            _statusItem.Header = FaultStatusText(LocalizationManager.Current.IsEnglish);
+            _tray.ToolTipText  = FaultToolTipText(LocalizationManager.Current.IsEnglish);
         }
     }
 
@@ -399,29 +416,46 @@ public sealed class TrayIconService : IDisposable
         RefreshLabels(state);
     }
 
+    /// <summary>The live tier-band comfort label for a state (極高/高/中/低/極低 ·
+    /// Most Natural…Most Steady) in the active language — the SAME comfort label as
+    /// the Dashboard hero, single-sourced from TierColorPalette.FeelLabel(En). Idle
+    /// (tier ≤ 0, engine not yet producing a level) → 準備中 / Getting ready. Factored
+    /// out so the fault-clear tooltip restore and RefreshLabels share one source.</summary>
+    private static string CurrentStatusLabel(SenseState state)
+    {
+        // We intentionally do NOT pull the habituation profile (RESILIENT / TYPICAL /
+        // SENSITIVE) here even though it would be informative — IInferenceEngine
+        // doesn't expose it and reaching into the concrete MockInferenceEngine would
+        // couple the tray to the engine impl. The chat tab is the place for that
+        // detail. Tier alone is enough for an ambient indicator.
+        if (state.VimsTier <= 0)
+            return LocalizationManager.Current.Pick("準備中", "Getting ready");
+        var band = TierColorPalette.BandForTier(state.VimsTier);
+        return LocalizationManager.Current.Pick(
+            TierColorPalette.FeelLabel(band), TierColorPalette.FeelLabelEn(band));
+    }
+
     private void RefreshLabels(SenseState state)
     {
-        // Status menu item shows the current screen-motion level via the 5級 動態感
-        // vocabulary (極高/高/中/低/極低 · Most Natural…Most Steady), single-sourced
-        // from TierColorPalette.FeelLabel/FeelLabelEn and picked for the active UI
-        // language. We intentionally do NOT pull the habituation profile (RESILIENT /
-        // TYPICAL / SENSITIVE) here even though it would be informative —
-        // IInferenceEngine doesn't expose it and reaching into the concrete
-        // MockInferenceEngine would couple the tray to the engine impl. The chat tab
-        // is the place for that detail. Tier alone is enough for an ambient indicator.
-        // Idle (tier ≤ 0, engine not yet producing a level) shows 準備中 / Getting ready.
-        string status;
-        if (state.VimsTier <= 0)
+        string header = CurrentStatusLabel(state);
+
+        // INTENT-05 / CW-8: during self-heal warmup, StateChanged keeps ticking and
+        // this method runs ~every 0.6 s. If a fault is showing, an UNCONDITIONAL
+        // write here would clobber the fault verdict back to a healthy band label —
+        // the exact "looks fine, then a fault, then fine again" flicker the audit
+        // flagged. Mirror the power-save guard below: when the fault stash is active,
+        // refresh the STASH (so the post-fault restore lands the current tier) and
+        // skip BOTH the visible-header AND the tooltip overwrite. The fault treatment
+        // then persists until SetFaultIndicator(false) genuinely clears it. The
+        // decision is the pure ShouldPreserveFaultVerdict predicate so the unit test
+        // exercises the SAME branch the live path takes.
+        if (ShouldPreserveFaultVerdict(_preFaultStatusText != null))
         {
-            status = LocalizationManager.Current.Pick("準備中", "Getting ready");
+            _preFaultStatusText = header;
+            RefreshToggleBarLabel();
+            return;
         }
-        else
-        {
-            var band = TierColorPalette.BandForTier(state.VimsTier);
-            status = LocalizationManager.Current.Pick(
-                TierColorPalette.FeelLabel(band), TierColorPalette.FeelLabelEn(band));
-        }
-        string header = status;
+
         // Path Z bug-fix 1: while in Power Save, refresh the stashed snapshot
         // instead of the visible "Power Save ON" header. Otherwise a tier
         // change during a PS window overwrites the visible header AND leaves
@@ -434,7 +468,7 @@ public sealed class TrayIconService : IDisposable
 
         // Tooltip mirrors the live tier always — the OS tooltip is the
         // immediate read; the menu label carries the PS state.
-        _tray.ToolTipText = $"SenseEase — {status}";  // same comfort label as the Dashboard hero
+        _tray.ToolTipText = $"SenseEase — {header}";  // same comfort label as the Dashboard hero
 
         RefreshToggleBarLabel();
     }
@@ -471,7 +505,7 @@ public sealed class TrayIconService : IDisposable
         if (enabled)
         {
             _preSavedStatusText ??= _statusItem.Header as string;
-            _statusItem.Header = "已暫停 · 點此恢復";
+            _statusItem.Header = PowerSaveStatusText(LocalizationManager.Current.IsEnglish);
         }
         else if (_preSavedStatusText != null)
         {
@@ -480,34 +514,89 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
+    /// <summary>UX-03 / UX-04: the DELIBERATE-user-pause status copy. "Paused" /
+    /// 已暫停 wording is EXCLUSIVE to this power-save path — the orthogonal fault
+    /// layer (<see cref="FaultStatusText"/>) never says "paused", so the two states
+    /// can never be confused. "點此恢復 / tap to resume" is honest here: a click on
+    /// the bar/tray genuinely resumes from power save (unlike the old fault "tap to
+    /// retry", which retried nothing). Internal for the same WPF-free test seam as
+    /// the fault copy.</summary>
+    internal static string PowerSaveStatusText(bool isEnglish)
+        => isEnglish ? "Paused by you — tap to resume" : "已暫停 · 點此恢復";
+
     // D3 liveness contract: snapshot of the pre-fault status label so clearing
     // the fault restores the exact tier-band string the menu was showing. Non-null
     // only while the fault indicator is ON; independent of the power-save snapshot.
     private string? _preFaultStatusText;
 
-    /// <summary>D3: tray-side Faulted indicator, mirroring
+    // UX-03 fault treatment that is NOT colour-only. The tray tile is a fixed brand
+    // indigo at every band (it never recolours), so the fault read can't rely on a
+    // colour swap. Instead the status item text + tooltip both carry a warning glyph
+    // PREFIX paired with the honest reconnecting label — a shape+text differentiator
+    // that survives greyscale / colour-blind viewing. The glyph (⚠) is a status cue,
+    // never the only cue: the words "偵測中斷…" / "Sensing interrupted…" stand alone.
+    internal const string FaultGlyph = "⚠"; // ⚠ warning sign
+
+    /// <summary>UX-03 / CW-8: the honest fault status-item copy. Recovery is
+    /// AUTOMATIC via WgcSensingProvider, so the wording is "reconnecting
+    /// automatically" — NOT a fake "tap to retry" that retries nothing, and NOT
+    /// "paused" (that wording stays EXCLUSIVE to the deliberate user power-save
+    /// path, <see cref="SetPowerSaveIndicator"/>). Internal + InternalsVisibleTo so
+    /// a test can assert the copy is reconnecting-honest and paused-free without
+    /// standing up a WPF dispatcher.</summary>
+    internal static string FaultStatusText(bool isEnglish)
+        => FaultGlyph + " " + (isEnglish
+            ? "Sensing interrupted — reconnecting automatically"
+            : "偵測中斷，正在自動重新連線");
+
+    /// <summary>INTENT-05 / CW-8 guard, as a pure predicate so it is unit-testable
+    /// without a WPF dispatcher. <c>true</c> ⇒ <see cref="RefreshLabels"/> must
+    /// refresh the FAULT STASH and skip the visible header + tooltip writes, so the
+    /// fault verdict survives the per-tick band-label refresh during self-heal
+    /// warmup. <c>false</c> ⇒ the normal (power-save-aware) write path runs. Mirrors
+    /// the language path's documented work-around for the same clobber.</summary>
+    internal static bool ShouldPreserveFaultVerdict(bool faultStashActive) => faultStashActive;
+
+    /// <summary>UX-03 / CW-8: the honest fault OS-tooltip copy. The "SenseEase — "
+    /// brand prefix mirrors the healthy tooltip shape; the glyph + reconnecting
+    /// verdict make Faulted unmistakable from Paused at a glance. Internal for the
+    /// same test seam as <see cref="FaultStatusText"/>.</summary>
+    internal static string FaultToolTipText(bool isEnglish) => "SenseEase — "
+        + FaultGlyph + " " + (isEnglish
+            ? "Sensing interrupted — reconnecting automatically"
+            : "偵測中斷，正在自動重新連線");
+
+    /// <summary>D3 / UX-03: tray-side Faulted indicator, mirroring
     /// <see cref="SetPowerSaveIndicator"/>. When set, the status header + OS
-    /// tooltip become the reassuring "暫時無法偵測畫面 · 點一下重試 / Sensing
-    /// paused — tap to retry" verdict (calm, never "ERROR"/red) and the prior
-    /// label is stashed. When cleared, the prior label is restored; the next
-    /// <see cref="ApplyState"/> tick (frames resume on recovery) repaints the live
-    /// tooltip. Icon stays grey — never an alarm colour. Idempotent across
-    /// repeated true / repeated false.</summary>
+    /// tooltip become the honest, automatic-recovery verdict
+    /// (<see cref="FaultStatusText"/> / <see cref="FaultToolTipText"/>) — calm,
+    /// never "ERROR"/red, never "paused", and carrying a warning-glyph prefix so
+    /// the fault read is shape+text, not colour-only (the indigo tile never
+    /// recolours). The prior label is stashed. When cleared, the prior label is
+    /// restored; the next <see cref="ApplyState"/> tick (frames resume on recovery)
+    /// repaints the live tooltip. The fault treatment PERSISTS across the per-tick
+    /// <see cref="RefreshLabels"/> writes during self-heal warmup (INTENT-05) —
+    /// those refresh the stash, not the visible header/tooltip — until this method
+    /// is called with <c>false</c> or the underlying liveness genuinely clears.
+    /// Idempotent across repeated true / repeated false.</summary>
     public void SetFaultIndicator(bool faulted)
     {
         if (_statusItem is null) return;
         if (faulted)
         {
             _preFaultStatusText ??= _statusItem.Header as string;
-            _statusItem.Header = LocalizationManager.Current.Pick(
-                "暫時無法偵測畫面 · 點一下重試", "Sensing paused — tap to retry");
-            _tray.ToolTipText  = LocalizationManager.Current.Pick(
-                "SenseEase — 暫時無法偵測 · 點一下重試", "SenseEase — sensing paused — tap to retry");
+            _statusItem.Header = FaultStatusText(LocalizationManager.Current.IsEnglish);
+            _tray.ToolTipText  = FaultToolTipText(LocalizationManager.Current.IsEnglish);
         }
         else if (_preFaultStatusText != null)
         {
             _statusItem.Header = _preFaultStatusText;
             _preFaultStatusText = null;
+            // Repaint the live tooltip now that the fault verdict is cleared. The
+            // next ApplyState tick also does this, but on recovery frames may not
+            // resume for a beat — restore immediately so the OS tooltip stops
+            // claiming a fault the moment SetFaultIndicator(false) lands.
+            _tray.ToolTipText = $"SenseEase — {CurrentStatusLabel(_vm.CurrentState)}";
         }
     }
 
