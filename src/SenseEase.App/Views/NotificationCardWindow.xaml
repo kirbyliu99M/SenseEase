@@ -110,15 +110,54 @@
             </Setter>
         </Style>
 
-        <!-- bar-redesign: round +/- intervention-depth pill. Fixed 30x30 circle,
-             Accent glyph on a white surface with a Separator hairline. -->
+        <!-- bar-redesign: round +/- intervention-depth pill. The VISIBLE chip stays a
+             30x30 circle (Accent glyph on a Surface fill with a Separator hairline —
+             unchanged visuals), but UX-14 widens the clickable HIT AREA to 44x44 for
+             touch/switch users: the Button is 44x44 with a Transparent fill (hit-
+             testable) and the 30x30 visible Border is centred inside it. The button's
+             OWN bounds carry the hit test, so the glyph + chip read identically while
+             the tappable target meets the 44px floor. Negative margins on the call
+             sites pull the 44x44 box back so the surrounding bar layout doesn't shift. -->
         <Style x:Key="RoundPillButtonStyle" TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
-            <Setter Property="Width"    Value="30"/>
-            <Setter Property="Height"   Value="30"/>
-            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Width"    Value="44"/>
+            <Setter Property="Height"   Value="44"/>
+            <Setter Property="MinHeight" Value="44"/>
             <Setter Property="Padding"  Value="0"/>
             <Setter Property="FontSize" Value="18"/>
-            <Setter Property="Background" Value="{DynamicResource Surface}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <!-- 44x44 transparent hit region; the visible 30x30 chip is centred. -->
+                        <Border Background="{TemplateBinding Background}">
+                            <Border x:Name="Bd"
+                                    Width="30" Height="30"
+                                    Background="{DynamicResource Surface}"
+                                    BorderBrush="{DynamicResource Separator}"
+                                    BorderThickness="1"
+                                    CornerRadius="{StaticResource Radius.pill}"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </Border>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- C2 (audit): shared keyboard-focus ring for any focusable control that
@@ -152,6 +191,7 @@
             BorderThickness="1"
             MouseMove="OnCardMouseMove"
             MouseLeftButtonDown="OnCardDragStart"
+            KeyboardNavigation.TabNavigation="Cycle"
             RenderTransformOrigin="0.5,0.5">
         <Border.RenderTransform>
             <TransformGroup>
@@ -201,7 +241,7 @@
                          attribution (set in code) so it can't read as app chrome. -->
                     <TextBlock x:Name="ProposalRationaleText"
                                Text=""
-                               FontSize="11"
+                               FontSize="12"
                                FontStyle="Italic"
                                Foreground="{DynamicResource TextSecondary}"
                                TextWrapping="Wrap"
@@ -229,7 +269,7 @@
                             <TextBlock x:Name="ProposalSafetyNoteText"
                                        Text=""
                                        Visibility="Collapsed"
-                                       FontSize="11"
+                                       FontSize="12"
                                        Foreground="{DynamicResource ComfortHighText}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
@@ -276,7 +316,7 @@
                         <TextBlock Grid.Column="2"
                                    x:Name="ProposalExpiryText"
                                    Text=""
-                                   FontSize="10"
+                                   FontSize="12"
                                    Foreground="{DynamicResource TextSecondary}"
                                    VerticalAlignment="Center"/>
                     </Grid>
@@ -354,7 +394,7 @@
                         <TextBlock Grid.Column="2"
                                    x:Name="SetMoveExpiryText"
                                    Text=""
-                                   FontSize="10"
+                                   FontSize="12"
                                    Foreground="{DynamicResource TextSecondary}"
                                    VerticalAlignment="Center"/>
                     </Grid>
@@ -375,11 +415,17 @@
                      to be a child of MainFace only, so flipping to ChatFace hid it. Both faces
                      now sit in row 1 BELOW this ×, sharing one vertical band — so the flip no
                      longer shifts the visible content up/down inside the card. -->
+                <!-- UX-14: the VISIBLE × glyph is unchanged (16px, transparent chrome), but
+                     the clickable HIT AREA is widened to 44x44 for touch/switch users. The
+                     Transparent fill is hit-testable across the full 44 box; the -11 margins
+                     reclaim the +22 so the glyph stays pinned at the top-right corner and the
+                     Auto row height doesn't grow. -->
                 <Button Grid.Row="0"
                         x:Name="CloseBtn"
                         Content="×"
                         HorizontalAlignment="Right"
-                        Width="22" Height="22"
+                        Width="44" Height="44"
+                        Margin="0,-11,-11,-11"
                         Padding="0" BorderThickness="0"
                         Background="Transparent"
                         Foreground="{DynamicResource TextTertiary}"
@@ -409,7 +455,7 @@
                              keep the full "畫面動態 · 極低" label — only this card drops the prefix
                              because the caption already says "screen status". -->
                         <TextBlock Text="{loc:T Zh='目前螢幕狀態', En='Current screen status'}"
-                                   FontSize="11"
+                                   FontSize="12"
                                    Foreground="{DynamicResource TextTertiary}"
                                    Margin="0,0,0,1"/>
 
@@ -433,11 +479,11 @@
                                    TextTrimming="None"
                                    AutomationProperties.HelpText="{loc:T Zh='畫面狀態', En='Screen status'}"/>
                         <TextBlock x:Name="TelemetryText" Text="" Visibility="Collapsed"
-                                   FontFamily="Consolas, 'Cascadia Mono', monospace" FontSize="11"
+                                   FontFamily="Consolas, 'Cascadia Mono', monospace" FontSize="12"
                                    Foreground="{DynamicResource TextSecondary}"
                                    AutomationProperties.HelpText="{loc:T Zh='感測讀數', En='Sensing readout'}"/>
                         <TextBlock x:Name="BodyText" Text="" Visibility="Collapsed"
-                                   FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                   FontSize="12" Foreground="{DynamicResource TextSecondary}"
                                    TextWrapping="Wrap"
                                    AutomationProperties.HelpText="{loc:T Zh='通知內容', En='Notification details'}"/>
                     </StackPanel>
@@ -449,7 +495,7 @@
                              12-level intensity adjuster (−/level/+). It is left-aligned so it
                              frames the adjuster; 暫停 / 設定 / flip continue to its right. -->
                         <TextBlock Text="{loc:T Zh='調整強度', En='Intensity'}"
-                                   FontSize="11"
+                                   FontSize="12"
                                    Foreground="{DynamicResource TextTertiary}"
                                    HorizontalAlignment="Left"
                                    Margin="2,0,0,3"/>
@@ -459,10 +505,13 @@
                                  RIGHT) with the current level read out BETWEEN
                                  them. The level is set by the host via SetLevel()
                                  from the current VimsTier before Show(). -->
+                            <!-- UX-14: -7 margins reclaim the +14 the 44x44 hit area added
+                                 (right keeps the original 6dip gap → 6-7=-1) so the visible
+                                 30 chip + the bar's vertical rhythm don't shift. -->
                             <Button x:Name="InterventionDownBtn"
                                     Style="{StaticResource RoundPillButtonStyle}"
                                     Content="&#x2212;"
-                                    Margin="0,0,6,0"
+                                    Margin="-7,-7,-1,-7"
                                     Click="OnInterventionDownClicked"
                                     AutomationProperties.Name="{loc:T Zh='減弱介入', En='Adjust down'}"
                                     ToolTip="{loc:T Zh='減弱介入', En='Ease less'}"/>
@@ -479,7 +528,7 @@
                             <Button x:Name="InterventionUpBtn"
                                     Style="{StaticResource RoundPillButtonStyle}"
                                     Content="+"
-                                    Margin="0,0,8,0"
+                                    Margin="-7,-7,1,-7"
                                     Click="OnInterventionUpClicked"
                                     AutomationProperties.Name="{loc:T Zh='加強介入', En='Adjust up'}"
                                     ToolTip="{loc:T Zh='加強介入', En='Ease more'}"/>
@@ -569,9 +618,12 @@
                                  The chat face carries an IDENTICAL glyph at the SAME right-edge,
                                  band-centred position so flipping feels seamless (the affordance
                                  stays put). -->
+                            <!-- UX-14: 44x44 hit area, 13px glyph unchanged. -11 margins
+                                 reclaim the +22 so the cluster height + right edge stay put. -->
                             <Button x:Name="FlipBtn"
                                     Content="&#x21A9;"
-                                    Width="22" Height="22"
+                                    Width="44" Height="44"
+                                    Margin="-11"
                                     Padding="0" BorderThickness="0"
                                     Background="Transparent"
                                     Foreground="{DynamicResource TextTertiary}"
@@ -624,7 +676,7 @@
                          drops the input row to the same Y as the main content row. -->
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Text="{loc:T Zh='對話', En='Chat'}"
-                               FontSize="11"
+                               FontSize="12"
                                Foreground="{DynamicResource TextTertiary}"
                                Margin="2,0,0,1"/>
 
@@ -669,10 +721,14 @@
                     <!-- Flip BACK to the status face. Identical glyph (↩) + right-edge position to
                          the main face's FlipBtn so the affordance stays in place across the flip
                          (seamless). In the input row (Row 1), centred → same Y as the main flip. -->
+                    <!-- UX-14: 44x44 hit area, 13px glyph unchanged. -11 margins reclaim the
+                         +22 so the chat-face input row keeps the same height + right edge
+                         (stays aligned with the main-face flip glyph across a flip). -->
                     <Button Grid.Row="1" Grid.Column="2"
                             x:Name="FlipBackBtn"
                             Content="&#x21A9;"
-                            Width="22" Height="22"
+                            Width="44" Height="44"
+                            Margin="-11"
                             Padding="0" BorderThickness="0"
                             Background="Transparent"
                             Foreground="{DynamicResource TextTertiary}"

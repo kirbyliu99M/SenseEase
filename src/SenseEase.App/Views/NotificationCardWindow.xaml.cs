@@ -321,18 +321,29 @@ public partial class NotificationCardWindow : Window
         UpdateExpiryText(proposal);
     }
 
+    /// <summary>UX-05: the proposal summary the user reads on the card. Two fixes over
+    /// the old build: (1) it now localizes via <see cref="Loc"/> instead of emitting
+    /// zh-only text in English mode, and (2) it uses the established PLAIN vocabulary
+    /// (調整防護敏感度為… / Adjust protection sensitivity to …; 嚴重不適上限 /
+    /// strong-discomfort limit) instead of raw engine jargon (sensitivity /
+    /// severe-strike-limit / profile) on a consumer surface. The proposed value is the
+    /// only token shown verbatim.</summary>
     private static string FormatProposalSummary(ProfileOverrideProposal p)
     {
         switch (p.Intent)
         {
             case OverrideIntent.AdjustSensitivity:
-                return $"把 sensitivity 調整為 {p.ProposedValue}";
+                return Loc($"調整防護敏感度為 {p.ProposedValue}",
+                           $"Adjust protection sensitivity to {p.ProposedValue}");
             case OverrideIntent.SwitchProfile:
-                return $"把 profile 切換為 {p.ProposedValue}";
+                return Loc($"切換防護設定為 {p.ProposedValue}",
+                           $"Switch protection profile to {p.ProposedValue}");
             case OverrideIntent.AdjustStrikeLimit:
-                return $"把 severe-strike-limit 調整為 {p.ProposedValue}";
+                return Loc($"調整嚴重不適上限為 {p.ProposedValue}",
+                           $"Adjust strong-discomfort limit to {p.ProposedValue}");
             default:
-                return $"{p.Intent} = {p.ProposedValue}";
+                return Loc($"調整設定為 {p.ProposedValue}",
+                           $"Adjust setting to {p.ProposedValue}");
         }
     }
 
@@ -385,10 +396,13 @@ public partial class NotificationCardWindow : Window
             ProposalExpiryText.Text = Loc("已過期", "Expired");
             return;
         }
-        // Render at minute granularity above 1h, else minute:second.
+        // UX-05: render at minute granularity above 1h, else minute:second — and
+        // LOCALIZE the countdown (the old build emitted zh-only "剩 …" in both languages).
         ProposalExpiryText.Text = remaining.TotalHours >= 1
-            ? $"剩 {(int)remaining.TotalHours} 小時 {remaining.Minutes:00} 分"
-            : $"剩 {remaining.Minutes:00}:{remaining.Seconds:00}";
+            ? Loc($"剩 {(int)remaining.TotalHours} 小時 {remaining.Minutes:00} 分",
+                  $"{(int)remaining.TotalHours}h {remaining.Minutes:00}m left")
+            : Loc($"剩 {remaining.Minutes:00}:{remaining.Seconds:00}",
+                  $"{remaining.Minutes:00}:{remaining.Seconds:00} left");
     }
 
     private void OnProposalAcceptClicked(object sender, RoutedEventArgs e)
@@ -446,6 +460,16 @@ public partial class NotificationCardWindow : Window
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    // UX-14 (accessibility): the card HWND is permanently WS_EX_NOACTIVATE (intentional
+    // quiet-guardian design — it must never steal foreground when it appears). That also
+    // means a keyboard/switch user can't normally focus it to dismiss / adjust / answer a
+    // proposal. SetForegroundWindow brings a NOACTIVATE window to the foreground anyway
+    // (the no-activate flag only blocks IMPLICIT activation on show, not an explicit call),
+    // so it is the supported escape hatch for an on-demand keyboard handoff.
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     // NE24: single-instance guard for the gear-icon Settings window. Holds the
     // currently-open SettingsWindow (if any) so repeated gear clicks reuse +
@@ -544,7 +568,17 @@ public partial class NotificationCardWindow : Window
             || e.PropertyName == nameof(SenseEase.App.Localization.LocalizationManager.Language)
             || e.PropertyName == nameof(SenseEase.App.Localization.LocalizationManager.IsEnglish))
         {
-            ApplyContentToUi();
+            // The LocalizationManager singleton raises PropertyChanged synchronously on
+            // whatever thread flips the language, which is NOT guaranteed to be this
+            // card's UI thread (e.g. a tray/host toggle on another dispatcher, or a test
+            // restoring the language from its own thread). ApplyContentToUi touches WPF
+            // controls, so marshal back onto the card's Dispatcher when called off-thread
+            // (same posture as PersistentBarWindow.OnLanguageChanged). CheckAccess keeps
+            // the common same-thread toggle synchronous.
+            if (Dispatcher.CheckAccess())
+                ApplyContentToUi();
+            else
+                Dispatcher.BeginInvoke(new Action(ApplyContentToUi));
         }
     }
 
@@ -1079,10 +1113,53 @@ public partial class NotificationCardWindow : Window
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => HideWithSlide();
 
+    /// <summary>UX-14 (accessibility): the on-demand keyboard handoff. The card stays
+    /// WS_EX_NOACTIVATE (it never grabs focus when it appears — quiet-guardian design),
+    /// so a keyboard/switch user can't reach its controls by default. A tray-menu item
+    /// or global hotkey (owned by the host — see the deferred note) calls this while the
+    /// card is visible to pull it to the foreground and seat focus on the first sensible
+    /// control, so Tab/Enter/Escape then work over Accept/Decline/Close/Flip/+/-. No-ops
+    /// when the card is hidden. Returns true if focus was seated.</summary>
+    public bool ActivateForKeyboard()
+    {
+        if (!IsVisible) return false;
+
+        // SetForegroundWindow works despite WS_EX_NOACTIVATE (the flag only suppresses
+        // IMPLICIT activation on show, not an explicit foreground request). Guard the
+        // HWND lookup so a not-yet-sourced window can't throw out of an a11y entry point.
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd != IntPtr.Zero) SetForegroundWindow(hwnd);
+        }
+        catch { /* best-effort; fall through to WPF focus below */ }
+
+        // Any keyboard interaction counts as activity — keep the card alive.
+        RestartIdleTimer();
+
+        // Seat focus on the most relevant control for the card's current state so the
+        // user lands somewhere useful and Tab cycles from there:
+        //  • a pending proposal → its Accept button (the decision the user must make);
+        //  • the chat face → the input box;
+        //  • otherwise the main-face Close (× is the universal "I'm done" affordance).
+        UIElement? target =
+              _activeProposal is not null && ProposalAcceptBtn is not null ? ProposalAcceptBtn
+            : _activeSetMove  is not null && SetMoveAcceptBtn  is not null ? SetMoveAcceptBtn
+            : _showingChat    && ChatInputBox is not null                 ? ChatInputBox
+            : (UIElement?)CloseBtn;
+
+        // Activate() is a no-op on a NOACTIVATE HWND, but the explicit Focus() below seats
+        // WPF logical+keyboard focus so the focus ring + Tab traversal engage.
+        return target is not null && target.Focus();
+    }
+
     /// <summary>C2 (audit): keyboard escape route. Pressing Escape while the
     /// card has focus dismisses it — the same gentle slide-up <see cref="Hide"/>
     /// as the × button (never quits the app). Apple HIG / WCAG both require a
-    /// cancel/back affordance on every transient surface; the card is one.</summary>
+    /// cancel/back affordance on every transient surface; the card is one.
+    /// <para>UX-14: this Escape path is now reachable because
+    /// <see cref="ActivateForKeyboard"/> can seat focus on the (otherwise
+    /// no-activate) card on demand.</para></summary>
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Escape)

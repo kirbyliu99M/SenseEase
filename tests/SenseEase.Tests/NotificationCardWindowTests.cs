@@ -1,7 +1,10 @@
 using System;
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using SenseEase.App.Localization;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
 using SenseEase.Core.Inference;
@@ -30,11 +33,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_SetContent_FormatsNumericTitle()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            // Force template instantiation so TitleText is non-null.
-            w.ApplyTemplate();
             w.SetContent(TierColorPalette.TierBand.Medium, 3, 27.4);
             // The HUD title is the 5級 screen-motion status (the only user-facing status).
             // The card shows the BAND WORD only ("低") under its own 「目前螢幕狀態」 caption;
@@ -50,10 +50,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_SetContent_PowerSaveOverride()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
             w.IsPowerSaveActive = true;
             w.SetContent(TierColorPalette.TierBand.VeryLow, 8, 89);
             // P2 (Pause/Resume mode-shift): band-only paused word under the 「目前螢幕狀態」 caption.
@@ -67,10 +65,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_PowerSaveToggle_RaisesEvent()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
             bool? received = null;
             w.PowerSaveToggled += (_, on) => received = on;
 
@@ -91,30 +87,42 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_ActiveProposal_TogglesPanelAndPopulatesText()
     {
-        RunOnSta(() =>
+        var original = LocalizationManager.Current.Language;
+        try
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
-            Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
+            // Pin zh so the assertion is deterministic regardless of a parallel class
+            // toggling the process-wide language singleton.
+            LocalizationManager.Current.Language = UILanguage.ChineseTraditional;
+            RunOnStaCard(w =>
+            {
+                Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
 
-            var proposal = new ProfileOverrideProposal(
-                Intent:        OverrideIntent.SwitchProfile,
-                TargetField:   "profile",
-                ProposedValue: "SENSITIVE",
-                Rationale:     "user reports easy nausea",
-                ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+                var proposal = new ProfileOverrideProposal(
+                    Intent:        OverrideIntent.SwitchProfile,
+                    TargetField:   "profile",
+                    ProposedValue: "SENSITIVE",
+                    Rationale:     "user reports easy nausea",
+                    ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
 
-            w.ActiveProposal = proposal;
+                w.ActiveProposal = proposal;
 
-            Assert.Equal(Visibility.Visible, w.ProposalPanel.Visibility);
-            Assert.Contains("SENSITIVE", w.ProposalSummaryText.Text);
-            Assert.Contains("profile", w.ProposalSummaryText.Text);
-            Assert.Contains("user reports easy nausea", w.ProposalRationaleText.Text);
-            Assert.True(w.ProposalAcceptBtn.IsEnabled);
+                Assert.Equal(Visibility.Visible, w.ProposalPanel.Visibility);
+                Assert.Contains("SENSITIVE", w.ProposalSummaryText.Text);
+                // UX-05 (decided 2026-06-11): the summary now uses plain consumer copy
+                // (切換防護設定為…), NOT the raw "profile" engine token it carried before.
+                Assert.Contains("切換防護設定", w.ProposalSummaryText.Text);
+                Assert.DoesNotContain("profile", w.ProposalSummaryText.Text, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("user reports easy nausea", w.ProposalRationaleText.Text);
+                Assert.True(w.ProposalAcceptBtn.IsEnabled);
 
-            w.ActiveProposal = null;
-            Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
-        });
+                w.ActiveProposal = null;
+                Assert.Equal(Visibility.Collapsed, w.ProposalPanel.Visibility);
+            });
+        }
+        finally
+        {
+            LocalizationManager.Current.Language = original;
+        }
     }
 
     /// <summary>D3 Test B: clicking Accept raises <see cref="NotificationCardWindow.ProposalAccepted"/>
@@ -123,10 +131,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_AcceptClick_RaisesProposalAcceptedWithPayload()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
             var proposal = new ProfileOverrideProposal(
                 Intent:        OverrideIntent.AdjustStrikeLimit,
                 TargetField:   "strike_limit",
@@ -152,10 +158,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_DeclineClick_RaisesProposalDeclinedAndClearsPanel()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
             var proposal = new ProfileOverrideProposal(
                 Intent:        OverrideIntent.AdjustSensitivity,
                 TargetField:   "sensitivity",
@@ -182,10 +186,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_BlockedApplyResult_SurfacesSafetyNoteAndDisablesAccept()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
             var proposal = new ProfileOverrideProposal(
                 Intent:        OverrideIntent.AdjustSensitivity,
                 TargetField:   "sensitivity",
@@ -211,11 +213,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_IdleFade_DeferredWhileProposalPending()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
-
             // No proposal → idle fade is allowed.
             Assert.True(w.ShouldBeginIdleFade());
 
@@ -261,11 +260,8 @@ public class NotificationCardWindowTests
     [Fact]
     public void NotificationCardWindow_CrisisResponse_FullyPresentedNoClipNoAutoDismiss()
     {
-        RunOnSta(() =>
+        RunOnStaCard(w =>
         {
-            var w = new NotificationCardWindow();
-            w.ApplyTemplate();
-
             Assert.Equal(Visibility.Collapsed, w.CrisisPanel.Visibility);
             Assert.True(w.ShouldBeginIdleFade());   // no crisis → auto-dismiss allowed
             Assert.False(w.IsCrisisActive);
@@ -298,6 +294,109 @@ public class NotificationCardWindowTests
         });
     }
 
+    // ── UX-05 — proposal summary + expiry localize, no engine jargon ─────────
+
+    /// <summary>UX-05 Test A: the proposal summary the user reads on the card LOCALIZES
+    /// with the language toggle (it was zh-only before) AND uses plain consumer vocabulary
+    /// instead of raw engine jargon (sensitivity / severe-strike-limit). The proposed
+    /// value is the only verbatim token. Drives the private FormatProposalSummary via the
+    /// public ActiveProposal setter and reads the rendered summary TextBlock.</summary>
+    [Fact]
+    public void NotificationCardWindow_ProposalSummary_LocalizesAndDropsEngineJargon()
+    {
+        var original = LocalizationManager.Current.Language;
+        try
+        {
+            RunOnStaCard(w =>
+            {
+                var sensitivity = new ProfileOverrideProposal(
+                    Intent:        OverrideIntent.AdjustSensitivity,
+                    TargetField:   "personal_pressure_scale",
+                    ProposedValue: 0.9,
+                    Rationale:     "stable history",
+                    ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+
+                // zh: plain "防護敏感度" copy, NOT the raw "sensitivity" jargon.
+                LocalizationManager.Current.Language = UILanguage.ChineseTraditional;
+                w.ActiveProposal = null;
+                w.ActiveProposal = sensitivity;
+                string zh = w.ProposalSummaryText.Text;
+                Assert.Contains("防護敏感度", zh);
+                Assert.Contains("0.9", zh);
+                Assert.DoesNotContain("sensitivity", zh, StringComparison.OrdinalIgnoreCase);
+
+                // en: localizes to English plain copy (was stuck zh before the Loc() fix).
+                LocalizationManager.Current.Language = UILanguage.English;
+                w.ActiveProposal = null;
+                w.ActiveProposal = sensitivity;
+                string en = w.ProposalSummaryText.Text;
+                Assert.Contains("Adjust protection sensitivity", en);
+                Assert.Contains("0.9", en);
+                Assert.DoesNotContain("把", en);          // no leftover zh
+                Assert.DoesNotContain("severe-strike-limit", en, StringComparison.OrdinalIgnoreCase);
+
+                // strike-limit intent uses the plain "strong-discomfort limit" term, not jargon.
+                var strike = new ProfileOverrideProposal(
+                    Intent:        OverrideIntent.AdjustStrikeLimit,
+                    TargetField:   "severe_strike_limit",
+                    ProposedValue: 3,
+                    Rationale:     "too sensitive",
+                    ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+                w.ActiveProposal = null;
+                w.ActiveProposal = strike;
+                string strikeEn = w.ProposalSummaryText.Text;
+                Assert.Contains("strong-discomfort limit", strikeEn);
+                Assert.DoesNotContain("severe-strike-limit", strikeEn, StringComparison.OrdinalIgnoreCase);
+
+                LocalizationManager.Current.Language = UILanguage.ChineseTraditional;
+                w.ActiveProposal = null;
+                w.ActiveProposal = strike;
+                string strikeZh = w.ProposalSummaryText.Text;
+                Assert.Contains("嚴重不適上限", strikeZh);
+            });
+        }
+        finally
+        {
+            LocalizationManager.Current.Language = original;
+        }
+    }
+
+    // ── UX-10 — typography floor: no 10/11px text in the card XAML ───────────
+
+    /// <summary>UX-10 Test: the card XAML carries NO FontSize="10|11" — the locked
+    /// typography floor (body 14, caption 12; no 10/11px text on a surface a nauseated
+    /// user reads). String-scan over the source XAML, mirroring the DesignLintTests
+    /// file-walk pattern (objective, build-independent).</summary>
+    [Fact]
+    public void NotificationCardWindow_Xaml_HasNoSub12FontSizes()
+    {
+        string xaml = ReadCardXamlSource();
+        // Match FontSize="10" / "11" (and a "10.5"/"11.x" just in case) but NOT "110"/"12".
+        var bad = new Regex(@"FontSize\s*=\s*""1[01](\.\d+)?""", RegexOptions.Compiled);
+        var matches = bad.Matches(xaml);
+        Assert.True(matches.Count == 0,
+            "NotificationCardWindow.xaml still has sub-12px FontSize occurrences (UX-10 floor): "
+            + string.Join(", ", System.Linq.Enumerable.Select(
+                System.Linq.Enumerable.Cast<Match>(matches), m => m.Value)));
+    }
+
+    /// <summary>Locate the card XAML source by walking up from the test bin dir to the
+    /// repo's src/SenseEase.App, mirroring DesignLintTests.FindAppDir.</summary>
+    private static string ReadCardXamlSource()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            string candidate = Path.Combine(
+                dir.FullName, "src", "SenseEase.App", "Views", "NotificationCardWindow.xaml");
+            if (File.Exists(candidate)) return File.ReadAllText(candidate);
+            dir = dir.Parent;
+        }
+        throw new FileNotFoundException(
+            "Could not locate src/SenseEase.App/Views/NotificationCardWindow.xaml from "
+            + AppContext.BaseDirectory);
+    }
+
     /// <summary>Helper: runs <paramref name="body"/> on a fresh STA thread
     /// and re-throws any exception on the calling thread so xUnit reports
     /// the actual assertion failure instead of a generic timeout.</summary>
@@ -317,5 +416,38 @@ public class NotificationCardWindowTests
         Assert.True(done.Wait(TimeSpan.FromSeconds(15)), "STA test timed out");
         if (captured != null)
             throw new Xunit.Sdk.XunitException("STA test threw: " + captured);
+    }
+
+    /// <summary>Card-scoped STA helper: constructs a <see cref="NotificationCardWindow"/>,
+    /// force-applies its template (so the named parts are non-null), runs <paramref name="body"/>
+    /// with it, and ALWAYS closes the window before the STA thread exits.
+    ///
+    /// <para>Why the close matters: the card subscribes to the process-wide
+    /// <see cref="LocalizationManager.Current"/> in its constructor and only unsubscribes on
+    /// <c>Closed</c>. The STA thread runs the body then exits WITHOUT pumping a dispatcher, so a
+    /// window left open would outlive its (now-dead) dispatcher thread while STILL subscribed to
+    /// the singleton. A LATER test on another thread that flips
+    /// <c>LocalizationManager.Current.Language</c> (e.g.
+    /// <c>ChatbotViewModelStatusCopyTests.WithLanguage</c>) would then synchronously fire that
+    /// leaked handler, which touches this window's WPF DependencyObjects from the wrong thread and
+    /// throws a cross-thread <see cref="InvalidOperationException"/>. Closing the card here runs
+    /// its <c>Closed</c> handler, dropping the subscription so the singleton list stays clean
+    /// across the whole run.</para></summary>
+    private static void RunOnStaCard(Action<NotificationCardWindow> body)
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            // Force template instantiation so the named parts (TitleText, ProposalPanel, …)
+            // are non-null before the body touches them.
+            w.ApplyTemplate();
+            try { body(w); }
+            finally
+            {
+                // Closed → unsubscribe from LocalizationManager (see summary). Best-effort:
+                // never let cleanup mask the body's real assertion failure.
+                try { w.Close(); } catch { /* best-effort cleanup */ }
+            }
+        });
     }
 }
