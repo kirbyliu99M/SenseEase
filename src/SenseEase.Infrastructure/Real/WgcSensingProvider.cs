@@ -119,9 +119,18 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     // surfaced + recovered by the OnTick catch instead.
     private readonly Timer _livenessTimer;
     private volatile bool _unhealthy;
-    private const int SensingStalledThresholdMs = 3000; // silent self-heal trigger
-    private const int SensingFaultedThresholdMs = 6000; // surface Faulted if still stale
-    private const int LivenessWatchdogIntervalMs = 1000;
+    // CW-8/INTENT-04: liveness thresholds are provider-local (NOT SenseDefaults).
+    // internal (InternalsVisibleTo SenseEase.Tests) so LivenessContractTests can PIN
+    // the locked relationship — stalled + heal-window ≤ faulted, watchdog cadence —
+    // with literal asserts, so any future drift fails a test.
+    internal const int SensingStalledThresholdMs = 3000; // silent self-heal trigger
+    // CW-8/INTENT-04: restore the LOCKED ~5 s silent-death→Faulted bound
+    // (LOCKED_DIRECTION_ALPHA1 P1-1: 3000 ms stall + ≤2000 ms heal window = ~5 s,
+    // "Do not let it grow."). Was 6000 — drifted the worst-case surface latency to
+    // ~6–7 s at the 1000 ms watchdog cadence. The constant relationship
+    // (stalled + heal-window ≤ faulted, cadence) is PINNED in LivenessContractTests.
+    internal const int SensingFaultedThresholdMs = 5000; // surface Faulted if still stale
+    internal const int LivenessWatchdogIntervalMs = 1000;
     private byte[]? _prevFrame;
     private double  _smoothedOfi;
     private readonly double[] _ofiHistory = new double[SenseDefaults.VimsMedianTaps];
@@ -196,6 +205,15 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     private ID3D11Texture2D?       _stagingTexture;
     private IDirect3DDevice?       _winrtDevice;
 
+    // CW-8/INTENT-03: GraphicsCaptureItem.Closed handler. WGC raises this when the
+    // captured target goes away (display disconnect / mode change, capture session
+    // closed by the OS) — a silent frame-starvation class that the _lastPollAt
+    // liveness watchdog cannot see (the capture loop keeps polling fine; it just
+    // never gets another frame). Subscribing surfaces it immediately as Faulted +
+    // schedules recovery. Stored so teardown can unsubscribe the EXACT delegate
+    // (EM3: under the lifecycle lock).
+    private Windows.Foundation.TypedEventHandler<GraphicsCaptureItem, object>? _captureItemClosedHandler;
+
     // Raw COM interface pointers cached at Start(); bypasses CsWin32 marshaling limitations.
     private IntPtr _ctxPtr;        // ID3D11DeviceContext*
     private IntPtr _stagingResPtr; // ID3D11Resource* for the staging texture
@@ -215,14 +233,15 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     public event Action<bool>? SensingHealthChanged;
 
     // overlay-bar-redesign D3: Pause/Resume support. _paused is volatile so
-    // the OnTick thread observes UI-thread writes without a lock. _resumedAt
-    // and _watchdogScheduled drive a one-shot watchdog that re-inits the
-    // capture session if the framepool doesn't recover after Resume — guards
-    // against the (rare) case where pausing then resuming leaves WGC in a
-    // state where TryGetNextFrame keeps returning null.
+    // the OnTick thread observes UI-thread writes without a lock.
+    // LOGIC-08 (CW-8): the former one-shot frame-arrival "resume watchdog"
+    // (_resumedAt / _watchdogScheduled) was DELETED — it fired a spurious
+    // Stop/Start ~2 s after every Resume on a static screen (warmup blocks
+    // frame stamping for exactly its 2 s window, and WGC legitimately delivers
+    // no frames on an idle screen). The rearming D3 liveness watchdog
+    // (OnLivenessWatchdog, keyed off _lastPollAt) already covers post-resume
+    // wedges, so the resume watchdog only added flap.
     private volatile bool _paused;
-    private DateTime _resumedAt;
-    private bool _watchdogScheduled;
     private DateTime _lastFrameProcessedAt; // updated each successful OnTick (real frame) — clears faults via MarkHealthy
     private DateTime _lastPollAt;           // updated every non-throwing OnTick (loop-liveness clock the watchdog keys off)
 
@@ -283,54 +302,21 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     /// lives in the consumer (MainViewModel) rather than the provider.
     /// MainWindow.ApplyPowerSave wires <c>_viewModel.ResetSpikeDetector()</c>
     /// on the disable path.</para>
-    /// <para>The 2 s frame-arrival watchdog is still scheduled even though
-    /// the fresh Start makes the Power-Save resume path itself self-healing.
-    /// The watchdog remains useful for non-Power-Save OS-level invalidation
-    /// scenarios (lock-screen recovery, monitor sleep wake, RDP reconnect)
-    /// where a session that was alive can stop yielding frames silently.</para>
+    /// <para>LOGIC-08 (CW-8): the former one-shot 2 s frame-arrival "resume
+    /// watchdog" was DELETED. It fired a spurious Stop/Start ~2 s after every
+    /// Resume on a static screen (warmup blocks frame stamping for exactly its
+    /// 2 s window, and WGC legitimately delivers no frames on an idle screen).
+    /// The non-Power-Save invalidation scenarios it nominally covered
+    /// (lock-screen recovery, monitor sleep wake, RDP reconnect) are handled by
+    /// the rearming D3 liveness watchdog (<see cref="OnLivenessWatchdog"/>),
+    /// which keys off LOOP liveness (_lastPollAt, stamped every tick) so an idle
+    /// screen is not mistaken for a stall, and a genuinely wedged capture loop
+    /// (OnTick stops firing) still trips its silent self-heal then Faulted.</para>
     /// <para>Idempotent — Resume/Resume is a no-op (Start checks _running).</para></summary>
     public void Resume()
     {
         _paused = false;
         Start();
-        _resumedAt = DateTime.UtcNow;
-        ScheduleResumeWatchdog();
-    }
-
-    private void ScheduleResumeWatchdog()
-    {
-        if (_watchdogScheduled) return;
-        _watchdogScheduled = true;
-        // Fire once after 2 s. Using a separate Timer here (not the OnTick
-        // capture timer) keeps the watchdog independent of the capture
-        // cadence and avoids reentering the capture-timer callback path.
-        var watchdog = new Timer(_ =>
-        {
-            try
-            {
-                if (_paused) return; // user paused again before the watchdog fired
-                bool frameSeenSinceResume = _lastFrameProcessedAt >= _resumedAt;
-                if (frameSeenSinceResume) return;
-                if (!_running) return;
-                WgcLog("Resume watchdog: no frame seen 2 s after Resume → Stop/Start re-init.");
-                try
-                {
-                    Stop();
-                    Start();
-                }
-                catch (Exception ex)
-                {
-                    WgcLog($"Resume watchdog re-init failed: {ex.GetType().Name}: {ex.Message}");
-                }
-            }
-            finally
-            {
-                _watchdogScheduled = false;
-            }
-        }, null, 2000, Timeout.Infinite);
-        // The closure pins `watchdog` for the lifetime of the callback so
-        // it doesn't get GC'd before firing.
-        _ = watchdog;
     }
 
     /// <summary>EM4: recover from a transient OnTick fault. Disarms the timer and
@@ -434,6 +420,15 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
 
     public void Start()
     {
+        // LOGIC-02: serialise Start() under the same lifecycle lock Stop()/OnTick take,
+        // and re-check _running INSIDE the lock. Without this, the EM4 fault-recovery
+        // Task.Run, the D3 resume/liveness self-heal, and a UI Resume() could each pass
+        // the (unlocked) _running check concurrently and double-init the WGC session —
+        // overwriting _ctxPtr/_captureSession/_stagingResPtr and leaking the prior COM
+        // pointers + capture session. The lock is reentrant, so the Stop() calls in the
+        // catch handlers below (and a normal Stop() from another thread) interleave safely.
+        lock (_lifecycleLock)
+        {
         if (_running) return;
 
         // Phase 4 (UVHS Playbook clause 5): no longer truncates DiagFile —
@@ -528,6 +523,23 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                 IntPtr itemPtr = Marshal.GetIUnknownForObject(itemObj);
                 try   { _captureItem = MarshalInterface<GraphicsCaptureItem>.FromAbi(itemPtr); }
                 finally { Marshal.Release(itemPtr); }
+
+                // CW-8/INTENT-03: subscribe Closed so a display disconnect / mode change /
+                // OS-closed capture session surfaces as Faulted + schedules recovery. This
+                // covers the silent frame-starvation class the _lastPollAt watchdog can't
+                // see (the loop keeps polling; it just never receives another frame).
+                // The handler is captured in a field so teardown unsubscribes the EXACT
+                // delegate (Stop() does so under the lifecycle lock — EM3). An intentional
+                // Stop()/Pause() unsubscribes BEFORE disposing the session, so the Closed
+                // it raises on teardown is never mistaken for a fault.
+                _captureItemClosedHandler = (_, _) =>
+                {
+                    if (_paused) return; // intentional teardown in progress — not a fault
+                    WgcLog("GraphicsCaptureItem.Closed — capture target gone (display disconnect / session close) → Faulted + recovery.");
+                    MarkUnhealthy();
+                    ScheduleFaultRecovery();
+                };
+                _captureItem.Closed += _captureItemClosedHandler;
                 WgcLog("Step 3: OK");
 
                 // Step 4: Record monitor resolution
@@ -607,6 +619,7 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
         _timer.Change(SenseDefaults.WgcCaptureIntervalMs, SenseDefaults.WgcCaptureIntervalMs);
         // D3: arm the continuous liveness watchdog alongside the capture timer.
         _livenessTimer.Change(LivenessWatchdogIntervalMs, LivenessWatchdogIntervalMs);
+        } // close LOGIC-02 lock (_lifecycleLock)
     }
 
     public void Stop()
@@ -621,6 +634,16 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             _running = false;
             try { _timer.Change(Timeout.Infinite, Timeout.Infinite); } catch { /* may be disposed */ }
             try { _livenessTimer.Change(Timeout.Infinite, Timeout.Infinite); } catch { /* may be disposed */ } // D3
+
+            // CW-8/INTENT-03 (EM3): unsubscribe the Closed handler BEFORE disposing the
+            // item/session, so the Closed WGC raises during this intentional teardown
+            // never re-enters MarkUnhealthy/ScheduleFaultRecovery. Unsubscribing the
+            // exact stored delegate is null-guarded → idempotent across repeat Stop()s.
+            if (_captureItem != null && _captureItemClosedHandler != null)
+            {
+                try { _captureItem.Closed -= _captureItemClosedHandler; } catch { }
+            }
+            _captureItemClosedHandler = null;
 
             // Release cached raw pointers first.
             SafeRelease(ref _ctxPtr);
@@ -741,12 +764,17 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             _prevFrame   = current;
 
             // OS-CHROME MOTION EXCLUSION (Phase 2.2.1):
-            // Suppress raw MAD-derived OFI whenever Windows itself is generating the on-screen
-            // motion (Alt+Tab, menu, window move, notification, typing). Zeroing BEFORE the
-            // median+EMA chain lets the median fill with zeros during the suppression window
-            // so onsets recover cleanly once the user-driven event ends.
+            // Attenuate raw MAD-derived OFI whenever Windows itself is generating the on-screen
+            // motion (Alt+Tab, menu, window move, notification, typing, plain cursor movement).
+            // LOGIC-05/D-4 (ratified 2026-06-11): ATTENUATE, don't hard-zero. A hard zero meant
+            // a user who keeps the mouse moving over genuinely-moving video/scroll content
+            // accumulated ZERO pressure (the 300 ms cursor-move window re-arms on every poll →
+            // permanent suppression while the mouse is in motion → no mask). Multiplying by
+            // CursorMoveOfiAttenuation (0.25) instead lets real motion still register at a
+            // reduced weight while the suppression window holds. Applied BEFORE the median+EMA
+            // chain so onsets still recover cleanly once the user-driven event ends.
             if (WindowsActivityFilter.Instance.ShouldSuppressOfi)
-                rawOfi = 0;
+                rawOfi *= SenseDefaults.CursorMoveOfiAttenuation;
 
             double clamped  = Math.Clamp(rawOfi, 0, 150);
             double filtered = PushAndMedian(clamped);

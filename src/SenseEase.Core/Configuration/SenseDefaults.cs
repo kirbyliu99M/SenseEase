@@ -76,6 +76,16 @@ public static class SenseDefaults
     // the MockInferenceEngine driver-attenuation site. See SenseState.cs remarks.
     public const double DriverFlowAttenuation = 0.25;
 
+    /// <summary>D-4 (ratified 2026-06-11; withdrawn Wave-12 "doc-cleanup only" triage):
+    /// cursor-move OFI attenuation. While <c>WindowsActivityFilter.ShouldSuppressOfi</c>
+    /// holds (300 ms after any pointer delta / chrome event) the WGC pixel-diff OFI is
+    /// multiplied by this factor instead of being hard-zeroed, so a user who keeps the
+    /// mouse moving over genuinely-moving video/scroll content still accumulates SOME
+    /// pressure (LOGIC-05/NE9) rather than none. Intentionally mirrors the Driver
+    /// attenuation magnitude (<see cref="DriverFlowAttenuation"/>) but is a SEPARATE,
+    /// independently-named knob so the two semantics can diverge later.</summary>
+    public const double CursorMoveOfiAttenuation = 0.25;
+
     // ── Personal-pressure-scale bounds (calibration §7) ───────────────────────
     // Canonical [min, max] clamp for personal_pressure_scale. Mirrored by the
     // public CalibrationProcessor / HabituationOverrideProcessor constants, which

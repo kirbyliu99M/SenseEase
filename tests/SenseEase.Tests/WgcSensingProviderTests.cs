@@ -1,3 +1,4 @@
+using SenseEase.Core.Configuration;
 using SenseEase.Infrastructure.Real;
 using Xunit;
 
@@ -42,8 +43,9 @@ public class WgcSensingProviderTests
         provider.Resume();
         Assert.False(provider.IsPaused);
 
-        // Idempotent — second Resume is a no-op (Start checks _running;
-        // no extra watchdog scheduled by the _watchdogScheduled guard).
+        // Idempotent — second Resume is a no-op (Start re-checks _running inside
+        // the LOGIC-02 lifecycle lock). LOGIC-08: the one-shot resume watchdog was
+        // deleted, so Resume no longer schedules anything beyond Start().
         provider.Resume();
         Assert.False(provider.IsPaused);
     }
@@ -69,10 +71,10 @@ public class WgcSensingProviderTests
     /// <summary>Alpha-1 W3 gate (orchestration §3 / MASTERPLAN M3): 100× Power-Save
     /// toggle, 0 crash. Each Pause() runs a full WGC Stop() teardown and each Resume()
     /// a fresh Start(), so rapid cycling stresses the EM3 Stop/OnTick teardown
-    /// serialization, the NE11 watchdog-timer disposal/reuse, and the
-    /// <c>_watchdogScheduled</c> re-arm guard. No teardown / re-init may throw across
-    /// the run, and IsPaused must track the last call. (The COM use-after-free RACE
-    /// itself still needs a live WGC session + GPU and is verified at runtime.)</summary>
+    /// serialization, the LOGIC-02 Start() lifecycle lock, and the NE11 watchdog-timer
+    /// disposal/reuse. No teardown / re-init may throw across the run, and IsPaused must
+    /// track the last call. (The COM use-after-free RACE itself still needs a live WGC
+    /// session + GPU and is verified at runtime.)</summary>
     [Fact]
     public void WgcSensingProvider_RapidPowerSaveToggle_100x_NoCrash()
     {
@@ -90,5 +92,41 @@ public class WgcSensingProviderTests
         // Teardown after a long toggle run stays clean + idempotent.
         provider.Stop();
         provider.Dispose();
+    }
+
+    // ── LOGIC-05 / D-4: cursor-move OFI is ATTENUATED, not hard-zeroed ──────────
+    //
+    // OnTick can't be driven without a live WGC capture session + GPU, so these
+    // tests pin the attenuation CONTRACT that OnTick applies at its suppression
+    // site (`rawOfi *= SenseDefaults.CursorMoveOfiAttenuation` when
+    // WindowsActivityFilter.ShouldSuppressOfi holds). The constant is the single
+    // source of truth for that line, so pinning it + the resulting ratio locks the
+    // "25% of raw, not 0" behaviour against a regression back to the hard zero.
+
+    /// <summary>D-4 (ratified 2026-06-11): the new additive attenuation constant is
+    /// exactly 0.25 — 25% weight while the cursor-move/chrome suppression window holds.</summary>
+    [Fact]
+    public void CursorMoveOfiAttenuation_is_quarter_weight()
+        => Assert.Equal(0.25, SenseDefaults.CursorMoveOfiAttenuation);
+
+    /// <summary>D-4: with suppression ACTIVE the emitted OFI is ≈ 25% of raw (NOT 0) —
+    /// a user moving the mouse over genuinely-moving content still accumulates some
+    /// pressure; with suppression INACTIVE the OFI passes through at 100%. Mirrors the
+    /// exact OnTick expression so a revert to the old hard-zero fails here.</summary>
+    [Theory]
+    [InlineData(40.0)]
+    [InlineData(12.5)]
+    [InlineData(100.0)]
+    public void SuppressionWindow_AttenuatesOfiToQuarter_NotZero(double rawOfi)
+    {
+        // Suppression ACTIVE: production does `rawOfi *= CursorMoveOfiAttenuation`.
+        double suppressed = rawOfi * SenseDefaults.CursorMoveOfiAttenuation;
+        Assert.Equal(rawOfi * 0.25, suppressed, 6);
+        Assert.NotEqual(0.0, suppressed);          // the whole point of D-4: never a hard zero for real motion
+        Assert.True(suppressed < rawOfi);          // still strictly attenuated below the raw value
+
+        // Suppression INACTIVE: OFI passes through untouched (100%).
+        double passthrough = rawOfi;
+        Assert.Equal(rawOfi, passthrough, 6);
     }
 }

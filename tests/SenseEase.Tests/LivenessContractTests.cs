@@ -1,5 +1,6 @@
 using SenseEase.App.ViewModels;
 using SenseEase.Core.Models;
+using SenseEase.Infrastructure.Real;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -116,5 +117,47 @@ public class LivenessContractTests
 
         vm.UpdateFromStateForTests(new SenseState { MaskActive = false, VimsTier = 1 });
         Assert.Equal(LivenessState.SteadyWatching, vm.LivenessState);
+    }
+
+    // ── 7) CW-8/INTENT-04: the LOCKED ~5 s silent-death→Faulted bound is pinned ──
+    //
+    // LOCKED_DIRECTION_ALPHA1 P1-1: silent death → Faulted visual must surface at
+    // ~5 s — "3000 ms stall + ≤2000 ms heal window ≈ 5 s. Do not let it grow."
+    // The provider thresholds are the single source of truth (provider-local, not
+    // SenseDefaults). These literal asserts make any future drift (e.g. the prior
+    // 6000 ms regression that pushed worst-case surface latency to ~6–7 s) fail
+    // here immediately, long before a user would notice the slow fault surface.
+
+    [Fact]
+    public void WgcLivenessThresholds_PinTheLocked5sFaultBound()
+    {
+        // Literal pins — the exact locked numbers.
+        Assert.Equal(3000, WgcSensingProvider.SensingStalledThresholdMs);
+        Assert.Equal(5000, WgcSensingProvider.SensingFaultedThresholdMs);
+        Assert.Equal(1000, WgcSensingProvider.LivenessWatchdogIntervalMs);
+    }
+
+    [Fact]
+    public void WgcLivenessThresholds_RelationshipHolds_StallPlusHealLEFaulted()
+    {
+        // The watchdog self-heals at the stall threshold and only surfaces Faulted
+        // if STILL stale at the faulted threshold. The heal window is the gap
+        // between them; the locked invariant is stalled + heal-window ≤ faulted so
+        // the surfaced-fault worst case never grows past ~5 s.
+        int stalled   = WgcSensingProvider.SensingStalledThresholdMs;
+        int faulted   = WgcSensingProvider.SensingFaultedThresholdMs;
+        int healWindow = faulted - stalled;
+
+        Assert.True(faulted > stalled, "faulted threshold must be later than the stall threshold");
+        Assert.Equal(2000, healWindow);                 // the ≤2000 ms heal window
+        Assert.True(stalled + healWindow <= faulted,    // the locked relationship
+            "stalled + heal-window must not exceed the faulted threshold (locked ~5 s bound)");
+        Assert.True(faulted <= 5000,                     // "Do not let it grow" — never past ~5 s
+            "faulted threshold must not exceed the locked ~5 s bound");
+
+        // Watchdog cadence must be fine enough that the surfaced-fault granularity
+        // stays small relative to the bound (1 s poll on a 5 s bound).
+        Assert.Equal(1000, WgcSensingProvider.LivenessWatchdogIntervalMs);
+        Assert.True(WgcSensingProvider.LivenessWatchdogIntervalMs < stalled);
     }
 }

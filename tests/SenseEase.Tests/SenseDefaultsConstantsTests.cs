@@ -20,6 +20,13 @@ public class SenseDefaultsConstantsTests
     public void DriverFlowAttenuation_equals_replaced_literal()
         => Assert.Equal(0.25, SenseDefaults.DriverFlowAttenuation);
 
+    // ── D-4 (LOGIC-05/NE9, ratified 2026-06-11): cursor-move OFI attenuation ──
+    // Separate knob from DriverFlowAttenuation by design — the equal magnitude
+    // is intentional today but the two semantics may diverge later.
+    [Fact]
+    public void CursorMoveOfiAttenuation_equals_ratified_value()
+        => Assert.Equal(0.25, SenseDefaults.CursorMoveOfiAttenuation);
+
     // ── F1: personal_pressure_scale clamp bounds (calibration §7) ─────────────
     [Fact]
     public void PersonalPressureScaleMin_equals_replaced_literal()
