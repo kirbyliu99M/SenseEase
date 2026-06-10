@@ -1,3 +1,4 @@
+using System.Threading;
 using SenseEase.Infrastructure.Real;
 using Xunit;
 
@@ -39,5 +40,44 @@ public class UserActivityModeDetectorTests
         Assert.Equal("Driver", UserActivityModeDetector.DetectMode(0, "passenger"));
         Assert.Equal("Driver", UserActivityModeDetector.DetectMode(0, "PASSENGER"));
         Assert.Equal("Passenger", UserActivityModeDetector.DetectMode(5000, "driver"));
+    }
+
+    // ── CW-11/EXIT-03: re-entrancy gate lifecycle ──────────────────────────────
+    // The gate itself (Interlocked CompareExchange in Poll) makes overlapping 1 Hz
+    // ThreadPool callbacks return immediately so they can't pile up (the stack_dump.txt
+    // amplifier). It's private + timer-driven, so we can't assert the gate value
+    // directly; instead we pin that the real polling loop runs without faulting and that
+    // the Start/Stop/Dispose lifecycle stays clean (the Poll body, including the gate's
+    // try/finally reset, runs live on the timer thread during the sleep below).
+
+    [Fact]
+    public void Poll_RunsLive_WithoutFaulting()
+    {
+        using var detector = new UserActivityModeDetector();
+        detector.Start();
+        // The timer fires at 1 Hz; give it long enough for at least one real Poll tick
+        // (which runs the gate's CompareExchange + finally reset on the ThreadPool thread).
+        Thread.Sleep(1200);
+        detector.Stop();
+
+        // A live poll must have produced a non-negative idle reading and a valid mode —
+        // proof the gated Poll body executed without the gate wedging it shut.
+        Assert.True(detector.LastIdleMs >= 0);
+        Assert.Contains(detector.CurrentMode, new[] { "Driver", "Passenger" });
+    }
+
+    [Fact]
+    public void StartStop_IsIdempotent_AndDisposeSafe()
+    {
+        var detector = new UserActivityModeDetector();
+        // Repeated Start/Stop must not throw or double-arm the timer (Start is a no-op
+        // while already running; Stop is null-guarded). The gate keeps any in-flight Poll
+        // from racing the lifecycle.
+        detector.Start();
+        detector.Start();
+        detector.Stop();
+        detector.Stop();
+        detector.Dispose();
+        detector.Dispose(); // double-dispose is a safe no-op
     }
 }

@@ -212,6 +212,31 @@ public sealed class UserPreferences
     [JsonPropertyName("habituation_enabled")]
     public bool HabituationEnabled { get; set; } = false;
 
+    // ── Always-on overlay baseline (CW-7 / UX-12 ≡ FEAT-15, 2026-06-11) ─────
+
+    /// <summary>CW-7 (UX-12 ≡ FEAT-15): persists the card's always-on overlay
+    /// opt-in so the one effortless comfort action no longer resets to OFF every
+    /// restart. Default <c>false</c> — the 2026-06-06 Kirby override stands: a fresh
+    /// install starts immersive / zero-intervention (see
+    /// <see cref="ViewModels.MainViewModel.PersistentOverlayEnabled"/>). Hydrated in the
+    /// VM ctor BEFORE the overlay first shows. Q4.5-safe: this is a DISPLAY baseline only
+    /// (it floors the shown tier via ResolveDisplayedTier) and never touches the earned
+    /// habituation _offset. Rolls forward like every other additive field — old v=1..3
+    /// files load cleanly with the field absent (defaults to OFF), so no version bump.</summary>
+    [JsonPropertyName("persistent_overlay_enabled")]
+    public bool PersistentOverlayEnabled { get; set; } = false;
+
+    /// <summary>CW-7 (UX-12 ≡ FEAT-15): persists the always-on overlay baseline
+    /// intensity level (1–12, native scale) paired with
+    /// <see cref="PersistentOverlayEnabled"/>. Default <c>1</c> = 0% alpha at rest
+    /// (the field is "ready", not "always dark"), matching the VM's day-1 default and
+    /// the pinned R-B safety pairing (a higher baseline would over-dim every new user).
+    /// Natural pressure-driven tiers still override a calm baseline, so a real motion
+    /// spike darkens the periphery further. Display baseline only — never touches the
+    /// habituation offset (Q4.5). Rolls forward; old files default to 1.</summary>
+    [JsonPropertyName("persistent_overlay_baseline_tier")]
+    public int PersistentOverlayBaselineTier { get; set; } = 1;
+
     // ── Notification HUD card position (2026-06-07) ─────────────────────────
 
     /// <summary>HUD-card rework: persisted X (Left) of the draggable notification

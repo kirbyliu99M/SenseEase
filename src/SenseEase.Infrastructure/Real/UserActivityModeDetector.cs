@@ -69,6 +69,14 @@ public sealed class UserActivityModeDetector : IDisposable
     private readonly object _gate = new();
     private bool _disposed;
 
+    // CW-11/EXIT-03: re-entrancy gate. 0 = idle, 1 = a Poll is in flight. The 1 Hz
+    // System.Threading.Timer fires its callback on a ThreadPool thread regardless of
+    // whether the previous callback finished — if a subscriber's marshal stalls (the
+    // old sync Dispatcher.Invoke), or GetLastInputInfo blocks, ticks could overlap and
+    // pile up ThreadPool threads (the stack_dump.txt amplifier). This gate makes an
+    // overlapping tick return immediately instead of running a second Poll body.
+    private int _polling;
+
     /// <summary>
     /// Raised when the detected mode transitions. Argument is the new mode string,
     /// either "Driver" or "Passenger". May be raised on a thread-pool thread —
@@ -156,6 +164,24 @@ public sealed class UserActivityModeDetector : IDisposable
     }
 
     private void Poll()
+    {
+        // CW-11/EXIT-03: re-entrancy gate — if a previous Poll is still running,
+        // return immediately so overlapping 1 Hz ThreadPool callbacks can't pile up.
+        // CompareExchange returns the PRIOR value; non-zero means another Poll holds
+        // the gate. The matching reset lives in the finally so an exception (none
+        // expected — the body is fully try-guarded) can never wedge the gate closed.
+        if (Interlocked.CompareExchange(ref _polling, 1, 0) != 0) return;
+        try
+        {
+            PollCore();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _polling, 0);
+        }
+    }
+
+    private void PollCore()
     {
         int idleMs = GetIdleMilliseconds();
         if (idleMs < 0) return; // P/Invoke failure — skip this tick

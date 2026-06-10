@@ -672,6 +672,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private readonly INluService _nlu;
+
+    // CW-11/EXIT-04: the single owned MistralChatbotService instance. ChatbotVm holds
+    // it as IChatbotService and ChatbotNluService wraps it with _ownsChatbot=false, so
+    // NEITHER disposes it — the only place that reaps the ~2 GB llama-server child
+    // (beyond the JobObject backstop) is DisposeServices, which disposes THIS reference
+    // exactly once on the app-exit path.
+    private readonly MistralChatbotService _mistral;
+
     private readonly DispatcherTimer _idleTimer; // keeps decay visible in Demo Mode when slider is idle
     private readonly DispatcherTimer _metricsTimer;
     private DateTime _lastDemoInputAtUtc = DateTime.UtcNow;
@@ -725,14 +733,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         // Alpha-2 addendum (cancel explicit calibration → auto-profiling): mirror the
         // AutoProfilingEnabled flag onto the engine the same way, THEN seed the fresh-user
-        // TYPICAL / L5「中」 start. AutoProfilingEnabled defaults TRUE since c1461a9 (paired
-        // with AdaptiveFitSelectorEnabled per the "both flags on" decision), so this seeds
-        // the zero-setup start; set the AppConfig flag back to false to restore the explicit-
-        // calibration flow (the flag-off path stays byte-identical).
+        // TYPICAL / L5「中」 start. AutoProfilingEnabled defaults TRUE since c1461a9. Per
+        // D-8 (2026-06-11) flag-off RETAINS the TYPICAL/L5 seed — only the vestibular
+        // prompt / console visibility / selector-adjacent UI react to the flag; the
+        // explicit-calibration flow was deleted (D-13; restore requires git revert 3131387).
         if (_engine is MockInferenceEngine mockEngineForAutoProfiling)
         {
             mockEngineForAutoProfiling.AutoProfilingEnabled = AppConfig.AutoProfilingEnabled;
             mockEngineForAutoProfiling.ApplyAutoProfilingStartDefaults();
+
+            // LOGIC-03 (W1W2 #15): in production the per-tick profile persist runs on the
+            // engine's single-writer background queue so AV file-lock retries (~400ms worst)
+            // never block the dispatcher under _gate. Tests leave this OFF for synchronous
+            // read-after-write determinism; DisposeServices drains the queue at shutdown.
+            mockEngineForAutoProfiling.BackgroundPersistEnabled = true;
         }
 
         // D-1 (CW-1 step 3, 2026-06-11): hydrate the graded-exposure (habituation)
@@ -743,6 +757,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // auto-profiling seed above (seeding sets profile/level, never unpauses).
         // Q4.5-safe — SetHabituationPaused never touches the earned _offset.
         _engine.SetHabituationPaused(!UserPreferences.Current.HabituationEnabled);
+
+        // CW-7 (UX-12 ≡ FEAT-15): hydrate the always-on overlay baseline (enabled flag +
+        // level) from the persisted prefs BEFORE the overlay first shows, so the card's
+        // +/- comfort action survives restart instead of resetting to OFF / L1. Seeds the
+        // backing fields directly (not the public setters) so the auto-open side-effect
+        // can't drive OverlayVisible during construction, before the host has wired the
+        // overlay window. Q4.5-safe: this is a DISPLAY baseline only — it floors the shown
+        // tier via ResolveDisplayedTier and never touches the earned habituation _offset.
+        HydratePersistentOverlayFromPrefs();
 
         // M3 7e+ fix: mirror every _log.Append into the dashboard's bound
         // EventLog ObservableCollection so entries originating outside
@@ -794,8 +817,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChatbotUiLanguage.IsEnglishProvider =
             () => SenseEase.App.Localization.LocalizationManager.Current.IsEnglish;
 
-        var mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
-        ChatbotVm = new ChatbotViewModel(mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
+        // CW-11/EXIT-04: keep the owned reference so DisposeServices can terminate the
+        // llama-server child deterministically on quit. ChatbotVm + _nlu both share this
+        // instance without owning its lifetime (see _mistral field doc).
+        _mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
+        ChatbotVm = new ChatbotViewModel(_mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
         // engine type is OK here because MainViewModel constructed it above
@@ -832,17 +858,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // _powerSaveActiveLookup callback set by MainWindow). Snapshot load
         // routes through the existing _habituationProfileStore.
         ChatbotVm.LoadHabituationSnapshot = () => _habituationProfileStore.Load();
-        // UM5: read the daily behaviour aggregates for the [behavior_trend] block. A
-        // fresh reader instance is fine (read-only; the writer holds the write lock).
-        ChatbotVm.LoadBehaviorAggregates  = () =>
-            new DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath).ReadAll();
+        // UM5 + LOGIC-06 rider (CW-7): read the daily behaviour aggregates for the
+        // [behavior_trend] block through the SHARED _behaviorWriter instance rather than
+        // a fresh DailyBehaviorAggregateWriter. The writer's read/write are guarded by a
+        // per-instance lock (_gate); a second instance has its OWN lock, so a fresh reader
+        // could observe a torn file mid-rewrite (File.WriteAllText is non-atomic). Sharing
+        // the one instance makes reader and writer serialise on the same lock. (G4 is also
+        // making the writer internally path-keyed — both changes are good.)
+        ChatbotVm.LoadBehaviorAggregates  = () => _behaviorWriter.ReadAll();
         ChatbotVm.IsPowerSaveActive       = () => _powerSaveActiveLookup?.Invoke() ?? false;
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
         // Calibration CARD removed (2026-06-08): the 5-card Q&A, confirm card, the
         // invitation/recalibrate banners and the LLM-calibration session are gone (dead,
         // unreachable UI). The engine's CalibrationProcessor / CalibrationResult plumbing
         // and the User-Model LLM client are kept.
-        _nlu = new ChatbotNluService(mistral);
+        // ChatbotNluService(MistralChatbotService) sets _ownsChatbot=false, so disposing
+        // _nlu does NOT dispose _mistral — MainViewModel owns that single dispose (EXIT-04).
+        _nlu = new ChatbotNluService(_mistral);
 
         _sensing = ProviderFor(AppConfig.Mode);
 
@@ -948,8 +980,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // on the next OFI sample. The == guard avoids redundant PropertyChanged spam.
         if (AppConfig.AutoDriverPassengerModeEnabled)
         {
+            // CW-11/EXIT-03: InvokeAsync (not the synchronous Invoke) so the 1 Hz
+            // detector's ThreadPool Poll thread never blocks waiting on the UI
+            // dispatcher. The old sync Invoke was the stack_dump.txt thread-pileup
+            // amplifier — if the UI thread stalled, successive Poll callbacks each
+            // parked a ThreadPool thread on the blocking marshal. The handler only
+            // sets the Mode property (cheap), so fire-and-forget is correct; the
+            // Interlocked re-entrancy gate in Poll keeps overlapping ticks from
+            // piling up independently of this change.
             _activityDetector.ModeChanged += (_, newMode) =>
-                _dispatcher.Invoke(() =>
+                _dispatcher.InvokeAsync(() =>
                 {
                     if (Mode != newMode) Mode = newMode;
                 });
@@ -1196,7 +1236,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // calibration" direction). The D6 "0.00 alpha at rest" floor (VimsLevels[0].Alpha)
     // stays pinned. If this is re-enabled, KEEP the baseline-tier-1 pairing below
     // (risk R-B: a tier-4 baseline would over-dim every new user ~43%).
+    // CW-7 (UX-12 ≡ FEAT-15): hydrated from UserPreferences in the ctor BEFORE the
+    // overlay first shows (see HydratePersistentOverlayFromPrefs). _hydratingOverlayBaseline
+    // suppresses the save-on-change while the ctor is seeding from disk, so reading the
+    // persisted value can't immediately re-write it (and can't trip OverlayVisible during
+    // construction before the host has wired the overlay window).
     private bool _persistentOverlayEnabled = false;
+    private bool _hydratingOverlayBaseline;
     public bool PersistentOverlayEnabled
     {
         get => _persistentOverlayEnabled;
@@ -1206,6 +1252,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // Toggling on auto-opens the overlay so the feature is immediately visible.
             // Toggling off doesn't auto-hide — user keeps whatever overlay state they had.
             if (value && !OverlayVisible) OverlayVisible = true;
+            SavePersistentOverlayPrefs();
         }
     }
 
@@ -1213,11 +1260,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Baseline intensity level (1–12, native scale) when PersistentOverlayEnabled is true.
     /// D6 day-1 default is 1 = 0% alpha at rest (nothing visibly dims; the field is
     /// "ready", not "always dark"). Natural higher levels still override, so a real
-    /// motion spike darkens the periphery. The user can raise this baseline.</summary>
+    /// motion spike darkens the periphery. The user can raise this baseline.
+    /// <para>CW-7: persisted to UserPreferences on change so the card's +/- baseline
+    /// survives restart (it was a plain VM field before). Q4.5-safe — this is a DISPLAY
+    /// floor only, never the habituation offset.</para></summary>
     public int PersistentOverlayBaselineTier
     {
         get => _persistentOverlayBaselineTier;
-        set => Set(ref _persistentOverlayBaselineTier, Math.Clamp(value, 1, 12));
+        set { if (Set(ref _persistentOverlayBaselineTier, Math.Clamp(value, 1, 12))) SavePersistentOverlayPrefs(); }
+    }
+
+    /// <summary>CW-7 (UX-12 ≡ FEAT-15): persist the always-on overlay baseline (enabled
+    /// flag + level) to UserPreferences. No-op while the ctor is hydrating from disk so a
+    /// seed-read can't immediately re-write the same value. Best-effort like every other
+    /// prefs save; matches the GradedExposureEnabled persist pattern. Q4.5-safe.</summary>
+    private void SavePersistentOverlayPrefs()
+    {
+        if (_hydratingOverlayBaseline) return;
+        UserPreferences.Current.PersistentOverlayEnabled      = _persistentOverlayEnabled;
+        UserPreferences.Current.PersistentOverlayBaselineTier = _persistentOverlayBaselineTier;
+        UserPreferences.Current.Save();
+    }
+
+    /// <summary>CW-7 (UX-12 ≡ FEAT-15): seed the always-on overlay baseline from the
+    /// persisted prefs at construction. Sets the backing fields directly under the
+    /// hydrate guard so neither the auto-open side-effect nor a redundant Save fires
+    /// while seeding. The baseline level is clamped to the 1..12 native scale (defensive
+    /// against a hand-edited prefs file). Called from the ctor BEFORE the overlay shows.</summary>
+    private void HydratePersistentOverlayFromPrefs()
+    {
+        _hydratingOverlayBaseline = true;
+        try
+        {
+            var prefs = UserPreferences.Current;
+            _persistentOverlayBaselineTier = Math.Clamp(prefs.PersistentOverlayBaselineTier, 1, 12);
+            _persistentOverlayEnabled      = prefs.PersistentOverlayEnabled;
+        }
+        finally { _hydratingOverlayBaseline = false; }
     }
 
     /// <summary>Apply the always-on tier floor to a freshly-emitted SenseState. Returns
@@ -1743,6 +1822,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         FlushBehaviorAggregate();
         try { _userModelAnalysisCts?.Cancel(); _userModelAnalysisCts?.Dispose(); } catch { }
         try { _activityDetector.Dispose(); } catch { }
+
+        // CW-11/EXIT-04: stop the ACTIVE sensing provider on exit. Previously
+        // _sensing.Stop() was never called on quit, widening the EM3 race (freeing
+        // COM/D3D pointers under a live OnTick) into every shutdown. Stop() is
+        // idempotent + lock-guarded on WgcSensingProvider; try-guarded so a provider
+        // throw can't abort the rest of teardown.
+        try { _sensing.Stop(); } catch { }
+
+        // CW-11/EXIT-04 (folds LOGIC-14 residual): the WGC provider implements
+        // IDisposable but Dispose() was NEVER called from teardown — the capture +
+        // liveness-watchdog timers leaked across every quit. Dispose the stable
+        // _wgcSensing instance directly (Dispose() re-runs Stop() harmlessly) rather
+        // than the routed _sensing, so the WGC resources are reaped even when the
+        // active provider is currently something else.
+        try { _wgcSensing.Dispose(); } catch { }
+
         // M4 head-tracking sprint: gracefully stop the sidecar process if it
         // was spawned. The JobObject reaper would catch a hard exit anyway,
         // but explicit Dispose is faster + flushes the stderr tail log.
@@ -1750,6 +1845,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             try { disposable.Dispose(); } catch { }
         }
+
+        // CW-11/EXIT-04: terminate the llama-server child deterministically on quit.
+        // ChatbotVm + _nlu share this instance but neither owns its lifetime, so the
+        // single dispose lives here on the app-exit path (dispose ONCE — never from a
+        // ChatbotViewModel/NLU teardown). MistralChatbotService.Dispose() Kills the
+        // child process tree + clears the shared LlamaSessionKey; the JobObject stays
+        // the backstop, not the mechanism.
+        try { _mistral.Dispose(); } catch { }
+
+        // LOGIC-03: drain the engine's background persist queue so the last enqueued
+        // profile snapshot reaches disk before process exit (production runs with
+        // BackgroundPersistEnabled = true; see the ctor wiring).
+        try { (_engine as MockInferenceEngine)?.FlushPendingPersists(); } catch { }
+    }
+
+    /// <summary>EXIT-05 (CW-11): cheap, idempotent, never-throwing best-effort flush of
+    /// the in-memory daily behaviour aggregate to disk. Exposed for the crash / process-
+    /// exit handlers (App.xaml.cs wires it later this wave) so a hard termination doesn't
+    /// lose the ≤60 s behaviour tail accumulated since the last durability heartbeat. Safe
+    /// to call from ANY thread and from a terminating handler: it delegates to the same
+    /// fail-soft <see cref="FlushBehaviorAggregate"/> the 60 s timer + clean-exit path use
+    /// (idempotent-by-date writer → repeated calls converge on one row). Q4.5-safe — writes
+    /// telemetry only, never engine state.</summary>
+    public void TryFlushBehaviorAggregateForCrash()
+    {
+        try { FlushBehaviorAggregate(); } catch { /* crash-path best-effort — never rethrow */ }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
