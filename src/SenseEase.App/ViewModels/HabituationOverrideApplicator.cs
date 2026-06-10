@@ -29,9 +29,9 @@ namespace SenseEase.App.ViewModels;
 //     [OBSERVATION_ADD] strings through LongitudinalObservationWriter
 //     (constructed separately).
 //
-// Lives in the App layer (alongside CalibrationApplicator) because it
-// orchestrates Infrastructure types — same architectural boundary as the
-// existing calibration applicator.
+// Lives in the App layer because it orchestrates Infrastructure types
+// (MockInferenceEngine, IHabituationProfileStore, IChatbotActionLog) —
+// same architectural boundary as other App-layer applicators.
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed class HabituationOverrideApplicator

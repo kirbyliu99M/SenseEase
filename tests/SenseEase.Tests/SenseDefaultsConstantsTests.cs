@@ -49,4 +49,40 @@ public class SenseDefaultsConstantsTests
     [Fact]
     public void VestibularTriggerPressureOverride_equals_replaced_literal()
         => Assert.Equal(50, CalibrationProcessor.VestibularTriggerPressureOverride);
+
+    // ── TEST-10: locked-constant literal pins ─────────────────────────────────
+    // Each assert pins the constant to the exact literal value used in the shipped
+    // engine. Any accidental value change breaks this test before behaviour tests
+    // surface the drift.  Lock source noted inline per HANDOVER.md / whitepaper §12.
+
+    /// <summary>Lock source: HANDOVER.md hard-constraint — engine trigger threshold.</summary>
+    [Fact]
+    public void TriggerPressure_locked_at_85()
+        => Assert.Equal(85.0, SenseDefaults.TriggerPressure);
+
+    /// <summary>Lock source: whitepaper §12 — OFI noise floor; below this OFI is zeroed.</summary>
+    [Fact]
+    public void NoiseGateThreshold_locked_at_8()
+        => Assert.Equal(8.0, SenseDefaults.NoiseGateThreshold);
+
+    /// <summary>Lock source: whitepaper §12 — passive-flow integrator multiplier.</summary>
+    [Fact]
+    public void PassiveFlowWeight_locked_at_2()
+        => Assert.Equal(2.0, SenseDefaults.PassiveFlowWeight);
+
+    /// <summary>Lock source: whitepaper §12 — WGC MAD-to-OFI normalisation factor.</summary>
+    [Fact]
+    public void WgcMadNormFactor_locked_at_4()
+        => Assert.Equal(4.0, SenseDefaults.WgcMadNormFactor);
+
+    /// <summary>Lock source: HANDOVER.md hard-constraint — cursor + WGC EMA smoothing alpha.</summary>
+    [Fact]
+    public void CursorEmaAlpha_locked_at_0_55()
+        => Assert.Equal(0.55, SenseDefaults.CursorEmaAlpha);
+
+    /// <summary>Lock source: whitepaper §12 — overlay brush baseline radius
+    /// (RelativeToBoundingBox); inactive mask snaps to this value.</summary>
+    [Fact]
+    public void OverlayBrushRadius_locked_at_0_85()
+        => Assert.Equal(0.85, SenseDefaults.OverlayBrushRadius);
 }

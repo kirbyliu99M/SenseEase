@@ -10,7 +10,9 @@ namespace SenseEase.Infrastructure.Real;
 /// Phase-2.1 real sensing: derives OFI from cursor speed via Win32 GetCursorPos.
 /// Must be constructed on the UI thread so the captured SynchronizationContext
 /// can marshal OpticalFlowSampled back to the UI thread automatically.
-/// Replace with WGC pixel-diff in Phase 2.2.
+/// RETIRED PATH: WgcOpticalFlowProvider (Phase 2.2) is the live default; this
+/// provider is currently unreachable in normal startup and is scheduled for
+/// removal per D-9.
 ///
 /// FALSE-POSITIVE REJECTION (Phase 2.1.1):
 /// Self-generated cursor motion (the user moving their own hand — window drags,

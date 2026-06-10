@@ -9,13 +9,12 @@ namespace SenseEase.Core.Safety;
 /// floor (Alpha-1 Wave 1 — H1/H2/H3/H4/H8, C3).
 ///
 /// <para>Both the chatbot view-model (the line-1 intercept in
-/// <c>ChatbotViewModel.SendAsync</c>) and the two SDK chatbot services
-/// (<c>MistralChatbotService</c>, <c>CalibrationChatbotService</c>) call
-/// <see cref="Trips"/>, so the phrase vocabulary and crisis-line responses
-/// cannot drift between call sites. This replaces the two previously hand-copied
-/// floors that had already diverged on a single character (half-width <c>:</c> in
-/// Mistral vs full-width <c>：</c> in Calibration) — the C3 duplicate-source-drift
-/// pattern. The canonical punctuation is the full-width <c>：</c>.</para>
+/// <c>ChatbotViewModel.SendAsync</c>) and any active SDK chatbot service
+/// call <see cref="Trips"/>, so the phrase vocabulary and crisis-line responses
+/// cannot drift between call sites. This replaces previously hand-copied
+/// floors that had diverged on a single character (half-width <c>:</c> vs
+/// full-width <c>：</c>) — the C3 duplicate-source-drift pattern. The
+/// canonical punctuation is the full-width <c>：</c>.</para>
 ///
 /// <para>Matching normalises with <see cref="NormalizationForm.FormKC"/> +
 /// <c>ToLowerInvariant</c> first, so full-width Latin (e.g. <c>ｄｉｅ</c>) and case

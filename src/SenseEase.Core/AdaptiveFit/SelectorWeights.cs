@@ -18,9 +18,10 @@ namespace SenseEase.Core.AdaptiveFit;
 /// where <c>fit(feature,cell) = 1 − clamp(|featureNorm − cellTargetNorm| / FitTolerance, 0, 1)</c>.
 /// A move only fires when <c>argmax.score − holdScore ≥ ConfidenceMargin</c> (see the selector).</para>
 ///
-/// <para>Pure Core — no engine / WPF dependency, no I/O. Read only behind the default-OFF
-/// <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag. <see cref="Default"/> reads the
-/// provisional, conservative constants from <see cref="SenseDefaults"/> (the SSOT).</para>
+/// <para>Pure Core — no engine / WPF dependency, no I/O. Read behind the
+/// <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag (default ON since c1461a9).
+/// <see cref="Default"/> reads the provisional, conservative constants from
+/// <see cref="SenseDefaults"/> (the SSOT).</para>
 /// </summary>
 /// <param name="W1Pressure">Weight on the pressure→Band fit term (primary intensity signal).</param>
 /// <param name="W2Spike">Weight on the spike-recurrence→Shape fit term.</param>

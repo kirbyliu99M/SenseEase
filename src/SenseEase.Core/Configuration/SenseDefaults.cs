@@ -175,8 +175,8 @@ public static class SenseDefaults
     // ── Adaptive Fit selector (F1/F2 governance) ──────────────────────────────
     // Alpha-2 P3/P4 GROUP C. Provisional, deliberately CONSERVATIVE weights/margins:
     // the selector should prefer Hold over chasing noise until M1 calibrates the OFI
-    // norm-factors. All values are read ONLY behind AppConfig.AdaptiveFitSelectorEnabled
-    // (default OFF) — nothing here is on today's hot path.
+    // norm-factors. All values are read behind AppConfig.AdaptiveFitSelectorEnabled
+    // (default ON since c1461a9) — selector and head-tracking are both live.
     //
     // score(candidate) = W1·fit(pressure,band) + W2·fit(spike,shape) + W3·fit(calm,band)
     //                    − W4·ManhattanDistance(current,candidate) − W5·manualConflict.
