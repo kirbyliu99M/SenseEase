@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using SenseEase.App.Theme;
+using SenseEase.Infrastructure.Real;
 
 namespace SenseEase.App.Views;
 
@@ -88,6 +89,17 @@ public partial class SettingsWindow : Window
     {
         get => ContentHost.OpenEventLog;
         set => ContentHost.OpenEventLog = value;
+    }
+    /// <summary>FEAT-08 (CW-10, B1b UI half): pass-through for the live head-tracking
+    /// health read (the one-line status caption in the 頭部追蹤與隱私 group). Wired by
+    /// the host (MainWindow) to the MainViewModel's <see cref="SidecarHeadPoseReader"/>
+    /// — the same both-hosts delegate pattern as GradedExposure. Left unset on paths
+    /// without a reader (the notification-card popup), where the status row stays
+    /// hidden because there is no honest health to show.</summary>
+    public Func<HeadTrackingHealth>? GetHeadTrackingHealth
+    {
+        get => ContentHost.GetHeadTrackingHealth;
+        set => ContentHost.GetHeadTrackingHealth = value;
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();

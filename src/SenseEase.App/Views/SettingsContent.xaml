@@ -263,7 +263,7 @@
                                       Checked="OnToggleAutoChanged"
                                       Unchecked="OnToggleAutoChanged"/>
                             <TextBlock Text="{loc:T Zh='偵測到中度以上不適時自動通知', En='Notifies automatically on moderate-or-higher discomfort.'}"
-                                       FontSize="11"
+                                       FontSize="12"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
@@ -296,17 +296,17 @@
                                       Checked="OnToggleMinimizeToTrayChanged"
                                       Unchecked="OnToggleMinimizeToTrayChanged"/>
                             <TextBlock Text="{loc:T Zh='按下主視窗的 X 只會收到系統匣，背景持續偵測。', En='Pressing X on the main window just sends it to the tray; detection keeps running in the background.'}"
-                                       FontSize="11"
+                                       FontSize="12"
                                        Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap"
                                        Margin="22,4,0,0"/>
                             <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
-                                      FontSize="11"
+                                      FontSize="12"
                                       Foreground="{DynamicResource TextTertiary}"
                                       IsExpanded="False"
                                       Margin="22,2,0,0">
                                 <TextBlock Text="{loc:T Zh='開啟時，按下主視窗的 X 只會把視窗收到右下角的系統匣，SenseEase 持續在背景偵測。要完全結束請用系統匣選單的「退出 SenseEase」。', En='When on, pressing X on the main window sends it to the system tray (bottom-right) and SenseEase keeps detecting in the background. To quit completely, use Quit SenseEase in the tray menu.'}"
-                                           FontSize="11"
+                                           FontSize="12"
                                            Foreground="{DynamicResource TextTertiary}"
                                            TextWrapping="Wrap"
                                            Margin="0,4,0,0"/>
@@ -356,7 +356,13 @@
                                      (timeout 2 → start) so the current process can
                                      release the single-instance mutex before the new
                                      instance launches. -->
+                                <!-- UX-08 (B1b): the chip is now SHOWN ONLY when the
+                                     toggle differs from the app-start value (pending
+                                     restart). Default Collapsed; code-behind
+                                     (UpdateRestartChip) flips it. It no longer lies on
+                                     every Settings open. -->
                                 <Button x:Name="RestartButton"
+                                        Visibility="Collapsed"
                                         Content="{loc:T Zh='需重新啟動', En='Restart needed'}"
                                         Margin="10,0,0,0"
                                         Padding="10,5"
@@ -370,11 +376,50 @@
                                         Click="OnRestartClicked"
                                         ToolTip="{loc:T Zh='點擊立即重啟 SenseEase 以套用頭部追蹤變更', En='Click to restart SenseEase now and apply head-tracking changes'}"/>
                             </StackPanel>
+
+                            <!-- UX-08 (B1b) B1 consent copy at the point of decision:
+                                 the webcam / local-only line the 頭部追蹤與隱私 group was
+                                 missing. ≥12px caption; wording is the locked B1
+                                 invariant. -->
+                            <TextBlock Text="{loc:T Zh='開啟後會使用視訊鏡頭，影像僅在本機處理，不會儲存或上傳。', En='Uses your webcam; processed locally — never stored or uploaded.'}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+
+                            <!-- FEAT-08 (CW-10, B1b UI half): one-line head-tracking
+                                 health status from the B1a SidecarHeadPoseReader health
+                                 API (Healthy / NoFrames / Dead). Status is NOT colour-
+                                 only — a leading glyph + a plain-language word carry the
+                                 meaning ("never colour alone"). Hidden until the host
+                                 wires GetHeadTrackingHealth (the no-MainViewModel popup
+                                 path has no reader); code-behind sets text + glyph +
+                                 token in RefreshHeadTrackingHealth. -->
+                            <StackPanel x:Name="HeadTrackingHealthRow"
+                                        Orientation="Horizontal"
+                                        Visibility="Collapsed"
+                                        Margin="22,6,0,0">
+                                <TextBlock x:Name="HeadTrackingHealthGlyph"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock x:Name="HeadTrackingHealthText"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
                         </StackPanel>
 
                         <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
 
-                        <StackPanel Orientation="Vertical">
+                        <!-- UX-08 (B1b): the follow-mode radios are now IsEnabled-bound
+                             to the head-tracking toggle, so they don't look live while
+                             tracking is off (an honesty fix — inert-looking-but-live
+                             controls misrepresent state). The 追蹤模式 label dims with
+                             them for a coherent disabled group. -->
+                        <StackPanel Orientation="Vertical"
+                                    IsEnabled="{Binding IsChecked, ElementName=ToggleHeadTrackingEnabled}">
                             <TextBlock Text="{loc:T Zh='追蹤模式', En='Tracking mode'}"
                                        FontSize="12" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimary}"
@@ -485,8 +530,14 @@
                         <TextBlock Style="{StaticResource Type.Heading}"
                                    Text="{loc:T Zh='資料與隱私', En='Data &amp; privacy'}"
                                    Margin="0,0,0,14"/>
-                        <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析，並刪除模型診斷追蹤。你的校正設定檔會保留，此動作無法復原。', En='Clear the long-term behaviour log and analysis SenseEase has built about you, and delete the model diagnostic trace. Your calibration profile is kept. This cannot be undone.'}"
-                                   FontSize="11"
+                        <!-- UX-09 + FEAT-13 (B1b): the label said "all my data" but the
+                             clear path used to skip the two content-bearing PII files
+                             (chat transcript + legacy calibration history). The clear
+                             path now includes both; this caption + the confirm dialog
+                             plainly enumerate everything deleted and everything kept, so
+                             the label no longer overstates its scope. ≥12px caption. -->
+                        <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, and legacy calibration history SenseEase has built about you. Your graded-exposure progress and preferences are kept. This cannot be undone.'}"
+                                   FontSize="12"
                                    Foreground="{DynamicResource TextTertiary}"
                                    TextWrapping="Wrap"
                                    Margin="0,0,0,10"/>
@@ -502,7 +553,7 @@
                                 BorderThickness="1"
                                 Cursor="Hand"
                                 Click="OnClearAllDataClicked"
-                                ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察與模型追蹤；保留校正設定檔。', En='Deletes the behaviour log, analysis index, longitudinal observations, and model trace; keeps your calibration profile.'}"/>
+                                ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察、模型追蹤、對話紀錄與舊版校正紀錄；保留漸進適應進度與偏好設定。', En='Deletes the behaviour log, analysis index, longitudinal observations, model trace, chat transcript, and legacy calibration history; keeps your graded-exposure progress and preferences.'}"/>
 
                         <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
                              "regret" toggle + the Reset that moved here from the console.
@@ -515,7 +566,7 @@
                                       Checked="OnVestibularProtectionChanged"
                                       Unchecked="OnVestibularProtectionChanged"/>
                             <TextBlock Text="{loc:T Zh='若您感到暈眩或不適，可開啟此防護。', En='If you feel dizzy or uncomfortable, you can enable this protection.'}"
-                                       FontSize="11" Foreground="{DynamicResource TextTertiary}"
+                                       FontSize="12" Foreground="{DynamicResource TextTertiary}"
                                        TextWrapping="Wrap" Margin="0,6,0,14"/>
                             <Button x:Name="ResetStateButton"
                                     Content="{loc:T Zh='重設個人化狀態', En='Reset personalisation state'}"
@@ -558,7 +609,7 @@
                                Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,6"/>
                     <TextBlock Text="{loc:T Zh='以下快捷鍵為開發 / QA 測試用途，非一般使用流程的一部分。', En='These are for development / QA testing only, not part of the normal user flow.'}"
-                               FontSize="11"
+                               FontSize="12"
                                Foreground="{DynamicResource TextTertiary}"
                                TextWrapping="Wrap"
                                Margin="0,0,0,10"/>
@@ -575,25 +626,25 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:T Zh='快捷鍵', En='Hotkey'}"
-                                       FontWeight="SemiBold" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
+                                       FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="{loc:T Zh='作用', En='Effect'}"
-                                       FontWeight="SemiBold" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
+                                       FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + Shift + H"
                                        FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="1" Grid.Column="1"
                                        Text="{loc:T Zh='觸發 20 秒模擬頭部姿勢掃描 (橫向→縱向→圓形→中心持住)。用於無 webcam 機器驗證 wiring 端到端，與 AppConfig.HeadTrackingEnabled 無關。', En='Triggers a 20-second mock head-pose sweep (horizontal→vertical→circular→hold centre). Used to verify wiring end-to-end on webcam-less machines. Independent of AppConfig.HeadTrackingEnabled.'}"
-                                       FontSize="11" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                       FontSize="12" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:T Zh='連點兩下 Ctrl', En='Double-tap Ctrl'}"
                                        FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource TextPrimary}" Margin="0,2,0,2"/>
                             <TextBlock Grid.Row="2" Grid.Column="1"
                                        Text="{loc:T Zh='(400 ms 內) 觸發 FOV 遮罩 3 秒透明度 30% 的「偷瞄」逃生口。受上方「啟用暫時透明」開關控制；前庭敏感者強制停用。', En='(within 400 ms) triggers the FOV-mask peek escape hatch — 30% opacity for 3 seconds. Governed by the temporary-transparency toggle above; force-disabled for vestibular-sensitive users. Listed here for hotkey discoverability.'}"
-                                       FontSize="11" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
+                                       FontSize="12" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
                         </Grid>
                     </Border>
                     <TextBlock Text="{loc:T Zh='提示：所有快捷鍵僅在主控台視窗有焦點時觸發 (PreviewKeyDown 範圍)。', En='Note: all hotkeys fire only when the main console window has focus.'}"
-                               FontSize="10" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
+                               FontSize="12" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
                                TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </StackPanel>
             </StackPanel>
