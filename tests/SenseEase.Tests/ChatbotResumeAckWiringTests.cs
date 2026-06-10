@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using SenseEase.App.ViewModels;
@@ -16,18 +15,16 @@ namespace SenseEase.Tests;
 /// AcknowledgeResumeCallback (the host wires it to MockInferenceEngine.AcknowledgeAndResumeHabituation,
 /// a guarded no-op unless actually awaiting confirm). user_confirmed:false must NOT resume.
 /// Mirrors the StubChatbotService harness from ChatbotViewModelInjectionHardeningTests.</summary>
+[Collection("TestDataRoot")]
 public class ChatbotResumeAckWiringTests
 {
-    static ChatbotResumeAckWiringTests()
+    // CW-9: route the VM's chat_history.jsonl writes into a per-class temp subdir
+    // via the real data-root seam (the old LOCALAPPDATA env-var trick was a no-op —
+    // GetFolderPath ignores it). The [Collection] serialises this against the other
+    // override-retargeting classes so the single static override never races.
+    public ChatbotResumeAckWiringTests()
     {
-        try
-        {
-            string sandbox = Path.Combine(
-                Path.GetTempPath(), "SenseEase_Tests_LocalAppData_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(sandbox);
-            Environment.SetEnvironmentVariable("LOCALAPPDATA", sandbox);
-        }
-        catch { /* best-effort isolation */ }
+        TestDataRootFixture.UseClassSubdir(nameof(ChatbotResumeAckWiringTests));
     }
 
     private sealed class StubChatbotService : IChatbotService

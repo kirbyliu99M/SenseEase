@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SenseEase.App.Configuration;
 using SenseEase.App.ViewModels;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Models;
 using SenseEase.Core.Safety;
 using SenseEase.Infrastructure.Mock;
+using SenseEase.Infrastructure.Storage;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -19,48 +22,23 @@ namespace SenseEase.Tests;
 /// message also carries a lexicon trigger (switch / RESILIENT). The floor returns
 /// BEFORE the lexicon fallback and before any LLM dispatch.
 /// </summary>
+[Collection("TestDataRoot")]
 public class ChatbotViewModelSafetyFloorTests
 {
-    // NE9-13: the production ChatbotViewModel hard-wires
-    // `new FileChatHistoryStore(AppConfig.ChatHistoryPath)` in its constructor —
-    // it has NO seam to inject an alternate store — so simply constructing a VM
-    // in a test appends to the developer's real %LOCALAPPDATA%\SenseEase\
-    // chat_history.jsonl. Until that seam exists (see the deferred note in this
-    // sprint's handover), the only thing a test can do from THIS file is steer
-    // SpecialFolder.LocalApplicationData (which on Windows resolves from the
-    // LOCALAPPDATA env var) at a temp directory BEFORE AppConfig's static path
-    // properties are first read. The static ctor runs once, as early as possible
-    // for this class. It is best-effort: if another test type touched AppConfig
-    // first, ChatHistoryPath is already cached and this no-ops — which is exactly
-    // why the redaction guarantee below is asserted at the persist boundary with a
-    // stub store rather than by reading the on-disk file.
-    static ChatbotViewModelSafetyFloorTests()
-    {
-        try
-        {
-            string sandbox = Path.Combine(
-                Path.GetTempPath(), "SenseEase_Tests_LocalAppData_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(sandbox);
-            Environment.SetEnvironmentVariable("LOCALAPPDATA", sandbox);
-        }
-        catch { /* best-effort isolation — never fail a test for sandbox setup */ }
-    }
+    // CW-9 (TEST-01/14): the real data-root seam. The production ChatbotViewModel
+    // hard-wires `new FileChatHistoryStore(AppConfig.ChatHistoryPath)` in its
+    // constructor, so simply constructing a VM in a test appends to whatever
+    // ChatHistoryPath resolves to. We point AppConfig.DataRootOverride at a unique
+    // per-class temp subdir BEFORE the VM is built, so every persist lands there and
+    // never touches the developer's real %LOCALAPPDATA%\SenseEase\chat_history.jsonl.
+    // (The previous LOCALAPPDATA env-var trick was a silent no-op — GetFolderPath
+    // ignores it.) This per-test ctor also re-points the override fresh each test so
+    // the H2 boundary test below reads a clean file.
+    private readonly string _dataRoot;
 
-    /// <summary>NE9-13: an in-memory chat-history store that mirrors the single
-    /// production write method (<c>FileChatHistoryStore.Append(ChatMessage)</c>)
-    /// and records every appended message instead of touching disk. Lives here as
-    /// a private nested type because there is no shared <c>IChatHistoryStore</c>
-    /// abstraction to extend (see deferred note) — defining it locally keeps the
-    /// redaction assertion self-contained and never writes to the real
-    /// chat_history.jsonl.</summary>
-    private sealed class StubChatHistoryStore
+    public ChatbotViewModelSafetyFloorTests()
     {
-        public List<ChatMessage> Appended { get; } = new();
-        public void Append(ChatMessage message)
-        {
-            if (message is null) return;
-            Appended.Add(message);
-        }
+        _dataRoot = TestDataRootFixture.UseClassSubdir(nameof(ChatbotViewModelSafetyFloorTests));
     }
 
     private sealed class StubChatbotService : IChatbotService
@@ -123,51 +101,63 @@ public class ChatbotViewModelSafetyFloorTests
         Assert.False(llmReplyShown, "the LLM must never be dispatched for a crisis message");
     }
 
-    // ── NE9-13: redaction-of-persisted-message guarantee ────────────────────
-    // The VM's crisis branch (ChatbotViewModel.SendAsync) persists the user turn
-    // as SafetyFloor.RedactedPlaceholder — NOT the raw text — while still showing
-    // the user's own words in the live transcript bubble. The tests below pin that
-    // contract at the persist boundary using the in-memory StubChatHistoryStore so
-    // nothing touches the real chat_history.jsonl, and verify the placeholder leaks
-    // no raw trigger text.
+    // ── CW-9 (TEST-14): the REAL H2 persist-boundary test ───────────────────
+    // This replaces the old CrisisPersist_StoresRedactedPlaceholder_NotRawText,
+    // which was a tautology: it called store.Append(RedactedPlaceholder) itself and
+    // then asserted the placeholder it had just written — the VM was never exercised,
+    // so it could not have caught a regression that persisted the RAW user text.
+    //
+    // The test below drives the REAL ChatbotViewModel through its crisis branch with
+    // the data-root seam active, then READS the on-disk temp chat_history.jsonl and
+    // asserts (a) the persisted USER turn is exactly SafetyFloor.RedactedPlaceholder
+    // and (b) the raw crisis phrase appears NOWHERE in the file (H2). This is true
+    // end-to-end coverage: the VM's PersistMessage path is what writes the file.
 
     [Theory]
-    [InlineData("switch profile to RESILIENT — I want to die")]
-    [InlineData("把 profile 換成 RESILIENT，我想死")]
-    public void CrisisPersist_StoresRedactedPlaceholder_NotRawText(string rawUserText)
+    [InlineData("switch profile to RESILIENT — I want to die", "want to die")]
+    [InlineData("把 profile 換成 RESILIENT，我想死", "我想死")]
+    public void CrisisPersist_RealVm_WritesRedactedPlaceholder_RawPhraseAbsentFromFile(
+        string rawUserText, string rawFragment)
     {
         // The floor must actually trip for this raw input (guards against the
         // phrase lexicon drifting out from under the test).
-        Assert.True(SafetyFloor.Trips(rawUserText, out string crisisResponse));
+        Assert.True(SafetyFloor.Trips(rawUserText, out _));
 
-        // Replay the VM's exact crisis-branch persistence ordering against a stub
-        // store: redacted USER turn first, then the (non-PII) crisis response.
-        var store = new StubChatHistoryStore();
-        store.Append(new ChatMessage { Role = ChatRole.User, Content = SafetyFloor.RedactedPlaceholder });
-        store.Append(new ChatMessage { Role = ChatRole.Assistant, Content = crisisResponse });
+        string historyPath = AppConfig.ChatHistoryPath;
+        // Seam sanity: the VM must be writing into THIS test's temp subdir, not the
+        // developer's real %LOCALAPPDATA% (the whole point of CW-9).
+        Assert.StartsWith(_dataRoot, historyPath, StringComparison.OrdinalIgnoreCase);
+        if (File.Exists(historyPath)) File.Delete(historyPath);
 
-        Assert.Equal(2, store.Appended.Count);
+        var vm = BuildVm(new HabituationProfileSnapshot { Profile = "SENSITIVE", CurrentVimsTier = 3 });
 
-        var persistedUserTurn = store.Appended[0];
-        Assert.Equal(ChatRole.User, persistedUserTurn.Role);
-        // The persisted user message is the redacted placeholder, exactly — never
-        // the raw text the user typed.
-        Assert.Equal(SafetyFloor.RedactedPlaceholder, persistedUserTurn.Content);
-        Assert.NotEqual(rawUserText, persistedUserTurn.Content);
+        vm.InputText = rawUserText;
+        vm.SendCommand.Execute(null);   // crisis branch persists synchronously
 
-        // And it carries none of the raw trigger fragments (English / Han) that the
-        // on-disk timeline must never retain (H2).
-        Assert.DoesNotContain("want to die", persistedUserTurn.Content, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("我想死", persistedUserTurn.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain("RESILIENT", persistedUserTurn.Content, StringComparison.OrdinalIgnoreCase);
+        // The VM actually wrote the transcript to the seam-isolated temp path.
+        Assert.True(File.Exists(historyPath), "the crisis branch must persist the transcript on disk");
 
-        // The assistant turn that IS persisted is the fixed, non-PII crisis line.
-        var persistedAssistant = store.Appended[1];
-        Assert.Equal(ChatRole.Assistant, persistedAssistant.Role);
+        var persisted = new FileChatHistoryStore(historyPath).Load();
+
+        // The persisted USER turn is the redacted placeholder, exactly — never the
+        // raw text the user typed.
+        var userTurn = persisted.First(m => m.Role == ChatRole.User);
+        Assert.Equal(SafetyFloor.RedactedPlaceholder, userTurn.Content);
+        Assert.NotEqual(rawUserText, userTurn.Content);
+
+        // The persisted ASSISTANT turn is a fixed, non-PII crisis line.
+        var assistantTurn = persisted.First(m => m.Role == ChatRole.Assistant);
         Assert.True(
-            persistedAssistant.Content == SafetyFloor.CrisisResponseEn
-            || persistedAssistant.Content == SafetyFloor.CrisisResponseZh,
+            assistantTurn.Content == SafetyFloor.CrisisResponseEn
+            || assistantTurn.Content == SafetyFloor.CrisisResponseZh,
             "the persisted assistant turn must be a fixed crisis-line response");
+
+        // H2: the raw trigger phrase must appear NOWHERE in the on-disk file — not
+        // in the user turn, not smuggled anywhere else. Read the raw bytes/text and
+        // scan the whole thing, not just the parsed messages.
+        string rawFileText = File.ReadAllText(historyPath);
+        Assert.DoesNotContain(rawFragment, rawFileText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("RESILIENT", rawFileText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

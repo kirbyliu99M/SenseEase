@@ -9,38 +9,35 @@ using Xunit;
 namespace SenseEase.Tests;
 
 /// <summary>Pop-up sprint Task 5 — round-trip + reset + fallback tests for
-/// the persisted user-preferences file. Touches the real
-/// %LocalAppData%/SenseEase/user-preferences.json path because the loader
-/// hardcodes it; tests back up + restore around each run so the user's
-/// production prefs are never disturbed.</summary>
+/// the persisted user-preferences file.
+///
+/// <para>CW-9 (TEST-02): these tests used to delete/rewrite the developer's REAL
+/// %LocalAppData%/SenseEase/user-preferences.json (backing it up + restoring per
+/// test) — but because each test mutates that single shared file while other test
+/// classes run in PARALLEL, that was the documented "1 failing in full run" flake.
+/// Now <c>UserPreferences.FilePath</c> routes through <c>AppConfig.DataRootOverride</c>,
+/// so we point it at a unique per-class temp subdir and never touch the real file.
+/// The [Collection] serialises this against the other override-retargeting classes
+/// so the single static override never races mid-flight.</para></summary>
+[Collection("TestDataRoot")]
 public class UserPreferencesTests : IDisposable
 {
-    private readonly string _backupPath;
-    private readonly bool   _hadOriginal;
-
     public UserPreferencesTests()
     {
-        // Back up the real prefs file if present so the test never destroys
-        // user data on the test machine.
-        _backupPath = UserPreferences.FilePath + ".test-backup";
-        _hadOriginal = File.Exists(UserPreferences.FilePath);
-        if (_hadOriginal)
-        {
-            File.Copy(UserPreferences.FilePath, _backupPath, overwrite: true);
-        }
-        // Start every test from a known clean slate.
+        // Isolate this class's prefs file into its own temp subdir, then start
+        // every test from a known clean slate (no file on disk + no cached
+        // singleton). FilePath now resolves under the override, so this never
+        // touches the developer's real user-preferences.json.
+        TestDataRootFixture.UseClassSubdir(nameof(UserPreferencesTests));
         if (File.Exists(UserPreferences.FilePath)) File.Delete(UserPreferences.FilePath);
         UserPreferences.ResetCacheForTesting();
     }
 
     public void Dispose()
     {
-        // Restore (or delete) so a test machine isn't polluted.
-        if (File.Exists(UserPreferences.FilePath)) File.Delete(UserPreferences.FilePath);
-        if (_hadOriginal && File.Exists(_backupPath))
-        {
-            File.Move(_backupPath, UserPreferences.FilePath, overwrite: true);
-        }
+        // Drop the cached singleton so a later class doesn't observe this class's
+        // in-memory prefs. The temp file itself is left for the OS to reclaim with
+        // the rest of %TEMP% — it is never the real user data.
         UserPreferences.ResetCacheForTesting();
     }
 

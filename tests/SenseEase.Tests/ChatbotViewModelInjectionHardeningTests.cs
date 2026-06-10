@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,21 +25,16 @@ namespace SenseEase.Tests;
 /// (which disables the async fake-stream), so SendAsync runs to completion synchronously
 /// on the test thread — the same harness shape as ChatbotViewModelSafetyFloorTests.</para>
 /// </summary>
+[Collection("TestDataRoot")]
 public class ChatbotViewModelInjectionHardeningTests
 {
-    // Mirror the safety-floor test's sandbox: steer SpecialFolder.LocalApplicationData
-    // at a temp dir BEFORE AppConfig's static path is first read, so constructing a VM
-    // never appends to the developer's real chat_history.jsonl. Best-effort.
-    static ChatbotViewModelInjectionHardeningTests()
+    // CW-9: route the VM's chat_history.jsonl / model_trace writes into a per-class
+    // temp subdir via the real data-root seam (the old LOCALAPPDATA env-var trick was
+    // a no-op — GetFolderPath ignores it). The [Collection] serialises this against the
+    // other override-retargeting classes so the single static override never races.
+    public ChatbotViewModelInjectionHardeningTests()
     {
-        try
-        {
-            string sandbox = Path.Combine(
-                Path.GetTempPath(), "SenseEase_Tests_LocalAppData_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(sandbox);
-            Environment.SetEnvironmentVariable("LOCALAPPDATA", sandbox);
-        }
-        catch { /* best-effort isolation */ }
+        TestDataRootFixture.UseClassSubdir(nameof(ChatbotViewModelInjectionHardeningTests));
     }
 
     /// <summary>LLM stub whose reply is supplied by a delegate. IsModelLoaded=true so

@@ -34,12 +34,37 @@ public enum HeadTrackingFollowModeKind
 /// </summary>
 public static class AppConfig
 {
+    /// <summary>TEST-ONLY data-root seam (CW-9). When non-null, every
+    /// %LOCALAPPDATA%\SenseEase path below is rooted here instead of the real
+    /// per-user LocalApplicationData folder, so the test suite can never append
+    /// crisis/injection payloads to — or delete/rewrite — the developer's real
+    /// SenseEase data. <c>Environment.GetFolderPath</c> ignores env overrides, so
+    /// the old "steer the LOCALAPPDATA env var" trick was a silent no-op; this is
+    /// the real seam. PRODUCTION: stays null (the resolver falls through to the OS
+    /// folder), so runtime behaviour is byte-identical. Set by the test assembly's
+    /// module initializer (see TestDataRootFixture) before any path is read.
+    /// <para>The path properties below are computed at ACCESS time (expression-
+    /// bodied, not <c>get; }</c>-cached) precisely so this override takes effect
+    /// even though static field init order would otherwise read a path before a
+    /// test could set it.</para></summary>
+    public static string? DataRootOverride { get; set; }
+
+    /// <summary>Single resolver every %LOCALAPPDATA%\SenseEase path routes
+    /// through. Returns the test override when set, else the real per-user
+    /// LocalApplicationData folder. Combined with "SenseEase" by each caller, so
+    /// the override is a bare folder root (not the SenseEase subfolder).
+    /// <para>Internal (not private) so the sibling <see cref="UserPreferences"/>
+    /// FilePath routes through the SAME root and prefs tests isolate too.</para></summary>
+    internal static string DataRoot =>
+        DataRootOverride
+        ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
     // Path Z UX iter 3 (2026-05-27): default flipped from Cursor → Wgc. The
-    // Cycle Sensing Mode button is now hidden (Cursor mode unused, Demo only
-    // entered via Calibration), so the startup provider must be the real-
-    // measurement one. Without this flip, the app would silently boot on
-    // CursorVelocityProvider with no way for the user to switch — a ghost
-    // pipeline running with no UI surface to control it.
+    // Cycle Sensing Mode button is now hidden (Cursor mode unused, and explicit
+    // calibration was cancelled 2026-06-08 so Demo is no longer user-reachable),
+    // so the startup provider must be the real-measurement one. Without this flip,
+    // the app would silently boot on CursorVelocityProvider with no way for the
+    // user to switch — a ghost pipeline running with no UI surface to control it.
     public static SensingMode Mode { get; set; } = SensingMode.Wgc;
 
     // Backward-compat: true only in Demo mode (used by idleTimer and slider Push guard).
@@ -134,32 +159,29 @@ public static class AppConfig
     // DemoVideoRelative / DemoVideoPath / DemoVideoProbes / ResolveDemoVideoPath are gone.
 
     // Phase 2.4: per-user personalization adjustment log (JSON Lines, survives restarts).
-    public static string AdjustmentLogPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "adjustments.jsonl");
+    // CW-9: computed at access (routes through DataRoot) so the test seam isolates it.
+    public static string AdjustmentLogPath => Path.Combine(
+        DataRoot, "SenseEase", "adjustments.jsonl");
 
     // H17: directory for the durable, daily-rolled JSONL audit logs (event log +
     // chatbot-action log) — the forensic trail that survives restarts.
-    public static string AuditLogDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "logs");
+    public static string AuditLogDir => Path.Combine(
+        DataRoot, "SenseEase", "logs");
 
     // Habituation profile snapshot (Phase 4). Independent of habituation.json
     // (which continues to store offset only). See docs/HABITUATION-PROFILE.md
     // §5 for the schema + write-trigger semantics. Writes via tmp + File.Replace
     // (atomic across Process.Kill mid-write).
-    public static string HabituationProfilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "habituation_profile.json");
+    public static string HabituationProfilePath => Path.Combine(
+        DataRoot, "SenseEase", "habituation_profile.json");
 
     // First-run flag. Touched once after the user completes (or skips) the
     // setup-demo calibration. Used to drive the welcome banner on the dashboard:
     // banner is shown only when the flag file does NOT exist. Flag file is empty
     // — its presence is the entire signal. Stored alongside adjustments.jsonl
     // so a user clearing %LocalAppData%\SenseEase\ also resets first-run state.
-    public static string FirstRunFlagPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "first-run-complete.flag");
+    public static string FirstRunFlagPath => Path.Combine(
+        DataRoot, "SenseEase", "first-run-complete.flag");
 
     public static bool IsFirstRun => !File.Exists(FirstRunFlagPath);
 
@@ -174,44 +196,38 @@ public static class AppConfig
     }
 
     // Phase 3: habituation progress — persisted so re-habituation survives restarts.
-    public static string HabituationStatePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "habituation.json");
+    public static string HabituationStatePath => Path.Combine(
+        DataRoot, "SenseEase", "habituation.json");
 
     // Phase 4: chat transcript (JSON Lines, best-effort). Survives restarts so the
     // returning user sees prior conversation context.
-    public static string ChatHistoryPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "chat_history.jsonl");
+    public static string ChatHistoryPath => Path.Combine(
+        DataRoot, "SenseEase", "chat_history.jsonl");
 
     // Phase 5b: calibration-mode LLM transcript (JSON Lines, best-effort). Separate
     // from chat_history.jsonl so VIMS-monitoring context never bleeds into the
     // calibration dialog's longitudinal-comparison reasoning.
-    public static string CalibrationHistoryPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "calibration_history.jsonl");
+    public static string CalibrationHistoryPath => Path.Combine(
+        DataRoot, "SenseEase", "calibration_history.jsonl");
 
     // UM1 (User Model sprint): daily passive behaviour aggregate — append-only
     // JSONL, one numeric-only row per day (NO raw utterances / OFI traces / window
     // titles, per the sprint's no-PII constraint). Same %LOCALAPPDATA%\SenseEase\
     // home as the other user data so H25 uninstall + H24 clear cover it.
-    public static string BehaviorLogPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "behavior_log.jsonl");
+    public static string BehaviorLogPath => Path.Combine(
+        DataRoot, "SenseEase", "behavior_log.jsonl");
 
     // UM3 (User Model sprint): incremental analysis index + bucket manifest.
     // Atomic write (tmp + File.Replace) like habituation_profile.json.
-    public static string UserModelIndexPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "user_model_index.json");
+    public static string UserModelIndexPath => Path.Combine(
+        DataRoot, "SenseEase", "user_model_index.json");
 
     // H24: the chatbot model trace (the ClearOnDiskTrace target). Mirrors the path
     // MistralChatbotService writes to (Infrastructure can't see this App config, so
     // both sides compute %LOCALAPPDATA%\SenseEase\model_trace.jsonl independently).
     // Used by the Settings "clear all my data" button to delete it directly.
-    public static string ModelTracePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "model_trace.jsonl");
+    public static string ModelTracePath => Path.Combine(
+        DataRoot, "SenseEase", "model_trace.jsonl");
 
     // Display Comfort AppConfig fields (AmbientLightComfortEnabled, LuxMode,
     // DisplayBaselinePath, UseWebcamLuxFallback) removed at v0.11 (UI
