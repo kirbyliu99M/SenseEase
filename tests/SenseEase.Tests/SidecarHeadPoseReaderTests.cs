@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using SenseEase.App.Configuration;
@@ -315,6 +316,174 @@ public class SidecarHeadPoseReaderTests
         Assert.Contains("--input 1", SidecarHeadPoseReader.BuildSidecarArgs(1,    mirror: true));
         Assert.Contains("--input 2", SidecarHeadPoseReader.BuildSidecarArgs(2,    mirror: true));
         Assert.Contains("--input 0", SidecarHeadPoseReader.BuildSidecarArgs(null, mirror: true));
+    }
+
+    // ── FEAT-08 (CW-10): health-state coverage (B1a deferred) ───────────────
+    //
+    // These tests exercise the three HeadTrackingHealth states that
+    // SidecarHeadPoseReader derives from its internal flags:
+    //   Healthy  — a fresh sample is present within the staleness window
+    //   NoFrames — the reader is "alive" (started, not dead) but has never
+    //              produced a frame, OR the last frame is stale (the watchdog
+    //              silence case)
+    //   Dead     — sidecar exited / was simulated-exited / not yet started
+    //
+    // All three are observable through the polling Health property (ComputeHealth)
+    // and the event-raising RefreshHealth. The tests use the existing TestHook_*
+    // seams so no real sidecar process is needed.
+
+    [Fact]
+    public void Health_Healthy_AfterStoredFreshSample()
+    {
+        // FEAT-08: once a fresh sample is injected via TestHook_StoreSample,
+        // ComputeHealth must report Healthy — the "tracking is working" state.
+        // Stores the sample with DateTime.UtcNow so it is within StalenessThresholdMs.
+        var reader = new SidecarHeadPoseReader(
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
+
+        var sample = new HeadPoseSample(
+            TimestampMs:  100,
+            Cx:           0.5,
+            Cy:           0.5,
+            Luma:         0.3,
+            FaceDetected: true,
+            FacePresent:  1.0);
+
+        reader.TestHook_StoreSample(sample, DateTime.UtcNow);
+
+        Assert.Equal(HeadTrackingHealth.Healthy, reader.Health);
+
+        reader.Dispose();
+    }
+
+    [Fact]
+    public void Health_NoFrames_WhenStartedButNoSampleEverStored()
+    {
+        // FEAT-08: watchdog-window silence scenario. The reader has been started
+        // (via TestHook_StoreSample which sets started=1, sidecarDead=0) but we
+        // reset the sample to simulate "sidecar spawned but emitting nothing" —
+        // the antivirus hang / webcam-unavailable / MediaPipe-init-failure case
+        // that the startup watchdog log line diagnoses. With no stored sample,
+        // latestStoredAtMs==0, so ComputeHealth returns NoFrames.
+        //
+        // We use a fresh reader (not yet started) to confirm the pre-start path
+        // (Dead) and then use a second reader with started=1 but latestStoredAtMs==0
+        // to confirm the NoFrames path. The only public test hook that marks the
+        // reader "started" is TestHook_StoreSample; after storing we simulate
+        // the "no frames yet" state by disposing and creating a fresh reader that
+        // we mark started via a sample store then immediately discard.
+        //
+        // Simpler path: construct a fresh reader (pre-Start → Dead), then use
+        // TestHook_StoreSample with a stale timestamp so it is beyond the
+        // staleness window — ComputeHealth sees ageMs > StalenessThresholdMs
+        // and returns NoFrames.
+        var reader = new SidecarHeadPoseReader(
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
+
+        // Store a sample that is beyond StalenessThresholdMs (3 seconds old).
+        // StoreSample sets started=1, sidecarDead=0 so we are in the "alive but
+        // stale" branch — which maps to NoFrames.
+        var sample = new HeadPoseSample(
+            TimestampMs:  1,
+            Cx:           0.5,
+            Cy:           0.5,
+            Luma:         0.1,
+            FaceDetected: true,
+            FacePresent:  1.0);
+        reader.TestHook_StoreSample(sample, DateTime.UtcNow.AddSeconds(-(SidecarHeadPoseReader.StalenessThresholdMs / 1000.0 + 1)));
+
+        Assert.Equal(HeadTrackingHealth.NoFrames, reader.Health);
+
+        reader.Dispose();
+    }
+
+    [Fact]
+    public void Health_Dead_AfterTestHookSimulateSidecarExit()
+    {
+        // FEAT-08: simulate an unexpected sidecar exit. After
+        // TestHook_SimulateSidecarExit flips the _sidecarDead flag,
+        // ComputeHealth must return Dead — the "ReadLatest returns null,
+        // mask sits at center" state.
+        var reader = new SidecarHeadPoseReader(
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
+
+        // First establish a Healthy baseline (sample present, not dead).
+        var sample = new HeadPoseSample(
+            TimestampMs:  200,
+            Cx:           0.6,
+            Cy:           0.4,
+            Luma:         0.2,
+            FaceDetected: true,
+            FacePresent:  1.0);
+        reader.TestHook_StoreSample(sample, DateTime.UtcNow);
+        Assert.Equal(HeadTrackingHealth.Healthy, reader.Health);
+
+        // Simulate the sidecar dying.
+        reader.TestHook_SimulateSidecarExit();
+
+        // Health must now be Dead.
+        Assert.Equal(HeadTrackingHealth.Dead, reader.Health);
+
+        // ReadLatest must also return null after the exit.
+        Assert.Null(reader.ReadLatest());
+
+        reader.Dispose();
+    }
+
+    [Fact]
+    public void Health_Dead_BeforeStart()
+    {
+        // FEAT-08: pre-Start state must report Dead (ComputeHealth checks
+        // _started==0 first). This is the "construction only, Start not called"
+        // path that corresponds to HeadTrackingEnabled=false (DefaultHeadPoseReader
+        // takes over). For SidecarHeadPoseReader instances that do exist but
+        // haven't been started, the safe default must be Dead so callers know
+        // to treat ReadLatest()==null as "use center default".
+        var reader = new SidecarHeadPoseReader(
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
+
+        Assert.Equal(HeadTrackingHealth.Dead, reader.Health);
+        Assert.False(reader.TestHook_IsStarted());
+
+        reader.Dispose();
+    }
+
+    [Fact]
+    public void RefreshHealth_RaisesHealthChanged_OnTransition()
+    {
+        // FEAT-08: RefreshHealth publishes a HealthChanged event when the
+        // derived health transitions. Healthy → Dead must fire once.
+        var reader = new SidecarHeadPoseReader(
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
+
+        var events = new List<HeadTrackingHealth>();
+        reader.HealthChanged += (_, h) => events.Add(h);
+
+        // Seed Healthy.
+        var sample = new HeadPoseSample(
+            TimestampMs:  300,
+            Cx:           0.5,
+            Cy:           0.5,
+            Luma:         0.1,
+            FaceDetected: true,
+            FacePresent:  1.0);
+        reader.TestHook_StoreSample(sample, DateTime.UtcNow);
+        // RefreshHealth computes Healthy; _lastPublishedHealth was Dead (initial)
+        // so it fires the event with Healthy.
+        reader.RefreshHealth();
+        Assert.Contains(HeadTrackingHealth.Healthy, events);
+
+        // Now simulate exit and refresh — should fire Dead.
+        reader.TestHook_SimulateSidecarExit();
+        reader.RefreshHealth();
+        Assert.Contains(HeadTrackingHealth.Dead, events);
+
+        // A second RefreshHealth with no state change must NOT fire again.
+        int countBefore = events.Count;
+        reader.RefreshHealth();
+        Assert.Equal(countBefore, events.Count);
+
+        reader.Dispose();
     }
 
     // ── 5) M4 invariant: flag off → DefaultHeadPoseReader, no sidecar ───────

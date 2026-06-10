@@ -108,7 +108,7 @@ public static class HabituationProposalLexicon
         new[]
         {
             (HabituationProfile.Resilient,
-             "為高耐受族群設計。視覺保護觸發較緩慢、回復較快。適合對視覺刺激較不敏感的使用者。"),
+             "為逐步適應族群設計。視覺保護觸發較緩慢、回復較快。適合對視覺刺激較不敏感的使用者。"),
             (HabituationProfile.Typical,
              "一般使用者預設。反應速度與保護強度間取得平衡，適合多數人的日常使用。"),
             (HabituationProfile.Sensitive,
