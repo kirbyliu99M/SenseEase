@@ -22,7 +22,11 @@
     <SolidColorBrush x:Key="HeaderSurface" Color="#1B1E24"/>
     <SolidColorBrush x:Key="TextPrimary"   Color="#EAEDF2"/>
     <SolidColorBrush x:Key="TextSecondary" Color="#AEB6C2"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#828B98"/>
+    <!-- UX-11: was #828B98 (4.52:1 on Surface but only 4.02:1 on SurfaceMuted —
+         fails AA on the muted dark surface). Lightened to #8B95A2: 5.13:1 on
+         Surface, 4.56:1 on SurfaceMuted — both clear 4.5:1. Verified in
+         TokenContrastTests. -->
+    <SolidColorBrush x:Key="TextTertiary"  Color="#8B95A2"/>
     <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFF"/>
     <!-- Brighter indigo for dark-mode contrast on the deep canvas/surfaces. -->
     <SolidColorBrush x:Key="Accent"        Color="#7C8CF8"/>

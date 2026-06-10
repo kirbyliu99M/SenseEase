@@ -22,7 +22,10 @@
          the logo mark, and the focus ring — NEVER the header bar, the canvas,
          card borders, or data numerals (those are TextPrimary). Cards sit on a
          soft near-borderless surface with a CardBorder hairline for definition.
-         All text pairs clear WCAG AA 4.5:1. -->
+         The declared text-on-surface token pairs (TextPrimary/Secondary/Tertiary
+         on Surface and SurfaceMuted, light + dark) are ENFORCED to clear WCAG AA
+         4.5:1 by TokenContrastTests (computes the real WCAG ratio per pair); see
+         that test for the per-pair numbers rather than trusting this comment. -->
     <SolidColorBrush x:Key="Canvas"        Color="#F3F4F7"/>
     <SolidColorBrush x:Key="Surface"       Color="#FFFFFF"/>
     <SolidColorBrush x:Key="SurfaceMuted"  Color="#EDEFF3"/>
@@ -31,7 +34,12 @@
     <SolidColorBrush x:Key="CardBorder"    Color="#ECEEF2"/>
     <SolidColorBrush x:Key="TextPrimary"   Color="#1B2333"/>
     <SolidColorBrush x:Key="TextSecondary" Color="#5A6475"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#8A93A3"/>
+    <!-- UX-11: was #8A93A3 (3.10:1 on Surface, 2.69:1 on SurfaceMuted — fails AA
+         at caption sizes). Darkened to #636C7A: 5.31:1 on Surface, 4.61:1 on
+         SurfaceMuted — both clear 4.5:1. (The earlier #6B7585 candidate cleared
+         white at 4.66 but only reached 4.05 on SurfaceMuted, so it was rejected.)
+         Pairs verified in TokenContrastTests. -->
+    <SolidColorBrush x:Key="TextTertiary"  Color="#636C7A"/>
     <SolidColorBrush x:Key="Accent"        Color="#4B6EF5"/>
     <SolidColorBrush x:Key="AccentHover"   Color="#3552D9"/>
     <!-- Light top-chrome surface — the header is a hairline-divided white bar,
@@ -366,7 +374,14 @@
                                    Opacity="0"/>
                     </Grid>
                     <ControlTemplate.Triggers>
-                        <!-- Auto-hide: fade the overlay bar in on hover, out after a short idle. -->
+                        <!-- Auto-hide: fade the overlay bar in on hover, out after a short idle.
+                             UX-17 (Reduce-Motion): these fades are decorative and SHOULD snap
+                             (Duration 0) when AccessibilityHelper.ReducedMotion() is true. WPF has
+                             no pure-XAML binding to the OS SPI_GETCLIENTAREAANIMATION setting, and
+                             this is a SHARED keyed ScrollViewer template with no owning code-behind,
+                             so the snap can't be expressed here honestly. The needed hook is an
+                             attached-property gate (see 'deferred'); until it lands these two
+                             DoubleAnimations still animate even under Reduce Motion. -->
                         <Trigger Property="IsMouseOver" Value="True">
                             <Trigger.EnterActions>
                                 <BeginStoryboard>

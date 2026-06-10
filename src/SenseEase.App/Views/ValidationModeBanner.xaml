@@ -30,7 +30,7 @@
         </Border.Effect>
         <TextBlock x:Name="DiagnosticText"
                    FontFamily="Consolas, Courier New, monospace"
-                   FontSize="11"
+                   FontSize="12"
                    Foreground="#F0F4FA"
                    TextWrapping="Wrap"
                    Text=""/>
