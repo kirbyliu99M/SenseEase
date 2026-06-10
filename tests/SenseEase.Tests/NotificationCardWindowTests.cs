@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
 using SenseEase.Core.Inference;
+using SenseEase.Core.Safety;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -230,6 +231,69 @@ public class NotificationCardWindowTests
 
             // Once the proposal clears, the idle fade is allowed again.
             w.ActiveProposal = null;
+            Assert.True(w.ShouldBeginIdleFade());
+        });
+    }
+
+    // ── CW-5 (UX-02, locked invariant A1) — crisis-response legibility ───────
+
+    /// <summary>CW-5 Test A: the crisis-detection seam exact-matches the fixed
+    /// SafetyFloor crisis-line constants (either language) and nothing else, so a
+    /// normal reply is never mis-routed to the non-dismissable crisis surface.</summary>
+    [Fact]
+    public void NotificationCardWindow_IsCrisisResponse_MatchesSafetyFloorConstantsOnly()
+    {
+        Assert.True(NotificationCardWindow.IsCrisisResponse(SafetyFloor.CrisisResponseZh));
+        Assert.True(NotificationCardWindow.IsCrisisResponse(SafetyFloor.CrisisResponseEn));
+        Assert.False(NotificationCardWindow.IsCrisisResponse("已套用。"));
+        Assert.False(NotificationCardWindow.IsCrisisResponse(""));
+        Assert.False(NotificationCardWindow.IsCrisisResponse(null));
+        // A near-miss (trailing space) must NOT trip — the floor's wording is fixed.
+        Assert.False(NotificationCardWindow.IsCrisisResponse(SafetyFloor.CrisisResponseEn + " "));
+    }
+
+    /// <summary>CW-5 Test B (locked invariant A1): showing the crisis response renders
+    /// the FIXED SafetyFloor constant VERBATIM in a dedicated panel that is &gt;=12px,
+    /// NOT clipped by a MaxHeight, NOT truncated, and NOT scrolled — every hotline
+    /// character (988 / 1925 安心專線 / findahelpline.com) is always present. The card's
+    /// auto-dismiss paths (idle fade + foreground change) are both suppressed while the
+    /// panel shows; an explicit close clears the state.</summary>
+    [Fact]
+    public void NotificationCardWindow_CrisisResponse_FullyPresentedNoClipNoAutoDismiss()
+    {
+        RunOnSta(() =>
+        {
+            var w = new NotificationCardWindow();
+            w.ApplyTemplate();
+
+            Assert.Equal(Visibility.Collapsed, w.CrisisPanel.Visibility);
+            Assert.True(w.ShouldBeginIdleFade());   // no crisis → auto-dismiss allowed
+            Assert.False(w.IsCrisisActive);
+
+            w.ShowCrisisResponse(SafetyFloor.CrisisResponseEn);
+
+            // Panel revealed, text set VERBATIM (never paraphrased / localized-away / trimmed).
+            Assert.Equal(Visibility.Visible, w.CrisisPanel.Visibility);
+            Assert.Equal(SafetyFloor.CrisisResponseEn, w.CrisisResponseText.Text);
+            Assert.Contains("988", w.CrisisResponseText.Text);
+            Assert.Contains("findahelpline.com", w.CrisisResponseText.Text);
+
+            // A1 legibility: >=12px, no MaxHeight clip (default = PositiveInfinity), no
+            // truncation. The general ChatStatusText carries the old 32px clip's
+            // replacement (a scroll cap); the CRISIS text must stay fully uncapped.
+            Assert.True(w.CrisisResponseText.FontSize >= 12);
+            Assert.True(double.IsPositiveInfinity(w.CrisisResponseText.MaxHeight),
+                "crisis text must not be height-clipped");
+            Assert.Equal(TextTrimming.None, w.CrisisResponseText.TextTrimming);
+
+            // A1 no-auto-dismiss: the idle-fade + foreground-change seam is suppressed.
+            Assert.True(w.IsCrisisActive);
+            Assert.False(w.ShouldBeginIdleFade());
+
+            // Explicit close clears the crisis state and re-allows auto-dismiss.
+            w.CrisisCloseBtn.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.Equal(Visibility.Collapsed, w.CrisisPanel.Visibility);
+            Assert.False(w.IsCrisisActive);
             Assert.True(w.ShouldBeginIdleFade());
         });
     }

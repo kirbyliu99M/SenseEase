@@ -617,6 +617,7 @@
                         <RowDefinition Height="Auto"/>  <!-- caption (matches the main face caption row) -->
                         <RowDefinition Height="Auto"/>  <!-- input / send / flip (primary row) -->
                         <RowDefinition Height="Auto"/>  <!-- status / reply (grows downward) -->
+                        <RowDefinition Height="Auto"/>  <!-- CW-5: crisis panel (full-width, non-truncating) -->
                     </Grid.RowDefinitions>
 
                     <!-- Caption matching the main face's caption rhythm — its presence is what
@@ -682,14 +683,87 @@
                             AutomationProperties.Name="{loc:T Zh='返回', En='Back'}"
                             ToolTip="{loc:T Zh='返回畫面狀態', En='Back to status'}"/>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                               x:Name="ChatStatusText"
-                               Text=""
-                               FontSize="10"
-                               Foreground="{DynamicResource TextSecondary}"
-                               Margin="2,4,0,0"
-                               TextWrapping="Wrap"
-                               MaxHeight="32"/>
+                    <!-- CW-5 (UX-02): a GENERAL assistant reply. Raised to 12px (a11y
+                         floor) and no longer hard-clipped at 32px — the card itself
+                         SizeToContent-grows downward so a normal reply reads in full.
+                         A long reply is capped by the ScrollViewer's MaxHeight (~7 lines
+                         at 12px ≈ 130dip) so it scrolls in place instead of turning the
+                         card into a wall; the 對話 input above stays reachable. The CRISIS
+                         response NEVER renders here — it is routed to CrisisPanel below,
+                         which has no cap, no scroll, and no truncation (locked invariant A1). -->
+                    <ScrollViewer Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                  x:Name="ChatStatusScroll"
+                                  MaxHeight="130"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Margin="0,4,0,0">
+                        <TextBlock x:Name="ChatStatusText"
+                                   Text=""
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Margin="2,0,0,0"
+                                   TextWrapping="Wrap"/>
+                    </ScrollViewer>
+
+                    <!-- CW-5 (UX-02, locked invariant A1): the SafetyFloor crisis response.
+                         FULL-WIDTH (spans all three columns), >=12px, NEVER truncated,
+                         scrolled, paraphrased, localized-away, or animated. The text is the
+                         fixed SafetyFloor.CrisisResponse{Zh,En} constant, set verbatim in
+                         code-behind. While this panel is visible the card suppresses its
+                         idle auto-fade, foreground-change dismiss, and click-outside dismiss
+                         (see _crisisActive in code-behind) so the hotline numbers can't
+                         vanish out from under the user. Only the explicit close button
+                         (or ×/Escape) dismisses it. Calm ComfortHigh advisory styling —
+                         a soft clay card, never an alarm-red banner. -->
+                    <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                            x:Name="CrisisPanel"
+                            Visibility="Collapsed"
+                            Background="{DynamicResource ComfortHighWeak}"
+                            BorderBrush="{DynamicResource ComfortHigh}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12,10"
+                            Margin="0,8,0,0"
+                            AutomationProperties.Name="{loc:T Zh='求助資訊', En='Crisis support'}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <!-- Plain close button (no countdown, no auto-dismiss). -->
+                            <Button Grid.Row="0" Grid.Column="1"
+                                    x:Name="CrisisCloseBtn"
+                                    Content="×"
+                                    Width="22" Height="22"
+                                    Padding="0" BorderThickness="0"
+                                    Background="Transparent"
+                                    Foreground="{DynamicResource ComfortHighText}"
+                                    FontSize="16" FontWeight="Bold"
+                                    Cursor="Hand"
+                                    VerticalAlignment="Top"
+                                    HorizontalAlignment="Right"
+                                    Click="OnCrisisCloseClicked"
+                                    AutomationProperties.Name="{loc:T Zh='關閉', En='Close'}"/>
+                            <!-- The crisis text itself. >=12px, full wrap, NO MaxHeight, NO
+                                 scroll, NO trimming — every character (988 / 1925 安心專線 /
+                                 findahelpline.com) is always present. Set verbatim from
+                                 SafetyFloor.CrisisResponse{Zh,En} in code-behind. -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                       x:Name="CrisisResponseText"
+                                       Text=""
+                                       FontSize="13"
+                                       LineHeight="19"
+                                       Foreground="{DynamicResource ComfortHighText}"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="None"
+                                       Margin="0,2,0,0"
+                                       AutomationProperties.HelpText="{loc:T Zh='求助專線資訊', En='Crisis line information'}"/>
+                        </Grid>
+                    </Border>
                 </Grid>
             </Grid>
         </Grid>

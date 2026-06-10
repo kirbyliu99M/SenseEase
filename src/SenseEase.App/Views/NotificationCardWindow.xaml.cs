@@ -7,6 +7,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using SenseEase.App.ViewModels;
 using SenseEase.Core.Inference;
+using SenseEase.Core.Safety;
 
 namespace SenseEase.App.Views;
 
@@ -789,6 +790,9 @@ public partial class NotificationCardWindow : Window
             // alone — its lifecycle is tied to the active-proposal flow.
             if (ChatInputBox is not null)   ChatInputBox.Text = string.Empty;
             if (ChatStatusText is not null) ChatStatusText.Text = string.Empty;
+            // CW-5: a stale crisis panel must never survive a Hide→Show. Clearing it
+            // here also drops _crisisActive so the per-Show idle timer arms normally.
+            ClearCrisisState();
 
             // Top-center revision: a user-opened card lingers (60 s idle window);
             // an auto-surfaced card self-dismisses after a short 5 s window so it
@@ -998,8 +1002,16 @@ public partial class NotificationCardWindow : Window
     /// no pending chatbot proposal. A pending proposal is an explicit accept /
     /// decline the user must see; auto-fading it away would silently drop a
     /// decision (POPUP-AND-HABITUATION-INTEGRATION-AUDIT: "proposal stays
-    /// pending, user might miss it"). Internal for unit coverage.</summary>
-    internal bool ShouldBeginIdleFade() => _activeProposal is null && _activeSetMove is null;
+    /// pending, user might miss it"). Internal for unit coverage.
+    /// <para>CW-5 (locked invariant A1): also blocked while the crisis panel is
+    /// showing — the SafetyFloor hotline numbers must never auto-fade,
+    /// foreground-dismiss, or time out from under the user. This seam gates BOTH
+    /// the idle-fade tick (<see cref="OnIdleTimerTick"/>) and the foreground-change
+    /// dismiss (<see cref="OnForegroundPollTick"/>), so suppressing it here covers
+    /// both auto-dismiss paths. Only an explicit close (× / Escape / the crisis
+    /// panel's own close button) may retire the crisis surface.</para></summary>
+    internal bool ShouldBeginIdleFade()
+        => _activeProposal is null && _activeSetMove is null && !_crisisActive;
 
     private void OnIdleTimerTick(object? sender, EventArgs e)
     {
@@ -1294,6 +1306,72 @@ public partial class NotificationCardWindow : Window
 
     private bool _chatSendInFlight;
 
+    // CW-5 (UX-02, locked invariant A1): true while the SafetyFloor crisis panel
+    // is showing. While set, ShouldBeginIdleFade() returns false, so BOTH the idle
+    // auto-fade and the foreground-change auto-dismiss are suppressed — the hotline
+    // numbers stay fully on screen until the user explicitly closes them. Cleared on
+    // the crisis panel's close button, on × / Escape (HideWithSlide hides the whole
+    // card), and on the per-Show reset in OnIsVisibleChanged.
+    private bool _crisisActive;
+
+    /// <summary>CW-5: true while the crisis panel is showing. Exposed for unit
+    /// coverage of the no-auto-dismiss invariant.</summary>
+    internal bool IsCrisisActive => _crisisActive;
+
+    /// <summary>CW-5: true when <paramref name="reply"/> is verbatim one of the fixed
+    /// SafetyFloor crisis-line constants (either language — SafetyFloor selects per the
+    /// user's message language). Ordinal exact-match against the single source of truth
+    /// so the detection can't drift from the floor's own wording.</summary>
+    internal static bool IsCrisisResponse(string? reply)
+        => reply is not null
+           && (string.Equals(reply, SafetyFloor.CrisisResponseZh, StringComparison.Ordinal)
+               || string.Equals(reply, SafetyFloor.CrisisResponseEn, StringComparison.Ordinal));
+
+    /// <summary>CW-5 (locked invariant A1): render the SafetyFloor crisis response in
+    /// the dedicated, full-width, non-truncating, non-animated panel. The text is the
+    /// fixed <see cref="SafetyFloor.CrisisResponseZh"/> / <see cref="SafetyFloor.CrisisResponseEn"/>
+    /// constant, set VERBATIM — never paraphrased, localized-away, trimmed, or routed
+    /// through any storyboard. Showing the panel sets <see cref="_crisisActive"/> so the
+    /// idle-fade and foreground-change auto-dismiss are both suppressed (the panel only
+    /// closes on an explicit user action). Idempotent for the same text. Internal so the
+    /// STA window test can drive the crisis state directly (the live path is
+    /// <see cref="TrySendChatAsync"/> → <see cref="IsCrisisResponse"/>).</summary>
+    internal void ShowCrisisResponse(string crisisText)
+    {
+        // Set the fixed text verbatim — the constant is non-PII and safe to display
+        // (SafetyFloor doc); never alter / re-pick / truncate it.
+        CrisisResponseText.Text = crisisText;
+        CrisisPanel.Visibility = Visibility.Visible;
+        _crisisActive = true;
+        // A1: gate any entrance animation OFF for the crisis surface regardless of the
+        // Reduce-Motion setting. The crisis text is NOT routed through any storyboard;
+        // the general chat status above carries no animation either, but make the panel's
+        // appearance explicitly instant. Re-arm the idle timer so the card doesn't begin
+        // a fade in the gap before _crisisActive is observed (defensive; the tick also
+        // re-checks ShouldBeginIdleFade()).
+        RestartIdleTimer();
+    }
+
+    /// <summary>CW-5: explicit close of the crisis panel (no countdown / no auto-dismiss).
+    /// Clears the crisis state and hides the panel; the card itself stays open so the user
+    /// can keep using it. The general chat-status area is also cleared so a stale crisis
+    /// echo can't linger there.</summary>
+    private void OnCrisisCloseClicked(object sender, RoutedEventArgs e)
+    {
+        ClearCrisisState();
+        RestartIdleTimer();
+    }
+
+    /// <summary>CW-5: collapse the crisis panel and clear its state. Called by the panel's
+    /// close button and by the per-Show reset so a re-Shown card never reopens on a stale
+    /// crisis surface.</summary>
+    private void ClearCrisisState()
+    {
+        _crisisActive = false;
+        if (CrisisPanel is not null) CrisisPanel.Visibility = Visibility.Collapsed;
+        if (CrisisResponseText is not null) CrisisResponseText.Text = string.Empty;
+    }
+
     // bar-redesign: the four QuickDiscomfort buttons (and their localized-phrase
     // table + OnQuickDiscomfortClicked handler) were removed when the card became
     // a compact bar — the intervention-depth +/- pills (InterventionAdjustRequested)
@@ -1363,7 +1441,21 @@ public partial class NotificationCardWindow : Window
             ChatInputBox.Focus();
             if (!string.IsNullOrEmpty(reply))
             {
-                ChatStatusText.Text = reply;
+                // CW-5 (locked invariant A1): if the reply IS the SafetyFloor crisis
+                // response, it carries the 988 / 1925 安心專線 / findahelpline.com hotlines
+                // and must be FULLY presented — never clipped at the general 12px status
+                // area. Route it to the dedicated non-truncating, non-animated, no-auto-
+                // dismiss crisis panel instead. Exact-match against the fixed constants
+                // (either language — SafetyFloor picks per the user's message language).
+                if (IsCrisisResponse(reply))
+                {
+                    ChatStatusText.Text = string.Empty;
+                    ShowCrisisResponse(reply);
+                }
+                else
+                {
+                    ChatStatusText.Text = reply;
+                }
             }
             else if (!sendFailed)   // status still the "sending…" placeholder ⇒ applied OK
             {

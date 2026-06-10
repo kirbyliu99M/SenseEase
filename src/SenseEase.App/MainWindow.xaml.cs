@@ -113,6 +113,11 @@ public partial class MainWindow : Window
         SettingsTabContent.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
         SettingsTabContent.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
         SettingsTabContent.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
+        // D-1 (CW-1 step 3): wire the 漸進適應 / Graded exposure toggle to the VM so the
+        // engine pause flips IN-SESSION (not only at next-launch hydration). Read = live
+        // engine state; write = MainViewModel.GradedExposureEnabled (engine flip + persist).
+        SettingsTabContent.GetGradedExposure       = () => _viewModel.GradedExposureEnabled;
+        SettingsTabContent.SetGradedExposure       = v => _viewModel.GradedExposureEnabled = v;
         // Event Log relocated into Settings (2026-06-07): the 設定 tab's button opens
         // the dedicated EventLogWindow. Wired only where a MainViewModel exists (here +
         // the tray SettingsWindow below); the card hides itself when this is unwired.
@@ -827,6 +832,10 @@ public partial class MainWindow : Window
         _settingsWindow.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
         _settingsWindow.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
         _settingsWindow.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
+        // D-1 (CW-1 step 3): same Graded-exposure wiring as the console 設定 tab so the
+        // tray/gear Settings window also flips the engine pause in-session, not just at restart.
+        _settingsWindow.GetGradedExposure       = () => _viewModel.GradedExposureEnabled;
+        _settingsWindow.SetGradedExposure       = v => _viewModel.GradedExposureEnabled = v;
         _settingsWindow.OpenEventLog            = ShowEventLogWindow;
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
