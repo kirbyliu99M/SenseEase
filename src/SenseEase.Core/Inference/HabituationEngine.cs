@@ -476,6 +476,37 @@ public sealed class HabituationEngine
         // _offset is deliberately NOT cleared (Q4.5).
     }
 
+    /// <summary>Clear ONLY the chatbot-delta / stability bookkeeping a set move
+    /// needs cleared, while PRESERVING the active pause contract. A silent
+    /// background AdaptiveFit set move (<c>MockInferenceEngine.ApplySetMove</c>)
+    /// and the snap-cause branches of <c>SetLevel</c> reuse this in place of the
+    /// full <see cref="ResetTransientState"/>: those paths run under the
+    /// production selector flag WITHOUT the user, so they must NOT silently
+    /// un-pause opted-out habituation nor exit the tier ≥ 8
+    /// <see cref="EngineState.PausedAwaitingUserConfirm"/> park — only
+    /// <see cref="AcknowledgeAndResume"/> (the explicit user path) may do that
+    /// (whitepaper §7.4, SAFETY-PROVISIONS §8). Preserves <c>_externallyPaused</c>,
+    /// <c>_awaitingUserConfirm</c>, <c>_pauseCooldown</c>, <c>_severeStrikeCount</c>,
+    /// the <c>_phase</c> (so a paused engine keeps reporting Paused), and the
+    /// last-seen tier. Resets exactly the session-scoped stability/step
+    /// accumulators + the recurrence edge tracker and rebases the effective
+    /// windows — the new-curve snap re-confirms calm from scratch. <c>_offset</c>
+    /// is never touched (Q4.5). The explicit user reset
+    /// (<c>MockInferenceEngine.ResetPersonalization</c>) deliberately keeps
+    /// calling the full <see cref="ResetTransientState"/>.</summary>
+    public void ResetTransientStatePreservingPause()
+    {
+        _stableElapsed = 0.0;
+        _stepAccumulator = 0.0;
+        _pressureWasAtRecurrence = false;
+        _effectiveWindow       = _params.StableWindowSeconds;
+        _effectiveStepInterval = _params.StepIntervalSeconds;
+        // PRESERVED (the pause contract + strike history a silent selector move
+        // must not disturb): _externallyPaused, _awaitingUserConfirm,
+        // _pauseCooldown, _severeStrikeCount, _lastSeenTier, _phase.
+        // _offset is deliberately NOT cleared (Q4.5).
+    }
+
     /// <summary>Full re-baseline to a fresh, neutral state, INCLUDING zeroing
     /// <c>_offset</c>. Only legitimate after a deliberate re-calibration that
     /// re-derives the profile from scratch — never from a shader / personalization

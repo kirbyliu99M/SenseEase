@@ -394,7 +394,8 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 : 0;
             Current.Mode = mode;
 
-            // Hysteresis: trigger at 100, release at 85 to avoid sticky behavior/flicker.
+            // Hysteresis: trigger at SenseDefaults.TriggerPressure (85), release
+            // below 85% of it (72.25) to avoid sticky behavior/flicker.
             bool shouldMaskOn = pressure >= SenseDefaults.TriggerPressure;
             bool shouldMaskOff = pressure < (SenseDefaults.TriggerPressure * 0.85);
             bool cooldownPassed =
@@ -765,12 +766,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// has no notion of a directly-set level). When ON, sets the tier and — for
     /// <see cref="LevelChangeCause.SetChangeSnap"/> /
     /// <see cref="LevelChangeCause.FeltIntensitySnap"/> — clears the transient
-    /// chatbot delta (FOV offset + shader knobs) BEFORE the snap (Q5 before Q4),
-    /// reusing the <see cref="ResetPersonalization"/> shader path that PRESERVES the
-    /// earned habituation <c>_offset</c> (it calls <c>ResetTransientState</c>, never
-    /// the full post-calibration reset). The discretizer / hysteresis are not
-    /// touched; the snapped tier is recomputed onto the active set's curve on the
-    /// next Update via the gated branch.</summary>
+    /// chatbot delta (FOV offset + shader knobs) BEFORE the snap (Q5 before Q4)
+    /// via the pause-PRESERVING transient reset
+    /// (<c>HabituationEngine.ResetTransientStatePreservingPause</c>, CW-1): a
+    /// silent snap PRESERVES the earned habituation <c>_offset</c> (Q4.5) AND the
+    /// active pause contract (it must not un-pause an opt-out user nor exit the
+    /// tier ≥ 8 awaiting-confirm park — unlike <see cref="ResetPersonalization"/>,
+    /// the explicit user path, which calls the full <c>ResetTransientState</c>).
+    /// The discretizer / hysteresis are not touched; the snapped tier is
+    /// recomputed onto the active set's curve on the next Update via the gated
+    /// branch.</summary>
     public void SetLevel(int level, LevelChangeCause cause)
     {
         lock (_gate)
@@ -781,15 +786,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
             // Q4/Q5 ordering: for the two snap causes, clear the chatbot delta
             // (transient personalization) FIRST — preserving _offset — then snap.
-            // Reuses the SAME transient-reset path as ResetPersonalization
-            // (ResetTransientState preserves the earned habituation _offset, Q4.5);
-            // it deliberately does NOT touch _vimsTier here so the snap below is
-            // the single writer of the level.
+            // Uses the pause-PRESERVING transient reset (CW-1): this is a SILENT
+            // selector snap, so it must NOT un-pause opted-out habituation nor exit
+            // the tier ≥ 8 awaiting-user-confirm park (only AcknowledgeAndResume may
+            // — whitepaper §7.4 / SAFETY-PROVISIONS §8). It still preserves the
+            // earned habituation _offset (Q4.5 / C5) and does NOT touch _vimsTier
+            // here so the snap below is the single writer of the level.
             if (cause is LevelChangeCause.SetChangeSnap or LevelChangeCause.FeltIntensitySnap)
             {
                 _userFovOffset = 0;
                 _shader.ResetToDefault();
-                _habituation.ResetTransientState();   // preserves _offset (Q4.5 / C5)
+                _habituation.ResetTransientStatePreservingPause(); // preserves _offset (Q4.5 / C5) + pause (CW-1)
                 Current.HabituationLevel  = _habituation.HabituationLevel;
                 Current.HabituationPaused = _habituation.IsPaused;
             }
@@ -927,18 +934,20 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// <summary>Apply an Adaptive Fit set move (SPEC item 3). Clears the chatbot
     /// delta FIRST via the SAME offset-preserving transient-reset path
     /// <see cref="SetLevel"/> uses (Q5: <c>_userFovOffset=0</c> +
-    /// <c>ResetToDefault</c> + <c>ResetTransientState</c>, PRESERVING the earned
-    /// habituation <c>_offset</c> / C5), THEN re-seeds the displayed level on the
-    /// new curve (Q4 felt-snap). Never touches <c>_offset</c>. Caller holds
-    /// <c>_gate</c>.</summary>
+    /// <c>ResetToDefault</c> + <c>ResetTransientStatePreservingPause</c>,
+    /// PRESERVING the earned habituation <c>_offset</c> / C5 AND the active pause
+    /// contract / CW-1 — this is a SILENT background move that must not un-pause
+    /// opted-out habituation nor exit the tier ≥ 8 awaiting-user-confirm park),
+    /// THEN re-seeds the displayed level on the new curve (Q4 felt-snap). Never
+    /// touches <c>_offset</c>. Caller holds <c>_gate</c>.</summary>
     private void ApplySetMove(GridCoord target)
     {
         _activeSet = target;
 
-        // Q5 first: clear the transient chatbot delta, preserving _offset.
+        // Q5 first: clear the transient chatbot delta, preserving _offset + pause.
         _userFovOffset = 0;
         _shader.ResetToDefault();
-        _habituation.ResetTransientState();   // preserves _offset (Q4.5 / C5)
+        _habituation.ResetTransientStatePreservingPause(); // preserves _offset (Q4.5 / C5) + pause (CW-1)
         Current.HabituationLevel  = _habituation.HabituationLevel;
         Current.HabituationPaused = _habituation.IsPaused;
 
