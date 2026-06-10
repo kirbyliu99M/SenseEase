@@ -5,7 +5,6 @@ using SenseEase.App.Configuration;
 using SenseEase.App.Views;
 using SenseEase.Core.AdaptiveFit;
 using SenseEase.Core.Configuration;
-using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Storage;
@@ -15,15 +14,24 @@ namespace SenseEase.Tests;
 
 /// <summary>
 /// Alpha-2 core GROUP D (final core) — wiring the deterministic selector behind the
-/// default-OFF flag. These tests pin the engine SELECTOR-TICK contract (spec items
-/// 1–4): the flag-mirror default, flag-off byte-identity (the #1 invariant survives
-/// Group D), a flag-on SILENT adjacent same-segment move, the cross-segment HOLD
-/// (deferred to P5), and the vestibular propose-stronger-only guard.
+/// AppConfig flag (now default-ON, mirrored onto the engine at startup). These tests pin
+/// the engine SELECTOR-TICK contract (spec items 1–4): the flag-mirror default, flag-off
+/// byte-identity (the #1 invariant survives Group D), a flag-on SILENT adjacent same-segment
+/// move, the cross-segment HOLD (deferred to P5), and the vestibular propose-stronger-only
+/// guard. Engine-only tests that do NOT mirror the flag still default OFF at the instance
+/// level (an unwired engine is on today's path); the App layer is what turns it on.
 ///
-/// <para><b>The #1 invariant.</b> When <c>AdaptiveFitSelectorEnabled == false</c> (the
-/// DEFAULT) the engine is BYTE-IDENTICAL to today: the new selector tick lives entirely
-/// inside <c>if (_adaptiveFitSelectorEnabled)</c>, so two identically-driven flag-off
-/// engines produce an identical (VimsTier, Fov, Mask) stream — the new tick is inert.</para>
+/// <para><b>Vestibular signal.</b> The vestibular guard / L9 floor key off the live
+/// <c>IsVestibularActive</c> signal. Since D-13 deleted the calibration plumbing
+/// (<c>ApplyCalibrationResult</c>), these tests arm vestibular protection through the live
+/// path <see cref="MockInferenceEngine.SetVestibularProtection"/> (the auto-profiling /
+/// Settings toggle that sets <c>EffectiveTrigger=50</c> + <c>SevereStrikeLimitOverride=1</c>).</para>
+///
+/// <para><b>The #1 invariant.</b> When <c>AdaptiveFitSelectorEnabled == false</c> (an
+/// unwired engine's instance default) the engine is BYTE-IDENTICAL to today: the new
+/// selector tick lives entirely inside <c>if (_adaptiveFitSelectorEnabled)</c>, so two
+/// identically-driven flag-off engines produce an identical (VimsTier, Fov, Mask) stream —
+/// the new tick is inert.</para>
 ///
 /// <para><b>Observability.</b> <c>_activeSet</c> is private; the public
 /// <see cref="MockInferenceEngine.ResolveLevel"/> reads <c>SetGrid.Curve(_activeSet)</c>,
@@ -145,22 +153,21 @@ public class AdaptiveFitWiringTests
         return true;
     }
 
-    /// <summary>A minimal vestibular-advisory calibration result. Sets ONLY the advisory
-    /// string the engine's guard keys off (<c>MedicalAdvisory == "vestibular"</c>); leaves
-    /// the trigger at the default 85 (no override, scale 1.0) so the seeded-stats math is
-    /// unchanged by calibration.</summary>
-    private static CalibrationResult VestibularResult() => new()
-    {
-        Profile               = HabituationProfile.Sensitive,
-        PersonalPressureScale = 1.0,
-        TriggerThresholdOverride = null,
-        MedicalAdvisory       = "vestibular",
-        CalibrationConfidence = CalibrationConfidence.High,
-        Completeness          = CalibrationCompleteness.Complete,
-    };
+    /// <summary>Arm vestibular protection through the LIVE path (D-13: the legacy
+    /// <c>ApplyCalibrationResult(MedicalAdvisory="vestibular")</c> plumbing is deleted).
+    /// <see cref="MockInferenceEngine.SetVestibularProtection"/> sets the persistent
+    /// in-memory signal the engine's <c>IsVestibularActive</c> reads — the SAME signal the
+    /// selector's propose-stronger-only guard / L9 floor key off — plus <c>EffectiveTrigger=50</c>
+    /// and <c>SevereStrikeLimitOverride=1</c>. Note the trigger is now 50 (not the old advisory
+    /// helper's 85): the seeded-stats math below normalises P90 against the engine's effective
+    /// trigger, so each vestibular test seeds the pressure that yields the intended norm under
+    /// the 50 trigger.</summary>
+    private static void ArmVestibular(MockInferenceEngine engine) =>
+        engine.SetVestibularProtection(true);
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 1. FLAG-MIRROR — AppConfig default false ⇒ a freshly-wired engine is OFF
+    // 1. FLAG-MIRROR — AppConfig defaults ON ⇒ a freshly-wired engine is ON; an
+    //    UNWIRED engine (no mirror) still defaults OFF at the instance level.
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -518,8 +525,8 @@ public class AdaptiveFitWiringTests
             {
                 AdaptiveFitSelectorEnabled = true,
             };
-            advisory.ApplyCalibrationResult(VestibularResult()); // sets MedicalAdvisory == "vestibular"
-            Assert.Equal("vestibular", advisory.LastCalibrationResult?.MedicalAdvisory);
+            ArmVestibular(advisory); // live path: sets the persistent vestibular signal (D-13)
+            Assert.True(advisory.IsVestibularProtectionEnabled);
 
             var nonAdvisory = new MockInferenceEngine(null, null, null, nonAdvisoryLog)
             {
@@ -571,7 +578,7 @@ public class AdaptiveFitWiringTests
             {
                 AdaptiveFitSelectorEnabled = true,
             };
-            engine.ApplyCalibrationResult(VestibularResult());
+            ArmVestibular(engine); // live path (D-13)
 
             DriveCalm(engine);
 
@@ -583,6 +590,66 @@ public class AdaptiveFitWiringTests
             // confirming the L9 clamp only ever fires on an actual applied move — which the
             // guard correctly prevented here.
             Assert.Equal(1, engine.CurrentLevel);
+        }
+        finally
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = original;
+        }
+    }
+
+    [Fact]
+    public void FlagOn_Vestibular_ConfirmedStrongerMove_ClampsResolvedLevelToTheL9Floor()
+    {
+        bool original = AppConfig.AdaptiveFitSelectorEnabled;
+        try
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = true;
+
+            // NON-VACUOUS L9 floor (spec item 1): unlike the weaker-band test above (where the
+            // guard blocks the move so the floor holds vacuously), here a high-pressure window
+            // makes the selector argmax the Band-UP neighbour (6,2) — a STRONGER, cross-segment
+            // target that PASSES the propose-stronger-only vestibular guard (Band 6 >= 5). It is
+            // cross-segment, so it QUEUES as a pending proposal (not silently applied). Confirming
+            // it is an ACTUAL applied move, on which the engine clamps the snapped felt level to
+            // >= 9 for the vestibular user — the floor we assert on a real move, not vacuously.
+            //
+            // Pressure 100 against the vestibular EffectiveTrigger (50, set by SetVestibularProtection)
+            // yields P90 norm ≈ 2.0 — the SAME high-pressure shape the non-advisory cross-segment
+            // test produces with 170 against the default trigger 85 — so the argmax is (6,2).
+            var log = new InMemoryEventLogStore();
+            SeedDurable(log, pressure: 100.0, spike: false);
+            var engine = new MockInferenceEngine(null, null, null, log)
+            {
+                AdaptiveFitSelectorEnabled = true,
+            };
+            ArmVestibular(engine); // EffectiveTrigger = 50 (norm = 100/50 = 2.0)
+
+            // Feed OFI=0 so the live tier stays at 1 — only the durable LOG stats drive the set,
+            // so the L9 floor can ONLY come from the confirmed move (not a live pressure climb).
+            DriveCalm(engine, ofi: 0.0);
+
+            // The stronger cross-segment move was QUEUED (propose-confirm), not silently applied:
+            // the set is still Set0 and the live tier still 1 until the user confirms.
+            Assert.True(ResolvesToSet0(engine),
+                "a cross-segment proposal must HOLD the set until the user confirms");
+            var target = new GridCoord(6, 2);
+            var pending = engine.PeekPendingSetMove();
+            Assert.NotNull(pending);
+            Assert.Equal(target.Band,  pending!.Value.Band);
+            Assert.Equal(target.Shape, pending.Value.Shape);
+
+            // Confirm the proposal — the ACTUAL applied move. ConfirmPendingSetMove snaps the
+            // felt level UP to Math.Max(targetLevel, 9) for a vestibular user.
+            Assert.True(engine.ConfirmPendingSetMove(),
+                "confirming a still-valid stronger proposal must apply the move");
+
+            // The applied move moved the set off Set0 (real move, not vacuous) AND clamped the
+            // resolved/confirmed level to the vestibular L9 floor.
+            Assert.True(ResolvesToSet(engine, target),
+                "the confirmed stronger move should resolve to the (6,2) curve");
+            Assert.True(engine.CurrentLevel >= 9,
+                $"a vestibular user's confirmed set move must clamp the level to >= 9 (was {engine.CurrentLevel})");
+            Assert.Equal(9, engine.CurrentLevel); // (6,2) nominal L8 → Math.Max(8, 9) = 9
         }
         finally
         {

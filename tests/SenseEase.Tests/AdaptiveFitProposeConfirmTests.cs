@@ -78,17 +78,6 @@ public class AdaptiveFitProposeConfirmTests
         return true;
     }
 
-    /// <summary>A minimal vestibular-advisory calibration result (advisory string only).</summary>
-    private static CalibrationResult VestibularResult() => new()
-    {
-        Profile                  = HabituationProfile.Sensitive,
-        PersonalPressureScale    = 1.0,
-        TriggerThresholdOverride = null,
-        MedicalAdvisory          = "vestibular",
-        CalibrationConfidence    = CalibrationConfidence.High,
-        Completeness             = CalibrationCompleteness.Complete,
-    };
-
     /// <summary>An in-memory habituation store that hands back a fixed earned offset at
     /// load, so a test can prove ConfirmPendingSetMove preserves it (Q4.5).</summary>
     private sealed class SeededHabituationStore : IHabituationStore

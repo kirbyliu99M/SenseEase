@@ -286,27 +286,34 @@ public static class AppConfig
     /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
     /// master gate for the zero-setup start. ACTIVATED 2026-06-07 (default <c>true</c>,
     /// coupled with <see cref="AdaptiveFitSelectorEnabled"/> per Kirby's "both flags on"
-    /// decision; see the activation note below). The new-user-stranding risk the original
-    /// M1-gating guarded against is covered because the selector is live (it can adapt the
-    /// level) and M1 is a validation follow-up, not a prerequisite. Set to <c>false</c> to
-    /// restore the explicit-calibration flow (the calibration code is suppressed-not-removed).
+    /// decision). The new-user-stranding risk the original M1-gating guarded against is
+    /// covered because the selector is live (it can adapt the level) and M1 is a validation
+    /// follow-up, not a prerequisite.
     ///
-    /// <para><b>Flag-off = today's behaviour byte-identical.</b> When set to <c>false</c>
-    /// (revert): the explicit 5-card / demo-reaction / LLM-dialog calibration
-    /// flow runs exactly as today, the new-user defaults stay RESILIENT/L1, the
-    /// console keeps its Calibration &amp; Demo + Reset entries, and the one-time
-    /// vestibular field never appears. When <c>true</c>: the calibration entry
-    /// points are suppressed (the calibration CODE stays intact, just dormant),
-    /// a brand-new user starts at TYPICAL / L5「中」 and the level auto-converges
-    /// via the selector, and vestibular diagnosis is captured by a one-time
-    /// first-use field + a permanent Settings toggle instead of calibration Q5.</para>
+    /// <para><b>FEAT-07 / D-8 (2026-06-11): the flag no longer gates the seed.</b> The fresh-user
+    /// TYPICAL / L5「中」 seeding in <c>MockInferenceEngine.ApplyAutoProfilingStartDefaults</c>
+    /// now runs REGARDLESS of this flag (the old <c>if (!_autoProfilingEnabled) return;</c> guard
+    /// was removed). With D-13 having DELETED the explicit-calibration plumbing, a flag-off path
+    /// that "restored RESILIENT/L1 + the calibration flow" could only ever strand a fresh user
+    /// with no onboarding — so flag-off now means: a fresh user STILL seeds at TYPICAL / L5,
+    /// and ONLY the App-side signals react to the flag (the vestibular first-use prompt, console
+    /// visibility, and selector-adjacent UI). The seeder never touches the earned habituation
+    /// offset (Q4.5-safe).</para>
+    ///
+    /// <para><b>D-13 (2026-06-11): explicit calibration is DELETED, not dormant.</b>
+    /// <c>CalibrationProcessor.Process</c> and <c>MockInferenceEngine.ApplyCalibrationResult</c>
+    /// were removed (the 5-card → CalibrationResult → engine-state pipeline no longer exists);
+    /// vestibular diagnosis is captured by the one-time first-use field + the permanent Settings
+    /// toggle (<c>SetVestibularProtection</c>) instead of calibration Q5. Setting this flag to
+    /// <c>false</c> does NOT bring the explicit-calibration flow back — that requires
+    /// <c>git revert 3131387</c> to re-add the deleted plumbing.</para>
     ///
     /// <para>Same settable-static pattern as the other runtime feature flags here.</para></summary>
-    // ACTIVATED 2026-06-07 (Kirby: both flags on). Explicit calibration is now cancelled:
-    // the console calibration entry + post-demo Q&A are suppressed, a fresh user starts at
-    // L5「中」/TYPICAL, and vestibular diagnosis is captured by the one-time first-use field +
-    // the permanent Settings toggle (re-rooted; the 9 vestibular consumers still fire). Set
-    // back to false to restore the explicit-calibration flow (code is suppressed-not-removed).
+    // ACTIVATED 2026-06-07 (Kirby: both flags on). Explicit calibration is CANCELLED and, since
+    // D-13, its application plumbing is DELETED (not just dormant): a fresh user seeds at
+    // L5「中」/TYPICAL regardless of this flag (D-8), and vestibular diagnosis is captured by the
+    // one-time first-use field + the permanent Settings toggle (re-rooted; the vestibular
+    // consumers still fire). Restoring the explicit-calibration flow requires git revert 3131387.
     public static bool AutoProfilingEnabled { get; set; } = true;
 
     /// <summary>M3 (head-tracking sprint): opt-in flag for head-pose-driven

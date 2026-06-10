@@ -34,6 +34,26 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private int      _pendingTierCandidate = 1;
     private DateTime _pendingTierSinceUtc  = DateTime.MinValue;
 
+    // ── LOGIC-13 / D-5: fresh-seed onboarding protection ──────────────────────
+    // ApplyAutoProfilingStartDefaults seeds a fresh user at the L5「中」 median; without
+    // protection the first calm Update tick fast-releases it straight to L1 (gap 4 >=
+    // VimsTierFastReleaseGap), so the "fresh users start at L5" intent is never felt.
+    // While _onboardingProtectionActive, UpdateVimsTier HOLDS the seeded tier against
+    // downward movement until EITHER a genuine pressure-driven INCREASE occurs (the user
+    // actually needs more protection — normal projection resumes) OR a fixed settling
+    // period elapses (whichever first). This is deliberate onboarding protection per D-5,
+    // NOT a change to tier projection. Defaults inert (active=false) so a non-auto-profiled
+    // engine — every existing test that does not call the seeder — is byte-identical.
+    private bool   _onboardingProtectionActive;
+    private double _onboardingElapsedSeconds;
+
+    // Fixed settling period (seconds of accumulated Update dt) the seeded tier is held
+    // against fast-release before normal projection resumes. NEW local constant (no
+    // SenseDefaults value change, per the wave rules) — kept conservative at one
+    // SettlingMinSeconds window so the median is felt for a meaningful onboarding moment
+    // without overriding a genuine pressure surge (which ends protection early regardless).
+    private const double OnboardingProtectionSeconds = SenseDefaults.SettlingMinSeconds;
+
     // ── Adaptive Fit selector (Alpha-2 core GROUP A) ─────────────────────────
     // The engine's active set in the 50-set grid. PINNED to the median Set0
     // (Band 5, Shape 2) in this foundation — the selector that moves it lands in
@@ -72,12 +92,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
     // Alpha-2 addendum vestibular re-rooting: the PERSISTENT in-memory vestibular-
     // protection signal. Set by SetVestibularProtection (the auto-profiling one-time
-    // field / Settings toggle) OR restored from the snapshot at load. The legacy
-    // calibration path keeps signalling vestibular via _lastCalibrationResult.Medical
-    // Advisory; the IsVestibularActive helper ORs both so EVERY vestibular consumer
-    // keeps firing regardless of which world set it. Read by the selector guards
-    // (ApplySetMove L9 floor / PassesVestibularGuard), which only run when the
-    // selector flag is ON, so re-rooting them is byte-identical when the selector is OFF.
+    // field / Settings toggle) OR restored from the snapshot at load. D-13: the legacy
+    // calibration advisory path is deleted, so this field is now the SOLE source the
+    // IsVestibularActive helper reads — EVERY vestibular consumer keys off it. Read by
+    // the selector guards (ApplySetMove L9 floor / PassesVestibularGuard), which only
+    // run when the selector flag is ON, so re-rooting them is byte-identical when the
+    // selector is OFF.
     private bool _vestibularProtection;
 
     // ── Adaptive Fit selector TICK (Alpha-2 core GROUP D) ────────────────────
@@ -130,6 +150,26 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private bool                  _profileSnapshotDirty;
     private DateTime?             _lastSavedSpikeAtUtc;
 
+    // ── LOGIC-03: off-dispatcher profile persistence ──────────────────────────
+    // MaybePersistProfileSnapshot runs on the UI dispatcher under _gate; the
+    // _profileStore.Update call there does synchronous file IO whose AtomicJsonWriter
+    // .TryRead can Thread.Sleep up to ~400 ms under AV file locks — a real UI freeze on
+    // this machine. To move that IO off the dispatcher we capture the snapshot inputs under
+    // _gate (no live-state race) and run _profileStore.Update on a SINGLE-WRITER serialized
+    // background queue (_persistTail chains one Task after another so writes never overlap
+    // and ORDER is preserved). W2.0-C atomicity is intact: the store's own per-path lock
+    // still spans Load→mutate→Save, and the mutate closure reads ONLY the captured snapshot
+    // + the store's in-lock `existing` (never live engine state).
+    //
+    // OPT-IN (default OFF → fully synchronous). While OFF the persist runs inline exactly as
+    // before, so every existing read-after-write test (e.g. HabituationProfileStoreTests'
+    // construct-engine → engine.Update → store.Load asserts) stays byte-identical and
+    // deterministic. The App flips this ON at startup for the production dispatcher; tests
+    // that want the async path can flip it then call FlushPendingPersists() for determinism.
+    private bool                  _backgroundPersistEnabled;
+    private Task                  _persistTail = Task.CompletedTask;
+    private readonly object       _persistQueueGate = new();
+
     // M1 (Phase 6-pre): event-log writer for habituation lifecycle. Parallel
     // path to the snapshot persistence (file IO via _profileStore) — this
     // emits one EventLogEntry per change so the chatbot's Phase 6c trajectory
@@ -137,24 +177,25 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // store. Optional dependency — null in unit-test contexts.
     private readonly IEventLogStore? _eventLog;
 
-    // Stage 7a: calibration_count the engine considers current. Initialised
-    // from the loaded snapshot at construction; Stage 7f bumps it in
-    // ApplyCalibrationResult on every non-Abandoned completion and
-    // BuildProfileSnapshot persists the bumped value. Surfaced via the
-    // LoadedCalibrationCount property below.
+    // Stage 7a: calibration_count the engine considers current. Initialised from the
+    // loaded snapshot at construction and round-tripped by BuildProfileSnapshot.
+    // D-13: the old runtime bump in ApplyCalibrationResult is gone (explicit
+    // calibration cancelled), so this is now LOAD-SEEDED ONLY — a machine that
+    // calibrated under the old flow keeps its persisted count across upgrades.
+    // Surfaced via the LoadedCalibrationCount property below.
     // Wipe-recovery synthetics arrive with the loader-emitted default of 0,
     // which is the desired behaviour: recovered users start fresh.
     private int                   _loadedCalibrationCount;
 
-    // Stage 7f: UTC timestamp of the most recent non-Abandoned calibration,
-    // for the last_calibration_at_iso v2 snapshot field. Null until the
-    // first ApplyCalibrationResult lands a Complete or Partial result.
+    // Stage 7f: UTC timestamp of the most recent non-Abandoned calibration, for the
+    // last_calibration_at_iso v2 snapshot field. D-13: now set only on the snapshot
+    // LOAD path (the runtime ApplyCalibrationResult that stamped it is deleted).
     private DateTime?             _lastCalibrationAtUtc;
 
-    // M3 Phase 7d: current personal_pressure_scale value. ApplyCalibrationResult
-    // uses it to compute the effective trigger then discards; M3 keeps it as a
-    // tracked field so BuildProfileSnapshot writes the right value AND
-    // ApplyChatbotOverride(AdjustSensitivity) has somewhere to update.
+    // M3 Phase 7d: current personal_pressure_scale value. D-13: the old
+    // ApplyCalibrationResult writer is gone; the value is now restored on the load
+    // path and updated by ApplyChatbotOverride(AdjustSensitivity). BuildProfileSnapshot
+    // writes the tracked value out.
     // Default 1.0 = "no personalisation" (matches the snapshot DTO default).
     private double                _personalPressureScale = 1.0;
 
@@ -214,8 +255,8 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // a defaults-only snapshot), which is the desired behaviour:
             // recovered users get re-routed through the first-time calibration
             // card, not the LLM banner that assumes a baseline exists.
-            // Stage 7f: ApplyCalibrationResult bumps from this seed value;
-            // BuildProfileSnapshot persists the bumped value back.
+            // D-13: nothing bumps this at runtime any more (ApplyCalibrationResult is
+            // deleted); BuildProfileSnapshot round-trips the loaded value back out.
             // H44 (anti-tamper): the on-disk count is user-editable JSON. A
             // hand-edited high value would fake a veteran calibrator and skip
             // first-run onboarding. Clamp to a sane range, then treat a positive
@@ -237,15 +278,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // Alpha-2 audit fix: re-DERIVE the engine trigger from the restored scale.
             // Restoring the FIELD alone wasn't enough — EffectiveTrigger is what the engine
             // actually reads, and nothing on the LOAD path re-applied it (only the runtime
-            // ApplyCalibrationResult / ApplyChatbotOverride did). So a user who personalized
-            // their sensitivity last session booted back at the DEFAULT trigger and silently
-            // lost it until their next chatbot turn. Same arithmetic as both runtime paths
-            // (effective_trigger = default / scale). The additive TriggerThresholdAdjustment
-            // is not persisted (the snapshot carries only the scale), so the scale is the
-            // best-effort reconstruction; scale==1.0 — which also covers the absolute-override
-            // case that resets scale to 1.0 — leaves the engine default untouched. The
-            // vestibular branch below runs AFTER this, so its TriggerPressure-50 hard-override
-            // correctly wins for vestibular users.
+            // ApplyChatbotOverride does now that D-13 deleted the calibration path). So a
+            // user who personalized their sensitivity last session booted back at the DEFAULT
+            // trigger and silently lost it until their next chatbot turn. Same arithmetic as
+            // the chatbot runtime path (effective_trigger = default / scale). The additive
+            // TriggerThresholdAdjustment is not persisted (the snapshot carries only the scale),
+            // so the scale is the best-effort reconstruction; scale==1.0 — which also covers the
+            // absolute-override case that resets scale to 1.0 — leaves the engine default
+            // untouched. The vestibular branch below runs AFTER this, so its TriggerPressure-50
+            // hard-override correctly wins for vestibular users.
             if (_personalPressureScale != 1.0)
                 _habituation.EffectiveTrigger = SenseDefaults.TriggerPressure / _personalPressureScale;
             if (!string.IsNullOrEmpty(savedSnapshot.LastCalibrationAtIso) &&
@@ -320,6 +361,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // accumulator's working range elsewhere in this file (-60..0).
             _userFovOffset = Math.Clamp((int)weight.NetDelta, -60, 0);
         }
+
+        // CW-7 / LOGIC-10 (carried NE2): replay the user's persisted SHADER
+        // personalization (MaskDepth / GridVisibility / FeatherWidth) the SAME way
+        // _userFovOffset is replayed above — otherwise every restart silently reset a
+        // user-accepted "darker mask" / "/grid off" / softer-edge choice back to the
+        // profile default even though every adjustment was dutifully appended to
+        // adjustments.jsonl. Seeds the per-profile base first (so untouched knobs keep
+        // their profile defaults) THEN layers the user deltas (A7 _shaderUserModified
+        // pattern: a touched knob marks the shader user-owned so a later profile change
+        // won't re-seed over the user's choice).
+        ReplayShaderPersonalizationFromLog();
 
         // Habituation defaults to PAUSED at startup — therapeutic relaxation requires
         // explicit user opt-in via the dashboard toggle. Persisted offset is still
@@ -428,7 +480,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             RefreshPersonalization(dt);
             PersistHabituation();
 
-            UpdateVimsTier(now);
+            UpdateVimsTier(now, dt);
             Current.VimsTier = _vimsTier;
 
             // ── Adaptive Fit gated branch (Alpha-2 core GROUP A) ─────────────
@@ -672,24 +724,91 @@ public sealed class MockInferenceEngine : IInferenceEngine
         set { lock (_gate) { _autoProfilingEnabled = value; } }
     }
 
-    /// <summary>Alpha-2 addendum: seed a BRAND-NEW auto-profiling user at the neutral
-    /// TYPICAL profile + L5「中」 start (instead of RESILIENT/L1), from which the AdaptiveFit
-    /// selector converges. No-op unless the flag is ON AND the user is genuinely fresh
-    /// (no profile snapshot existed at load, zero prior calibrations, no persisted
-    /// vestibular signal) — an existing user's profile is never overwritten. App-driven
-    /// (called after the flag mirror is set), so flag-OFF construction stays byte-identical
-    /// to today. Q4.5-safe: never touches the habituation <c>_offset</c>.</summary>
+    /// <summary>LOGIC-03: opt-in to OFF-dispatcher profile persistence. Defaults OFF →
+    /// the <c>_profileStore.Update</c> call in <see cref="MaybePersistProfileSnapshot"/>
+    /// runs SYNCHRONOUSLY inline exactly as before (every read-after-write test stays
+    /// deterministic). When the App flips it ON at startup, each dirty persist captures its
+    /// snapshot inputs under <c>_gate</c> then runs the file IO on a single-writer serialized
+    /// background queue, so the dispatcher never blocks on AtomicJsonWriter's AV-retry sleeps.
+    /// Write ORDER and W2.0-C atomicity are preserved (see the field comment). Pair with
+    /// <see cref="FlushPendingPersists"/> at shutdown (or in a test) to drain pending writes.</summary>
+    public bool BackgroundPersistEnabled
+    {
+        get { lock (_gate) { return _backgroundPersistEnabled; } }
+        set { lock (_gate) { _backgroundPersistEnabled = value; } }
+    }
+
+    /// <summary>LOGIC-03: block until every queued background profile persist has completed.
+    /// A no-op when background persistence is OFF (writes were already synchronous). Call at
+    /// shutdown so the final snapshot lands before the process exits, or in a test that
+    /// enabled the async path before asserting on the persisted file. Never throws: a failed
+    /// background write is already swallowed by the store's best-effort Save.</summary>
+    public void FlushPendingPersists()
+    {
+        Task tail;
+        lock (_persistQueueGate) { tail = _persistTail; }
+        try { tail.Wait(); } catch { /* best-effort; persistence failures must not crash */ }
+    }
+
+    /// <summary>LOGIC-03: append one profile-store persist to the SINGLE-WRITER serialized
+    /// background queue. Chaining each write onto <c>_persistTail</c> (under
+    /// <c>_persistQueueGate</c>) guarantees writes never overlap and run in ENQUEUE ORDER —
+    /// two concurrent persists to the same file could otherwise lose an update or interleave
+    /// the store's Load→mutate→Save span. The mutate closure was captured from in-memory
+    /// state under <c>_gate</c> by the caller, so the background body touches no live engine
+    /// state. Best-effort: a failed write is swallowed so the chain never faults.</summary>
+    private void EnqueueProfilePersist(
+        IHabituationProfileStore store,
+        Func<HabituationProfileSnapshot?, HabituationProfileSnapshot?> mutate)
+    {
+        lock (_persistQueueGate)
+        {
+            _persistTail = _persistTail.ContinueWith(
+                _ =>
+                {
+                    try { store.Update(mutate); }
+                    catch { /* best-effort; persistence must never crash the engine */ }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
+        }
+    }
+
+    /// <summary>Alpha-2 addendum: seed a BRAND-NEW user at the neutral TYPICAL profile +
+    /// L5「中」 start (instead of RESILIENT/L1), from which the AdaptiveFit selector
+    /// converges. No-op unless the user is genuinely fresh (no profile snapshot existed at
+    /// load, zero prior calibrations, no persisted vestibular signal) — an existing user's
+    /// profile is never overwritten.
+    /// <para>FEAT-07 / D-8 (2026-06-11): the TYPICAL/L5 seeding now runs regardless of
+    /// <see cref="AutoProfilingEnabled"/>. The flag-off path no longer "restores the
+    /// explicit-calibration flow" — commit 3131387 deleted that subsystem, so flag-off can
+    /// only ever strand a fresh user at RESILIENT/L1 with no onboarding. Flag-off semantics
+    /// are now "fresh users still seed at TYPICAL/L5; ONLY the vestibular prompt, console
+    /// visibility, and selector-adjacent UI signals react to the flag" — all of which live
+    /// in the App layer, not here. Hence the previous <c>if (!_autoProfilingEnabled) return;</c>
+    /// guard is gone; the fresh-user guard below is the sole gate.</para>
+    /// Q4.5-safe: never touches the habituation <c>_offset</c>.</summary>
     public void ApplyAutoProfilingStartDefaults()
     {
         lock (_gate)
         {
-            if (!_autoProfilingEnabled) return;
+            // FEAT-07 / D-8: NO _autoProfilingEnabled gate here — fresh users seed TYPICAL/L5
+            // whether or not the flag is on (the flag gates only App-side vestibular/console/
+            // selector-UI). The fresh-user guard is the only thing that may early-return.
             if (_profileExistedAtLoad || _loadedCalibrationCount > 0 || _vestibularProtection) return;
 
             _habituation.SetProfile(HabituationProfile.Typical, "auto_profiling_default");
             _vimsTier             = SenseDefaults.AutoProfilingStartLevel; // L5 median seed
             _pendingTierCandidate = _vimsTier;
             _pendingTierSinceUtc  = DateTime.MinValue;
+            // LOGIC-13 / D-5 (onboarding protection): arm the seed-protection window so the
+            // very first calm Update tick does NOT immediately fast-release the L5 median down
+            // to L1 (gap 4 >= VimsTierFastReleaseGap snaps within ~66 ms otherwise) — the
+            // documented "fresh users start at L5「中」" would never be user-visible. See
+            // UpdateVimsTier for the deliberate exemption.
+            _onboardingProtectionActive  = true;
+            _onboardingElapsedSeconds    = 0.0;
             Current.VimsTier         = _vimsTier;
             Current.HabituationLevel = _habituation.HabituationLevel;
             _profileSnapshotDirty    = true;
@@ -734,14 +853,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    /// <summary>True when vestibular protection is active from EITHER world — the
-    /// persistent auto-profiling signal (<see cref="SetVestibularProtection"/> / restored
-    /// from snapshot) OR the legacy calibration advisory. The single predicate every
-    /// vestibular consumer in this engine keys off, so re-rooting kept all consumers intact.</summary>
-    private bool IsVestibularActive =>
-        _vestibularProtection
-        || string.Equals(_lastCalibrationResult?.MedicalAdvisory, "vestibular",
-                         StringComparison.OrdinalIgnoreCase);
+    /// <summary>True when vestibular protection is active. Since D-13 deleted the legacy
+    /// calibration advisory path (<c>ApplyCalibrationResult</c>), the SOLE source is now the
+    /// PERSISTENT auto-profiling signal (<see cref="SetVestibularProtection"/> / restored from
+    /// snapshot). The single predicate every vestibular consumer in this engine keys off, so
+    /// keeping it as a named member means the re-rooting kept all consumers intact.</summary>
+    private bool IsVestibularActive => _vestibularProtection;
 
     /// <summary>The engine's current discrete intensity level (1..12) — the same
     /// value surfaced as <c>SenseState.VimsTier</c>. Reading it does not depend on
@@ -955,8 +1072,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // clamped to >= 9 on any set move (propose-stronger-only safety stance).
         // Non-advisory users keep their current rung. Keep the pending-debounce
         // bookkeeping in sync so UpdateVimsTier does not immediately walk it back.
-        // Re-rooted (Alpha-2 addendum): IsVestibularActive ORs the persistent
-        // auto-profiling signal with the legacy calibration advisory.
+        // D-13: IsVestibularActive is the persistent auto-profiling signal only.
         if (IsVestibularActive && _vimsTier < 9)
         {
             _vimsTier             = 9;
@@ -987,17 +1103,19 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _shader.GridVisibility = lp.GridVisibility;
     }
 
-    /// <summary>Vestibular guard (SPEC item 4): for a user carrying the vestibular
-    /// advisory (the SAME in-memory signal the hard-cap path keys off —
-    /// <c>LastCalibrationResult.MedicalAdvisory == "vestibular"</c>), BLOCK any move
-    /// toward a WEAKER band (lower <see cref="GridCoord.Band"/>) — propose-stronger-
-    /// only. A move that holds or raises Band is allowed. Non-advisory users are
-    /// unaffected. (The L9 floor / 0.20 mask floor are enforced at resolve time by
-    /// the grid's clamps; this method governs the directional move gate.)</summary>
+    /// <summary>Vestibular guard (SPEC item 4): for a user carrying vestibular
+    /// protection (the SAME in-memory signal the hard-cap path keys off —
+    /// <see cref="IsVestibularActive"/>, now sourced solely from
+    /// <see cref="SetVestibularProtection"/> / the snapshot since D-13 deleted the
+    /// calibration advisory path), BLOCK any move toward a WEAKER band (lower
+    /// <see cref="GridCoord.Band"/>) — propose-stronger-only. A move that holds or
+    /// raises Band is allowed. Non-advisory users are unaffected. (The L9 floor /
+    /// 0.20 mask floor are enforced at resolve time by the grid's clamps; this method
+    /// governs the directional move gate.)</summary>
     private bool PassesVestibularGuard(GridCoord current, GridCoord target)
     {
-        // Re-rooted (Alpha-2 addendum): IsVestibularActive ORs the persistent
-        // auto-profiling signal with the legacy calibration advisory.
+        // D-13: IsVestibularActive is now the persistent auto-profiling signal only
+        // (the legacy calibration advisory branch was deleted).
         if (!IsVestibularActive) return true;
 
         // Propose-stronger-only: a move that LOWERS the intensity Band is blocked.
@@ -1208,6 +1326,54 @@ public sealed class MockInferenceEngine : IInferenceEngine
         Current.Shader = _shader;
     }
 
+    /// <summary>CW-7 / LOGIC-10 (carried NE2): restore the user's persisted shader
+    /// personalization at boot, mirroring the <c>_userFovOffset</c> replay in the ctor.
+    /// First seeds the shader from the CURRENTLY-restored profile so untouched knobs keep
+    /// their per-profile defaults (RESILIENT/TYPICAL → neutral baseline; SENSITIVE →
+    /// tightened), THEN layers each knob's persisted net delta from the adjustment log on
+    /// top (SAME taring semantics as <c>WeightFor("FovRadius")</c> — the log's reset
+    /// sentinel zeroes prior history). Shader deltas are stored in normalized [0,1] space
+    /// (see <c>ShaderParams</c>), so the restored value is base + NetDelta, clamped. Any
+    /// knob with a non-zero net delta means the user OWNED the shader, so we set the A7
+    /// <c>_shaderUserModified</c> flag — a later profile change then won't re-seed over the
+    /// user's choice (same contract <see cref="ApplyShaderAdjustment"/> / <see cref="SetShaderParam"/>
+    /// establish at runtime). No adjustment log ⇒ leave the profile-seeded base untouched.
+    /// Caller is the ctor (single-threaded, pre-publication), so no _gate is taken.</summary>
+    private void ReplayShaderPersonalizationFromLog()
+    {
+        if (_adjustmentLog is null) return;
+
+        // Establish the per-profile base for UNTOUCHED knobs (the spec's
+        // "profile re-seeding still wins for untouched knobs"). For RESILIENT/TYPICAL
+        // this equals ShaderParams.Default, so it is a no-op vs the field initialiser;
+        // for a restored SENSITIVE profile it applies that profile's tightened defaults.
+        SeedShaderFromProfile(_habituation.CurrentProfile);
+
+        bool anyUserDelta = false;
+        anyUserDelta |= ReplayOneShaderKnob("MaskDepth",      v => _shader.MaskDepth      = v, _shader.MaskDepth);
+        anyUserDelta |= ReplayOneShaderKnob("GridVisibility", v => _shader.GridVisibility = v, _shader.GridVisibility);
+        anyUserDelta |= ReplayOneShaderKnob("FeatherWidth",   v => _shader.FeatherWidth   = v, _shader.FeatherWidth);
+
+        if (anyUserDelta)
+        {
+            _shader.Clamp();
+            Current.Shader      = _shader;
+            _shaderUserModified = true; // A7: user owned the shader → profile re-seed must not win
+        }
+    }
+
+    /// <summary>Replay one shader knob's persisted net delta onto its profile-seeded base.
+    /// Returns true iff the user had a non-zero net delta for this knob (so the caller can
+    /// set the A7 user-modified flag). The setter writes <c>base + NetDelta</c> clamped to
+    /// [0,1]; a zero net delta leaves the profile default exactly in place.</summary>
+    private bool ReplayOneShaderKnob(string parameter, Action<double> set, double baseValue)
+    {
+        double net = _adjustmentLog!.WeightFor(parameter).NetDelta;
+        if (net == 0.0) return false;
+        set(Math.Clamp(baseValue + net, 0.0, 1.0));
+        return true;
+    }
+
     /// <summary>Resume from <see cref="EngineState.PausedAwaitingUserConfirm"/>.
     /// Routed via the chatbot when the user confirms they're ready to continue.</summary>
     public void AcknowledgeAndResumeHabituation()
@@ -1220,33 +1386,21 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    // ── Calibration application (Stage 2 of post-test calibration feature) ──
-    // The CalibrationProcessor (Stage 1) produces a pure CalibrationResult.
-    // This is where that result becomes engine state: effective trigger,
-    // strike-limit override, and profile. The engine itself stays ignorant
-    // of "scale" / "personal_pressure_scale" — those concepts live here in
-    // the wrapper.
-    //
-    // Math priority (per user supplement):
-    //   override exists -> trigger = override  (scale + adjustment IGNORED)
-    //   else            -> trigger = (defaultTrigger / scale) + adjustment
-
-    private CalibrationResult? _lastCalibrationResult;
-
-    /// <summary>The most recent calibration result the wrapper applied via
-    /// <see cref="ApplyCalibrationResult"/>. Null until calibration runs at
-    /// least once. Read by the Stage 6 JSON-snapshot writer to surface the
-    /// scale + overrides + advisory + dominance fields in habituation_profile.json.</summary>
-    public CalibrationResult? LastCalibrationResult
-    {
-        get { lock (_gate) { return _lastCalibrationResult; } }
-    }
+    // ── Calibration state read-surface (Stage 2 remnant) ──────────────────────
+    // D-13 (2026-06-11): the application method (ApplyCalibrationResult) and the
+    // _lastCalibrationResult / LastCalibrationResult read-back it fed were DELETED
+    // together with CalibrationProcessor.Process — explicit calibration is
+    // cancelled and nothing applies a CalibrationResult to the engine any more. The
+    // calibration_count / last_calibration_at fields below remain because they are
+    // still RESTORED from the persisted snapshot at load (and round-tripped back
+    // out), so a machine that calibrated under the old flow keeps a stable,
+    // non-zero count across upgrades. The personal-pressure scale is now driven
+    // only by the load path + the chatbot's ApplyChatbotOverride(AdjustSensitivity).
 
     /// <summary>The <c>calibration_count</c> value the engine considers
     /// current. Initialised from the loaded snapshot at construction
-    /// (Stage 7a), bumped in <see cref="ApplyCalibrationResult"/> for every
-    /// non-Abandoned completion (Stage 7f), and round-tripped through
-    /// <see cref="BuildProfileSnapshot"/> so the bumped value lands in the
+    /// (Stage 7a) and round-tripped through
+    /// <see cref="BuildProfileSnapshotCore"/> so the loaded value lands in the
     /// next on-disk write. Returns 0 when no snapshot was loaded (genuine
     /// first-run) or the loaded snapshot is a wipe-recovery synthetic — both
     /// mean the engine has no PERSISTED evidence of a prior calibration on
@@ -1287,83 +1441,25 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
     /// <summary>Alpha-2 addendum: the current state of the PERSISTENT vestibular protection
     /// (the auto-profiling signal toggled by the one-time field / Settings). Source of truth
-    /// for the Settings "regret" toggle's checked state. Does NOT reflect the legacy
-    /// calibration advisory (that path is flag-off and uses its own snapshot fields).</summary>
+    /// for the Settings "regret" toggle's checked state. Since D-13 deleted the calibration
+    /// advisory path, this is the engine's only vestibular signal.</summary>
     public bool IsVestibularProtectionEnabled
     {
         get { lock (_gate) { return _vestibularProtection; } }
     }
 
-    /// <summary>Apply a post-test calibration result. Computes the effective
-    /// trigger (override > scale + adjustment) and pushes it to the engine,
-    /// pushes the strike-limit override (vestibular case), and swaps the
-    /// profile if it differs. Fires a profile-snapshot persist on the way
-    /// out so the change lands in habituation_profile.json.</summary>
-    public void ApplyCalibrationResult(CalibrationResult result)
-    {
-        lock (_gate)
-        {
-            _lastCalibrationResult = result;
-
-            // Stage 7f: bump persisted calibration_count for Complete/Partial.
-            // Abandoned runs (no Q3 set, user cancelled the card before card 3)
-            // do NOT increment per spec §3 — they represent a user who
-            // started the form and walked away, not a calibration the system
-            // has any data from. Without this bump, Stage 7a's branch reads
-            // a forever-zero count and routes every demo end to the buttons
-            // UI even after the user has calibrated dozens of times.
-            if (result.Completeness != CalibrationCompleteness.Abandoned)
-            {
-                _loadedCalibrationCount++;
-                _lastCalibrationAtUtc = DateTime.UtcNow;
-                _profileSnapshotDirty = true;
-            }
-
-            // Compute effective trigger. Override wins outright (no further
-            // arithmetic); otherwise scale-then-adjust.
-            double trigger;
-            if (result.TriggerThresholdOverride is int ov)
-            {
-                trigger = ov;
-            }
-            else
-            {
-                // Defensive clamp belt-and-suspenders — processor already clamps,
-                // but we don't trust callers to come exclusively through it.
-                double scale = Math.Clamp(result.PersonalPressureScale,
-                                          CalibrationProcessor.PersonalPressureScaleMin,
-                                          CalibrationProcessor.PersonalPressureScaleMax);
-                trigger = (SenseDefaults.TriggerPressure / scale)
-                        + result.TriggerThresholdAdjustment;
-            }
-
-            _habituation.EffectiveTrigger          = trigger;
-            _habituation.SevereStrikeLimitOverride = result.SevereStrikeLimitOverride;
-            // M3 Phase 7d: track the applied scale so the snapshot reflects it
-            // and a subsequent chatbot AdjustSensitivity has the right baseline
-            // to compare against.
-            _personalPressureScale = result.TriggerThresholdOverride is null
-                ? Math.Clamp(result.PersonalPressureScale,
-                             CalibrationProcessor.PersonalPressureScaleMin,
-                             CalibrationProcessor.PersonalPressureScaleMax)
-                : 1.0;
-
-            // Profile change is idempotent on no-change. Source tagged as
-            // "calibration_demo" so the persistence snapshot reflects the
-            // origin. NOTE: an in-place re-calibration to the SAME profile
-            // does NOT reset strikes — strikes are only profile-scoped per Q6.
-            if (_habituation.CurrentProfile != result.Profile)
-                _habituation.SetProfile(result.Profile, "calibration_demo");
-
-            // Refresh bindable state so the dashboard reflects the change
-            // immediately without waiting for the next Update tick.
-            Current.HabituationLevel  = _habituation.HabituationLevel;
-            Current.HabituationPaused = _habituation.IsPaused;
-            Current.FovRadiusPercent  = ComposeFovRadius(Current.Pressure);
-
-            MaybePersistProfileSnapshot();
-        }
-    }
+    // ── D-13 (2026-06-11): ApplyCalibrationResult DELETED ────────────────────
+    // The wrapper method that turned a CalibrationProcessor.Process result into
+    // engine state (effective trigger / strike-limit override / profile swap /
+    // calibration_count bump) is gone, along with the processor's Process entry
+    // point. Explicit calibration is cancelled (AppConfig.AutoProfilingEnabled),
+    // so the ONLY remaining sources of the vestibular safety envelope are the
+    // PERSISTENT auto-profiling signal (SetVestibularProtection — EffectiveTrigger
+    // = 50 + SevereStrikeLimitOverride = 1) and its snapshot restore on load. The
+    // personal-pressure scale is still set on the LOAD path and by the chatbot's
+    // ApplyChatbotOverride(AdjustSensitivity); _loadedCalibrationCount /
+    // _lastCalibrationAtUtc are now seeded only from the loaded snapshot. To
+    // restore the explicit-calibration application flow, git revert 3131387.
 
     /// <summary>M3 Phase 7d: apply a chatbot-proposed engine override that
     /// has already passed the Processor's validation (7c) and the Applicator's
@@ -1522,13 +1618,25 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             // W2.0-C: persist through the store's atomic Update so the EM2 re-read
             // (carry-forward of the chatbot/calibration-owned fields) and the Save
-            // happen under ONE store-lock span. Previously BuildProfileSnapshot did
-            // its own unsynchronised Load and the Save was separate, so the
-            // chatbot's concurrent LongitudinalObservationWriter could interleave
-            // and clobber an appended observation (or have its write reverted).
-            // BuildProfileSnapshot returns null to skip the write on a transient
-            // read failure (#2: don't clobber), which Update honours.
-            _profileStore.Update(BuildProfileSnapshot);
+            // happen under ONE store-lock span. The mutate closure reads ONLY the
+            // captured core snapshot + the store's in-lock `existing` (never live
+            // engine state), so it is safe to run on a background thread.
+            //
+            // LOGIC-03: capture the snapshot inputs HERE (under _gate) so the file IO can
+            // move off the dispatcher without racing live engine state. BuildProfileSnapshot
+            // CORE is built from in-memory state now; MergeCarryForward folds in the
+            // `existing`-owned fields inside the store lock and may return null to SKIP the
+            // write on a transient read failure (#2: don't clobber), which Update honours.
+            HabituationProfileSnapshot core = BuildProfileSnapshotCore();
+            bool vestibularPersist = _vestibularProtection;
+            IHabituationProfileStore store = _profileStore;
+            Func<HabituationProfileSnapshot?, HabituationProfileSnapshot?> mutate =
+                existing => MergeCarryForward(core, existing, vestibularPersist);
+
+            if (_backgroundPersistEnabled)
+                EnqueueProfilePersist(store, mutate);
+            else
+                store.Update(mutate); // synchronous (default) — preserves read-after-write
         }
 
         _lastSavedLevel         = level;
@@ -1638,38 +1746,23 @@ public sealed class MockInferenceEngine : IInferenceEngine
         catch { /* best-effort; event-log writes must never crash the engine */ }
     }
 
-    /// <summary>EM2 carry-forward snapshot builder, now invoked as the mutator of
-    /// <see cref="IHabituationProfileStore.Update"/> (W2.0-C). <paramref name="existing"/>
-    /// is the snapshot the store read for us INSIDE its lock — a consistent view,
-    /// not a separate unsynchronised Load — so the carry-forward of fields owned by
-    /// OTHER writers of the same habituation_profile.json (the chatbot's
-    /// LongitudinalObservationWriter + the calibration applicator) can no longer
-    /// race against their concurrent writes.</summary>
-    private HabituationProfileSnapshot? BuildProfileSnapshot(HabituationProfileSnapshot? existing)
+    /// <summary>LOGIC-03: build the ENGINE-OWNED half of the profile snapshot from live
+    /// in-memory state. Called under <c>_gate</c> at persist time and captured into the
+    /// mutate closure so the actual file IO (which folds in the <c>existing</c>-owned fields)
+    /// can run off the dispatcher without racing live engine state. The vestibular-dependent
+    /// fields are resolved HERE from the live <see cref="IsVestibularActive"/> /
+    /// <c>_vestibularProtection</c> so the captured snapshot is internally consistent; the
+    /// non-vestibular <c>MedicalAdvisoryShown</c> fallback to <c>existing</c> is finalized in
+    /// <see cref="MergeCarryForward"/>. Fields owned by OTHER writers of the file (chatbot
+    /// longitudinal memory + calibration_* enums + SchemaVersion) are left at defaults and
+    /// overlaid by the merge.</summary>
+    private HabituationProfileSnapshot BuildProfileSnapshotCore()
     {
         var p = _habituation.CurrentParams;
-        // EM2: read-modify-write. This builds a FRESH snapshot from in-memory
-        // engine state, but several fields are owned by OTHER writers of the SAME
-        // habituation_profile.json (the chatbot's LongitudinalObservationWriter and
-        // the calibration applicator). Carry those fields forward from <existing>
-        // so an engine persist no longer silently wipes them (the chatbot's
-        // longitudinal memory + the calibration_* enums).
-        // #2 (EM2 hardening, review): if a profile EXISTED at boot but the in-lock
-        // re-read is null, that is a transient read failure (file briefly locked /
-        // corrupt), NOT a first run. Rebuilding-and-overwriting here would null-fill
-        // MedicalAdvisoryShown + the calibration_* fields and wipe the vestibular
-        // safety advisory. Signal "skip this persist" by returning null.
-        if (existing is null && _profileExistedAtLoad) return null;
         return new HabituationProfileSnapshot
         {
-            // UM2: carry the loaded schema version FORWARD. The store hands us a
-            // post-load `existing`: a v1 file is null-filled to v2, a v2 file is
-            // migrated to v3, a v3 file stays v3 — so this preserves the documented
-            // v1 → v2 → v3 progression instead of jumping a v1-loaded profile straight
-            // to v3 on the engine's next persist. For a genuine first write (no existing
-            // file) fall back to the DTO's current default (no hard-coded literal, so it
-            // can't silently desync from the snapshot DTO).
-            SchemaVersion           = existing?.SchemaVersion ?? new HabituationProfileSnapshot().SchemaVersion,
+            // SchemaVersion left at the DTO default; MergeCarryForward overlays `existing`'s
+            // so the documented v1 → v2 → v3 progression is preserved.
             UpdatedAtIso            = DateTime.UtcNow.ToString("o"),
             Profile                 = _habituation.CurrentProfile.ToString().ToUpperInvariant(),
             ProfileSource           = _habituation.ProfileSource,
@@ -1706,27 +1799,56 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 StepIntervalMs  = p.StepIntervalMs,
                 StepMagnitudePp = p.StepMagnitudePp,
             },
-            // EM2 — fields owned by OTHER writers of this file; preserved from the
-            // existing on-disk snapshot so the engine's persist does not wipe them.
-            LongitudinalObservations = existing?.LongitudinalObservations ?? new(),
-            // UM2: the monthly observation buckets are owned by LongitudinalObservation
-            // Writer; carry them forward too or an engine persist would erase them.
-            LongitudinalObservationsV2 = existing?.LongitudinalObservationsV2 ?? new(),
-            CalibrationCompleteness  = existing?.CalibrationCompleteness,
-            CalibrationPath          = existing?.CalibrationPath,
-            CalibrationResponses     = existing?.CalibrationResponses,
-            SymptomDominancePrimary  = existing?.SymptomDominancePrimary,
-            // Alpha-2 addendum: an auto-profiling vestibular user (no calibration) must
-            // still surface the advisory to the chatbot's [habituation_state] block,
-            // which reads MedicalAdvisoryShown. Otherwise carry the calibration value forward.
-            MedicalAdvisoryShown     = _vestibularProtection
-                                         ? MedicalAdvisory.Vestibular
-                                         : existing?.MedicalAdvisoryShown,
-            CalibrationConfidence    = existing?.CalibrationConfidence,
+            // Alpha-2 addendum: an auto-profiling vestibular user (no calibration) must still
+            // surface the advisory to the chatbot's [habituation_state] block. The vestibular
+            // case is final here; the non-vestibular fallback to existing is done in the merge.
+            MedicalAdvisoryShown        = _vestibularProtection ? MedicalAdvisory.Vestibular : null,
             // Alpha-2 addendum: persist the auto-profiling vestibular signal so it
             // survives restarts (restored in the ctor load path).
             VestibularProtectionEnabled = _vestibularProtection,
         };
+    }
+
+    /// <summary>EM2 carry-forward merge, invoked as the mutator of
+    /// <see cref="IHabituationProfileStore.Update"/> (W2.0-C). <paramref name="existing"/>
+    /// is the snapshot the store read for us INSIDE its lock — a consistent view, not a
+    /// separate unsynchronised Load — so the carry-forward of fields owned by OTHER writers
+    /// of the same habituation_profile.json (the chatbot's LongitudinalObservationWriter +
+    /// the calibration applicator) can no longer race against their concurrent writes.
+    /// <para>LOGIC-03: this runs inside the store lock (possibly on the background persist
+    /// queue) and reads ONLY <paramref name="core"/> (captured under <c>_gate</c>),
+    /// <paramref name="existing"/>, and the captured vestibular flags — never live engine
+    /// state — so it is safe off the dispatcher.</para></summary>
+    private HabituationProfileSnapshot? MergeCarryForward(
+        HabituationProfileSnapshot core, HabituationProfileSnapshot? existing,
+        bool vestibularPersist)
+    {
+        // #2 (EM2 hardening, review): if a profile EXISTED at boot but the in-lock re-read is
+        // null, that is a transient read failure (file briefly locked / corrupt), NOT a first
+        // run. Rebuilding-and-overwriting here would null-fill MedicalAdvisoryShown + the
+        // calibration_* fields and wipe the vestibular safety advisory. Skip this persist.
+        if (existing is null && _profileExistedAtLoad) return null;
+
+        // UM2: carry the loaded schema version FORWARD (v1→v2→v3 progression). For a genuine
+        // first write (no existing file) fall back to the DTO's current default.
+        core.SchemaVersion = existing?.SchemaVersion ?? new HabituationProfileSnapshot().SchemaVersion;
+
+        // EM2 — fields owned by OTHER writers of this file; preserved from the existing
+        // on-disk snapshot so the engine's persist does not wipe them.
+        core.LongitudinalObservations   = existing?.LongitudinalObservations ?? new();
+        core.LongitudinalObservationsV2 = existing?.LongitudinalObservationsV2 ?? new();
+        core.CalibrationCompleteness    = existing?.CalibrationCompleteness;
+        core.CalibrationPath            = existing?.CalibrationPath;
+        core.CalibrationResponses       = existing?.CalibrationResponses;
+        core.SymptomDominancePrimary    = existing?.SymptomDominancePrimary;
+        core.CalibrationConfidence      = existing?.CalibrationConfidence;
+
+        // Non-vestibular: carry the calibration advisory forward. Vestibular case was already
+        // set to MedicalAdvisory.Vestibular in core (use the captured flag, not live state).
+        if (!vestibularPersist)
+            core.MedicalAdvisoryShown = existing?.MedicalAdvisoryShown;
+
+        return core;
     }
 
     /// <summary>Maps the <see cref="EngineState"/> enum to the spec's
@@ -1816,7 +1938,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
     ///      VimsTierDownDebounceMs for comfort; lower tiers use VimsTierDownDebounceLowMs
     ///      so the mask actually clears when discomfort has passed.
     /// </summary>
-    private void UpdateVimsTier(DateTime nowUtc)
+    private void UpdateVimsTier(DateTime nowUtc, double dt)
     {
         // Mask alpha is driven by current VECTION RISK (pressure), not by how far the
         // user has narrowed the FOV. Earlier this used FovRadiusPercent, which meant a
@@ -1841,12 +1963,43 @@ public sealed class MockInferenceEngine : IInferenceEngine
             : (SetCurve.LevelCount - 1);     // 11.0 — native 12-level span
         double levelF = 1.0 + (scale * t);   // 1..12 (native 12-level scale — Adaptive Fit Q2=B)
 
+        double gap = levelF - _vimsTier;
+
+        // ── LOGIC-13 / D-5: fresh-seed onboarding protection ──────────────────
+        // Deliberate onboarding protection (NOT a change to tier projection): while the
+        // freshly-seeded L5「中」 median is protected, HOLD it against any downward movement
+        // so a fresh user actually sees/feels the median before the engine takes over. The
+        // window ends — and normal projection resumes THIS tick — on EITHER a genuine
+        // pressure-driven INCREASE (the user needs more protection: levelF crosses the up
+        // boundary / fast-onset gap) OR a fixed settling period of accumulated calm time,
+        // whichever first. Inert unless ApplyAutoProfilingStartDefaults armed it.
+        if (_onboardingProtectionActive)
+        {
+            _onboardingElapsedSeconds += dt;
+            bool genuineIncrease =
+                gap >= SenseDefaults.VimsTierFastOnsetGap
+                || levelF >= _vimsTier + 0.5 + SenseDefaults.VimsTierDeadband;
+            if (genuineIncrease || _onboardingElapsedSeconds >= OnboardingProtectionSeconds)
+            {
+                // Protection over — fall through to normal projection (an increase applies
+                // immediately below; an elapsed-window calm tick now releases normally).
+                _onboardingProtectionActive = false;
+            }
+            else
+            {
+                // Still protected and not rising: hold the seeded tier, keep the pending-
+                // debounce bookkeeping pinned so the held tier does not walk down.
+                _pendingTierCandidate = _vimsTier;
+                _pendingTierSinceUtc  = DateTime.MinValue;
+                return;
+            }
+        }
+
         // ── Fast-onset bypass ────────────────────────────────────────────────
         // A genuine pressure surge can jump levelF by several units in one Update tick.
         // The strict ±1/tick limiter would then need 1.8 s of debounce ticks to catch up
         // (longer than the natural pressure surge itself). When the gap exceeds
         // VimsTierFastOnsetGap we therefore snap straight to the nearest integer tier.
-        double gap = levelF - _vimsTier;
         if (gap >= SenseDefaults.VimsTierFastOnsetGap)
         {
             int snap = Math.Clamp((int)Math.Round(levelF), _vimsTier + 1, 12);

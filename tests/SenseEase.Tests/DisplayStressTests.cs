@@ -10,22 +10,17 @@ namespace SenseEase.Tests;
 /// THIS user's personalized effective trigger, so the SAME raw pressure reads as a
 /// DIFFERENT DisplayStressPercent for a SENSITIVE (low trigger) vs a RESILIENT (high
 /// trigger) user — closing the "personalization is invisible in the hero" gap WITHOUT
-/// changing the engine tier.</summary>
+/// changing the engine tier.
+///
+/// <para>D-13: the personalized trigger is now set through the LIVE chatbot path
+/// (<c>ApplyChatbotOverride(AdjustSensitivity, scale)</c> → <c>EffectiveTrigger = 85/scale</c>,
+/// scale clamped to [0.7,1.5]) rather than the deleted calibration plumbing. A higher scale
+/// (more sensitive) LOWERS the trigger; a lower scale (more resilient) RAISES it. The exact
+/// 50/130 trigger literals the old override-result used are outside the scale-derived range,
+/// but this test only needs SENSITIVE's trigger &lt; RESILIENT's, which scale 1.5 (≈56.67) vs
+/// 0.7 (≈121.43) preserves.</para></summary>
 public class DisplayStressTests
 {
-    private static CalibrationResult TriggerOverride(int overrideValue) => new()
-    {
-        Profile                    = HabituationProfile.Typical,
-        PersonalPressureScale      = 1.0,
-        TriggerThresholdOverride   = overrideValue,
-        TriggerThresholdAdjustment = 0,
-        SevereStrikeLimitOverride  = null,
-        MedicalAdvisory            = null,
-        SymptomDominancePrimary    = null,
-        CalibrationConfidence      = CalibrationConfidence.High,
-        Completeness               = CalibrationCompleteness.Complete,
-    };
-
     [Fact]
     public void DisplayStressPercent_TracksPressureOverEffectiveTrigger()
     {
@@ -41,9 +36,9 @@ public class DisplayStressTests
     public void DisplayStressPercent_PersonalizationVisible_SensitiveExceedsResilient()
     {
         var sensitive = new MockInferenceEngine();
-        sensitive.ApplyCalibrationResult(TriggerOverride(50));   // lower trigger = more sensitive
+        sensitive.ApplyChatbotOverride(OverrideIntent.AdjustSensitivity, 1.5); // scale 1.5 → trigger ≈56.67 (more sensitive)
         var resilient = new MockInferenceEngine();
-        resilient.ApplyCalibrationResult(TriggerOverride(130));  // higher trigger = more resilient
+        resilient.ApplyChatbotOverride(OverrideIntent.AdjustSensitivity, 0.7); // scale 0.7 → trigger ≈121.43 (more resilient)
         Assert.True(sensitive.HabituationEffectiveTrigger < resilient.HabituationEffectiveTrigger);
 
         // Drive IDENTICAL low-OFI input until raw pressure reaches ~25 — safely below

@@ -33,98 +33,19 @@ public static class CalibrationProcessor
     /// verbatim as the engine's EffectiveTrigger.</summary>
     public const int VestibularTriggerPressureOverride = 50;
 
-    public static CalibrationResult Process(
-        CalibrationResponses responses,
-        CalibrationSensorData sensor)
-    {
-        var completeness = ClassifyCompleteness(responses);
-        bool q1Conflict = DetectQ1SignalConflict(responses);
-
-        if (completeness == CalibrationCompleteness.Abandoned)
-        {
-            // Per spec §3: Q3 not answered → revert to RESILIENT default;
-            // calibration_count does NOT increment (caller's responsibility).
-            // We still return a result so the caller has a uniform code path.
-            return new CalibrationResult
-            {
-                Profile                  = HabituationProfile.Resilient,
-                PersonalPressureScale    = 1.0,
-                TriggerThresholdOverride = null,
-                TriggerThresholdAdjustment = 0,
-                SevereStrikeLimitOverride = null,
-                MedicalAdvisory          = null,
-                SymptomDominancePrimary  = null,
-                CalibrationConfidence    = CalibrationConfidence.Low,
-                Q1SignalConflict         = q1Conflict,
-                Completeness             = CalibrationCompleteness.Abandoned,
-            };
-        }
-
-        int intensity = responses.Q3Intensity!.Value; // non-null guaranteed by completeness check
-
-        // ── Step 1: Q3+Q4 → base profile ──
-        HabituationProfile profile = DeriveBaseProfile(intensity, responses.Q4Comparison);
-
-        // ── Step 2: Q5 risk-factor escalation ──
-        int riskCount = CountActiveRiskFactors(responses.Q5RiskFactors);
-        bool vestibular = responses.Q5RiskFactors?.Contains(RiskFactor.VestibularDiagnosed) == true;
-
-        int?    triggerOverride  = null;
-        int     triggerAdjust    = 0;
-        int?    strikeLimitOverride = null;
-        string? medicalAdvisory  = null;
-
-        if (vestibular)
-        {
-            // Spec §5 step 2 first branch: vestibular hard-locks.
-            profile = HabituationProfile.Sensitive;
-            triggerOverride     = VestibularTriggerPressureOverride;
-            strikeLimitOverride = 1;
-            medicalAdvisory     = "vestibular";
-        }
-        else if (riskCount >= 2)
-        {
-            profile = EscalateOneLevel(profile);
-            // Spec §5: high-risk combo medical advisory fires when Q3==5 AND
-            // ≥2 risk factors. Vestibular branch already returned above.
-            if (intensity == 5)
-                medicalAdvisory = "high_risk_combo";
-        }
-        else if (riskCount == 1)
-        {
-            triggerAdjust = -10;
-        }
-
-        // ── Step 3: personal_pressure_scale from §7 lookup ──
-        double scale = LookupPersonalPressureScale(intensity, sensor.PeakPressure);
-
-        // ── Step 4: vestibular hard cap on scale (§5 step 4) ──
-        if (vestibular && scale > VestibularPersonalPressureScaleCap)
-            scale = VestibularPersonalPressureScaleCap;
-
-        // ── Final clamp belt-and-suspenders ──
-        scale = Math.Clamp(scale, PersonalPressureScaleMin, PersonalPressureScaleMax);
-
-        // ── Derived: symptom dominance primary (SSQ-aligned) ──
-        SymptomDominance? dominance = ComputeSymptomDominancePrimary(responses.Q2Symptoms);
-
-        // ── Confidence rating (§8 rules) ──
-        CalibrationConfidence confidence = ComputeCalibrationConfidence(responses, sensor, completeness, q1Conflict);
-
-        return new CalibrationResult
-        {
-            Profile                   = profile,
-            PersonalPressureScale     = scale,
-            TriggerThresholdOverride  = triggerOverride,
-            TriggerThresholdAdjustment = triggerAdjust,
-            SevereStrikeLimitOverride = strikeLimitOverride,
-            MedicalAdvisory           = medicalAdvisory,
-            SymptomDominancePrimary   = dominance,
-            CalibrationConfidence     = confidence,
-            Q1SignalConflict          = q1Conflict,
-            Completeness              = completeness,
-        };
-    }
+    // ── D-13 (2026-06-11): the Process(responses, sensor) entry point — the
+    // pure-logic mapper from the 5-card calibration responses to a
+    // CalibrationResult — was DELETED. Explicit calibration is cancelled
+    // (AppConfig.AutoProfilingEnabled), so nothing in production calls it and the
+    // MockInferenceEngine.ApplyCalibrationResult plumbing that consumed its output
+    // is likewise gone. The engine-consumed CONSTANTS above (the vestibular trigger
+    // override + scale caps, still read by SetVestibularProtection / the snapshot
+    // load path) are KEPT. The standalone helpers below (DetectQ1SignalConflict /
+    // ComputeSymptomDominancePrimary, plus the private mapping helpers that fed
+    // Process) are also kept per the D-13 ruling (delete Process ONLY); they are
+    // still cited by <see cref> in CalibrationTypes and are part of the wholesale
+    // restore surface. To bring the explicit-calibration flow back, git revert
+    // 3131387 (which re-adds Process and re-wires these helpers).
 
     // ── Q1 signal-conflict detector ───────────────────────────────────────────
     // Centralised here so both packing paths (card UI + LLM parser) share one

@@ -20,13 +20,16 @@ namespace SenseEase.Tests;
 /// the App layer directly — same rule as the AdaptiveFit selector flag).
 ///
 /// Three invariants:
-///   1. FLAG-OFF PARITY — a default engine stays on RESILIENT (today's default);
-///      calling the seeder while the flag is OFF is a no-op.
+///   1. FLAG-OFF FRESH SEED (FEAT-07 / D-8, 2026-06-11) — flag-off NO LONGER restores
+///      explicit calibration (3131387 deleted it), so a fresh user is still seeded
+///      TYPICAL + L5; only App-side vestibular/console/selector-UI react to the flag.
+///      The seed is no longer a flag-gated no-op.
 ///   2. FLAG-ON FRESH USER — a genuinely fresh user (no snapshot existed at load,
 ///      LoadedCalibrationCount==0, no vestibular) is seeded TYPICAL + L5.
-///   3. FLAG-ON EXISTING USER — an existing user (persisted snapshot with a
+///   3. FLAG-(ON/OFF) EXISTING USER — an existing user (persisted snapshot with a
 ///      positive calibration_count) is NEVER overwritten; the fresh-user guard
-///      (_profileExistedAtLoad / LoadedCalibrationCount>0) protects them.
+///      (_profileExistedAtLoad / LoadedCalibrationCount>0) — now the SOLE gate —
+///      protects them regardless of the flag.
 /// </summary>
 public class AutoProfilingStartDefaultsTests : IDisposable
 {
@@ -45,24 +48,29 @@ public class AutoProfilingStartDefaultsTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
-    // ── 1. FLAG-OFF PARITY ───────────────────────────────────────────────────
-    // A default engine boots on RESILIENT (today's default). With the flag left
-    // OFF, ApplyAutoProfilingStartDefaults() is an early-return no-op — the
-    // profile must stay RESILIENT, byte-identical to today's behaviour.
+    // ── 1. FLAG-OFF FRESH SEED (FEAT-07 / D-8) ───────────────────────────────
+    // A default engine boots on RESILIENT, but a FRESH user must NOT be stranded there
+    // when the flag is off — 3131387 deleted the explicit-calibration flow the old
+    // "revert" promised, so flag-off now seeds TYPICAL/L5 just like flag-on. The flag
+    // gates only App-side vestibular prompt / console visibility / selector-UI signals
+    // (none of which live in the engine), so the seed runs regardless of the flag.
 
     [Fact]
-    public void FlagOff_DefaultEngine_StartsResilient_AndSeederIsNoOp()
+    public void FlagOff_FreshUser_StillSeedsTypicalAndL5()
     {
         var engine = new MockInferenceEngine();
 
         // Today's default before any seeding.
         Assert.Equal(HabituationProfile.Resilient, engine.HabituationProfile);
 
-        // Flag deliberately left at its default (false). The seeder must no-op.
+        // Flag deliberately left at its default (false). Per D-8 the seed still applies —
+        // the fresh-user guard is now the ONLY gate, and a default engine is fresh.
         Assert.False(engine.AutoProfilingEnabled);
         engine.ApplyAutoProfilingStartDefaults();
 
-        Assert.Equal(HabituationProfile.Resilient, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Typical, engine.HabituationProfile);
+        Assert.Equal(SenseDefaults.AutoProfilingStartLevel, engine.CurrentLevel);
+        Assert.Equal(5, engine.CurrentLevel);
     }
 
     // ── 2. FLAG-ON FRESH USER ────────────────────────────────────────────────

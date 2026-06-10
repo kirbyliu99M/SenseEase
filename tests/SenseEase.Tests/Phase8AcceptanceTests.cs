@@ -364,13 +364,12 @@ public class Phase8AcceptanceTests
     public void ScenarioF_FourWeekSimulation_HabituationLevelAccrues_ContextBlockReflectsIt()
     {
         var (engine, profileStore, _, _, _, _) = BuildFullStack();
-        engine.ApplyCalibrationResult(new CalibrationResult
-        {
-            Profile = HabituationProfile.Resilient,
-            PersonalPressureScale = 1.0,
-            Completeness = CalibrationCompleteness.Complete,
-            CalibrationConfidence = CalibrationConfidence.High,
-        });
+        // D-13: the calibration application path (ApplyCalibrationResult) is deleted.
+        // The original baseline call set RESILIENT + scale 1.0 — both already the engine's
+        // defaults, so the only behavioural effect was an irrelevant calibration_count bump
+        // (this test asserts on habituation level + the [habituation_state] block, never the
+        // count). A fresh engine already starts RESILIENT at the default trigger, so the
+        // baseline needs no explicit setup.
 
         // 28 days × 4 hours/day of steady benign sampling. Compressed:
         // 60-second update slices fed via sampledAt timestamps so the
