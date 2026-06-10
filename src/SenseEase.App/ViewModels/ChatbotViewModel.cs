@@ -209,10 +209,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
         // Idle/standby shows NOTHING (Kirby: the "ready" badge is needless chrome). The
         // status border only appears for actionable states: a transient "loading…" on the
-        // first chat, a load failure, or a missing-model diagnostic.
-        StatusText = chatbot.IsModelAvailable
-            ? string.Empty
-            : $"Model not found at: {AppConfig.ModelPath}";
+        // first chat, a load failure, or a missing-model state.
+        // UX-07: the user-visible status is calm plain copy in the active language — it
+        // NEVER carries the absolute model path (which embeds the Windows username) or
+        // tech jargon ("GGUF"). The diagnostic probe paths go to the Event Log only
+        // (DEAD-06: wire ModelPathProbes into the Event-Log detail), redacted of the
+        // user-profile segment so the durable forensic trail stays PII-free.
+        StatusText = chatbot.IsModelAvailable ? string.Empty : AssistantUnavailableText();
+        if (!chatbot.IsModelAvailable)
+            LogModelDiagnostic("model not found", AppConfig.ModelPathProbes);
 
         // Lazy model load (startup speed): the GGUF no longer loads at app startup —
         // EnsureModelLoadedAsync kicks it on the FIRST chat message that reaches the LLM
@@ -254,7 +259,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         {
             Role = role,
             Content = content,
-            Timestamp = DateTime.Now,
+            // CW-12: stamp PERSISTED records in UTC so the on-disk transcript shares one
+            // clock domain with the durable event log / engine writers (all UtcNow). The
+            // user-visible bubble timestamp is computed separately at bubble-construction
+            // time (ChatMessageViewModel.Timestamp = DateTime.Now.ToString("HH:mm")) and
+            // the rehydrate path never reads this persisted value, so display stays local
+            // and unchanged.
+            Timestamp = DateTime.UtcNow,
         });
 
         // NE18: trim opportunistically once the file overshoots the cap by the slack
@@ -279,7 +290,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     {
         if (System.Threading.Interlocked.CompareExchange(ref _modelInitStarted, 1, 0) == 0)
         {
-            StatusText = "Loading Ministral 3B… (first chat ~30s on CPU)";
+            // UX-07: calm plain loading copy in the active language — no model name /
+            // "CPU" / "GGUF" jargon on the user-facing status line.
+            StatusText = AssistantLoadingText();
             _modelInitTask = InitModelAsync();
         }
         return _modelInitTask;
@@ -290,24 +303,88 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         try
         {
             await _chatbot.LoadAsync().ConfigureAwait(false);
+            // Capture loaded-state off the dispatcher so the diagnostic log (below) runs
+            // whether or not a UI dispatcher is live; it's pure data, no UI touch.
+            bool loaded = _chatbot.IsModelLoaded;
+            if (!loaded)
+                LogModelDiagnostic("lexicon fallback (no model loaded)", AppConfig.ModelPathProbes);
             _dispatcher.Invoke(() =>
             {
-                // Loaded OK → clear the transient "loading…" line back to empty (no steady-state
-                // "ready" badge). Only the lexicon-fallback case keeps a visible note.
-                StatusText = _chatbot.IsModelLoaded
-                    ? string.Empty
-                    : $"Lexicon fallback (no GGUF found at: {AppConfig.ModelPath})";
+                // UX-07: loaded OK → clear the transient "loading…" line back to empty (no
+                // steady-state "ready" badge). The lexicon-fallback case surfaces the calm
+                // "unavailable" copy — NOT the GGUF probe path (which leaks the username);
+                // that diagnostic went to the Event Log above instead.
+                StatusText = loaded ? string.Empty : AssistantUnavailableText();
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
         }
         catch (Exception ex)
         {
+            // UX-07: the raw exception (type + message) is a diagnostic — it goes to the
+            // Event Log only, redacted of any user-profile path segment. The user sees the
+            // same calm "unavailable" copy, never "Load failed: <exception>".
+            LogModelDiagnostic($"load failed: {ex.GetType().Name}: {ex.Message}", null);
             _dispatcher.Invoke(() =>
             {
-                StatusText = $"Load failed: {ex.GetType().Name}: {ex.Message}";
+                StatusText = AssistantUnavailableText();
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
         }
+    }
+
+    // ── UX-07: calm, plain, single-language status / failure copy ───────────
+    // One language per string via LocalizationManager.Pick, zh-first to match the
+    // app's primary language. NONE of these carry an absolute path, the model name,
+    // or "GGUF"/"Lexicon" jargon — that detail lives in the Event Log (see
+    // LogModelDiagnostic). The transient "loading" line and both unavailable lines
+    // are the only chat statuses the user ever sees.
+
+    /// <summary>First-chat "getting ready" status (~30 s on a cold model load).</summary>
+    private static string AssistantLoadingText() =>
+        LocalizationManager.Current.Pick(
+            "助理正在準備，第一次約需 30 秒",
+            "The assistant is getting ready — first time takes ~30s");
+
+    /// <summary>Single calm line for every "assistant can't run right now" state —
+    /// model missing, lexicon fallback, load failure, or a failed chat turn. Points
+    /// the user at the quick commands, which never need the model.</summary>
+    private static string AssistantUnavailableText() =>
+        LocalizationManager.Current.Pick(
+            "目前無法使用助理，仍可使用快速指令",
+            "Assistant unavailable — quick commands still work");
+
+    /// <summary>UX-07 / DEAD-06: route a model/chat diagnostic to the Event Log ONLY —
+    /// never to a user-visible surface. Closes DEAD-06's first half by wiring
+    /// <see cref="AppConfig.ModelPathProbes"/> (the where-we-looked list) into the
+    /// Event-Log detail entry. Every probe path / exception string is run through
+    /// <see cref="PathRedactor.Redact"/> so the durable forensic JSONL keeps the
+    /// project-wide no-PII-in-logs invariant (the probe paths embed the Windows
+    /// username). Category prefix is "Chatbot." so FileEventLogStore persists it.
+    /// Best-effort: an audit-write failure must never break the chat / load path.</summary>
+    private void LogModelDiagnostic(string summary, IReadOnlyList<string>? probes)
+    {
+        if (_eventLog is null) return;
+        try
+        {
+            var sb = new StringBuilder();
+            sb.Append(PathRedactor.Redact(summary));
+            if (probes is { Count: > 0 })
+            {
+                sb.Append(" | probed: ");
+                for (int i = 0; i < probes.Count; i++)
+                {
+                    if (i > 0) sb.Append(" ; ");
+                    sb.Append(PathRedactor.Redact(probes[i]));
+                }
+            }
+            _eventLog.Append(new EventLogEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                Category  = "Chatbot.ModelDiagnostic",
+                Message   = sb.ToString(),
+            });
+        }
+        catch { /* best-effort; an audit-write failure must never break the chat turn */ }
     }
 
     private async Task SendAsync()
@@ -626,10 +703,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            // UX-07: never surface the raw exception text as an assistant bubble. The
+            // user-visible bubble is the calm "unavailable" copy; the technical detail
+            // (exception type + message) goes to the Event Log only, redacted of any
+            // user-profile path segment.
+            LogModelDiagnostic($"chat turn failed: {ex.GetType().Name}: {ex.Message}", null);
             _dispatcher.Invoke(() =>
             {
                 if (placeholder is not null) Messages.Remove(placeholder);
-                Messages.Add(new ChatMessageViewModel($"[Error] {ex.Message}", ChatRole.Assistant));
+                Messages.Add(new ChatMessageViewModel(AssistantUnavailableText(), ChatRole.Assistant));
             });
         }
         finally
