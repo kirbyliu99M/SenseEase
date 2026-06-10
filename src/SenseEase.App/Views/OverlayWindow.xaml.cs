@@ -147,20 +147,25 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// <summary>Packed (r&lt;&lt;24|g&lt;&lt;16|b&lt;&lt;8|peakAlpha) — skip mutation when unchanged.</summary>
     private int _lastFovBrushKey = -1;
 
-    // ── Feathering-halo fix: asymmetric radius envelope ──────────────────────
-    // The dynamic radius (max(BrushRadius, farthestCorner*Margin)) is a continuous
-    // function of head position. Applied raw every render frame to the
-    // RelativeToBoundingBox brush, it makes the 0.35→0.95 feather band translate
-    // AND scale in screen pixels as the head moves → a "breathing" soft edge
-    // perceived as a halo/comet tail. We damp ONLY the radius with an asymmetric
-    // time-based envelope (fast attack / slow release, half-lives in SenseDefaults);
-    // the Center follow is left fully responsive. The ~165 Hz CompositionTarget.
-    // Rendering pump (real dtMs) owns the envelope; the ~3.3 Hz engine-tick state
-    // path (dtMs = 0) snaps to target only when no pump has run recently (unit
-    // tests / pump stalled), so the pre-envelope behaviour and tests are preserved.
-    private double _smoothedRadius = SenseDefaults.OverlayBrushRadius;
-    private long   _lastPumpTickMs = long.MinValue / 2; // safe "far past" sentinel (no overflow)
-    private const long PumpOwnershipWindowMs = 250;
+    // ── Beta A1 (one-clock motion model): radius derives from the smoothed center ─
+    // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A1 item 3.) Previously the radius
+    // ran its OWN asymmetric 25/600 ms envelope (_smoothedRadius), on a different
+    // clock than the 15 ms center-follow — which is itself a "two things moving"
+    // cue (the feather edge breathing out of step with the center translation). A1
+    // removes that separate radius clock: the head pose is now smoothed ONCE,
+    // upstream, by a single One-Euro filter in the MainWindow pump
+    // (OnCompositionRendering); the (cx,cy) handed to this method is already the
+    // one-clock value. The dynamic radius is therefore a PURE deterministic
+    // function of that already-smoothed center, computed in the SAME frame — so it
+    // inherits the center's exact time-constant for free. One value, one clock, one
+    // moving boundary. The asymmetric fast-attack/slow-settle the halo fix bought is
+    // preserved, but as a property of the One-Euro center (it opens up on fast head
+    // motion, smooths hard near-still) rather than a bolt-on radius envelope.
+    //
+    // Rollback note (baseline f381a43): to revert to the separate-clock envelope,
+    // restore _smoothedRadius + the dtMs-driven attack/release block below and the
+    // OverlayRadius{Attack,Release}HalfLifeMs consumers; the SenseDefaults constants
+    // are retained so a revert is a clean diff.
 
     // ── FIX #2: cached, frozen grid opacity-mask brush ───────────────────────
 
@@ -575,15 +580,24 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// public surface.</summary>
     internal RadialGradientBrush? FovBrushForTests => _fovBrush;
 
+    /// <summary>Beta A1 test seam: expose the grid OpacityMask brush (the grid's
+    /// transparency hole — the third moving geometry) so the one-clock convergence
+    /// tests can assert it tracks the FOV brush's Center/Radius in the SAME frame
+    /// (no separate clock). Internal, no public-surface widening.</summary>
+    internal RadialGradientBrush GridMaskBrushForTests => _gridOpacityMaskBrush;
+
     /// <summary>High-frequency entry point for the head-pose pump. Originally a
     /// ~30 Hz DispatcherTimer (M5 UX-iter 3 Fix C); since M5.1-C iter 2 the pump
     /// is <c>CompositionTarget.Rendering</c> (~display refresh, ~165 Hz). Bypasses
     /// the full ApplyState grid/mask colour recomputation and updates ONLY the
-    /// brush's <c>Center</c> + <c>Radius</c>. <paramref name="dtMs"/> is the real
-    /// inter-frame delta from the pump; it drives the asymmetric radius envelope
-    /// (see <see cref="ApplyHeadPoseToBrush"/>). Callers that pass 0 (the engine-
-    /// tick state path / unit tests) snap the radius instead of easing it. Must
-    /// run on UI thread (mutates DependencyObjects).</summary>
+    /// brush's <c>Center</c> + <c>Radius</c>.
+    ///
+    /// <para>Beta A1 (one-clock motion model): the <paramref name="headGazeX"/>/
+    /// <paramref name="headGazeY"/> handed in are ALREADY the single One-Euro-smoothed
+    /// pose value (the pump owns the one filter); this method does NOT re-smooth.
+    /// <paramref name="dtMs"/> is retained for signature compatibility but no longer
+    /// drives a separate radius envelope — radius derives directly from the smoothed
+    /// center. Must run on UI thread (mutates DependencyObjects).</para></summary>
     public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
     {
         if (_fovBrush is null) return;
@@ -594,9 +608,15 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// state-driven path (ApplyFovMask, engine tick) and the pump path
     /// (UpdateHeadGazeCenter, ~165 Hz CompositionTarget.Rendering) call this so
     /// the brush state stays consistent. Active=false snaps to v0.9 baseline
-    /// (center 0.5/0.5, radius BrushRadius). <paramref name="dtMs"/> &gt; 0 marks
-    /// the pump path and drives the asymmetric radius envelope; dtMs = 0 (state
-    /// path / tests) snaps the radius when no pump is currently driving it.</summary>
+    /// (center 0.5/0.5, radius BrushRadius).
+    ///
+    /// <para>Beta A1 (one-clock motion model): center, radius and the grid-hole
+    /// (OpacityMask) all derive from the SAME (cx,cy) in the SAME frame on the same
+    /// time-constant — the pose was smoothed ONCE upstream by the pump's One-Euro
+    /// filter, so radius is a pure function of the smoothed center (no separate
+    /// asymmetric radius clock). <paramref name="dtMs"/> is unused here now; it
+    /// remains in the signature so the pump call site and tests are unchanged and a
+    /// revert to the f381a43 envelope is a clean diff.</para></summary>
     private void ApplyHeadPoseToBrush(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
     {
         if (_fovBrush is null) return;
@@ -626,54 +646,32 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             _fovBrush.GradientOrigin = center;
         }
 
-        // Fix B: dynamic radius scales to the farthest screen corner so
-        // even at full-corner center, opposite (0, 0) sits inside gradient
-        // at smoothstep ~0.91. v0.9 baseline (active=false) keeps 0.85.
-        double targetRadius;
+        // Fix B + Beta A1: dynamic radius scales to the farthest screen corner so
+        // even at full-corner center, opposite (0, 0) sits inside gradient at
+        // smoothstep ~0.91. v0.9 baseline (active=false) keeps 0.85.
+        //
+        // ONE-CLOCK: the (cx,cy) above is ALREADY the single One-Euro-smoothed pose
+        // (smoothed once upstream in the pump). The radius is therefore a pure
+        // deterministic function of that smoothed center, evaluated in the SAME
+        // frame — it inherits the center's exact time-constant, so center and edge
+        // move together as one boundary. The previous separate asymmetric radius
+        // envelope (_smoothedRadius + dtMs attack/release) is removed: it ran on a
+        // different clock than the center-follow and was itself a "two things moving"
+        // halo cue. dtMs is now unused here (kept on the signature for a clean revert
+        // to f381a43 and so the pump call site / tests need no change).
+        double radius;
         if (active)
         {
             double farX = Math.Max(cx, 1.0 - cx);
             double farY = Math.Max(cy, 1.0 - cy);
             double farthestCorner = Math.Sqrt(farX * farX + farY * farY);
-            targetRadius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
+            radius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
         }
         else
         {
-            targetRadius = BrushRadius;
+            radius = BrushRadius; // inactive → byte-identical v0.9 baseline
         }
 
-        // Feathering-halo fix: asymmetric radius envelope. The raw targetRadius
-        // above is a continuous function of head position; applying it every
-        // frame breathes the feather edge (halo). Damp it: fast attack (grow,
-        // so corner reach stays instant) + slow release (shrink, so the edge
-        // doesn't pump while the head moves). Ownership: the pump (dtMs > 0) is
-        // the sole driver while active; the state path (dtMs = 0) snaps only
-        // when no pump has run within PumpOwnershipWindowMs (tests / pump
-        // stalled) — otherwise it defers to the pump's eased value. Inactive
-        // snaps to the v0.9 baseline immediately (no slow-release on disable).
-        bool fromPump = dtMs > 0.0;
-        if (fromPump)
-            _lastPumpTickMs = Environment.TickCount64;
-
-        if (!active)
-        {
-            _smoothedRadius = targetRadius; // == BrushRadius
-        }
-        else if (fromPump)
-        {
-            double halfLifeMs = (targetRadius > _smoothedRadius)
-                ? SenseDefaults.OverlayRadiusAttackHalfLifeMs
-                : SenseDefaults.OverlayRadiusReleaseHalfLifeMs;
-            double factor = 1.0 - Math.Exp(-dtMs * Math.Log(2.0) / halfLifeMs);
-            _smoothedRadius += factor * (targetRadius - _smoothedRadius);
-        }
-        else if (Environment.TickCount64 - _lastPumpTickMs >= PumpOwnershipWindowMs)
-        {
-            _smoothedRadius = targetRadius; // no live pump → snap (pre-envelope behaviour)
-        }
-        // else: a live pump owns the envelope — leave _smoothedRadius untouched.
-
-        double radius = _smoothedRadius;
         if (_fovBrush.RadiusX != radius)
         {
             _fovBrush.RadiusX = radius;

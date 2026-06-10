@@ -122,6 +122,14 @@ public partial class MainWindow : Window
         // the dedicated EventLogWindow. Wired only where a MainViewModel exists (here +
         // the tray SettingsWindow below); the card hides itself when this is unwired.
         SettingsTabContent.OpenEventLog            = ShowEventLogWindow;
+        // FEAT-08 (CW-10, B1b UI half): wire the live head-tracking health read so the
+        // 設定 tab's status caption reflects the real sidecar state (運作中 / 無畫面 / 已停止)
+        // instead of staying permanently hidden. Reads the SAME real reader the Power
+        // Save lifecycle drives (MainViewModel.HeadPoseReader, not the dev mock-sweep
+        // override); when head-tracking is off the reader is the no-op DefaultHeadPoseReader,
+        // so we report Dead ("已停止") — the sidecar is not running. Both hosts wire this,
+        // mirroring the GradedExposure / Vestibular host-delegate pattern.
+        SettingsTabContent.GetHeadTrackingHealth   = GetHeadTrackingHealth;
         SettingsTabContent.PreferencesChanged    += (_, _) => RefreshSettingsDependentSurfaces();
 
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
@@ -603,9 +611,27 @@ public partial class MainWindow : Window
 
     private bool _renderingSubscribed;
     private DateTime _lastCtrlTapUtc;   // M5.1-B escape-hatch double-tap timestamp
-    // Interpolated brush position. _displayedCx/Cy is what's pushed to the
-    // brush; _targetCx/Cy is the latest sample reading (from the reader).
-    // Each render frame lerps displayed toward target.
+
+    // ── Beta A1 (one-clock motion model) ─────────────────────────────────────
+    // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A1.) This pump is the SINGLE clock
+    // for the head-tracked overlay. It funnels the raw sidecar pose through ONE
+    // smoothing pass — a single One-Euro filter (_poseFilter) producing one
+    // smoothed (cx,cy) per render frame — and hands THAT one value to
+    // OverlayWindow.UpdateHeadGazeCenter, from which center, radius and the grid
+    // hole are all derived in the same frame on the same time-constant. This
+    // replaces the previous 15 ms half-life lerp (which was a SECOND clock,
+    // divergent from the radius envelope and the grid EMA → the "multilayer swim"
+    // percept during head movement). One-Euro is adaptive: it smooths hard when
+    // the head is near-still (kills sensor-jitter "breathing") and opens up on fast
+    // head motion (low lag → the corner-reach responsiveness the halo fix bought is
+    // preserved as a property of THIS one clock). _displayedCx/Cy now hold the
+    // One-Euro output (still the value pushed to the brush, so the recenter logic
+    // below is unchanged). Rollback to f381a43: restore the 15 ms half-life lerp
+    // here and the separate radius envelope in OverlayWindow.
+    private readonly OneEuroFilter2D _poseFilter = new(
+        SenseDefaults.OverlayOneEuroFcMin,
+        SenseDefaults.OverlayOneEuroBeta,
+        SenseDefaults.OverlayOneEuroDCutoff);
     private double _displayedCx = 0.5;
     private double _displayedCy = 0.5;
     private DateTime _lastRenderUtc;
@@ -680,35 +706,37 @@ public partial class MainWindow : Window
                 gazeValid = sinceFaceMs <= FaceLossGraceMs;
             }
 
-            // When the gaze is valid, lerp toward the reported gaze and keep the
-            // overlay active. When it is lost, lerp toward center (the existing
-            // half-life lerp eases the mask back) while keeping the overlay
-            // following the eased position so the recenter is smooth rather than
-            // a snap.
+            // When the gaze is valid, smooth toward the reported gaze and keep the
+            // overlay active. When it is lost, smooth toward center (the One-Euro
+            // filter eases the mask back) while keeping the overlay following the
+            // smoothed position so the recenter is smooth rather than a snap.
             double targetCx = gazeValid ? pose!.Cx : 0.5;
             double targetCy = gazeValid ? pose!.Cy : 0.5;
             bool active = pose is not null && (gazeValid
-                          // Stay "active" (overlay follows the eased displayed
+                          // Stay "active" (overlay follows the smoothed displayed
                           // position) until the mask has essentially reached
                           // center, then go inactive so the radius snaps to the
                           // v0.9 baseline rather than easing indefinitely.
                           || Math.Abs(_displayedCx - 0.5) > 0.01
                           || Math.Abs(_displayedCy - 0.5) > 0.01);
 
-            // Time-based lerp toward target. 15 ms half-life means we
-            // close half the remaining distance every 15 ms, ~30 ms to
-            // get within 25 %, ~50 ms to get within ~10 %. Sample arrives
-            // every ~67 ms (15 Hz sidecar), so we always settle before
-            // the next sample arrives without adding visible latency.
+            // ── Beta A1: ONE smoothing pass — single One-Euro filter ──────────
+            // Replaces the previous fixed 15 ms half-life lerp (a second, divergent
+            // clock). One-Euro adapts its cutoff to head speed: heavy smoothing
+            // near-still (no jitter "breathing"), light smoothing on fast moves
+            // (low lag → corner-reach stays responsive). The result IS the one
+            // clock — center, radius and grid hole all derive from this single
+            // (cx,cy). Sample arrives ~67 ms (15 Hz sidecar); the filter runs at
+            // render cadence (~165 Hz) so motion between sample arrivals stays
+            // continuous. dtMs is the real inter-frame delta (seconds inside the
+            // filter); clamped for the first frame / overflow.
             var now = DateTime.UtcNow;
             double dtMs = (now - _lastRenderUtc).TotalMilliseconds;
             _lastRenderUtc = now;
             if (dtMs <= 0 || dtMs > 100) dtMs = 6.0; // first frame / overflow fallback
 
-            const double HalfLifeMs = 15.0;
-            double factor = 1.0 - Math.Exp(-dtMs * Math.Log(2.0) / HalfLifeMs);
-            _displayedCx += factor * (targetCx - _displayedCx);
-            _displayedCy += factor * (targetCy - _displayedCy);
+            (_displayedCx, _displayedCy) =
+                _poseFilter.Filter(targetCx, targetCy, dtMs / 1000.0);
 
             _overlay.UpdateHeadGazeCenter(
                 headGazeX: _displayedCx,
@@ -749,6 +777,77 @@ public partial class MainWindow : Window
         {
             // Best-effort: a single read failure must not kill the timer.
             // If the reader is in a bad state it'll recover on next tick.
+        }
+    }
+
+    /// <summary>Beta A1 (one-clock motion model): the SINGLE pose-smoothing pass
+    /// for the head-tracked overlay. A 2-axis One-Euro filter (Casiez, Roussel &amp;
+    /// Vogel, CHI 2012) — an adaptive low-pass whose cutoff rises with the signal's
+    /// speed: <c>fc = FcMin + Beta·|dx/dt|</c>. Near-still ⇒ low cutoff ⇒ heavy
+    /// smoothing (rejects the sidecar's sensor jitter, so the feather edge stops
+    /// "breathing"); fast head motion ⇒ high cutoff ⇒ light smoothing (low lag, so
+    /// corner-reach stays responsive — the property the f381a43 halo fix bought).
+    /// This is what lets center, radius and the grid hole all ride ONE clock with a
+    /// single asymmetric fast-attack/slow-settle character instead of three
+    /// divergent envelopes. Per-axis X/Y share the same parameters; each axis keeps
+    /// its own previous value + derivative-EMA. Deterministic given (x,y,dt) — unit
+    /// tests drive it through the Filter signature on a fixed cadence.
+    ///
+    /// <para><c>internal</c> nested type (no outer instance required) so the Beta A1
+    /// one-clock convergence test can construct it directly via
+    /// <c>MainWindow.OneEuroFilter2D</c> — covered by InternalsVisibleTo
+    /// "SenseEase.Tests"; no public-surface widening.</para></summary>
+    internal sealed class OneEuroFilter2D
+    {
+        private readonly double _fcMin;   // minimum cutoff (Hz)
+        private readonly double _beta;    // speed coefficient
+        private readonly double _dCutoff; // cutoff for the derivative estimate (Hz)
+        private bool   _seeded;
+        private double _xPrev, _yPrev;    // last filtered position per axis
+        private double _dxPrev, _dyPrev;  // last smoothed derivative per axis
+
+        public OneEuroFilter2D(double fcMin, double beta, double dCutoff)
+        {
+            _fcMin   = fcMin;
+            _beta    = beta;
+            _dCutoff = dCutoff;
+        }
+
+        /// <summary>Smoothing-factor for a 1st-order low-pass given cutoff fc (Hz)
+        /// and timestep dt (s): α = 1/(1 + τ/dt), τ = 1/(2π·fc).</summary>
+        private static double Alpha(double cutoff, double dt)
+        {
+            double tau = 1.0 / (2.0 * Math.PI * cutoff);
+            return 1.0 / (1.0 + tau / dt);
+        }
+
+        /// <summary>Filter one (x,y) sample with elapsed <paramref name="dtSeconds"/>
+        /// since the previous call. Returns the smoothed (x,y). The first call seeds
+        /// state to the raw sample (no lag-in from an arbitrary origin).</summary>
+        public (double X, double Y) Filter(double x, double y, double dtSeconds)
+        {
+            if (dtSeconds <= 0.0) dtSeconds = 1.0 / 165.0; // guard: assume one refresh frame
+            if (!_seeded)
+            {
+                _seeded = true;
+                _xPrev = x; _yPrev = y;
+                _dxPrev = 0.0; _dyPrev = 0.0;
+                return (x, y);
+            }
+
+            // 1) Estimate + low-pass the per-axis derivative (speed).
+            double dAlpha = Alpha(_dCutoff, dtSeconds);
+            double dx = (x - _xPrev) / dtSeconds;
+            double dy = (y - _yPrev) / dtSeconds;
+            _dxPrev += dAlpha * (dx - _dxPrev);
+            _dyPrev += dAlpha * (dy - _dyPrev);
+
+            // 2) Speed-adaptive cutoff per axis, then low-pass the position.
+            double cutoffX = _fcMin + _beta * Math.Abs(_dxPrev);
+            double cutoffY = _fcMin + _beta * Math.Abs(_dyPrev);
+            _xPrev += Alpha(cutoffX, dtSeconds) * (x - _xPrev);
+            _yPrev += Alpha(cutoffY, dtSeconds) * (y - _yPrev);
+            return (_xPrev, _yPrev);
         }
     }
 
@@ -893,10 +992,28 @@ public partial class MainWindow : Window
         _settingsWindow.GetGradedExposure       = () => _viewModel.GradedExposureEnabled;
         _settingsWindow.SetGradedExposure       = v => _viewModel.GradedExposureEnabled = v;
         _settingsWindow.OpenEventLog            = ShowEventLogWindow;
+        // FEAT-08 (CW-10, B1b UI half): same live head-tracking health read as the console
+        // 設定 tab so the tray/gear Settings window's status caption is honest too (both hosts).
+        _settingsWindow.GetHeadTrackingHealth   = GetHeadTrackingHealth;
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
         _settingsWindow.Show();
     }
+
+    /// <summary>FEAT-08 (CW-10, B1b UI half): host-side read of the live head-tracking
+    /// health for the Settings status caption (運作中 / 攝影機無畫面 / 已停止). Wired into BOTH
+    /// SettingsContent hosts (console 設定 tab + tray/gear SettingsWindow) — the same
+    /// both-hosts host-delegate pattern as GradedExposure / Vestibular. Reads the REAL
+    /// reader (<see cref="MainViewModel.HeadPoseReader"/>), not the dev mock-sweep
+    /// override, matching the reader the Power Save lifecycle drives; <c>Health</c> is a
+    /// cheap poll of process/watchdog/parse state. When head-tracking is OFF the reader
+    /// is the no-op DefaultHeadPoseReader (not a SidecarHeadPoseReader), so we report
+    /// <see cref="SenseEase.Infrastructure.Real.HeadTrackingHealth.Dead"/> — the sidecar
+    /// is not running, surfaced as "已停止 / Stopped". Read-only; surfacing only.</summary>
+    private SenseEase.Infrastructure.Real.HeadTrackingHealth GetHeadTrackingHealth()
+        => _viewModel.HeadPoseReader is SenseEase.Infrastructure.Real.SidecarHeadPoseReader sidecar
+            ? sidecar.Health
+            : SenseEase.Infrastructure.Real.HeadTrackingHealth.Dead;
 
     /// <summary>UI Consolidation Sprint M-Phase-1 (2026-05-30): bar repaint
     /// after any persisted Settings change, called by both the tray-menu /

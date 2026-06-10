@@ -61,6 +61,35 @@ public static class SenseDefaults
     public const double OverlayRadiusAttackHalfLifeMs  = 25.0;   // grow toward a larger radius — near-instant
     public const double OverlayRadiusReleaseHalfLifeMs = 600.0;  // shrink back — slow, kills the breathing edge
 
+    // ── Beta A1: one-clock motion model — single One-Euro pose filter ─────────
+    // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A1.) The old design ran four
+    // divergent clocks (center 15 ms half-life lerp · radius 25/600 ms asymmetric
+    // envelope · grid-opacity EMA+280 ms anim · mask alpha 0.25 EMA). During head
+    // motion these strata moved semi-independently → a Gestalt common-fate
+    // violation, perceived as a "multilayer halo / swim". A1 funnels the raw
+    // head pose through ONE smoothing pass — a single One-Euro filter — producing
+    // one smoothed (cx,cy) per render frame; center, radius and the grid hole all
+    // derive from THAT single value in the SAME frame on the SAME time-constant,
+    // so there is one moving boundary instead of three.
+    //
+    // One-Euro (Casiez et al. 2012) is an adaptive low-pass: cutoff
+    //   fc = FcMin + Beta·|d(pose)/dt|
+    // so it smooths hard when the head is near-still (kills sensor-jitter breathing)
+    // and opens up when the head moves fast (low lag → responsive follow). That
+    // adaptive behaviour IS the asymmetric "fast-attack / slow-settle" semantics the
+    // halo fix validated — now a property of the ONE clock rather than a separate
+    // radius envelope. Start values per the plan; tune in UVHS.
+    /// <summary>Beta A1: One-Euro minimum cutoff frequency (Hz). Lower ⇒ heavier
+    /// smoothing of slow/near-still motion (less jitter); the responsiveness floor.</summary>
+    public const double OverlayOneEuroFcMin = 1.0;
+    /// <summary>Beta A1: One-Euro speed coefficient. Higher ⇒ the cutoff opens up
+    /// faster as the head speeds up (less lag on fast moves). 0.007 per the plan.</summary>
+    public const double OverlayOneEuroBeta = 0.007;
+    /// <summary>Beta A1: One-Euro derivative-estimate cutoff (Hz). Low-passes the
+    /// speed estimate that drives the adaptive cutoff so a single noisy frame
+    /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
+    public const double OverlayOneEuroDCutoff = 1.0;
+
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;
     // Base decay alpha for a 100 ms step (tau ~= 2.81s).

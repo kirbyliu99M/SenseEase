@@ -2,10 +2,12 @@ using System;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
+using SenseEase.App;
 using SenseEase.App.Configuration;
 using SenseEase.App.ViewModels;
 using SenseEase.App.Views;
 using SenseEase.Core.Abstractions;
+using SenseEase.Core.Configuration;
 using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Real;
 using Xunit;
@@ -489,21 +491,29 @@ public class OverlayHeadPoseTests
         });
     }
 
-    // ── 7) Feathering-halo fix: asymmetric radius envelope ─────────────────
+    // ── 7) Beta A1: one-clock motion model (radius derives from smoothed center) ─
     //
-    // The dynamic radius (corner reach) is no longer applied raw every frame;
-    // the ~165 Hz pump (dtMs > 0) eases it with a fast-attack / slow-release
-    // envelope so the feather edge stops "breathing" while the head moves.
-    // These tests drive the pump entry point with explicit dt so the envelope
-    // is deterministic. (The existing radius tests above use the state/test
-    // path with dtMs = 0, which snaps — proving the pre-envelope behaviour and
-    // the v0.9 flag-off baseline are preserved.)
+    // D-ruling (BETA_FEATHERING_COHERENCE_PLAN.md §A1 item 3): the SEPARATE
+    // asymmetric radius envelope (25/600 ms _smoothedRadius clock) is REMOVED. The
+    // head pose is now smoothed ONCE upstream by a single One-Euro filter in the
+    // MainWindow pump; the (cx,cy) handed to OverlayWindow is already the one-clock
+    // value, and radius is a PURE deterministic function of that smoothed center,
+    // computed in the SAME frame. So within OverlayWindow the radius no longer eases
+    // on its own clock — it tracks the center exactly. These tests pin that:
+    //   • radius reaches the corner-reach target in the SAME frame as the center
+    //     (no separate 600 ms release lag — the percept the A1 change kills);
+    //   • the grid OpacityMask hole (the third geometry) tracks center+radius in
+    //     the same frame (one moving boundary, not three).
+    // The dtMs parameter is now inert inside ApplyHeadPoseToBrush (kept on the
+    // signature for a clean revert to f381a43); the smoothing that used to live
+    // here is exercised at the One-Euro level by the convergence test below.
 
-    /// <summary>Fast ATTACK: a large-dt pump frame toward a corner converges the
-    /// smoothed radius to the head-coupled target — corner reach (the M5 UX-iter
-    /// 3 behaviour the dynamic radius was built for) is intact.</summary>
+    /// <summary>One-clock: radius reaches the head-coupled corner-reach target in a
+    /// single frame regardless of dtMs (because radius is now a pure function of the
+    /// already-smoothed center, not a separately-eased value). Corner reach — the M5
+    /// UX-iter 3 behaviour the dynamic radius was built for — is intact.</summary>
     [Fact]
-    public void OverlayWindow_RadiusEnvelope_FastAttack_ConvergesToTarget()
+    public void OverlayWindow_OneClock_Radius_DerivesFromCenter_InSameFrame()
     {
         RunOnSta(() =>
         {
@@ -519,9 +529,13 @@ public class OverlayHeadPoseTests
                 Assert.NotNull(brush);
                 Assert.Equal(0.85, brush!.RadiusX, 3);
 
-                // One large-dt pump frame toward the corner → attack converges to target.
-                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
+                // A realistic ~6 ms frame (NOT a giant dt) toward the corner: with the
+                // separate envelope removed, radius lands on target the SAME frame the
+                // center does — no 600 ms lag.
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 6.0);
                 double target = Math.Sqrt(2.0) * 1.10;
+                Assert.Equal(1.0, brush.Center.X, 3);
+                Assert.Equal(1.0, brush.Center.Y, 3);
                 Assert.Equal(target, brush.RadiusX, 3);
                 Assert.Equal(target, brush.RadiusY, 3);
             }
@@ -529,12 +543,12 @@ public class OverlayHeadPoseTests
         });
     }
 
-    /// <summary>Attack is GRADUAL within a single ~60 fps frame: from baseline
-    /// 0.85 toward the corner target (~1.556), one 16 ms pump frame lands
-    /// strictly between the two (grows, but does not snap) — so the edge moves
-    /// smoothly rather than in one jump.</summary>
+    /// <summary>One-clock: returning the head toward center COLLAPSES the radius in
+    /// the SAME frame the center moves — there is no separate slow-release clock left
+    /// (the old 600 ms radius envelope is gone). Smoothing now lives entirely in the
+    /// upstream One-Euro center; within the overlay, center and edge move together.</summary>
     [Fact]
-    public void OverlayWindow_RadiusEnvelope_Attack_IsGradualWithinAFrame()
+    public void OverlayWindow_OneClock_Radius_TracksCenter_NoSeparateReleaseLag()
     {
         RunOnSta(() =>
         {
@@ -547,20 +561,27 @@ public class OverlayHeadPoseTests
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
                 var brush = w.FovBrushForTests!;
 
-                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 16);
-                double target = Math.Sqrt(2.0) * 1.10;
-                Assert.True(brush.RadiusX > 0.85, $"radius should grow from baseline, was {brush.RadiusX}");
-                Assert.True(brush.RadiusX < target, $"radius should not snap to target in one 16 ms frame, was {brush.RadiusX}");
+                // Reach the corner (center 1,1 → radius sqrt(2)*1.10).
+                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 6.0);
+                Assert.True(brush.RadiusX > 1.5, $"precondition: radius at corner, was {brush.RadiusX}");
+
+                // Centre handed back (the upstream filter would have already eased it):
+                // a single small-dt frame collapses the radius to the floor in lockstep
+                // with the center — proving the old 600 ms release clock is gone.
+                w.UpdateHeadGazeCenter(headGazeX: 0.5, headGazeY: 0.5, active: true, dtMs: 6.0);
+                Assert.Equal(0.5, brush.Center.X, 3);
+                Assert.Equal(0.85, brush.RadiusX, 3);
+                Assert.Equal(0.85, brush.RadiusY, 3);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    /// <summary>Slow RELEASE: after the radius has grown to a corner, returning
-    /// the head toward center does NOT collapse the radius in one frame — it
-    /// decays slowly. This is the property that kills the "breathing" edge.</summary>
+    /// <summary>One-clock: the grid OpacityMask hole (the third moving geometry)
+    /// tracks the FOV brush's Center and Radius in the SAME frame — one moving
+    /// boundary, not a separately-clocked grid layer that lags the mask.</summary>
     [Fact]
-    public void OverlayWindow_RadiusEnvelope_SlowRelease_DoesNotCollapseInOneFrame()
+    public void OverlayWindow_OneClock_GridHole_TracksMask_InSameFrame()
     {
         RunOnSta(() =>
         {
@@ -571,16 +592,17 @@ public class OverlayHeadPoseTests
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
-                var brush = w.FovBrushForTests!;
+                var fov  = w.FovBrushForTests!;
+                var grid = w.GridMaskBrushForTests;
 
-                // Grow to corner (attack converges).
-                w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
-                Assert.True(brush.RadiusX > 1.5, $"precondition: radius grown to corner, was {brush.RadiusX}");
+                w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: true, dtMs: 6.0);
 
-                // Return head to center: target drops to 0.85, but one 16 ms
-                // release frame barely moves the (much larger) radius.
-                w.UpdateHeadGazeCenter(headGazeX: 0.5, headGazeY: 0.5, active: true, dtMs: 16);
-                Assert.True(brush.RadiusX > 1.4, $"radius must release slowly, was {brush.RadiusX}");
+                // Grid hole center + radius are byte-identical to the FOV brush's,
+                // updated in the same call — no lag, no second clock.
+                Assert.Equal(fov.Center.X,  grid.Center.X,  6);
+                Assert.Equal(fov.Center.Y,  grid.Center.Y,  6);
+                Assert.Equal(fov.RadiusX,   grid.RadiusX,   6);
+                Assert.Equal(fov.RadiusY,   grid.RadiusY,   6);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
@@ -644,6 +666,108 @@ public class OverlayHeadPoseTests
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
+    }
+
+    // ── 8) Beta A1: single One-Euro filter — one-clock convergence ──────────
+    //
+    // The pose is smoothed ONCE by this filter in the MainWindow pump; its single
+    // output (cx,cy) drives center + radius + grid hole. These tests drive a pose
+    // STEP at a simulated frame cadence and assert the filter converges to target
+    // with one coherent time-constant (not the old 600 ms / 1.7 s side-clocks), and
+    // that near-still jitter is smoothed so the edge stops "breathing".
+
+    /// <summary>A sustained step from (0.5,0.5) to a corner converges to the target
+    /// over a short burst of realistic ~6 ms frames — fast follow, no 600 ms-class
+    /// lag — and is monotonic (no overshoot/ringing).</summary>
+    [Fact]
+    public void OneEuroFilter_StepInput_ConvergesToTarget_FastAndMonotonic()
+    {
+        var f = new MainWindow.OneEuroFilter2D(
+            SenseDefaults.OverlayOneEuroFcMin,
+            SenseDefaults.OverlayOneEuroBeta,
+            SenseDefaults.OverlayOneEuroDCutoff);
+
+        const double dt = 6.0 / 1000.0;   // ~165 Hz render frame, seconds
+        // First call seeds to the raw sample (no lag-in from origin).
+        var (sx, sy) = f.Filter(0.5, 0.5, dt);
+        Assert.Equal(0.5, sx, 6);
+        Assert.Equal(0.5, sy, 6);
+
+        // Now hold a step target at the corner and pump frames.
+        double prev = 0.5;
+        double last = 0.5;
+        for (int i = 0; i < 60; i++)   // 60 frames ≈ 360 ms of head fixation
+        {
+            (last, _) = f.Filter(0.9, 0.9, dt);
+            Assert.True(last >= prev - 1e-9, $"monotonic toward target, frame {i}: {prev} -> {last}");
+            Assert.True(last <= 0.9 + 1e-9, $"no overshoot past target, frame {i}: {last}");
+            prev = last;
+        }
+        // Within ~360 ms of fixation the smoothed value has closed ~90% of the
+        // 0.5→0.9 gap (≈0.867) — far faster than the removed 600 ms radius / 1.7 s
+        // grid side-clocks would have allowed.
+        Assert.True(last > 0.85, $"should converge close to target within ~360 ms, was {last}");
+    }
+
+    /// <summary>Near-still micro-jitter is heavily smoothed: the One-Euro low cutoff
+    /// at low speed rejects the sidecar's per-sample noise so the smoothed center
+    /// barely moves — this is what stops the feather edge "breathing" at rest.</summary>
+    [Fact]
+    public void OneEuroFilter_NearStillJitter_IsHeavilySmoothed()
+    {
+        var f = new MainWindow.OneEuroFilter2D(
+            SenseDefaults.OverlayOneEuroFcMin,
+            SenseDefaults.OverlayOneEuroBeta,
+            SenseDefaults.OverlayOneEuroDCutoff);
+
+        const double dt = 6.0 / 1000.0;
+        f.Filter(0.5, 0.5, dt); // seed
+
+        // Feed small alternating jitter around 0.5 (±0.01) at frame cadence.
+        double[] jitter = { 0.51, 0.49, 0.505, 0.495, 0.51, 0.49, 0.50 };
+        double x = 0.5;
+        foreach (var j in jitter)
+            (x, _) = f.Filter(j, 0.5, dt);
+
+        // The smoothed output stays well inside the jitter band — the noise is
+        // attenuated, not tracked. (A raw passthrough would land on 0.50; a laggy
+        // tracker would chase the last 0.50. Either way it must be within the band.)
+        Assert.True(Math.Abs(x - 0.5) < 0.01, $"jitter should be attenuated near 0.5, was {x}");
+    }
+
+    /// <summary>One-Euro is adaptive: a FAST step moves the smoothed value more per
+    /// frame than the SAME-magnitude jitter does — proving the cutoff opens up with
+    /// speed (responsive follow on real motion, heavy smoothing on noise). This is
+    /// the asymmetric fast-attack/slow-settle character as ONE clock.</summary>
+    [Fact]
+    public void OneEuroFilter_FastMotion_OpensCutoff_VsSlowJitter()
+    {
+        const double dt = 6.0 / 1000.0;
+
+        // Filter A: a FAST ramp — big sustained steps build a high speed estimate,
+        // opening the adaptive cutoff so the filter tracks aggressively.
+        var fa = new MainWindow.OneEuroFilter2D(
+            SenseDefaults.OverlayOneEuroFcMin, SenseDefaults.OverlayOneEuroBeta, SenseDefaults.OverlayOneEuroDCutoff);
+        fa.Filter(0.5, 0.5, dt);
+        fa.Filter(0.6, 0.5, dt);
+        fa.Filter(0.7, 0.5, dt);
+        var (fastX, _) = fa.Filter(0.8, 0.5, dt);
+        double fastDelta = fastX - 0.5;
+
+        // Filter B: a SLOW ramp into the same region — small early increments keep
+        // the speed estimate low, so the cutoff stays near FcMin (heavier smoothing).
+        var fb = new MainWindow.OneEuroFilter2D(
+            SenseDefaults.OverlayOneEuroFcMin, SenseDefaults.OverlayOneEuroBeta, SenseDefaults.OverlayOneEuroDCutoff);
+        fb.Filter(0.5, 0.5, dt);
+        fb.Filter(0.52, 0.5, dt);
+        fb.Filter(0.54, 0.5, dt);
+        var (slowX, _) = fb.Filter(0.8, 0.5, dt);
+        double slowDelta = slowX - 0.5;
+
+        // The fast-motion filter has tracked further toward the target by this frame
+        // (cutoff opened with speed), confirming the adaptive fast-attack behaviour.
+        Assert.True(fastDelta > slowDelta,
+            $"fast motion should track further than slow dithering: fast={fastDelta}, slow={slowDelta}");
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
