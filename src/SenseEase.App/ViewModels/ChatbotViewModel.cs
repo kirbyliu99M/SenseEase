@@ -370,9 +370,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         {
             InputText = string.Empty;
             bool en = LocalizationManager.Current.IsEnglish;
+            // CW-3 (honesty): profiles are auto-managed — there is no user-facing
+            // switcher. Describe the auto-management plainly rather than pointing
+            // at a manual switch that no longer exists. Only the sensitivity-
+            // protection on/off switch lives in Settings.
             string reply = en
-                ? "You can switch your comfort profile (Resilient / Typical / Sensitive) in the main window's Settings — the assistant doesn't change it directly."
-                : "舒適度 profile（Resilient / Typical / Sensitive）請到主視窗的「設定」切換 — 小幫手不會直接幫你更改。";
+                ? "SenseEase manages your comfort profile automatically — no manual switching needed. The sensitivity-protection switch lives in Settings."
+                : "SenseEase 會依您的使用情況自動調整防護設定，不需要手動切換。敏感度（前庭）保護的開關在 設定 裡。";
             _dispatcher.Invoke(() =>
             {
                 Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
@@ -897,6 +901,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             }
         }
 
+        // CW-2: set when a recorded mask-depth / feather change lands in the summary
+        // so the honest "takes visual effect in the Beta renderer" note is appended
+        // (those two knobs are recorded-but-not-rendered until Beta A2).
+        bool recordedInertShaderChange = false;
         bool hasShaderDelta = result.MaskDepthDelta != 0
                            || result.GridVisibilityDelta != 0
                            || result.FeatherWidthDelta != 0;
@@ -919,6 +927,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 rows.Add(("Grid",       $"{(appliedGridVisibility > 0 ? "+" : "")}{appliedGridVisibility:0.00}"));
             if (appliedFeatherWidth != 0)
                 rows.Add(("Feather",    $"{(appliedFeatherWidth > 0 ? "+" : "")}{appliedFeatherWidth:0.00}"));
+
+            // CW-2 (honesty): MaskDepth/FeatherWidth are recorded-but-not-rendered
+            // until the Beta A2 renderer wires them (BETA_FEATHERING_COHERENCE_PLAN.md).
+            // The value mutation + adjustment-log entry above are kept EXACTLY as-is so
+            // the persisted preference survives for the A2 wiring; only the CLAIM changes.
+            // GridVisibility + FOV ARE live, so their rows / overlay note stay truthful.
+            recordedInertShaderChange = appliedMaskDepth != 0 || appliedFeatherWidth != 0;
         }
 
         AdjustmentApplied?.Invoke(this, EventArgs.Empty);
@@ -937,6 +952,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         sb.Append("**").Append(LocalizationManager.Current.Pick("系統調整", "System adjustment")).Append("**\n");
         foreach (var (label, change) in rows)
             sb.Append('`').Append(label.PadRight(labelWidth)).Append(change).Append("`\n");
+        // CW-2 (honesty): mask-depth / feather are recorded-but-not-rendered until the
+        // Beta A2 renderer wires them — never claim an immediate visual effect for them.
+        if (recordedInertShaderChange)
+            sb.Append("\n_").Append(LocalizationManager.Current.Pick(
+                "已記錄您的偏好，視覺效果將在 Beta 版渲染引擎生效。",
+                "Preference recorded — it takes visual effect in the Beta renderer.")).Append('_').Append('\n');
         if (!_isOverlayVisible())
             sb.Append("\n_").Append(LocalizationManager.Current.Pick(
                 "開啟 Overlay 以查看", "Open the overlay to see it")).Append('_');
@@ -1162,14 +1183,10 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
     public Visibility FollowupVisibility =>
         FollowupOptions is { Length: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>M3 7e+: rich-option cards for the profile picker. Each option
-    /// renders as a button with a bold name + small description below
-    /// (vs the plain-string FollowupOptions which is name-only). Null when
-    /// the message doesn't offer profile picking.</summary>
-    public IReadOnlyList<ProfileOption>? ProfileOptions { get; }
-
-    public Visibility ProfileOptionsVisibility =>
-        ProfileOptions is { Count: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
+    // CW-3: the in-chat profile picker (ProfileOptions / SelectProfileCommand /
+    // OnProfileSelected) and the ProfileOption record were removed — profiles are
+    // auto-managed, no user-facing switcher returns, and nothing ever constructed
+    // these. The dashboard's working profile pills live on MainViewModel.
 
     public Visibility TypingVisibility => IsTyping ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ContentVisibility => IsTyping ? Visibility.Collapsed : Visibility.Visible;
@@ -1181,20 +1198,12 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     public ICommand SelectFollowupCommand { get; }
 
-    /// <summary>M3 7e+: invoked when user taps one of the profile picker option
-    /// cards. Receives the picked profile name (RESILIENT / TYPICAL / SENSITIVE).</summary>
-    public Action<string>? OnProfileSelected { get; }
-
-    public ICommand SelectProfileCommand { get; }
-
     public ChatMessageViewModel(
         string content,
         ChatRole role,
         string[]? followupOptions = null,
         Action<string>? onFollowupSelected = null,
-        bool isTyping = false,
-        IReadOnlyList<ProfileOption>? profileOptions = null,
-        Action<string>? onProfileSelected = null)
+        bool isTyping = false)
     {
         _content = content ?? string.Empty;
         Role = role;
@@ -1202,25 +1211,11 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FollowupOptions = followupOptions;
         OnFollowupSelected = onFollowupSelected;
         _isTyping = isTyping;
-        ProfileOptions = profileOptions;
-        OnProfileSelected = onProfileSelected;
         SelectFollowupCommand = new RelayCommand(o =>
         {
             if (o is string s && OnFollowupSelected is not null) OnFollowupSelected(s);
-        });
-        SelectProfileCommand = new RelayCommand(o =>
-        {
-            if (o is ProfileOption p && OnProfileSelected is not null) OnProfileSelected(p.Name);
-            else if (o is string s && OnProfileSelected is not null) OnProfileSelected(s);
         });
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
-
-/// <summary>M3 7e+: a profile picker option rendered inside an assistant
-/// chat bubble. Name = the canonical profile enum value (RESILIENT /
-/// TYPICAL / SENSITIVE) sent back when the user clicks; Description = the
-/// short zh blurb shown beneath the name on the button card so the user
-/// knows what each profile means.</summary>
-public sealed record ProfileOption(string Name, string Description);

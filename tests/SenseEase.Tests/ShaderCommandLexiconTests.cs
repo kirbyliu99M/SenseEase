@@ -95,6 +95,35 @@ public class ShaderCommandLexiconTests
         Assert.Equal(0.30, cmd.Value, 3);
     }
 
+    // ── CW-2 honesty: /mask and /feather are render-inert until Beta A2, so their
+    // confirmations must say the preference is RECORDED (not applied), and must never
+    // claim an immediate visual effect ("set to"). The value still lands (Kind/Value
+    // unchanged) — only the claim changes.
+
+    [Theory]
+    [InlineData("/mask 74")]
+    [InlineData("/feather 30")]
+    public void Slash_InertKnobs_Confirmation_IsHonest_En(string input)
+    {
+        var cmd = ShaderCommandLexicon.Parse(input, isEnglish: true);
+        Assert.Equal(ShaderCommandKind.SetParam, cmd.Kind);
+        Assert.Contains("recorded", cmd.Reply);
+        Assert.Contains("Beta renderer", cmd.Reply);
+        Assert.DoesNotContain("set to", cmd.Reply);
+    }
+
+    [Theory]
+    [InlineData("/mask 74")]
+    [InlineData("/feather 30")]
+    public void Slash_InertKnobs_Confirmation_IsHonest_Zh(string input)
+    {
+        var cmd = ShaderCommandLexicon.Parse(input, isEnglish: false);
+        Assert.Equal(ShaderCommandKind.SetParam, cmd.Kind);
+        Assert.Contains("已記錄", cmd.Reply);
+        Assert.Contains("Beta 版渲染引擎", cmd.Reply);
+        Assert.DoesNotContain("已設為", cmd.Reply);
+    }
+
     // ── /fov range ────────────────────────────────────────────────────────────
 
     [Theory]

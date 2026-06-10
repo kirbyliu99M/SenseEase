@@ -8,9 +8,13 @@ namespace SenseEase.Core.Models;
 /// </summary>
 public sealed class ShaderParams
 {
-    public const double DefaultMaskDepth      = 0.74;   // reproduces tuned-good maskPeak≈220 with formula (120+135*md)
-    public const double DefaultGridVisibility = 0.75;   // reproduces tuned-good grid floor=0.30, ceiling=1.00 with formula (0.40*gv / 0.40+0.80*gv)
-    public const double DefaultFeatherWidth   = 0.50;
+    // CW-2: MaskDepth + FeatherWidth are currently RECORDED-but-NOT-RENDERED — the
+    // chatbot/NLU persists user preferences here, but no live overlay path consumes
+    // them yet; they are wired into the renderer in Beta A2 (see
+    // docs/BETA_FEATHERING_COHERENCE_PLAN.md). GridVisibility is the rendered knob today.
+    public const double DefaultMaskDepth      = 0.74;   // recorded-but-not-rendered until Beta A2 (renderer will map md→mask opacity)
+    public const double DefaultGridVisibility = 0.75;   // RENDERED knob — reproduces tuned-good grid floor=0.30, ceiling=1.00 with formula (0.40*gv / 0.40+0.80*gv)
+    public const double DefaultFeatherWidth   = 0.50;   // recorded-but-not-rendered until Beta A2 (renderer will map fw→edge feather)
 
     public double MaskDepth      { get; set; } = DefaultMaskDepth;
     public double GridVisibility { get; set; } = DefaultGridVisibility;

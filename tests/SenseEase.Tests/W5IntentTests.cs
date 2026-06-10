@@ -43,12 +43,13 @@ public class W5IntentTests
     }
 
     [Fact]
-    public void NE5_ExplicitProfileSwitch_StillWorks()
+    public void NE5_ExplicitProfileSwitch_NoLongerDetected()
     {
+        // CW-3 (honesty): profile-switch detection was removed from the lexicon —
+        // profiles are auto-managed, so a profile-switch utterance produces NO
+        // proposal (answered upstream by the honest auto-managed reply instead).
         var p = HabituationProposalLexicon.TryDetect("切換到敏感", null);
-        Assert.NotNull(p);
-        Assert.Equal(OverrideIntent.SwitchProfile, p!.Intent);
-        Assert.Equal("SENSITIVE", p.ProposedValue);
+        Assert.Null(p);
     }
 
     // ── EM6: ExtractJson returns ONLY the first balanced object, so a trailing

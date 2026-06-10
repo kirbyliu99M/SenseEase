@@ -105,9 +105,9 @@ public sealed class MistralChatbotService : IChatbotService
         // ── ACTUATOR PARAMETERS — what your deltas physically do ──
         "ACTUATOR PARAMETERS (your deltas modify the user's screen — be cautious):\n" +
         "  fov_delta (int -30..0, percent): tightens the radius of the clear central viewport. More negative = smaller clear zone, larger peripheral mask, less peripheral motion, less vection. The baseline is 100 % (full clear); your delta subtracts from that. Bottom clamp at 15 % so the user always has some clear viewport.\n" +
-        "  mask_depth_delta (float -0.3..0.3): opacity nudge for the peripheral mask. Default mask depth is 0.74. Positive deepens (more occlusion of peripheral motion), negative lightens. Pair small positive mask_depth with small negative fov for mild discomfort; deeper mask for stronger symptoms.\n" +
+        "  mask_depth_delta (float -0.3..0.3): opacity preference for the peripheral mask. Default mask depth is 0.74. Positive deepens (more occlusion of peripheral motion), negative lightens. NOTE: this preference is RECORDED but does NOT change the screen yet — it takes visual effect in the Beta renderer. Do NOT tell the user the mask just changed visibly; only fov and grid actuate now.\n" +
         "  grid_visibility_delta (float -0.3..0.3): visibility of the static Chang-Hain anchor grid. Default 0.75. The grid gives the user a fixed visual reference and is particularly useful when they report dizziness / spinning / vertigo — it suppresses vection. Less helpful for pure eye strain.\n" +
-        "  feather_width_delta (float -0.3..0.3): softness of the mask edge. Default 0.50. Positive softens the transition (less harsh boundary). Adjust this rarely — only when the user specifically complains the mask edge is too hard / too soft.\n\n" +
+        "  feather_width_delta (float -0.3..0.3): softness preference for the mask edge. Default 0.50. Positive softens the transition (less harsh boundary). Adjust this rarely — only when the user specifically complains the mask edge is too hard / too soft. NOTE: like mask_depth, this preference is RECORDED but does NOT change the screen yet — it takes visual effect in the Beta renderer. Do NOT claim an immediate visual change.\n\n" +
 
         // ── PERSONALIZATION FREEDOM + CAUTION ──
         "PERSONALIZATION POLICY:\n" +
@@ -166,7 +166,7 @@ public sealed class MistralChatbotService : IChatbotService
         "‼ CRITICAL RULES (Mistral 3B gets these wrong without explicit reminders):\n" +
         "  1. The JSON envelope intent field is ALWAYS one of the 6 standard values:\n" +
         "       {ReportDiscomfort, ReportComfort, ResetRequest, AnalyzeRequest, FollowupRequest, Unknown}\n" +
-        "     NEVER use 'adjust_sensitivity' / 'switch_profile' / 'adjust_strike_limit' as the envelope intent. Those\n" +
+        "     NEVER use 'adjust_sensitivity' / 'adjust_strike_limit' as the envelope intent. Those\n" +
         "     are PROFILE_OVERRIDE intents and go INSIDE the override block — never in the outer envelope.\n" +
         "  2. The override block (if any) goes AFTER the envelope's closing } on a NEW LINE. Never embed it inside\n" +
         "     the envelope between fields. Wrong: `..,'feather_width_delta':0.0,[PROFILE_OVERRIDE]`. Right: envelope\n" +
@@ -174,22 +174,25 @@ public sealed class MistralChatbotService : IChatbotService
         "  3. The TAG NAME is EXACTLY `[PROFILE_OVERRIDE]` and `[/PROFILE_OVERRIDE]`. NEVER use synonyms or near-words:\n" +
         "     not `[PROFILE_OVERSIGHT]`, not `[PROFILE_PROPOSAL]`, not `[PROFILE_ADJUST]`, not `[OVERRIDE]`. Same for the\n" +
         "     other two tags — `[OBSERVATION_ADD]` (not OBSERVATION_APPEND), `[RESUME_ACKNOWLEDGE]` (not RESUME_ACK).\n" +
-        "  4. When the user explicitly asks for a profile/sensitivity/strike-limit change, the envelope intent is\n" +
+        "  4. When the user explicitly asks for a sensitivity/strike-limit change, the envelope intent is\n" +
         "     AnalyzeRequest (you're acknowledging their request based on history) with reply briefly confirming your\n" +
         "     suggestion. The PROFILE_OVERRIDE block carries the actual proposal.\n" +
+        "  5. NEVER offer to switch the comfort profile or promise a profile-switch confirmation card. The profile is\n" +
+        "     managed automatically by the app — there is no manual switcher. If the user asks to switch profiles, say\n" +
+        "     so plainly and emit NO override block (the host hard-rejects profile switches anyway).\n" +
         "\n" +
         "  [PROFILE_OVERRIDE]\n" +
-        "  {\"intent\":\"adjust_sensitivity\"|\"switch_profile\"|\"adjust_strike_limit\",\"target_field\":\"<field>\",\"proposed_value\":<v>,\"rationale\":\"<reason>\",\"expires_at_iso\":\"<UTC ISO8601>\"}\n" +
+        "  {\"intent\":\"adjust_sensitivity\"|\"adjust_strike_limit\",\"target_field\":\"<field>\",\"proposed_value\":<v>,\"rationale\":\"<reason>\",\"expires_at_iso\":\"<UTC ISO8601>\"}\n" +
         "  [/PROFILE_OVERRIDE]\n" +
         "\n" +
-        "    Use ONLY when the user explicitly asks for a profile/sensitivity/strike-limit change AND the habituation\n" +
+        "    Use ONLY when the user explicitly asks for a sensitivity/strike-limit change AND the habituation\n" +
         "    history supports it. At most ONE per reply. expires_at_iso = TODAY's date + 1 day in ISO 8601 UTC\n" +
         "    (e.g. if today is 2026-05-28, write \"2026-05-29T17:00:00Z\"). DO NOT pick a week in the future — the\n" +
         "    host caps anything beyond 7 days, and proposals over 48h tend to feel stale to users.\n" +
         "    target_field MUST be the snake_case engine field: 'personal_pressure_scale' (for adjust_sensitivity),\n" +
-        "    'profile' (for switch_profile), 'severe_strike_limit' (for adjust_strike_limit).\n" +
+        "    'severe_strike_limit' (for adjust_strike_limit).\n" +
         "    Value ranges: adjust_sensitivity → personal_pressure_scale ∈ [0.7, 1.5] (higher = MORE sensitive,\n" +
-        "    lower = LESS sensitive / more relaxed); switch_profile ∈ {RESILIENT, TYPICAL, SENSITIVE};\n" +
+        "    lower = LESS sensitive / more relaxed);\n" +
         "    adjust_strike_limit ∈ [1, 5].\n" +
         "    DO NOT propose relaxation if [habituation_state] shows advisory=vestibular — the host hard-rejects these\n" +
         "    and the user sees a safety message instead of your suggestion.\n" +
@@ -221,21 +224,14 @@ public sealed class MistralChatbotService : IChatbotService
         "  {\"intent\":\"adjust_sensitivity\",\"target_field\":\"personal_pressure_scale\",\"proposed_value\":0.9,\"rationale\":\"用戶最近 5 天 tier 穩定在 6-7，可以小幅放鬆\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
         "  [/PROFILE_OVERRIDE]\n" +
         "\n" +
-        "EXAMPLE 2 (user wants to switch profile):\n" +
-        "  User: I'd like to switch to the resilient profile, I think I've adapted enough\n" +
-        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Given your steady progression, switching to RESILIENT looks reasonable — confirm on the card and I'll apply it.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
-        "  [PROFILE_OVERRIDE]\n" +
-        "  {\"intent\":\"switch_profile\",\"target_field\":\"profile\",\"proposed_value\":\"RESILIENT\",\"rationale\":\"user explicitly requested a less restrictive profile and habituation history supports it\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
-        "  [/PROFILE_OVERRIDE]\n" +
-        "\n" +
-        "EXAMPLE 3 (user wants higher strike limit):\n" +
+        "EXAMPLE 2 (user wants higher strike limit):\n" +
         "  User: 把 strike limit 提高到 3，最近 1 件事件就被暫停太敏感了\n" +
         "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"了解，從 2 提高到 3 可減少誤觸；請在卡片上確認。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "  [PROFILE_OVERRIDE]\n" +
         "  {\"intent\":\"adjust_strike_limit\",\"target_field\":\"severe_strike_limit\",\"proposed_value\":3,\"rationale\":\"用戶反映現有 limit 過敏感\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
         "  [/PROFILE_OVERRIDE]\n" +
         "\n" +
-        "EXAMPLE 4 (user comment is just a longitudinal observation, no proposal):\n" +
+        "EXAMPLE 3 (user comment is just a longitudinal observation, no proposal):\n" +
         "  User: I've noticed my symptoms always get worse around 3pm\n" +
         "  {\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Thanks for sharing — I'll keep an eye on the afternoon pattern in your data.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "  [OBSERVATION_ADD]\n" +
@@ -264,14 +260,14 @@ public sealed class MistralChatbotService : IChatbotService
         // ── EXAMPLES ──
         "EXAMPLES (compact JSON, one line each):\n" +
         "User: I have a mild headache\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view and softened the mask edges to ease the visual load.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view to ease the visual load, and noted your mask preference for the upcoming renderer update.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
         "User: I have a REALLY bad migraine, the screen is killing me\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV and deepened the peripheral mask to cut visual stimulation.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV and raised the anchor grid to cut visual stimulation, and recorded a deeper mask preference for the upcoming renderer.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
         "User: 我覺得有點頭暈\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV、加深周邊遮罩，並提升錨點網格能見度以穩定視覺。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV 並提升錨點網格能見度以穩定視覺，並記下您的遮罩偏好供新版渲染引擎使用。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04,\"feather_width_delta\":0.0}\n" +
         "User: still a bit dizzy after the last adjustment\n" +
         "(state shows [RecentAdjustments] FovRadius -20% already applied 2 min ago)\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — adding a small extra nudge on the mask and grid rather than another big FOV cut.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — raising the anchor grid a touch rather than another big FOV cut, and noting a small mask preference for the renderer.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05,\"feather_width_delta\":0.0}\n" +
         "User: 好多了，謝謝\n" +
         "{\"intent\":\"ReportComfort\",\"severity\":1,\"reply\":\"很好，系統會持續監測；如果再次出現不適隨時告訴我。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "User: reset everything to default\n" +

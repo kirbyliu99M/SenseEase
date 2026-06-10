@@ -933,41 +933,11 @@
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
 
-                                                    <!-- M3 7e+ Profile picker. Each card shows the canonical name
-                                                         (bold) and a short description. Click → ProfilePickerSelected
-                                                         event → MainViewModel applies via HabituationOverrideApplicator
-                                                         (safety intercept + action-log audit). -->
-                                                    <ItemsControl ItemsSource="{Binding ProfileOptions}"
-                                                                  Visibility="{Binding ProfileOptionsVisibility}"
-                                                                  Margin="0,8,0,0">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Button Command="{Binding DataContext.SelectProfileCommand,
-                                                                                          RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
-                                                                        CommandParameter="{Binding}"
-                                                                        Background="{DynamicResource Surface}"
-                                                                        BorderBrush="{DynamicResource Separator}"
-                                                                        BorderThickness="1"
-                                                                        Padding="12,10"
-                                                                        Margin="0,0,0,8"
-                                                                        MinHeight="44"
-                                                                        HorizontalContentAlignment="Stretch"
-                                                                        Cursor="Hand">
-                                                                    <StackPanel Orientation="Vertical">
-                                                                        <TextBlock Text="{Binding Name}"
-                                                                                   FontSize="14"
-                                                                                   FontWeight="SemiBold"
-                                                                                   Foreground="{DynamicResource Accent}"/>
-                                                                        <TextBlock Text="{Binding Description}"
-                                                                                   FontSize="12"
-                                                                                   Foreground="{DynamicResource TextSecondary}"
-                                                                                   TextWrapping="Wrap"
-                                                                                   Margin="0,4,0,0"/>
-                                                                    </StackPanel>
-                                                                </Button>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
+                                                    <!-- CW-3: in-chat profile picker removed. Profiles are
+                                                         auto-managed (no user-facing switcher); the dead
+                                                         ProfileOptions ItemsControl + its ChatMessageViewModel
+                                                         plumbing had no caller and surfaced a Card the host
+                                                         hard-rejects. -->
 
                                                     <TextBlock Text="{Binding Timestamp}"
                                                                FontSize="12" Foreground="{DynamicResource TextTertiary}"

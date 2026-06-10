@@ -196,10 +196,15 @@ public static class ShaderCommandLexicon
                 "Mask depth below 20% disables core protection — refusing. The lowest safe value is /mask 20."),
                 "slash.mask_floor");
 
+        // CW-2 (honesty): MaskDepth and FeatherWidth — the only two params routed
+        // through this helper — are recorded-but-not-rendered until the Beta A2 renderer
+        // wires them. The preference IS persisted (the caller forwards to the engine), so
+        // the confirmation appends the same honest note as the NLU path instead of
+        // claiming an immediate visual effect.
         return SetParam(param, n / 100.0,
             Pick(isEnglish,
-                $"{ZhLabel(param)}已設為 {n}%。",
-                $"{EnLabel(param)} set to {n}%."),
+                $"已記錄{ZhLabel(param)} {n}%。視覺效果將在 Beta 版渲染引擎生效。",
+                $"{EnLabel(param)} recorded at {n}% — it takes visual effect in the Beta renderer."),
             $"slash.{label}_pct");
     }
 

@@ -130,27 +130,14 @@ public static class HabituationProposalLexicon
         string text = userText.Trim();
         string lower = text.ToLowerInvariant();
 
-        // ── Profile switch: zh/en explicit profile name + switch verb ──
-        // NE5: an adjust-sensitivity / adjust-strike-limit request is a MORE
-        // specific intent than a profile-name substring match. The SENSITIVE
-        // keyword "敏感" is a substring of "敏感度" (sensitivity), so a turn like
-        // "把敏感度改成…" (change the sensitivity) — which carries a switch verb —
-        // used to hijack into SwitchProfile SENSITIVE. Only consider a profile
-        // switch when the turn isn't really one of the two field adjustments.
-        if (!MentionsSensitivity(text, lower) && !MentionsStrikeLimit(text, lower))
-        {
-            foreach (var (kw, profileName) in ProfileSwitchKeywords)
-            {
-                if (Contains(text, lower, kw) && MentionsSwitch(text, lower))
-                {
-                    return BuildProposal(
-                        OverrideIntent.SwitchProfile,
-                        "profile",
-                        profileName,
-                        $"lexicon: user asked to switch profile to {profileName}");
-                }
-            }
-        }
+        // ── Profile switch: DETECTION REMOVED (CW-3, honesty) ──
+        // Profiles are auto-managed; there is no user-facing switcher, so the
+        // lexicon fallback must NOT synthesize a SwitchProfile proposal (it would
+        // surface a Card promising a switch the host hard-rejects). A bare
+        // "I want to switch profile" is instead caught upstream by
+        // TryDetectProfilePickerRequest and answered with the honest auto-managed
+        // reply. The OverrideIntent.SwitchProfile enum + the processor's
+        // defense-in-depth early-reject are kept intact elsewhere.
 
         // ── Strike limit: "strike limit" / "嚴重事件容忍度" + raise/lower verb ──
         if (MentionsStrikeLimit(text, lower))

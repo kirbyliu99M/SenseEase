@@ -180,31 +180,36 @@ public class Phase8AcceptanceTests
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void ScenarioB_LlmEmittedNoProposal_LexiconCatchesExplicitRequest()
+    public void ScenarioB_LexiconNoLongerSynthesizesProfileSwitch()
     {
-        // User text explicitly names a profile; LLM didn't emit a block.
-        // The lexicon should detect and synthesize a proposal.
+        // CW-3 (honesty): profile-switch detection was removed from the lexicon —
+        // profiles are auto-managed and there is no user-facing switcher, so an
+        // explicit "switch to <profile>" turn must produce NO proposal (it is
+        // answered upstream by the honest auto-managed reply instead). The other
+        // explicit-request types (sensitivity / strike-limit) still synthesize.
         var snap = MakeSnapshot();
-        var proposal = HabituationProposalLexicon.TryDetect("switch to SENSITIVE profile", snap);
-        Assert.NotNull(proposal);
-        Assert.Equal(OverrideIntent.SwitchProfile, proposal!.Intent);
-        Assert.Equal("SENSITIVE", Assert.IsType<string>(proposal.ProposedValue));
-        Assert.Contains("lexicon", proposal.Rationale, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(HabituationProposalLexicon.TryDetect("switch to SENSITIVE profile", snap));
+        Assert.Null(HabituationProposalLexicon.TryDetect("change profile to RESILIENT", snap));
     }
 
     [Fact]
-    public void ScenarioB_LexiconSwitchProfile_NoOps_ProfileUnchanged()
+    public void ScenarioB_ApplicatorHardRejectsSwitchProfile_ProfileUnchanged()
     {
-        // Reading A (2026-06-06): the chatbot/lexicon SwitchProfile path is
-        // calibration-only now — the applicator no-ops it and the profile holds.
+        // Reading A (2026-06-06): even a hand-built SwitchProfile proposal (e.g. a
+        // legacy LLM-emitted block) is no-op'd by the applicator — the profile is
+        // calibration-only. CW-3 also stops the lexicon from ever creating one.
         var snap = MakeSnapshot(profile: "TYPICAL");
         var (engine, _, _, _, applicator, _) = BuildFullStack(snap);
 
-        var proposal = HabituationProposalLexicon.TryDetect("switch to SENSITIVE profile", snap);
-        Assert.NotNull(proposal);
+        var proposal = new ProfileOverrideProposal(
+            Intent: OverrideIntent.SwitchProfile,
+            TargetField: "profile",
+            ProposedValue: "SENSITIVE",
+            Rationale: "legacy LLM-emitted switch block",
+            ExpiresAtUtc: DateTime.UtcNow.AddHours(24));
         var profileBefore = engine.HabituationProfile;
 
-        var apply = applicator.ApplyAccepted(proposal!);
+        var apply = applicator.ApplyAccepted(proposal);
 
         Assert.False(apply.IsSuccess);
         Assert.Equal(profileBefore, engine.HabituationProfile);

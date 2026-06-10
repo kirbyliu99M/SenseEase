@@ -91,21 +91,22 @@ public class HabituationProposalLexiconTests
         Assert.Equal(1.1, Assert.IsType<double>(result.ProposedValue));
     }
 
-    // ── SwitchProfile ───────────────────────────────────────────────────────
+    // ── SwitchProfile: DETECTION REMOVED (CW-3, honesty) ─────────────────────
+    // Profiles are auto-managed; there is no user-facing switcher. The lexicon
+    // fallback must NOT synthesize a SwitchProfile proposal — a profile-switch
+    // utterance now produces NO proposal (it is answered upstream by the honest
+    // auto-managed reply instead).
 
     [Theory]
-    [InlineData("switch to RESILIENT profile", "RESILIENT")]
-    [InlineData("change profile to TYPICAL", "TYPICAL")]
-    [InlineData("set to sensitive", "SENSITIVE")]
-    [InlineData("我想切換到 resilient", "RESILIENT")]
-    [InlineData("換成敏感模式", "SENSITIVE")]
-    public void TryDetect_SwitchProfile_ProducesProposal(string input, string expectedProfile)
+    [InlineData("switch to RESILIENT profile")]
+    [InlineData("change profile to TYPICAL")]
+    [InlineData("set to sensitive")]
+    [InlineData("我想切換到 resilient")]
+    [InlineData("換成敏感模式")]
+    public void TryDetect_SwitchProfile_NoLongerProducesProposal(string input)
     {
         var result = HabituationProposalLexicon.TryDetect(input, MakeSnapshot());
-        Assert.NotNull(result);
-        Assert.Equal(OverrideIntent.SwitchProfile, result!.Intent);
-        Assert.Equal("profile", result.TargetField);
-        Assert.Equal(expectedProfile, Assert.IsType<string>(result.ProposedValue));
+        Assert.Null(result);
     }
 
     [Fact]
@@ -213,9 +214,11 @@ public class HabituationProposalLexiconTests
     [Fact]
     public void TryDetect_Proposal_HasExpiryWithin48HoursOfNow()
     {
+        // Uses a sensitivity request — profile-switch detection was removed (CW-3),
+        // so we exercise the expiry window via a still-supported proposal type.
         var before = System.DateTime.UtcNow;
         var result = HabituationProposalLexicon.TryDetect(
-            "switch to RESILIENT profile",
+            "please loosen sensitivity",
             MakeSnapshot());
         var after = System.DateTime.UtcNow;
         Assert.NotNull(result);
