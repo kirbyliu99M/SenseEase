@@ -60,6 +60,13 @@ MinVersion=10.0.19041
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
+; ----- Single-instance guard (PKG-04) -----
+; Must match App.xaml.cs SingleInstanceMutexName exactly.
+; Inno Setup checks this mutex before showing the wizard so a second
+; installer run while the app is open receives a clear error prompt
+; rather than silently patching files that are locked mid-use.
+AppMutex=Local\SenseEase.App.SingleInstance
+
 ; ----- UI -----
 WizardStyle=modern
 SetupIconFile={#IconSource}
@@ -143,29 +150,70 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 // this is the explicit, opt-in path for a user who wants a clean removal. Default
 // is Yes (recommended) but it never deletes without consent.
 //
+// PKG-07 behaviour summary:
+//   Silent uninstall (/SILENT or /VERYSILENT without /DELETEDATA=1):
+//     → data directory is preserved unconditionally (no prompt, no deletion).
+//       Scripted/enterprise uninstalls must not touch user data by default.
+//   Silent uninstall + /DELETEDATA=1:
+//     → data directory is deleted without a prompt (scripted wipe path).
+//   Interactive uninstall:
+//     → MsgBox prompt, default Yes (locked product decision).
+//       DelTree return value is checked; a partial deletion (False) shows a
+//       warning so the user knows some files could not be removed.
+//
 // %LOCALAPPDATA%\SenseEase holds settings.json, chat_history.jsonl,
 // calibration_history.jsonl, habituation_profile.json, the adjustment log, the
 // (dev-only) model trace, and sidecar/telemetry artifacts — i.e. all on-disk PII.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;
+  DeleteData: Boolean;
+  Deleted: Boolean;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
     DataDir := ExpandConstant('{localappdata}\SenseEase');
-    if DirExists(DataDir) then
+    if not DirExists(DataDir) then
+      Exit;
+
+    if UninstallSilent then
     begin
-      // H25: default Yes (recommended). zh-Hant primary (the app's primary locale)
-      // + English. NOTE: this script must be saved as UTF-8 WITH BOM so Inno Setup
-      // renders the Chinese correctly in the compiled uninstaller.
-      if MsgBox('刪除您的 SenseEase 個人資料？（建議）' + #13#10 + #13#10
-              + '這會移除設定、對話與校正紀錄、個人化模型與記錄檔。' + #13#10
-              + 'Also delete your SenseEase personal data (settings, chat & calibration'
-              + ' history, the user model, and logs)?' + #13#10
-              + '選「否」可保留資料供日後重新安裝。 / Choose No to keep it for a reinstall.',
-                mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES then
+      // PKG-07: silent uninstall preserves data by default; /DELETEDATA=1
+      // is the explicit scripted-wipe opt-in (no interactive prompt ever).
+      if ExpandConstant('{param:DELETEDATA|0}') = '1' then
       begin
-        DelTree(DataDir, True, True, True);
+        DeleteData := True;
+      end else
+      begin
+        // Silent + no switch → preserve data, no prompt, no deletion.
+        Exit;
+      end;
+    end else
+    begin
+      // Interactive path: prompt with default Yes (H25 locked decision).
+      // NOTE: this script must be saved as UTF-8 WITH BOM so Inno Setup
+      // renders the Chinese correctly in the compiled uninstaller.
+      DeleteData :=
+        MsgBox('刪除您的 SenseEase 個人資料？（建議）' + #13#10 + #13#10
+             + '這會移除設定、對話與校正紀錄、個人化模型與記錄檔。' + #13#10
+             + 'Also delete your SenseEase personal data (settings, chat & calibration'
+             + ' history, the user model, and logs)?' + #13#10
+             + '選「否」可保留資料供日後重新安裝。 / Choose No to keep it for a reinstall.',
+               mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES;
+    end;
+
+    if DeleteData then
+    begin
+      Deleted := DelTree(DataDir, True, True, True);
+      // PKG-07: warn on partial deletion (interactive only; silent wipe is
+      // unattended so a MsgBox would hang). DelTree returns False when one or
+      // more items could not be removed (e.g. a file locked by another process).
+      if (not Deleted) and (not UninstallSilent) then
+      begin
+        MsgBox('Some personal data files could not be removed. They may be in use '
+             + 'by another process. You can delete them manually from:' + #13#10
+             + DataDir,
+               mbInformation, MB_OK);
       end;
     end;
   end;

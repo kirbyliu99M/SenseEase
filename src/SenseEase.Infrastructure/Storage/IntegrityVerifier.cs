@@ -1,10 +1,52 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
 using SenseEase.Infrastructure.Real;
 
 namespace SenseEase.Infrastructure.Storage;
+
+/// <summary>
+/// Result for a single manifest entry produced by
+/// <see cref="IntegrityVerifier.VerifyManifestSweep"/>.
+/// </summary>
+public sealed class ManifestEntryResult
+{
+    /// <summary>Manifest key (dist-relative path).</summary>
+    public string Key { get; }
+
+    /// <summary>Outcome of the integrity check for this entry.</summary>
+    public ManifestEntryStatus Status { get; }
+
+    /// <summary>Optional human-readable detail (e.g. resolved absolute path,
+    /// or a brief failure reason). Never null.</summary>
+    public string Detail { get; }
+
+    internal ManifestEntryResult(string key, ManifestEntryStatus status, string detail)
+    {
+        Key    = key;
+        Status = status;
+        Detail = detail ?? string.Empty;
+    }
+}
+
+/// <summary>Outcome of a single manifest-entry integrity check.</summary>
+public enum ManifestEntryStatus
+{
+    /// <summary>File present and SHA-256 matches the manifest value.</summary>
+    Ok,
+
+    /// <summary>File is listed in the manifest but not found on disk.</summary>
+    Missing,
+
+    /// <summary>File is present but its SHA-256 does not match the manifest.</summary>
+    Tampered,
+
+    /// <summary>The manifest entry could not be evaluated (parse error, hash
+    /// value is not valid hex, or an unexpected I/O failure).</summary>
+    Error,
+}
 
 /// <summary>
 /// Alpha-1 engine-integrity guard: verifies a shipped file's SHA-256 against a
@@ -119,6 +161,139 @@ public static class IntegrityVerifier
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// PKG-06: full manifest sweep — iterates every entry in
+    /// <c>install.manifest.json</c> under <paramref name="installRoot"/> (or
+    /// <see cref="AppContext.BaseDirectory"/> when <paramref name="installRoot"/>
+    /// is null/empty), hashes each listed file, and returns one
+    /// <see cref="ManifestEntryResult"/> per entry.
+    ///
+    /// <para><b>Absent-manifest = pass-with-note.</b> When no manifest file is
+    /// found the method returns an empty list and logs
+    /// "integrity sweep skipped: no manifest" (SEC-03 / Alpha-1 posture). The
+    /// call-site owner treats an empty result as non-blocking.</para>
+    ///
+    /// <para>Designed for ONE call at startup. Hashing ~350 MB once is acceptable;
+    /// never call per-spawn or per-frame.</para>
+    ///
+    /// <para>Never throws. Any top-level failure (unreadable manifest, JSON parse
+    /// error) produces a single <see cref="ManifestEntryStatus.Error"/> entry with
+    /// key "manifest" and the failure detail in <see cref="ManifestEntryResult.Detail"/>.</para>
+    /// </summary>
+    /// <param name="installRoot">Override for the install root directory. When null
+    /// or empty, <see cref="AppContext.BaseDirectory"/> is used (production path).
+    /// Test code passes a temp directory to avoid touching the real install.</param>
+    public static IReadOnlyList<ManifestEntryResult> VerifyManifestSweep(
+        string? installRoot = null)
+    {
+        string baseDir = string.IsNullOrEmpty(installRoot)
+            ? (AppContext.BaseDirectory ?? string.Empty)
+            : installRoot;
+
+        string manifestPath = Path.Combine(baseDir, ManifestFileName);
+
+        // Absent-manifest → pass-with-note (SEC-03 / Alpha-1 posture).
+        bool manifestExists;
+        try { manifestExists = File.Exists(manifestPath); }
+        catch { manifestExists = false; }
+
+        if (!manifestExists)
+        {
+            try { WgcDiagLog.Append("integrity sweep skipped: no manifest"); }
+            catch { /* best-effort */ }
+            return Array.Empty<ManifestEntryResult>();
+        }
+
+        var results = new List<ManifestEntryResult>();
+
+        try
+        {
+            string json = File.ReadAllText(manifestPath);
+            using var doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+
+            // Tolerate an optional "files" wrapper (same as Verify).
+            if (root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("files", out JsonElement filesEl) &&
+                filesEl.ValueKind == JsonValueKind.Object)
+            {
+                root = filesEl;
+            }
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                results.Add(new ManifestEntryResult(
+                    "manifest", ManifestEntryStatus.Error,
+                    "Root element is not a JSON object"));
+                return results;
+            }
+
+            foreach (JsonProperty prop in root.EnumerateObject())
+            {
+                string key = prop.Name;
+
+                // The expected hash must be a non-empty string.
+                if (prop.Value.ValueKind != JsonValueKind.String)
+                {
+                    results.Add(new ManifestEntryResult(
+                        key, ManifestEntryStatus.Error,
+                        "Manifest value is not a string"));
+                    continue;
+                }
+
+                string? expectedHex = prop.Value.GetString();
+                if (string.IsNullOrWhiteSpace(expectedHex))
+                {
+                    results.Add(new ManifestEntryResult(
+                        key, ManifestEntryStatus.Error,
+                        "Manifest value is empty"));
+                    continue;
+                }
+
+                // Resolve the file path: a relative key is combined with
+                // installRoot (forward-slash keys from the stage script work
+                // on Windows because Path.Combine handles mixed separators).
+                string filePath = Path.IsPathRooted(key)
+                    ? key
+                    : Path.Combine(baseDir, key.Replace('/', Path.DirectorySeparatorChar));
+
+                if (!File.Exists(filePath))
+                {
+                    results.Add(new ManifestEntryResult(
+                        key, ManifestEntryStatus.Missing,
+                        $"File not found: {filePath}"));
+                    continue;
+                }
+
+                try
+                {
+                    string actualHex = ComputeSha256Hex(filePath);
+                    bool match = string.Equals(actualHex, expectedHex.Trim(),
+                                               StringComparison.OrdinalIgnoreCase);
+                    results.Add(new ManifestEntryResult(
+                        key,
+                        match ? ManifestEntryStatus.Ok : ManifestEntryStatus.Tampered,
+                        match ? filePath : $"Hash mismatch: expected {expectedHex.Trim()}, got {actualHex}"));
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new ManifestEntryResult(
+                        key, ManifestEntryStatus.Error,
+                        $"Hash computation failed: {ex.Message}"));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Top-level failure: manifest unreadable or not valid JSON.
+            results.Add(new ManifestEntryResult(
+                "manifest", ManifestEntryStatus.Error,
+                $"Manifest read/parse failed: {ex.Message}"));
+        }
+
+        return results;
     }
 
     /// <summary>Computes the lowercase hex SHA-256 of the file at

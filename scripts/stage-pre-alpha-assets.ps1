@@ -285,12 +285,25 @@ Write-Section "Generate install.manifest.json (H32)"
 # Security-critical surface = the native code + model weights an attacker would
 # tamper to alter inference / run code: the llama.cpp server + backend DLLs, the
 # GGUF weights, the head-tracker sidecar EXE, and the MediaPipe face model.
+# PKG-06: extended to cover every executable asset that actually runs at launch:
+#   llama*.dll      — llama.cpp core + any named variant DLLs (e.g. llama-decode.dll)
+#   mtmd.dll        — multimodal bridge DLL (ships with recent llama.cpp Vulkan builds)
+#   libomp*.dll     — OpenMP runtime bundled alongside the Vulkan backend
+#   _internal/*     — PyInstaller bootstrap tree (head_tracker/_internal/*.{pyd,so,dll})
+#   face_landmarker.task — SIDE-10: MediaPipe face model (exe-adjacent copy)
+# The _internal/ tree is matched by a broad *.dll + *.pyd pass limited to the
+# sidecar subtree; get-ChildItem with -Filter only accepts one pattern at a time
+# so we iterate the list below.
 $manifestPatterns = @(
     "llama-server.exe",
     "head_tracker.exe",
+    "llama*.dll",
+    "mtmd.dll",
+    "libomp*.dll",
     "ggml*.dll",
     "*.gguf",
-    "face_landmarker.task"
+    "face_landmarker.task",
+    "*.pyd"        # PyInstaller _internal/ extension modules (mediapipe, numpy, cv2 etc.)
 )
 
 $distFull = (Resolve-Path $Dist).Path
