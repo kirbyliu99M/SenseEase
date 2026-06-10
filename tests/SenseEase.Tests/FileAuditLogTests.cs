@@ -71,6 +71,81 @@ public class FileAuditLogTests : IDisposable
         Assert.Equal(OverrideIntent.AdjustSensitivity, log2.Recent()[0].Intent);
     }
 
+    // ── FEAT-09 / LOGIC-07 / SEC-04: daily-cap hardening ─────────────────────
+
+    /// <summary>Fill past the 1 MB/day cap with ordinary durable entries, then assert:
+    /// the truncation sentinel is written exactly once; a Safety.* entry still lands
+    /// after the cap; a Chatbot.Declined entry still lands after the cap; an ordinary
+    /// durable entry after the cap is dropped.</summary>
+    [Fact]
+    public void EventLog_PastDailyCap_ExemptEntriesLand_OrdinaryDrops_SentinelOnce()
+    {
+        var store = new FileEventLogStore(_dir);
+
+        // ~512-byte messages so we cross the 1 MB cap in a bounded number of appends.
+        string padding = new string('x', 512);
+        // 1 MB / ~512B ≈ 2048 lines; overshoot to be safely past the cap.
+        for (int i = 0; i < 3000; i++)
+            store.Append(new EventLogEntry { Category = "Habituation.Profile", Message = padding });
+
+        // We must now be over the cap.
+        Assert.True(DayFileBytes("event-log") >= FileEventLogStore.MaxDailyFileBytes);
+
+        // Two ordinary (non-exempt) entries past the cap: both dropped, but they trigger
+        // exactly one sentinel between them.
+        store.Append(new EventLogEntry { Category = "Habituation.Profile", Message = "DROP-ME-1" });
+        store.Append(new EventLogEntry { Category = "Habituation.Profile", Message = "DROP-ME-2" });
+
+        // Exempt entries past the cap: a Safety.* and the exact Chatbot.Declined category.
+        store.Append(new EventLogEntry { Category = "Safety.Intercept",  Message = "SAFETY-AFTER-CAP" });
+        store.Append(new EventLogEntry { Category = "Chatbot.Declined",  Message = "DECLINE-AFTER-CAP" });
+
+        string raw = ReadAllDayFiles("event-log");
+
+        // Sentinel present exactly once.
+        Assert.Equal(1, CountOccurrences(raw, "[truncated: daily cap reached]"));
+        // Ordinary post-cap entries dropped.
+        Assert.DoesNotContain("DROP-ME-1", raw);
+        Assert.DoesNotContain("DROP-ME-2", raw);
+        // Exempt post-cap entries landed.
+        Assert.Contains("SAFETY-AFTER-CAP", raw);
+        Assert.Contains("DECLINE-AFTER-CAP", raw);
+    }
+
+    /// <summary>A non-exempt Chatbot category that is NOT exactly Chatbot.Declined
+    /// (e.g. Chatbot.SlashCommand) is still subject to the cap — the exemption is the
+    /// exact category, not the whole Chatbot. prefix.</summary>
+    [Fact]
+    public void EventLog_PastDailyCap_NonDeclinedChatbotCategory_Drops()
+    {
+        var store = new FileEventLogStore(_dir);
+        string padding = new string('x', 512);
+        for (int i = 0; i < 3000; i++)
+            store.Append(new EventLogEntry { Category = "Habituation.Profile", Message = padding });
+
+        store.Append(new EventLogEntry { Category = "Chatbot.SlashCommand", Message = "SLASH-AFTER-CAP" });
+
+        string raw = ReadAllDayFiles("event-log");
+        Assert.DoesNotContain("SLASH-AFTER-CAP", raw);
+    }
+
+    private long DayFileBytes(string prefix)
+    {
+        var files = Directory.GetFiles(_dir, prefix + "-*.jsonl");
+        return files.Sum(f => new FileInfo(f).Length);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0, idx = 0;
+        while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            idx += needle.Length;
+        }
+        return count;
+    }
+
     private string ReadAllDayFiles(string prefix)
     {
         var files = Directory.GetFiles(_dir, prefix + "-*.jsonl");

@@ -42,6 +42,13 @@ public sealed class FileEventLogStore : IEventLogStore
     private static readonly string[] DurableCategoryPrefixes =
         { "Habituation.", "Chatbot.", "Calibration.", "Safety.", "Storage.", "State.", "AdaptiveFit." };
 
+    // FEAT-09/LOGIC-07/SEC-04: forensic categories that MUST land even after the daily
+    // cap is hit — losing them silently is the actual harm (a Safety.* intercept or a
+    // Chatbot.Declined that drives the rule-5 cooldown vanishing across a restart). The
+    // "Safety." prefix is matched by StartsWith; "Chatbot.Declined" is matched exactly.
+    internal const string SafetyCategoryPrefix = "Safety.";
+    internal const string ChatbotDeclinedCategory = "Chatbot.Declined";
+
     public event EventHandler<EventLogEntry>? Appended;
 
     public FileEventLogStore(string directory)
@@ -66,7 +73,8 @@ public sealed class FileEventLogStore : IEventLogStore
             if (IsDurableCategory(entry.Category))
             {
                 string line = JsonSerializer.Serialize(entry, _opts);
-                AuditLogFiles.Append(_dir, "event-log", line, MaxDailyFileBytes);
+                AuditLogFiles.Append(_dir, "event-log", line, MaxDailyFileBytes,
+                                     capExempt: IsCapExemptCategory(entry.Category));
             }
         }
         // Outside the lock — UI subscribers marshal to the dispatcher (M1 mirror).
@@ -117,26 +125,87 @@ public sealed class FileEventLogStore : IEventLogStore
             if (category.StartsWith(p, StringComparison.Ordinal)) return true;
         return false;
     }
+
+    /// <summary>FEAT-09: a forensic entry that must always be persisted, bypassing the
+    /// daily byte cap — any <c>Safety.*</c> category or the exact <c>Chatbot.Declined</c>
+    /// category (the rule-5 decline cooldown rehydrates from these across restarts).</summary>
+    private static bool IsCapExemptCategory(string? category)
+    {
+        if (string.IsNullOrEmpty(category)) return false;
+        return category.StartsWith(SafetyCategoryPrefix, StringComparison.Ordinal)
+            || string.Equals(category, ChatbotDeclinedCategory, StringComparison.Ordinal);
+    }
 }
 
 /// <summary>Shared helpers for the H17 file-backed audit logs: daily-rolled
 /// JSONL append with a per-day size cap, and retention pruning. Best-effort.</summary>
 internal static class AuditLogFiles
 {
+    /// <summary>FEAT-09: the single sentinel line appended once per day the first time a
+    /// non-exempt entry is dropped at the cap, so a forensic reader sees the truncation
+    /// explicitly instead of an unexplained gap.</summary>
+    internal const string TruncationSentinel = "[truncated: daily cap reached]";
+
+    // FEAT-09: tracks, per day file path, that the truncation sentinel has already been
+    // written this process so we emit it exactly once even under a burst of dropped
+    // entries. Cross-instance / cross-restart dedup is handled by the on-disk content
+    // check before the write (a cap-hit day file is small enough to scan cheaply).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _sentinelWritten
+        = new(StringComparer.OrdinalIgnoreCase);
+
     public static string DayFilePath(string dir, string prefix)
         => Path.Combine(dir, $"{prefix}-{DateTime.UtcNow:yyyy-MM-dd}.jsonl");
 
-    public static void Append(string dir, string prefix, string jsonLine, long maxBytes)
+    /// <summary>Append one JSONL line to the day file, honouring the per-day byte cap.
+    /// <paramref name="capExempt"/> entries (FEAT-09 forensic Safety.* / Chatbot.Declined)
+    /// always land regardless of the cap; ordinary entries past the cap are dropped after
+    /// one truncation sentinel is recorded for the day.</summary>
+    public static void Append(string dir, string prefix, string jsonLine, long maxBytes,
+                              bool capExempt = false)
     {
         try
         {
             string path = DayFilePath(dir, prefix);
-            // Per-day size cap: once exceeded, stop appending for the rest of the
-            // day (best-effort forensic log; callers keep their in-memory state).
-            if (File.Exists(path) && new FileInfo(path).Length >= maxBytes) return;
+
+            bool overCap = File.Exists(path) && new FileInfo(path).Length >= maxBytes;
+            if (overCap && !capExempt)
+            {
+                // First non-exempt drop of the day: record one sentinel so the gap is
+                // explicit. Further non-exempt entries drop silently.
+                WriteTruncationSentinelOnce(path);
+                return;
+            }
+
+            // Exempt entries always append (even past the cap); ordinary entries append
+            // while under the cap.
             File.AppendAllText(path, jsonLine + Environment.NewLine);
         }
         catch { /* logging must never crash the app */ }
+    }
+
+    private static void WriteTruncationSentinelOnce(string path)
+    {
+        try
+        {
+            // In-process guard: emit at most once per day file per run.
+            if (!_sentinelWritten.TryAdd(path, 0)) return;
+
+            // Cross-instance / cross-restart guard: don't double-stamp if a prior process
+            // already wrote the sentinel into today's file.
+            try
+            {
+                if (File.Exists(path))
+                {
+                    foreach (string line in File.ReadLines(path))
+                        if (line.Contains(TruncationSentinel, StringComparison.Ordinal))
+                            return;
+                }
+            }
+            catch { /* unreadable → fall through and append; a duplicate sentinel is harmless */ }
+
+            File.AppendAllText(path, TruncationSentinel + Environment.NewLine);
+        }
+        catch { /* best-effort */ }
     }
 
     public static void Prune(string dir, string globPattern, int retentionDays)

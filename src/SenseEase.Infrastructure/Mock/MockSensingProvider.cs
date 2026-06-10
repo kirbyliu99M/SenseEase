@@ -24,7 +24,7 @@ public sealed class MockSensingProvider : ISensingProvider
         OpticalFlowSampled?.Invoke(this, new OpticalFlowSample
         {
             OpticalFlowIndex = opticalFlowIndex,
-            SampledAt = DateTime.Now,
+            SampledAt = DateTime.UtcNow, // LOGIC-11/CW-12: one UTC clock domain
         });
     }
 }

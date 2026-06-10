@@ -125,6 +125,90 @@ public class UserModelStoreTests : IDisposable
         Assert.Empty(w.ReadAll());
     }
 
+    // ── LOGIC-06: atomic rewrite + path-keyed gate ───────────────────────────
+
+    /// <summary>The same-day in-place update (which goes through the atomic full-file
+    /// rewrite) preserves every prior day's row — the old File.WriteAllText already did,
+    /// but this pins that the tmp + File.Replace rewrite did not regress it and produces
+    /// no leftover .tmp artifact.</summary>
+    [Fact]
+    public void Write_SameDayUpdate_PreservesPriorDays_NoTmpLeftover()
+    {
+        var w = new DailyBehaviorAggregateWriter(_logPath);
+        w.Write(Row("2026-06-05", sessionMinutes: 10));
+        w.Write(Row("2026-06-06", sessionMinutes: 20));
+        w.Write(Row("2026-06-07", sessionMinutes: 30));
+
+        // Same-day rewrite of the middle day must keep 6/5 and 6/7 intact.
+        w.Write(Row("2026-06-06", sessionMinutes: 99));
+
+        var rows = w.ReadAll();
+        Assert.Equal(3, rows.Count);
+        Assert.Equal("2026-06-05", rows[0].Date);
+        Assert.Equal(10, rows[0].SessionMinutes);
+        Assert.Equal("2026-06-06", rows[1].Date);
+        Assert.Equal(99, rows[1].SessionMinutes); // updated in place
+        Assert.Equal("2026-06-07", rows[2].Date);
+        Assert.Equal(30, rows[2].SessionMinutes);
+
+        // The atomic rewrite must not leave a dangling tmp file behind.
+        Assert.False(File.Exists(_logPath + ".tmp"));
+    }
+
+    /// <summary>Two writer instances over the SAME path share one lock (path-keyed gate),
+    /// so concurrent same-day rewrites serialise and the file never tears: it always
+    /// parses cleanly into exactly the days that were written.</summary>
+    [Fact]
+    public void ConcurrentWriters_SameFile_DoNotTear()
+    {
+        // Seed three distinct days so a torn rewrite (truncate-then-write) of one would
+        // be observable as missing/garbled prior days.
+        var seeder = new DailyBehaviorAggregateWriter(_logPath);
+        seeder.Write(Row("2026-06-05"));
+        seeder.Write(Row("2026-06-06"));
+        seeder.Write(Row("2026-06-07"));
+
+        var w1 = new DailyBehaviorAggregateWriter(_logPath);
+        var w2 = new DailyBehaviorAggregateWriter(_logPath);
+        var reader = new DailyBehaviorAggregateWriter(_logPath);
+
+        var ex = new System.Collections.Concurrent.ConcurrentQueue<Exception>();
+        var threads = new System.Collections.Generic.List<System.Threading.Thread>();
+        for (int t = 0; t < 4; t++)
+        {
+            var writer = (t % 2 == 0) ? w1 : w2;
+            int mins = 100 + t;
+            threads.Add(new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    for (int i = 0; i < 50; i++)
+                    {
+                        // Repeated same-day updates → every iteration is an atomic rewrite.
+                        writer.Write(Row("2026-06-07", sessionMinutes: mins));
+                        // Interleave reads; a torn file would deserialize to fewer than 3 rows.
+                        var rows = reader.ReadAll();
+                        Assert.True(rows.Count >= 3,
+                            $"file tore: only {rows.Count} rows visible");
+                    }
+                }
+                catch (Exception e) { ex.Enqueue(e); }
+            }));
+        }
+
+        foreach (var th in threads) th.Start();
+        foreach (var th in threads) th.Join();
+
+        Assert.True(ex.IsEmpty, ex.TryDequeue(out var first) ? first.ToString() : "");
+
+        // Final state: still exactly the three seeded days, none lost to a torn write.
+        var final = reader.ReadAll();
+        Assert.Equal(3, final.Count);
+        Assert.Equal(new[] { "2026-06-05", "2026-06-06", "2026-06-07" },
+                     final.Select(r => r.Date).ToArray());
+        Assert.False(File.Exists(_logPath + ".tmp"));
+    }
+
     // ── H24: ClearUserModel + observation access (PR-C) ──────────────────────
 
     [Fact]
