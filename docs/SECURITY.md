@@ -93,6 +93,35 @@ field name).
 
 ---
 
+## 4.1 Integrity gate — current scope and known limits (SEC-03)
+
+SenseEase generates a SHA-256 manifest of a small set of high-value binaries at
+build time (`install.manifest.json`, produced by `scripts/stage-pre-alpha-assets.ps1`).
+At startup, the C# host verifies each listed entry before calling `Process.Start`
+on the head-tracker sidecar and the LLM server.
+
+**What the gate currently guards:**
+
+- Accidental file corruption (partial copy, disk error, mid-install power-loss).
+- A wrong build being accidentally staged (hash mismatch surfaces immediately at
+  launch rather than silently misbehaving at runtime).
+
+**What the gate does NOT guard (known limits):**
+
+| Limit | Reason |
+|---|---|
+| **Absent manifest = pass.** If `install.manifest.json` is missing, the startup check silently skips rather than refusing to launch. A local attacker can remove the file to suppress the check. | Fail-open chosen deliberately for Alpha so a corrupt staging run does not permanently brick testers' installs; will be reviewed before the public cut. |
+| **Manifest is unsigned and user-writable.** The manifest itself lives under `%LOCALAPPDATA%\Programs\SenseEase\` alongside the binaries it describes. A local attacker who can write to that directory can replace both a binary and its manifest entry, so the check cannot detect targeted tampering by a same-user adversary. | This is the fundamental limit of a manifest that lives next to what it verifies. Authenticode code-signing (H26) is the correct fix; it moves trust to an out-of-band certificate chain the attacker cannot easily forge. |
+| **Coverage is partial.** The current manifest covers the two main executable stubs (`llama-server.exe`, `head_tracker.exe`) and the model file. The ~150 PyInstaller `_internal/` DLLs, the ggml/llama support DLLs, and `face_landmarker.task` are not yet hashed. A trojanised sidecar Python extension (`.pyd`) would not be detected. | PKG-06 sweep — extending hash coverage to `llama*.dll`, `mtmd.dll`, `libomp*.dll`, the `_internal/` tree, and `face_landmarker.task` — is scheduled for this wave (Wave B1). Once that lands the "partial coverage" row will be removed from this table. |
+
+**Summary:** the integrity gate guards against accidental corruption and wrong
+builds, not against a local attacker who already has write access to the install
+directory. Full tamper resistance (delete-to-bypass closed, coverage complete,
+binaries Authenticode-signed) lands with H26 code signing, which is on the
+procurement track for the public cut — see §5 below.
+
+---
+
 ## 5. Open items before the public cut (tracked, not yet landed)
 
 These are intentionally **not** auto-applied — each needs an external action or a

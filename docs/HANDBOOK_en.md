@@ -230,20 +230,37 @@ work, for example:
 If any of the above happens, **please report it with the logs below:**
 
 ```powershell
-# Run in PowerShell — packs all logs into one zip
-$out = "$env:USERPROFILE\Desktop\SenseEase-logs.zip"
-Compress-Archive -Path `
-    "$env:LOCALAPPDATA\SenseEase\*", `
-    "$env:TEMP\wgc_diag*.txt" `
-    -DestinationPath $out -Force
-"Wrote: $out"
+# Run in PowerShell — collects only the diagnostic files (no personal data)
+& "$env:LOCALAPPDATA\Programs\SenseEase\scripts\collect-logs.ps1"
 ```
+
+This creates a zip on your Desktop containing only crash logs, the diagnostic
+folder (`%LOCALAPPDATA%\SenseEase\diag`), and the llama-server log. It
+**does not** include your chat history, calibration answers, AI model trace,
+comfort profile, or usage aggregates.
 
 Send that zip along with your problem description.
 
-> **Privacy note:** that zip includes your local SenseEase data — chat history,
-> calibration answers, and logs. It never leaves your machine unless you send it.
-> Share it only with the test team.
+---
+
+**Optional: sharing the full data folder**
+
+The test team may sometimes ask for the complete data folder to investigate a
+specific issue. If so, run the command below — but **read the warning first**:
+
+> **Privacy warning:** the full folder includes files that contain personal
+> health information — your AI chat history, calibration answers (which may
+> include details about vestibular conditions, migraines, or other health
+> factors), raw AI model traces, and your personalised comfort profile. Only
+> share this if you are comfortable with the test team seeing that content.
+> The zip never leaves your machine unless you send it.
+
+```powershell
+# OPT-IN only — run this if the test team explicitly asks for the full folder
+$out = "$env:USERPROFILE\Desktop\SenseEase-FULL-$((Get-Date -Format 'yyyyMMdd-HHmm')).zip"
+Compress-Archive -Path "$env:LOCALAPPDATA\SenseEase\*" -DestinationPath $out -Force
+"Full zip written to: $out"
+```
 
 ---
 

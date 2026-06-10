@@ -213,16 +213,35 @@ AI 可能會:
 如果上面有任何一項發生,**請回報並附上以下 logs**:
 
 ```powershell
-# 在 PowerShell 執行,會把所有 logs 打包成一個 zip
-$out = "$env:USERPROFILE\Desktop\SenseEase-logs.zip"
-Compress-Archive -Path `
-    "$env:LOCALAPPDATA\SenseEase\*", `
-    "$env:TEMP\wgc_diag*.txt" `
-    -DestinationPath $out -Force
-"已輸出: $out"
+# 在 PowerShell 執行,只會打包診斷檔案(不含個人資料)
+& "$env:LOCALAPPDATA\Programs\SenseEase\scripts\collect-logs.ps1"
 ```
 
+這會在桌面產生一個 zip,內容只有 crash log、診斷資料夾
+（`%LOCALAPPDATA%\SenseEase\diag`）和 llama-server log。
+**不包含**你的對話紀錄、校準問答、AI 模型 trace、舒適設定檔或使用量統計。
+
 把這個 zip 連同你的問題描述傳給我們。
+
+---
+
+**選項：提供完整資料夾**
+
+測試團隊有時可能會要求完整的資料夾來調查特定問題。若對方明確提出，
+請先閱讀以下提醒再執行:
+
+> **隱私提醒：** 完整資料夾包含含有個人健康資訊的檔案——
+> 你與 AI 的對話紀錄、校準問答（可能包含前庭症狀、偏頭痛或其他健康狀況）、
+> AI 模型的原始 trace，以及你的個人化舒適設定檔。
+> 只有在你確認可以讓測試團隊看到這些內容時才分享。
+> 這個 zip 不會自動上傳，由你決定要不要傳送。
+
+```powershell
+# 僅在測試團隊明確要求時才執行
+$out = "$env:USERPROFILE\Desktop\SenseEase-FULL-$((Get-Date -Format 'yyyyMMdd-HHmm')).zip"
+Compress-Archive -Path "$env:LOCALAPPDATA\SenseEase\*" -DestinationPath $out -Force
+"已輸出: $out"
+```
 
 ---
 
