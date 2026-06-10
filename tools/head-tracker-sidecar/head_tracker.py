@@ -388,24 +388,199 @@ class AdaptiveEma2D:
 # ---------------------------------------------------------------------------
 # Capture helpers
 # ---------------------------------------------------------------------------
+class WebcamOpenError(RuntimeError):
+    """Raised when a webcam *index* could not be opened (busy / denied /
+    absent). SIDE-07: distinct from a file-path open failure so the caller
+    (and the C# host's stderr tail) gets an unambiguous diagnostic. The
+    misleading SIDE-07 fall-through — where a failed webcam index silently
+    re-tried the same digit string as a file path and produced a "could not
+    open file" error — is gone: once int(spec) parses we NEVER touch the
+    file branch."""
+
+
 def open_capture(spec: str) -> cv2.VideoCapture:
-    """Open a webcam index or a video file."""
-    # Try integer first
+    """Open a webcam index or a video file.
+
+    SIDE-07 (2026-06-11, D-11 capture-loop unlock): when ``spec`` parses as
+    an integer it is treated as a webcam index *exclusively*. A failure to
+    open that index raises :class:`WebcamOpenError` ("webcam index N could
+    not be opened (busy/denied/absent)") instead of falling through to the
+    file-path branch — the old fall-through re-interpreted "0" as a filename
+    and produced a misleading "could not open capture source: '0'" error.
+    Only a genuinely non-integer ``spec`` reaches the file-path branch.
+    """
+    # Try integer first. A spec that parses as an int is a webcam index and
+    # NEVER falls through to the file branch (SIDE-07).
     try:
         idx = int(spec)
+    except ValueError:
+        idx = None
+
+    if idx is not None:
         cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW if os.name == "nt" else 0)
         if cap.isOpened():
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_W)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_H)
             return cap
         cap.release()
-    except ValueError:
-        pass
-    # Treat as file path
+        raise WebcamOpenError(
+            f"webcam index {idx} could not be opened (busy/denied/absent)"
+        )
+
+    # Non-integer spec: treat as a file path.
     cap = cv2.VideoCapture(spec)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open capture source: {spec!r}")
     return cap
+
+
+# ---------------------------------------------------------------------------
+# SIDE-02: camera-loss resilience (D-11 capture-loop unlock, 2026-06-11)
+# ---------------------------------------------------------------------------
+# A single failed cap.read() previously broke the loop -> clean exit 0 ->
+# head-tracking dead for the whole session with no reconnect. CaptureManager
+# wraps the VideoCapture and, on sustained read failure, releases + re-opens
+# the source on a bounded backoff. While failing it yields None frames so the
+# run() loop emits face_detected=false records (the C# host's grace path then
+# centers the mask). Only after REOPEN_WINDOW_S of *sustained* failure does it
+# give up — run() then exits NON-zero so the host's OnProcessExited fires and
+# surfaces the death rather than a silent code-0 exit.
+#
+# Re-open is NOT attempted for a finite video file in non-loop mode: a real
+# EOF there is a legitimate end-of-stream, not a camera loss.
+
+REOPEN_INTERVAL_S: float = 2.0   # re-open attempt cadence while failing
+REOPEN_WINDOW_S:   float = 60.0  # sustained-failure bound before giving up
+
+
+class CaptureManager:
+    """Owns the VideoCapture and re-opens it on sustained read failure.
+
+    Usage::
+
+        mgr = CaptureManager(spec, loop=..., reopenable=...)
+        mgr.open()                 # initial open (may raise on first open)
+        frame = mgr.read(now_mono) # frame, or None while degraded
+        if mgr.give_up:            # sustained failure exceeded the bound
+            ...                    # caller exits non-zero
+        mgr.release()
+
+    The class is deliberately small and side-effect-isolated so it is unit-
+    testable with a fake capture/opener injected — no real webcam or model.
+    """
+
+    def __init__(
+        self,
+        spec: str,
+        loop: bool,
+        reopenable: bool,
+        *,
+        reopen_interval_s: float = REOPEN_INTERVAL_S,
+        reopen_window_s:   float = REOPEN_WINDOW_S,
+        opener=open_capture,
+        log=None,
+    ) -> None:
+        self._spec       = spec
+        self._loop       = loop
+        self._reopenable = reopenable
+        self._reopen_interval_s = reopen_interval_s
+        self._reopen_window_s   = reopen_window_s
+        self._opener     = opener
+        self._log        = log
+
+        self._cap = None
+        # Monotonic timestamp when the current sustained-failure run began,
+        # or None while healthy. Used for the give-up bound.
+        self._failing_since: Optional[float] = None
+        # Monotonic timestamp of the last re-open *attempt* (throttle).
+        self._last_reopen_attempt: Optional[float] = None
+        # Set once the sustained-failure window is exceeded: caller exits.
+        self.give_up = False
+
+    def open(self) -> None:
+        """Initial open. Propagates the opener's exception on first failure
+        (a webcam that is absent at startup is a hard error, distinct from a
+        mid-session transient loss)."""
+        self._cap = self._opener(self._spec)
+
+    def read(self, now_mono: float) -> Optional[np.ndarray]:
+        """Return one frame, or None while the capture is degraded.
+
+        On a successful read the failure timer is cleared. On a failed read:
+        if this source is re-openable (a webcam), release the handle and, no
+        more than once per ``reopen_interval_s``, attempt to re-open. If the
+        source stays unreadable for longer than ``reopen_window_s`` the
+        ``give_up`` flag is set and the caller should exit non-zero. A non-
+        re-openable finite video simply returns None at EOF (legitimate end
+        of stream) without arming the give-up bound."""
+        cap = self._cap
+        frame = read_frame(cap, loop=self._loop) if cap is not None else None
+        if frame is not None:
+            # Healthy frame: clear any in-progress failure state.
+            self._failing_since = None
+            self._last_reopen_attempt = None
+            return frame
+
+        # --- Read failed ---
+        if not self._reopenable:
+            # Finite video, no loop: a real EOF, not a camera loss.
+            return None
+
+        if self._failing_since is None:
+            self._failing_since = now_mono
+            if self._log is not None:
+                self._log(
+                    f"capture read failed for {self._spec!r}; "
+                    "entering bounded re-open (emitting face_detected=false)"
+                )
+
+        # Sustained-failure give-up bound.
+        if now_mono - self._failing_since > self._reopen_window_s:
+            self.give_up = True
+            if self._log is not None:
+                self._log(
+                    f"capture unreadable for >{self._reopen_window_s:.0f}s; "
+                    "giving up (will exit non-zero)"
+                )
+            return None
+
+        # Throttled re-open attempt.
+        if (self._last_reopen_attempt is None
+                or now_mono - self._last_reopen_attempt >= self._reopen_interval_s):
+            self._last_reopen_attempt = now_mono
+            self._release_cap()
+            try:
+                self._cap = self._opener(self._spec)
+            except Exception as ex:  # opener may raise (busy/denied/absent)
+                self._cap = None
+                if self._log is not None:
+                    self._log(f"capture re-open attempt failed: {ex}")
+        return None
+
+    def _release_cap(self) -> None:
+        try:
+            if self._cap is not None:
+                self._cap.release()
+        except Exception:
+            pass
+        self._cap = None
+
+    def release(self) -> None:
+        self._release_cap()
+
+
+def resync_next_tick(now: float, next_tick: float, target_dt_s: float = TARGET_DT_S) -> float:
+    """SIDE-03 (2026-06-11, D-11 scheduler-resync unlock): drop missed ticks.
+
+    After computing ``now``, if the scheduler has fallen more than two target
+    intervals behind (sleep / AV stall / debugger pause), snap ``next_tick``
+    forward to ``now`` instead of letting the loop run unthrottled at camera
+    rate to "catch up". Missed ticks are DROPPED, not replayed.
+
+    Returns the (possibly snapped) ``next_tick``. Pure — no side effects."""
+    if now - next_tick > 2.0 * target_dt_s:
+        return now
+    return next_tick
 
 
 def read_frame(cap: cv2.VideoCapture, loop: bool) -> Optional[np.ndarray]:
@@ -656,7 +831,6 @@ def run(
 ) -> int:
     model_resolved = resolve_model_path(model_path)
     landmarker = make_face_landmarker(model_resolved)
-    cap = open_capture(input_spec)
 
     # M5.1-C: AdaptiveEma2D replaces the constant-α Ema2D. SMOOTH_ALPHA
     # constant kept in module scope for documentation of the old default;
@@ -664,6 +838,23 @@ def run(
     smoother = AdaptiveEma2D(DEFAULT_CX, DEFAULT_CY)
     stats = SoakStats() if soak_seconds is not None else None
     soak_loop = loop_video or (soak_seconds is not None)
+
+    # SIDE-02 (2026-06-11, D-11 capture-loop unlock): wrap the capture in a
+    # CaptureManager so a transient webcam loss triggers a bounded re-open
+    # instead of a silent clean exit. Only a webcam *index* is re-openable
+    # mid-session; a finite video file's EOF is a legitimate end-of-stream,
+    # not a device loss, so it is NOT re-opened (it relies on read_frame's
+    # own --loop handling in soak mode).
+    try:
+        int(input_spec)
+        reopenable = True
+    except ValueError:
+        reopenable = False
+    cap_mgr = CaptureManager(
+        input_spec, loop=soak_loop, reopenable=reopenable,
+        log=lambda m: sys.stderr.write(f"[head_tracker] {m}\n"),
+    )
+    cap_mgr.open()
 
     # M5.1-A PRECONDITION (2026-05-29): per-frame diagnostic CSV for the
     # "sometimes inverted" investigation. When --diag is set, every frame
@@ -693,20 +884,52 @@ def run(
     next_tick = t0_mono
     deadline = (t0_mono + soak_seconds) if soak_seconds is not None else None
 
+    # SIDE-02: set when CaptureManager gives up after sustained failure so the
+    # run() exit code is NON-zero (host OnProcessExited surfaces the death).
+    capture_gave_up = False
+
     try:
         while True:
             now = time.monotonic()
             if deadline is not None and now >= deadline:
                 break
+            # SIDE-03 (2026-06-11, D-11 scheduler-resync unlock): if we have
+            # fallen >2 ticks behind (sleep / AV stall / debugger pause), drop
+            # the missed ticks instead of replaying them — otherwise the loop
+            # would run unthrottled at camera rate "catching up". Apply BEFORE
+            # the cadence sleep so the snap takes effect this iteration.
+            next_tick = resync_next_tick(now, next_tick)
             # Cadence: wait until the next 15 Hz tick.
             if now < next_tick:
                 time.sleep(next_tick - now)
             next_tick += TARGET_DT_S
 
-            frame_bgr = read_frame(cap, loop=soak_loop)
+            frame_bgr = cap_mgr.read(now_mono=time.monotonic())
             if frame_bgr is None:
-                # End of stream and not looping.
-                break
+                if cap_mgr.give_up:
+                    # SIDE-02: sustained capture failure exceeded the bound.
+                    capture_gave_up = True
+                    break
+                if not reopenable:
+                    # Finite video, no loop: legitimate end of stream.
+                    break
+                # Webcam transiently unreadable: emit a face_detected=false
+                # frame so the C# host's grace path centers the mask, then
+                # continue the bounded re-open loop. We synthesize a minimal
+                # center record rather than running inference on no frame.
+                if stats is None:
+                    lost_rec = FrameRecord(
+                        t_ms=int((time.monotonic() - t0_mono) * 1000.0),
+                        cx=round(DEFAULT_CX, 4),
+                        cy=round(DEFAULT_CY, 4),
+                        luma=0.0,
+                        face_detected=False,
+                        face_present=0.0,
+                    )
+                    payload = {k: v for k, v in asdict(lost_rec).items() if v is not None}
+                    sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
+                    sys.stdout.flush()
+                continue
             if mirror:
                 frame_bgr = cv2.flip(frame_bgr, 1)
 
@@ -837,7 +1060,7 @@ def run(
             landmarker.close()
         except Exception:
             pass
-        cap.release()
+        cap_mgr.release()
         if diag_file is not None:
             try:
                 diag_file.close()
@@ -849,6 +1072,11 @@ def run(
         # In soak mode we emit ONE JSON object (the report) on stdout.
         sys.stdout.write(json.dumps(report, indent=2) + "\n")
         sys.stdout.flush()
+    # SIDE-02: exit NON-zero only after the bounded re-open window is exhausted,
+    # so a transient webcam loss is invisible to the host (frames keep flowing)
+    # but a true device loss surfaces via OnProcessExited's non-zero exit code.
+    if capture_gave_up:
+        return 3
     return 0
 
 

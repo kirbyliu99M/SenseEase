@@ -32,8 +32,12 @@ def _load_module():
 
 
 _HT = _load_module()
-AdaptiveEma2D = _HT.AdaptiveEma2D
-JumpFilter    = _HT.JumpFilter
+AdaptiveEma2D     = _HT.AdaptiveEma2D
+JumpFilter        = _HT.JumpFilter
+CaptureManager    = _HT.CaptureManager
+WebcamOpenError   = _HT.WebcamOpenError
+resync_next_tick  = _HT.resync_next_tick
+TARGET_DT_S       = _HT.TARGET_DT_S
 
 
 class AdaptiveEma2DAlphaCurveTests(unittest.TestCase):
@@ -414,6 +418,234 @@ class JumpFilterAbsenceResetTests(unittest.TestCase):
         self.assertIsNotNone(f.last_valid_yaw,
             "Latch must NOT reset: timer restarted after face returned")
         self.assertAlmostEqual(f.last_valid_yaw, 10.0, places=3)
+
+
+import numpy as np
+
+
+# A 480x360 BGR frame so read_frame() passes it through without resizing.
+def _good_frame() -> np.ndarray:
+    return np.zeros((360, 480, 3), dtype=np.uint8)
+
+
+class _FakeCap:
+    """Minimal cv2.VideoCapture stand-in for CaptureManager tests.
+
+    ``reads`` is a list of bool 'ok' flags consumed one per read(); once
+    exhausted it keeps returning the last value. A True returns a good frame,
+    a False returns (False, None) — exactly what read_frame() treats as a
+    failed read in non-loop mode."""
+
+    def __init__(self, reads):
+        self._reads = list(reads)
+        self.released = False
+
+    def read(self):
+        ok = self._reads.pop(0) if len(self._reads) > 1 else (self._reads[0] if self._reads else False)
+        if ok:
+            return True, _good_frame()
+        return False, None
+
+    def set(self, *_a, **_k):
+        return True
+
+    def release(self):
+        self.released = True
+
+
+class OpenCaptureSide07Tests(unittest.TestCase):
+    """SIDE-07: a webcam *index* that fails to open must raise WebcamOpenError
+    (never fall through to the file-path branch). Only a genuinely non-integer
+    spec reaches the file branch."""
+
+    def test_failed_webcam_index_raises_webcam_error_not_file_error(self):
+        original = _HT.cv2.VideoCapture
+        try:
+            # Force every VideoCapture (index OR path) to report not-opened so
+            # we can prove which branch the failure surfaced from.
+            class _NeverOpens:
+                def __init__(self, *_a, **_k):
+                    pass
+                def isOpened(self):
+                    return False
+                def set(self, *_a, **_k):
+                    return True
+                def release(self):
+                    pass
+            _HT.cv2.VideoCapture = _NeverOpens
+            with self.assertRaises(WebcamOpenError) as ctx:
+                _HT.open_capture("0")
+            # The message names the index and the busy/denied/absent reason,
+            # NOT a file path — proving no fall-through.
+            msg = str(ctx.exception)
+            self.assertIn("webcam index 0", msg)
+            self.assertIn("busy/denied/absent", msg)
+            self.assertNotIn("capture source", msg)
+        finally:
+            _HT.cv2.VideoCapture = original
+
+    def test_failed_file_path_raises_generic_runtime_error(self):
+        original = _HT.cv2.VideoCapture
+        try:
+            class _NeverOpens:
+                def __init__(self, *_a, **_k):
+                    pass
+                def isOpened(self):
+                    return False
+                def set(self, *_a, **_k):
+                    return True
+                def release(self):
+                    pass
+            _HT.cv2.VideoCapture = _NeverOpens
+            # A non-integer spec must reach the file branch and raise the
+            # generic RuntimeError, NOT WebcamOpenError.
+            with self.assertRaises(RuntimeError) as ctx:
+                _HT.open_capture("nonexistent_video.mp4")
+            self.assertNotIsInstance(ctx.exception, WebcamOpenError)
+            self.assertIn("nonexistent_video.mp4", str(ctx.exception))
+        finally:
+            _HT.cv2.VideoCapture = original
+
+
+class CaptureManagerSide02Tests(unittest.TestCase):
+    """SIDE-02: bounded camera-loss re-open. A transient read failure must
+    yield None (so run() emits face_detected=false) and trigger a throttled
+    re-open; only sustained failure past the bound sets give_up."""
+
+    def test_healthy_read_passes_frame_through(self):
+        cap = _FakeCap([True])
+        mgr = CaptureManager("0", loop=False, reopenable=True,
+                             opener=lambda spec: cap)
+        mgr.open()
+        frame = mgr.read(now_mono=0.0)
+        self.assertIsNotNone(frame)
+        self.assertFalse(mgr.give_up)
+
+    def test_single_failure_returns_none_without_giving_up(self):
+        cap = _FakeCap([False])
+        mgr = CaptureManager("0", loop=False, reopenable=True,
+                             opener=lambda spec: cap)
+        mgr.open()
+        frame = mgr.read(now_mono=0.0)
+        self.assertIsNone(frame)
+        self.assertFalse(mgr.give_up,
+            "a single failed read must NOT give up (head-tracking stays alive)")
+
+    def test_reopen_is_throttled_to_interval(self):
+        """Within one reopen_interval_s only ONE re-open attempt is made even
+        though read() is called every frame (~15 Hz)."""
+        opens = {"count": 0}
+
+        def opener(spec):
+            opens["count"] += 1
+            return _FakeCap([False])  # stays broken
+
+        mgr = CaptureManager("0", loop=False, reopenable=True,
+                             reopen_interval_s=2.0, reopen_window_s=60.0,
+                             opener=opener)
+        mgr.open()
+        self.assertEqual(opens["count"], 1, "initial open")
+        # First failure starts the failing timer + a re-open attempt.
+        mgr.read(now_mono=0.0)
+        self.assertEqual(opens["count"], 2, "first failure triggers a re-open")
+        # Many frames within the same 2 s window: no further re-opens.
+        t = 0.0
+        for _ in range(20):
+            t += 1.0 / 15.0  # ~15 Hz
+            mgr.read(now_mono=t)
+        self.assertEqual(opens["count"], 2,
+            "re-open must be throttled to once per interval, not per frame")
+        # Past the interval: exactly one more re-open.
+        mgr.read(now_mono=2.5)
+        self.assertEqual(opens["count"], 3)
+
+    def test_recovery_after_transient_loss_clears_failure_state(self):
+        """A capture that fails then recovers must clear give_up bookkeeping so
+        a later short glitch doesn't trip the window prematurely."""
+        # Opener returns a cap that fails once then succeeds forever.
+        recovered = _FakeCap([False, True])
+
+        def opener(spec):
+            return recovered
+
+        mgr = CaptureManager("0", loop=False, reopenable=True,
+                             reopen_interval_s=0.0, reopen_window_s=60.0,
+                             opener=opener)
+        mgr.open()
+        f1 = mgr.read(now_mono=0.0)   # fail -> None, re-open attempt
+        self.assertIsNone(f1)
+        f2 = mgr.read(now_mono=0.1)   # recovered cap now yields a frame
+        self.assertIsNotNone(f2)
+        self.assertFalse(mgr.give_up)
+        # Internal failing timer cleared on recovery.
+        self.assertIsNone(mgr._failing_since)
+
+    def test_sustained_failure_past_window_sets_give_up(self):
+        """After reopen_window_s of continuous failure, give_up is set so the
+        caller exits non-zero."""
+        mgr = CaptureManager("0", loop=False, reopenable=True,
+                             reopen_interval_s=2.0, reopen_window_s=60.0,
+                             opener=lambda spec: _FakeCap([False]))
+        mgr.open()
+        mgr.read(now_mono=0.0)        # start failing timer
+        self.assertFalse(mgr.give_up)
+        mgr.read(now_mono=59.0)       # still within the 60 s window
+        self.assertFalse(mgr.give_up)
+        mgr.read(now_mono=61.0)       # past the bound
+        self.assertTrue(mgr.give_up,
+            "give_up must be set after sustained failure exceeds the window")
+
+    def test_non_reopenable_eof_returns_none_without_giving_up(self):
+        """A finite video (non-reopenable) at EOF returns None as a legitimate
+        end-of-stream — it must NOT arm the give-up bound or attempt re-open."""
+        opens = {"count": 0}
+
+        def opener(spec):
+            opens["count"] += 1
+            return _FakeCap([False])
+
+        mgr = CaptureManager("video.mp4", loop=False, reopenable=False,
+                             opener=opener)
+        mgr.open()
+        frame = mgr.read(now_mono=1000.0)
+        self.assertIsNone(frame)
+        self.assertFalse(mgr.give_up)
+        self.assertEqual(opens["count"], 1,
+            "non-reopenable source must not attempt a re-open")
+
+
+class ResyncNextTickSide03Tests(unittest.TestCase):
+    """SIDE-03: scheduler resync. When the loop falls >2 ticks behind, next_tick
+    snaps to now (missed ticks dropped, not replayed). Otherwise it is left
+    unchanged so normal cadence is preserved."""
+
+    def test_on_time_leaves_next_tick_unchanged(self):
+        next_tick = 100.0
+        now = 100.0  # exactly on time
+        self.assertEqual(resync_next_tick(now, next_tick), next_tick)
+
+    def test_slightly_behind_does_not_resync(self):
+        """One tick behind (< 2 * TARGET_DT_S) must NOT snap — normal jitter is
+        absorbed by the existing cadence sleep, not by dropping ticks."""
+        next_tick = 100.0
+        now = next_tick + 1.0 * TARGET_DT_S
+        self.assertEqual(resync_next_tick(now, next_tick), next_tick)
+
+    def test_just_under_two_ticks_does_not_resync(self):
+        """Just under 2 * TARGET_DT_S behind must NOT snap — only a stall
+        STRICTLY greater than two ticks drops missed ticks. (Exact-boundary
+        equality is float-dependent and not a meaningful contract; we assert
+        just inside the boundary so the behaviour is deterministic.)"""
+        next_tick = 100.0
+        now = next_tick + 1.99 * TARGET_DT_S
+        self.assertEqual(resync_next_tick(now, next_tick), next_tick)
+
+    def test_far_behind_snaps_to_now(self):
+        """A long stall (>2 ticks behind) snaps next_tick to now so the loop
+        does NOT run unthrottled at camera rate to catch up."""
+        next_tick = 100.0
+        now = next_tick + 30.0  # 30 s stall (sleep / AV) — way past 2 ticks
+        self.assertEqual(resync_next_tick(now, next_tick), now)
 
 
 if __name__ == "__main__":

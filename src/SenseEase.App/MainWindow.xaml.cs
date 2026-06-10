@@ -610,6 +610,19 @@ public partial class MainWindow : Window
     private double _displayedCy = 0.5;
     private DateTime _lastRenderUtc;
 
+    // SIDE-04 (CW-10, 2026-06-11): host-side face-loss grace. The sidecar
+    // repeats the last-valid cx/cy at 15 Hz on face loss (face_detected=false),
+    // so the sample stream stays fresh and the 2 s staleness fallback never
+    // fires — the mask would otherwise park at the last gaze position forever.
+    // We track the last time we saw a face-detected sample; once a sample with
+    // FaceDetected==false is older than FaceLossGraceMs since the last detected
+    // face, we treat the pump as INACTIVE so the existing center-lerp eases the
+    // mask back to (0.5, 0.5). C4 prefers this host-side approach over a second
+    // Python-side decay (no double-decay). default seeded so a never-detected
+    // session is inactive until the first real face.
+    private DateTime _lastFaceDetectedUtc = DateTime.MinValue;
+    private const double FaceLossGraceMs = 2000.0;
+
     // M5.1-C PRECONDITION instrumentation (2026-05-29): rolling tick-rate
     // counter so the full-active perf measurement can answer "is the C# 30 Hz
     // timer actually achieving 30 Hz under load, or is starvation causing
@@ -635,9 +648,52 @@ public partial class MainWindow : Window
         try
         {
             var pose = _viewModel.EffectiveHeadPoseReader.ReadLatest();
-            double targetCx = pose?.Cx ?? 0.5;
-            double targetCy = pose?.Cy ?? 0.5;
-            bool active = pose is not null;
+
+            // SIDE-04: a non-null pose is necessary but not sufficient. On
+            // sustained face loss the sidecar keeps emitting the last-valid
+            // cx/cy with FaceDetected==false, so the sample stream stays fresh
+            // and the 2 s staleness fallback never fires — the mask would park
+            // at the last gaze position forever. Consult FaceDetected directly:
+            // a detected face refreshes the grace timer; once a FaceDetected==
+            // false sample is older than FaceLossGraceMs since the last detected
+            // face we treat the gaze as lost. Per C4 we do NOT pass active=false
+            // (that SNAPS the overlay to center); instead we redirect the lerp
+            // TARGET to (0.5, 0.5) and let the existing host-side center-lerp
+            // below ease the mask back smoothly (no double-decay — host-side
+            // only; the sidecar keeps emitting unchanged).
+            var now0 = DateTime.UtcNow;
+            bool gazeValid;
+            if (pose is null)
+            {
+                gazeValid = false; // sidecar dead / stale / not started
+            }
+            else if (pose.FaceDetected)
+            {
+                _lastFaceDetectedUtc = now0;
+                gazeValid = true;
+            }
+            else
+            {
+                // Face not detected this sample. Honour the gaze during the
+                // grace window (brief blink / quick head turn), then ease back.
+                double sinceFaceMs = (now0 - _lastFaceDetectedUtc).TotalMilliseconds;
+                gazeValid = sinceFaceMs <= FaceLossGraceMs;
+            }
+
+            // When the gaze is valid, lerp toward the reported gaze and keep the
+            // overlay active. When it is lost, lerp toward center (the existing
+            // half-life lerp eases the mask back) while keeping the overlay
+            // following the eased position so the recenter is smooth rather than
+            // a snap.
+            double targetCx = gazeValid ? pose!.Cx : 0.5;
+            double targetCy = gazeValid ? pose!.Cy : 0.5;
+            bool active = pose is not null && (gazeValid
+                          // Stay "active" (overlay follows the eased displayed
+                          // position) until the mask has essentially reached
+                          // center, then go inactive so the radius snaps to the
+                          // v0.9 baseline rather than easing indefinitely.
+                          || Math.Abs(_displayedCx - 0.5) > 0.01
+                          || Math.Abs(_displayedCy - 0.5) > 0.01);
 
             // Time-based lerp toward target. 15 ms half-life means we
             // close half the remaining distance every 15 ms, ~30 ms to

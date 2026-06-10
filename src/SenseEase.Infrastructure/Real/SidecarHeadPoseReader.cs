@@ -11,6 +11,28 @@ using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.Infrastructure.Real;
 
+/// <summary>FEAT-08 (CW-10): coarse head-tracking health for the opted-in user.
+/// Derived from what <see cref="SidecarHeadPoseReader"/> already knows — process
+/// exit, the no-frames watchdog, and recent parse activity. NO UI here; B1b
+/// wires Settings + tray surfacing, mirroring the D3 Faulted pattern.</summary>
+public enum HeadTrackingHealth
+{
+    /// <summary>Fresh head-pose samples are arriving within the staleness
+    /// window — tracking is working.</summary>
+    Healthy,
+
+    /// <summary>The sidecar is notionally alive (started, not crashed) but no
+    /// fresh sample has arrived recently (never produced one, or the stream
+    /// stalled). The most common cause is AV hanging the unsigned exe at
+    /// startup, an unavailable webcam, or a MediaPipe init failure.</summary>
+    NoFrames,
+
+    /// <summary>The sidecar process has exited / failed integrity / never
+    /// started, or the reader is disposed. <see cref="SidecarHeadPoseReader.ReadLatest"/>
+    /// returns null and the mask sits at center.</summary>
+    Dead,
+}
+
 /// <summary>M4 (head-tracking sprint): IHeadPoseReader implementation that
 /// spawns the Python sidecar (<c>tools/head-tracker-sidecar/head_tracker.py</c>)
 /// as a child process and consumes one JSON line per frame from its stdout.
@@ -86,6 +108,11 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     private int _started;       // 0 = not started, 1 = started. Interlocked-flag.
     private int _disposed;      // 0 = live, 1 = disposed. Interlocked-flag.
 
+    // FEAT-08 (CW-10): last health value PUBLISHED via HealthChanged. Stored as
+    // the underlying int so it can be swapped with Interlocked. Seeded to Dead
+    // (the pre-Start state) so the first transition to Healthy/NoFrames fires.
+    private int _lastPublishedHealth = (int)HeadTrackingHealth.Dead;
+
     // UI Consolidation Sprint Phase 3 fix (2026-05-30, adversarial review):
     // serialization gate across Stop / Start / Restart / Dispose. Without
     // this, rapid Power Save toggling via MainWindow.ApplyPowerSave's
@@ -146,6 +173,62 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     public int ConsumeReceivedSampleCount()
     {
         return Interlocked.Exchange(ref _receivedSampleCount, 0);
+    }
+
+    /// <summary>FEAT-08 (CW-10): raised when the derived head-tracking health
+    /// transitions (e.g. NoFrames → Healthy on the first frame, Healthy → Dead
+    /// on sidecar exit). Always raised from a BACKGROUND thread (reader Task,
+    /// process-monitor thread, watchdog timer, or a poller's thread) — a
+    /// subscriber touching UI MUST marshal to the dispatcher, exactly like
+    /// <see cref="ReadLatest"/>'s consumer contract. B1b wires this to Settings
+    /// + tray; no UI is consumed here.</summary>
+    public event EventHandler<HeadTrackingHealth>? HealthChanged;
+
+    /// <summary>FEAT-08 (CW-10): current coarse head-tracking health, derived
+    /// live from process / watchdog / parse state. Polling is cheap (a few
+    /// Volatile/Interlocked reads). Does NOT raise <see cref="HealthChanged"/>
+    /// — call <see cref="RefreshHealth"/> for the event-raising path.
+    ///
+    /// <list type="bullet">
+    ///   <item><see cref="HeadTrackingHealth.Dead"/> — disposed, not started,
+    ///         or the sidecar flagged dead (exit / integrity / spawn fail).</item>
+    ///   <item><see cref="HeadTrackingHealth.NoFrames"/> — alive but no fresh
+    ///         sample within <see cref="StalenessThresholdMs"/> (never produced
+    ///         one, or the stream stalled).</item>
+    ///   <item><see cref="HeadTrackingHealth.Healthy"/> — a sample arrived
+    ///         within the staleness window.</item>
+    /// </list></summary>
+    public HeadTrackingHealth Health => ComputeHealth();
+
+    private HeadTrackingHealth ComputeHealth()
+    {
+        if (Volatile.Read(ref _disposed) == 1)   return HeadTrackingHealth.Dead;
+        if (Volatile.Read(ref _started)  == 0)   return HeadTrackingHealth.Dead;
+        if (Volatile.Read(ref _sidecarDead) == 1) return HeadTrackingHealth.Dead;
+
+        long storedAtMs = Interlocked.Read(ref _latestStoredAtMs);
+        if (storedAtMs == 0) return HeadTrackingHealth.NoFrames; // never received a frame
+        long ageMs = Environment.TickCount64 - storedAtMs;       // NE10: monotonic
+        if (ageMs > StalenessThresholdMs) return HeadTrackingHealth.NoFrames;
+        return HeadTrackingHealth.Healthy;
+    }
+
+    /// <summary>FEAT-08 (CW-10): recompute <see cref="Health"/> and raise
+    /// <see cref="HealthChanged"/> if it transitioned since the last publish.
+    /// Called at every state edge the reader already observes (sample stored,
+    /// sidecar exit, spawn failure, stop/restart). B1b's poller / watchdog may
+    /// also call this to catch the time-based Healthy → NoFrames staleness
+    /// edge (which has no underlying event). Idempotent + thread-safe: the
+    /// compare-exchange ensures exactly one subscriber notification per
+    /// distinct transition even under concurrent callers. Never throws —
+    /// a subscriber exception must not destabilise the reader.</summary>
+    public void RefreshHealth()
+    {
+        var current = ComputeHealth();
+        int prev = Interlocked.Exchange(ref _lastPublishedHealth, (int)current);
+        if (prev == (int)current) return; // no transition — stay quiet
+        try { HealthChanged?.Invoke(this, current); }
+        catch { /* a health subscriber must never destabilise the reader */ }
     }
 
     // H35: upper bound on a single stdout line. The bounded reader gives up and
@@ -235,8 +318,11 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         {
             if (!File.Exists(_sidecarExePath))
             {
-                _log?.Invoke($"[SidecarHeadPoseReader] Frozen sidecar exe not found at '{_sidecarExePath}'. Sidecar disabled; ReadLatest will return null.");
+                // SEC-01: redact the user-profile segment of the full exe path
+                // before it reaches wgc_diag.txt / the handbook log-zip.
+                _log?.Invoke(PathRedactor.Redact($"[SidecarHeadPoseReader] Frozen sidecar exe not found at '{_sidecarExePath}'. Sidecar disabled; ReadLatest will return null."));
                 Interlocked.Exchange(ref _sidecarDead, 1);
+                RefreshHealth(); // FEAT-08: spawn precondition failed → Dead
                 return;
             }
 
@@ -253,6 +339,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             {
                 _log?.Invoke("[SidecarHeadPoseReader] head_tracker.exe failed integrity verification. Sidecar disabled; ReadLatest will return null.");
                 Interlocked.Exchange(ref _sidecarDead, 1);
+                RefreshHealth(); // FEAT-08: integrity gate failed → Dead
                 return;
             }
 
@@ -296,9 +383,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
             if (!proc.Start())
             {
-                _log?.Invoke($"[SidecarHeadPoseReader] Process.Start returned false for '{_sidecarExePath} {args}'. Sidecar disabled.");
+                _log?.Invoke(PathRedactor.Redact($"[SidecarHeadPoseReader] Process.Start returned false for '{_sidecarExePath} {args}'. Sidecar disabled.")); // SEC-01
                 Interlocked.Exchange(ref _sidecarDead, 1);
                 _process = null;
+                RefreshHealth(); // FEAT-08: spawn returned false → Dead
                 return;
             }
             proc.BeginErrorReadLine();
@@ -316,13 +404,15 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
 
-            _log?.Invoke($"[SidecarHeadPoseReader] Started pid={proc.Id} '{_sidecarExePath} {args}'");
+            _log?.Invoke(PathRedactor.Redact($"[SidecarHeadPoseReader] Started pid={proc.Id} '{_sidecarExePath} {args}'")); // SEC-01 (the line named in the finding)
+            RefreshHealth(); // FEAT-08: started + spawn ok → NoFrames (until first frame flips Healthy)
             ArmStartupWatchdog(proc);
         }
         catch (Exception ex)
         {
-            _log?.Invoke($"[SidecarHeadPoseReader] Start failed: {ex.GetType().Name}: {ex.Message}. Sidecar disabled.");
+            _log?.Invoke(PathRedactor.Redact($"[SidecarHeadPoseReader] Start failed: {ex.GetType().Name}: {ex.Message}. Sidecar disabled.")); // SEC-01: ex.Message may embed paths
             Interlocked.Exchange(ref _sidecarDead, 1);
+            RefreshHealth(); // FEAT-08: spawn threw → Dead
         }
     }
 
@@ -350,6 +440,9 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                 bool alive;
                 try { alive = !proc.HasExited; } catch { alive = false; }
                 if (!alive) return;                                       // an actual exit is logged by OnProcessExited
+                // FEAT-08: spawned-but-silent → NoFrames transition (B1b surfaces
+                // it). Health is also independently pollable by B1b's timer.
+                RefreshHealth();
                 _log?.Invoke(
                     $"[SidecarHeadPoseReader] WATCHDOG: sidecar pid={pid} spawned but produced 0 head-pose " +
                     $"frames in {StartupNoFrameWatchdogMs / 1000}s — head-tracking will stay INACTIVE (the FOV " +
@@ -434,6 +527,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         if (Volatile.Read(ref _started) == 0) return;
 
         Interlocked.Exchange(ref _sidecarDead, 1);
+        RefreshHealth(); // FEAT-08: caller-initiated stop → Dead transition
         try { _startupWatchdog?.Dispose(); _startupWatchdog = null; } catch { }
         try { _cts?.Cancel(); } catch { }
 
@@ -680,9 +774,15 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
 
                 if (TryParseSampleLine(line, out HeadPoseSample? sample) && sample is not null)
                 {
+                    bool wasFirstOrStale = Interlocked.Read(ref _latestStoredAtMs) == 0;
                     Volatile.Write(ref _latest, sample);
                     Interlocked.Exchange(ref _latestStoredAtMs, Environment.TickCount64);
                     Interlocked.Increment(ref _receivedSampleCount); // M5.1-C
+                    // FEAT-08: first frame (or recovery from a stale gap) is a
+                    // NoFrames/Dead → Healthy transition. RefreshHealth no-ops
+                    // when already Healthy, so the per-frame call is cheap; only
+                    // raise the event on the actual edge to avoid event spam.
+                    if (wasFirstOrStale) RefreshHealth();
                     // H36: a good parse resets the malformed backoff so the next
                     // bad line is logged immediately again.
                     malformedRun     = 0;
@@ -719,7 +819,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         // _sidecarDead=1 onto the new generation would silently brick
         // head-tracking. Mirror the OnProcessExited defense.
         if (ReferenceEquals(proc, _process))
+        {
             Interlocked.Exchange(ref _sidecarDead, 1);
+            RefreshHealth(); // FEAT-08: stdout closed → Dead transition
+        }
     }
 
     // H35: bounded-line read outcomes. A successful read returns the char
@@ -846,7 +949,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         // before the publication side-effect.
         if (!ReferenceEquals(p, _process)) return;
         Interlocked.Exchange(ref _sidecarDead, 1);
-        _log?.Invoke($"[SidecarHeadPoseReader] Sidecar exited (code={exitCode}). stderr tail:\n{tail}");
+        RefreshHealth(); // FEAT-08: unexpected exit → Dead transition
+        // SEC-01: the stderr tail can carry full model/file paths from sidecar
+        // FileNotFoundError messages — redact before it reaches the diag log.
+        _log?.Invoke(PathRedactor.Redact($"[SidecarHeadPoseReader] Sidecar exited (code={exitCode}). stderr tail:\n{tail}"));
     }
 
     private void OnStderrLine(object? sender, DataReceivedEventArgs e)
