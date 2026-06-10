@@ -414,11 +414,40 @@ public partial class App : Application
         AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeShutdownActivityFilter();
         SessionEnding += (_, _) => SafeShutdownActivityFilter();
 
-        // UM4: kick off the silent retrospective user-model analysis (2-minute delay,
-        // cancellable on exit). Invoked here in App.OnStartup so it NEVER runs under
-        // unit tests (which construct MainViewModel directly). The VM owns the shared
-        // habituation-profile store, so the analyser's observation writes stay atomic
-        // against the engine's persist (W2.0-C). Best-effort: never block startup.
+        // UM4: kick off the silent retrospective user-model analysis. App.xaml uses
+        // StartupUri, so Application.MainWindow is still NULL at the end of OnStartup —
+        // the window is created/shown AFTER OnStartup returns. Calling the kickoff here
+        // was a permanent no-op (CW-4). Instead defer the kickoff to AFTER the StartupUri
+        // window exists, via two redundant one-shot hooks that both funnel through the
+        // idempotent OnFirstActivatedStartUserModelAnalysis:
+        //   • Activated fires once the app becomes foreground (normal manual launch);
+        //   • a dispatcher ApplicationIdle callback also covers the autostart
+        //     --minimized case, where the window starts hidden in the tray and may
+        //     never raise Activated — ApplicationIdle still runs once the message pump
+        //     settles, by which point MainWindow.DataContext is the MainViewModel.
+        // The handler self-unsubscribes Activated and the VM entry is itself idempotent
+        // (CTS guard), so whichever hook fires first wins and the second is a no-op. Kept
+        // in App (not the VM) so it NEVER runs under unit tests, which construct
+        // MainViewModel / MainWindow directly without an Application activation.
+        Activated += OnFirstActivatedStartUserModelAnalysis;
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            new Action(() => OnFirstActivatedStartUserModelAnalysis(this, EventArgs.Empty)));
+    }
+
+    /// <summary>CW-4: one-shot kickoff that starts the UM4 retrospective analysis once the
+    /// MainWindow exists (StartupUri creates it AFTER OnStartup returns, so the old
+    /// end-of-OnStartup call saw a null MainWindow and never fired). Reached from two
+    /// redundant hooks (<see cref="Application.Activated"/> + a dispatcher ApplicationIdle
+    /// callback); self-unsubscribes Activated and the VM entry is idempotent, so it runs
+    /// exactly once per app run regardless of which hook fires first. The VM owns the shared
+    /// habituation-profile store, so the analyser's writes stay atomic against the engine's
+    /// persist (W2.0-C). Best-effort: never throws. Internal so a regression test can pin
+    /// the wiring seam without spinning a real WPF Application (its absence means a
+    /// regression back to the inert null-MainWindow inline pattern).</summary>
+    internal void OnFirstActivatedStartUserModelAnalysis(object? sender, EventArgs e)
+    {
+        Activated -= OnFirstActivatedStartUserModelAnalysis; // one-shot per app run
         try
         {
             (MainWindow?.DataContext as SenseEase.App.ViewModels.MainViewModel)

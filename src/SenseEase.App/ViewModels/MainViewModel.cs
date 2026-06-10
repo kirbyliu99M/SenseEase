@@ -196,6 +196,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    /// <summary>D-1 (CW-1 step 3, 2026-06-11): Settings 漸進適應 / Graded exposure
+    /// toggle source of truth. Graded exposure (habituation) defaults PAUSED; this
+    /// is the SOLE user-intent path that flips the engine pause (the old dashboard
+    /// toggle was removed 2026-06-09). ON = resume the program, OFF = pause it.
+    /// Reads through the live engine state (paused → disabled); the setter calls the
+    /// engine path immediately AND persists <see cref="UserPreferences.HabituationEnabled"/>
+    /// so the choice survives restart (re-applied at construction before the first
+    /// Update tick). Selector set-moves preserve the pause; nothing here auto-unpauses.
+    /// Q4.5-safe — SetHabituationPaused never touches the earned _offset.</summary>
+    public bool GradedExposureEnabled
+    {
+        get => !HabituationPaused;
+        set
+        {
+            if (GradedExposureEnabled == value) return; // already at the requested state
+            _engine.SetHabituationPaused(!value);
+            UpdateFromState(_engine.Current);
+            UserPreferences.Current.HabituationEnabled = value;
+            UserPreferences.Current.Save();
+            OnPropertyChanged(nameof(GradedExposureEnabled));
+            AppendLog("Habituation",
+                value ? Loc("已於設定啟用漸進適應。", "Graded exposure enabled in Settings.")
+                      : Loc("已於設定暫停漸進適應。", "Graded exposure paused in Settings."),
+                CurrentState);
+        }
+    }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
     // Stage 7b: pass HabituationStatePath as the wipe-probe artifact so the
@@ -690,22 +717,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // SenseEase.App, so the App layer mirrors the AppConfig flag onto the engine's
         // instance property here at startup — exactly the HeadTrackingEnabled App-only-
         // flag rule (see CreateHeadPoseReader, which reads AppConfig.HeadTrackingEnabled).
-        // Because AppConfig.AdaptiveFitSelectorEnabled defaults to false, this is a no-op
-        // today: the engine stays OFF and the flag-off path is byte-identical. Flipping
-        // the AppConfig flag is the only change needed to activate the selector.
+        // AppConfig.AdaptiveFitSelectorEnabled defaults TRUE since c1461a9, so this arms
+        // the selector at startup; set the AppConfig flag back to false to revert to the
+        // static path (the flag-off path stays byte-identical).
         if (_engine is MockInferenceEngine mockEngineForSelector)
             mockEngineForSelector.AdaptiveFitSelectorEnabled = AppConfig.AdaptiveFitSelectorEnabled;
 
         // Alpha-2 addendum (cancel explicit calibration → auto-profiling): mirror the
         // AutoProfilingEnabled flag onto the engine the same way, THEN seed the fresh-user
-        // TYPICAL / L5「中」 start. Both are no-ops while the flag is OFF (the default), so the
-        // flag-off path stays byte-identical. Full activation pairs this with
-        // AdaptiveFitSelectorEnabled once M1 lands.
+        // TYPICAL / L5「中」 start. AutoProfilingEnabled defaults TRUE since c1461a9 (paired
+        // with AdaptiveFitSelectorEnabled per the "both flags on" decision), so this seeds
+        // the zero-setup start; set the AppConfig flag back to false to restore the explicit-
+        // calibration flow (the flag-off path stays byte-identical).
         if (_engine is MockInferenceEngine mockEngineForAutoProfiling)
         {
             mockEngineForAutoProfiling.AutoProfilingEnabled = AppConfig.AutoProfilingEnabled;
             mockEngineForAutoProfiling.ApplyAutoProfilingStartDefaults();
         }
+
+        // D-1 (CW-1 step 3, 2026-06-11): hydrate the graded-exposure (habituation)
+        // pause from the persisted opt-in BEFORE the first Update tick. Graded
+        // exposure defaults PAUSED (HabituationEnabled = false); the Settings
+        // 漸進適應 / Graded exposure toggle is the sole user-intent flip. Applied
+        // LAST among the engine-state steps so the pause survives the
+        // auto-profiling seed above (seeding sets profile/level, never unpauses).
+        // Q4.5-safe — SetHabituationPaused never touches the earned _offset.
+        _engine.SetHabituationPaused(!UserPreferences.Current.HabituationEnabled);
 
         // M3 7e+ fix: mirror every _log.Append into the dashboard's bound
         // EventLog ObservableCollection so entries originating outside
@@ -1619,11 +1656,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Stop auxiliary services (timers, hooks) on window close.</summary>
     private System.Threading.CancellationTokenSource? _userModelAnalysisCts;
 
-    /// <summary>UM4: start the silent background retrospective user-model analysis
-    /// after a 2-minute idle delay. Fire-and-forget + cancellable (DisposeServices
-    /// cancels it). Called from <see cref="SenseEase.App.App.OnStartup"/> ONLY, so it
-    /// never runs under unit tests (which construct this VM directly). Reuses the
-    /// SHARED _observationWriter (backed by _habituationProfileStore) so the analyser's
+    /// <summary>UM4 first-attempt delay (idle settle before the first analysis pass).</summary>
+    private static readonly TimeSpan UserModelFirstAttemptDelay = TimeSpan.FromMinutes(2);
+
+    /// <summary>UM4 retry cadence after a failed attempt (LLM not up yet / transient
+    /// error). The loop runs for the whole app session — there is no attempt cap; it
+    /// stops only when one attempt completes with the LLM available (or on cancel).</summary>
+    private static readonly TimeSpan UserModelRetryInterval = TimeSpan.FromMinutes(10);
+
+    /// <summary>UM4: start the silent background retrospective user-model analysis.
+    /// First attempt after a 2-minute idle delay, then a bounded-to-the-session retry
+    /// every ~10 minutes until one attempt finds the LLM available and completes (the
+    /// llama-server lazy-loads on first chat, so the first pass usually misses it).
+    /// Fire-and-forget + cancellable (DisposeServices cancels the loop). Called from
+    /// <see cref="SenseEase.App.App"/>'s one-shot window-activation hook ONLY, so it
+    /// never runs under unit tests (which construct this VM directly). Reuses the SHARED
+    /// _observationWriter (backed by _habituationProfileStore) so the analyser's
     /// observation writes stay atomic against the engine's persist (W2.0-C per-instance
     /// lock); the index store shares the same profile-store instance for the same reason.</summary>
     public void StartBackgroundUserModelAnalysis()
@@ -1636,19 +1684,57 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             try
             {
-                await System.Threading.Tasks.Task.Delay(TimeSpan.FromMinutes(2), ct).ConfigureAwait(false);
-                var analyzer = new UserModelRetrospectiveAnalyzer(
-                    new LlamaServerCalibrationClient(),
-                    new FileChatHistoryStore(AppConfig.ChatHistoryPath),
-                    _observationWriter, // shared-store writer (atomic vs engine persist)
-                    new UserModelIndexStore(
-                        AppConfig.UserModelIndexPath, AppConfig.BehaviorLogPath, _habituationProfileStore));
-                await analyzer.RunAsync(ct).ConfigureAwait(false);
+                var delay = UserModelFirstAttemptDelay;
+                while (true)
+                {
+                    await System.Threading.Tasks.Task.Delay(delay, ct).ConfigureAwait(false);
+
+                    // The llama-server lazy-loads on first chat; LlamaSessionKey.Current is
+                    // published at spawn and cleared at teardown, so a non-null key is the
+                    // App-readable "LLM is up" signal. Only run a real pass when it's up.
+                    bool llmAvailable = LlamaSessionKey.Current is not null;
+                    bool ranToCompletion = false;
+                    if (llmAvailable)
+                    {
+                        var analyzer = new UserModelRetrospectiveAnalyzer(
+                            new LlamaServerCalibrationClient(),
+                            new FileChatHistoryStore(AppConfig.ChatHistoryPath),
+                            _observationWriter, // shared-store writer (atomic vs engine persist)
+                            new UserModelIndexStore(
+                                AppConfig.UserModelIndexPath, AppConfig.BehaviorLogPath, _habituationProfileStore));
+                        // A faulted attempt (e.g. AV file-lock at index load/save) must NOT
+                        // escape the while-loop into the outer catch — that would permanently
+                        // end the session's retry task. Swallow non-cancellation faults here so
+                        // ranToCompletion stays false and the loop retries via
+                        // ShouldRetryUserModelAnalysis(true, false). Cancellation still propagates.
+                        try
+                        {
+                            await analyzer.RunAsync(ct).ConfigureAwait(false);
+                            ranToCompletion = true;
+                        }
+                        catch (OperationCanceledException) { throw; } // app exiting / superseded
+                        catch { /* transient fault → retry next interval (ranToCompletion stays false) */ }
+                    }
+
+                    // Stop once an attempt completed with the LLM up; otherwise wait the
+                    // retry interval and try again (no attempt cap — the session is the cap).
+                    if (!ShouldRetryUserModelAnalysis(llmAvailable, ranToCompletion)) return;
+                    delay = UserModelRetryInterval;
+                }
             }
             catch (OperationCanceledException) { /* app exiting / superseded */ }
             catch { /* silent — retrospective analysis must never disturb the user */ }
         }, ct);
     }
+
+    /// <summary>UM4 retry decision, extracted pure + static so it unit-tests without a
+    /// real timer (mirrors <see cref="DeriveLiveness"/>). Returns true ⇒ schedule another
+    /// retry, false ⇒ the loop is done for this session. Retry while the LLM is not yet
+    /// available (the common first-pass case before any chat spawns the server); stop only
+    /// once an attempt ran to completion with the LLM up. An available-but-incomplete
+    /// attempt (RunAsync faulted) is treated as a transient failure and retried.</summary>
+    internal static bool ShouldRetryUserModelAnalysis(bool llmAvailable, bool ranToCompletion)
+        => !(llmAvailable && ranToCompletion);
 
     public void DisposeServices()
     {
