@@ -66,6 +66,21 @@ public partial class SettingsWindow : Window
         get => ContentHost.ResetRequested;
         set => ContentHost.ResetRequested = value;
     }
+    /// <summary>D-1 (CW-1 step 3, 2026-06-11): pass-through for the 漸進適應 / Graded exposure
+    /// toggle. Wired by the host (MainWindow) to MainViewModel.GradedExposureEnabled so this
+    /// tray/gear window flips the engine pause in-session, matching the console 設定 tab. Left
+    /// unset on paths without a MainViewModel (the toggle then hydrates from / persists the
+    /// pref directly via the UserControl's null-fallback).</summary>
+    public Func<bool>? GetGradedExposure
+    {
+        get => ContentHost.GetGradedExposure;
+        set => ContentHost.GetGradedExposure = value;
+    }
+    public Action<bool>? SetGradedExposure
+    {
+        get => ContentHost.SetGradedExposure;
+        set => ContentHost.SetGradedExposure = value;
+    }
     /// <summary>Pass-through for the "open Event Log window" action (2026-06-07).
     /// Wired by the host that owns the MainViewModel (MainWindow); left unset on
     /// paths that don't (the Event Log card then stays hidden).</summary>

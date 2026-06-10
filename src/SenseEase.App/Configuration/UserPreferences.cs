@@ -54,8 +54,10 @@ public enum AppThemeMode
 ///   <item><see cref="AutoExpandNotifications"/> = <c>false</c> — Toggle A.
 ///         Active intervention (auto-expand cards) requires explicit user
 ///         opt-in. Passive signal (bar/tray colour) is the default.</item>
-///   <item><see cref="BarTrayColorEnabled"/> = <c>true</c> — Toggle B.
-///         Bar + tray icon reflect tier via the 3-band colour map.</item>
+///   <item><see cref="BarTrayColorEnabled"/> = <c>false</c> — Toggle B.
+///         Default OFF as of the v0.8 hotfix (the colour-changing bar read as
+///         disruptive ambient noise); the bar/tray stay grey until the user
+///         opts in. See the property doc on <see cref="BarTrayColorEnabled"/>.</item>
 ///   <item><see cref="VestibularWarningShown"/> = <c>false</c> — set once
 ///         when the user accepts the vestibular safety dialog (single-warning
 ///         rule per spec §4 safety floor).</item>
@@ -193,6 +195,23 @@ public sealed class UserPreferences
     [JsonPropertyName("head_tracking_escape_hatch_enabled")]
     public bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
 
+    // ── Graded-exposure (habituation) opt-in (D-1, 2026-06-11) ──────────────
+
+    /// <summary>D-1 (CW-1 step 3): master opt-in for the graded-exposure
+    /// (habituation) program. Default <c>false</c> = PAUSED — graded exposure
+    /// stays off until the user opts in via Settings → 漸進適應 / Graded exposure.
+    /// This Settings toggle is the SOLE user-intent path that flips the engine's
+    /// habituation pause (the old dashboard toggle was removed 2026-06-09); the
+    /// only other legitimate resume is the explicit AcknowledgeAndResume chat
+    /// flow. Selector set-moves preserve the pause and never auto-unpause.
+    /// <para>Hydrated at startup in MainViewModel right after the engine is
+    /// constructed: <c>SetHabituationPaused(!HabituationEnabled)</c>, so the
+    /// engine's pause state matches this pref before the first Update tick.
+    /// Rolls forward like every other additive field — old v=1..3 files load
+    /// cleanly with the field absent (defaults to paused), so no version bump.</para></summary>
+    [JsonPropertyName("habituation_enabled")]
+    public bool HabituationEnabled { get; set; } = false;
+
     // ── Notification HUD card position (2026-06-07) ─────────────────────────
 
     /// <summary>HUD-card rework: persisted X (Left) of the draggable notification
@@ -281,9 +300,8 @@ public sealed class UserPreferences
 
     /// <summary>Path to the on-disk preferences file. Public so docs +
     /// support tools can reference it; not intended for direct read/write.</summary>
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SenseEase", "user-preferences.json");
+    public static string FilePath => Path.Combine(
+        AppConfig.DataRoot, "SenseEase", "user-preferences.json");
 
     /// <summary>Loads preferences from <see cref="FilePath"/>. Returns a
     /// defaults-only instance if the file is missing OR if the loaded

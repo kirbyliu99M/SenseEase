@@ -400,6 +400,46 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ═══ Section 3.4 · 漸進適應 / Graded exposure (D-1) ═══════════
+                     D-1 (CW-1 step 3, 2026-06-11): the graded-exposure (habituation)
+                     opt-in reinstated as a Settings toggle. Graded exposure defaults
+                     PAUSED; the old dashboard toggle was removed 2026-06-09, so this
+                     is the only user-intent path that resumes/pauses the program.
+                     Mirrors the head-tracking group's chrome + SettingSwitch toggle
+                     + ≥12px caption exactly. Hydrated from the host's live engine
+                     state (or the persisted pref on the no-MainViewModel popup) in
+                     RefreshFromPreferences, guarded by _wiring. Copy is §6-compliant:
+                     describes the APP relaxing protection while the user is
+                     comfortable — no 耐受/tolerance/therapy/recovery claims. -->
+                <Border Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="{loc:T Zh='漸進適應', En='Graded exposure'}"
+                                   Margin="0,0,0,14"/>
+
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox x:Name="ToggleGradedExposure"
+                                      Style="{StaticResource SettingSwitch}"
+                                      Content="{loc:T Zh='啟用漸進適應（緩慢提高舒適度）', En='Enable graded exposure (slowly builds comfort)'}"
+                                      Foreground="{DynamicResource TextPrimary}"
+                                      FontSize="13"
+                                      Checked="OnToggleGradedExposureChanged"
+                                      Unchecked="OnToggleGradedExposureChanged"/>
+                            <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="22,4,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- ═══ Section 3.5 · 事件記錄 / Event Log ═══════════════════════
                      UI/UX fine-tune (2026-06-07): the former top-level 事件記錄 tab
                      became a button here that opens the dedicated EventLogWindow —

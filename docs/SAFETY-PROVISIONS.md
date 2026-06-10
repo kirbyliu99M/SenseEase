@@ -174,6 +174,49 @@ apply-time intercepts (never auto-apply across a Disable boundary).
 
 ---
 
+## 3.2 Graded-exposure opt-in — sole Settings toggle (D-1, 2026-06-11)
+
+**What**: the graded-exposure (habituation) program — the engine slowly
+relaxing protection while the user is comfortable — defaults **PAUSED** and is
+opt-in. The **only** user-intent control that flips that pause is the Settings
+toggle **設定 → 漸進適應 / Graded exposure** (`SettingsContent.xaml`,
+`x:Name="ToggleGradedExposure"`). The old dashboard pause/resume toggle was
+removed 2026-06-09, so this is the single opt-in/opt-out surface.
+
+**Where**:
+- **Pref (source of truth across restarts)**: `UserPreferences.HabituationEnabled`
+  (`habituation_enabled`, default `false` = paused; additive field, rolls
+  forward, no schema bump).
+- **Engine flip**: `MainViewModel.GradedExposureEnabled` calls
+  `IInferenceEngine.SetHabituationPaused(!enabled)` and persists the pref. The
+  toggle reaches it via the host-wired `SettingsContent.SetGradedExposure`
+  action (same pattern as the vestibular "regret" toggle); on the
+  no-MainViewModel notification-card popup the handler persists the pref
+  directly and the engine hydrates it at next launch.
+- **Startup hydration**: `MainViewModel` ctor calls
+  `SetHabituationPaused(!HabituationEnabled)` right after the engine is
+  constructed — so the pause state matches the pref **before the first Update
+  tick**, applied last among the engine-state seeds so it survives
+  auto-profiling defaults.
+
+**Contract — who may flip the pause (D-1)**: ONLY this Settings toggle and the
+explicit **AcknowledgeAndResume** chat flow
+(`MockInferenceEngine.AcknowledgeAndResumeHabituation`, gated to the
+tier≥8 `PausedAwaitingUserConfirm` check-in) change the pause by user intent.
+Adaptive-fit selector set-moves **preserve** the pause and never auto-unpause;
+no other path may auto-resume graded exposure.
+
+**Q4.5**: `SetHabituationPaused` toggles the pause flag only — it NEVER clears
+the earned habituation `_offset`. Pausing then resuming returns the user to
+their accumulated progress, not to zero.
+
+**Failure mode if disabled**: graded exposure runs without the user opting in
+(silent relaxation of protection) — the exact harm the §3 vestibular hard cap
+and §4 intercepts exist to prevent for engine-/chatbot-proposed relaxation,
+here applied to the program-level pause.
+
+---
+
 ## 4. Defensive intercept layer
 
 **Where**: `HabituationOverrideApplicator.CheckSafetyIntercepts` (static,

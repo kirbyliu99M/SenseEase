@@ -60,6 +60,24 @@ public partial class SettingsContent : UserControl
     /// MainViewModel.ResetStateCommand (Q4.5-safe — preserves the habituation offset).</summary>
     public Action? ResetRequested { get; set; }
 
+    /// <summary>D-1 (CW-1 step 3, 2026-06-11): host-provided read of the graded-exposure
+    /// (habituation) opt-in for the 漸進適應 / Graded exposure toggle's checked state.
+    /// Wired by the host (MainWindow) to MainViewModel.GradedExposureEnabled (true =
+    /// program running, false = paused). When null (e.g. the notification-card quick
+    /// Settings popup, which has no MainViewModel) the toggle hydrates from the persisted
+    /// pref instead. Read-only consumption — the engine flip is the host's job via the
+    /// matching <see cref="SetGradedExposure"/> action.</summary>
+    public Func<bool>? GetGradedExposure { get; set; }
+
+    /// <summary>D-1: host-provided write of the graded-exposure toggle. Wired by the host
+    /// (MainWindow) to MainViewModel.GradedExposureEnabled, which flips the engine pause
+    /// AND persists the pref. This is the ONE legitimate user-intent flip of the habituation
+    /// pause (the old dashboard toggle was removed 2026-06-09). When null the handler still
+    /// persists <see cref="UserPreferences.HabituationEnabled"/> directly so the choice
+    /// survives restart; the engine then picks it up at next launch (construction-time
+    /// hydration). Q4.5-safe — never clears the earned habituation offset.</summary>
+    public Action<bool>? SetGradedExposure { get; set; }
+
     /// <summary>Host-provided action that opens the dedicated Event Log window
     /// (2026-06-07: the Event Log moved out of a top-level tab into Settings).
     /// Wired by the host that owns the MainViewModel; when null (e.g. the quick
@@ -157,6 +175,14 @@ public partial class SettingsContent : UserControl
             FollowModeBalanced.IsChecked = !isFullFollow;
             FollowModeFull.IsChecked     =  isFullFollow;
 
+            // D-1 (CW-1 step 3, 2026-06-11): hydrate the 漸進適應 / Graded exposure toggle.
+            // Prefer the host's live engine state (true = running, false = paused) when
+            // wired; fall back to the persisted opt-in on the no-MainViewModel popup path.
+            // Guarded by _wiring so the Checked/Unchecked handler does not re-enter the
+            // engine/Save path during hydration.
+            ToggleGradedExposure.IsChecked =
+                GetGradedExposure?.Invoke() ?? UserPreferences.Current.HabituationEnabled;
+
             // Alpha-2 addendum: the vestibular "regret" toggle + the moved Reset are shown
             // ONLY in the auto-profiling world AND only when the host wired the callbacks
             // (the NotificationCard→Settings path doesn't, so it won't show an inert group).
@@ -238,6 +264,30 @@ public partial class SettingsContent : UserControl
         UserPreferences.Current.HeadTrackingEnabled = desired;
         UserPreferences.Current.Save();
         AppConfig.HeadTrackingEnabled = desired;
+    }
+
+    /// <summary>D-1 (CW-1 step 3, 2026-06-11): the 漸進適應 / Graded exposure toggle changed.
+    /// This is the SOLE user-intent path that resumes/pauses the habituation program (the
+    /// old dashboard toggle was removed 2026-06-09). Routes the new value to the host
+    /// (MainViewModel.GradedExposureEnabled), which flips the engine pause immediately AND
+    /// persists the pref. On the no-MainViewModel popup path (SetGradedExposure unwired) we
+    /// still persist the pref directly so the choice survives restart; the engine picks it up
+    /// at next launch via construction-time hydration. Suppressed during hydration
+    /// (<see cref="_wiring"/>). Q4.5-safe — never clears the earned habituation offset.</summary>
+    private void OnToggleGradedExposureChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        bool desired = ToggleGradedExposure.IsChecked == true;
+        if (SetGradedExposure is not null)
+        {
+            SetGradedExposure.Invoke(desired); // host flips the engine pause + persists
+        }
+        else
+        {
+            // No host engine on this surface — persist so a later launch hydrates the pause.
+            UserPreferences.Current.HabituationEnabled = desired;
+            UserPreferences.Current.Save();
+        }
     }
 
     private void OnFollowModeChanged(object sender, RoutedEventArgs e)
