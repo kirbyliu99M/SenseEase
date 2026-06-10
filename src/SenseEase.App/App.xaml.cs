@@ -484,6 +484,33 @@ public partial class App : Application
                 $"{ex.GetType().Name}: {ex.Message} — leaving stale file in place");
         }
 
+        // FEAT-13/DEAD-07: one-time startup migration delete for the orphaned
+        // calibration_history.jsonl. The calibration subsystem (CalibrationChatbotService
+        // + its writer) was removed with D-13; the file is content-bearing PII (calibration
+        // Q&A, may include health details) that survived every in-app Settings clear on
+        // upgraded installs. Delete it so the user's data folder stays clean on all
+        // launch paths — even for users who never open Settings. Mirrors the existing
+        // display-baseline.json migration pattern exactly: best-effort, logged, never throws.
+        // T4 (Settings clear-all) also deletes it; both are correct and idempotent.
+        try
+        {
+            string orphanedCalibrationHistory = Configuration.AppConfig.CalibrationHistoryPath;
+            if (File.Exists(orphanedCalibrationHistory))
+            {
+                File.Delete(orphanedCalibrationHistory);
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [App.OnStartup] orphaned calibration_history.jsonl deleted (FEAT-13/DEAD-07 migration)");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort — a permission error or AV lock just leaves the
+            // stale file in place; no functional impact (no consumer reads it).
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.OnStartup] calibration_history.jsonl delete failed: " +
+                $"{ex.GetType().Name}: {ex.Message} — leaving stale file in place");
+        }
+
         // UM4: kick off the silent retrospective user-model analysis. App.xaml uses
         // StartupUri, so Application.MainWindow is still NULL at the end of OnStartup —
         // the window is created/shown AFTER OnStartup returns. Calling the kickoff here

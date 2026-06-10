@@ -1,6 +1,6 @@
 # All log paths and locations
 
-> **Flag:** This document is the canonical enumeration of every log file, user-profile file, persisted-state file, and diagnostic sink the SenseEase desktop app reads or writes on a user's machine. Generated 2026-05-31 at v0.11-Unreleased (HEAD = `c47bb21` on `main`). Update on every commit that adds, removes, or relocates a path.
+> **Flag:** This document is the canonical enumeration of every log file, user-profile file, persisted-state file, and diagnostic sink the SenseEase desktop app reads or writes on a user's machine. Generated 2026-05-31 at v0.11-Unreleased (HEAD = `c47bb21` on `main`); last updated 2026-06-11, branch `alpha1-w2-engine-integrity` (B1b: H51 diag-path fix, FEAT-13/DEAD-07 migration, collect-logs.ps1, model_trace SenseEaseDataRoot note). Update on every commit that adds, removes, or relocates a path.
 
 Two roots cover all persistent user-machine state:
 
@@ -22,15 +22,15 @@ A fourth class is **repo-tracked baseline artifacts** under `baseline/` and `pub
 | `habituation.json` | `%LOCALAPPDATA%\SenseEase\habituation.json` | [AppConfig.HabituationStatePath](../src/SenseEase.App/Configuration/AppConfig.cs#L182) → [FileHabituationStore](../src/SenseEase.Infrastructure/Storage/FileHabituationStore.cs) | Legacy offset-only file (Phase 3). Coexists with `habituation_profile.json`; presence drives synthesize-defaults edge case in store loader. | JSON (single offset) | Permanent until user deletes |
 | `adjustments.jsonl` | `%LOCALAPPDATA%\SenseEase\adjustments.jsonl` | [AppConfig.AdjustmentLogPath](../src/SenseEase.App/Configuration/AppConfig.cs#L148) → [FileAdjustmentLog](../src/SenseEase.Infrastructure/Storage/FileAdjustmentLog.cs) | Per-user personalization adjustment log (Phase 2.4) — survives restarts | JSONL (append) | Permanent until user deletes |
 | `chat_history.jsonl` | `%LOCALAPPDATA%\SenseEase\chat_history.jsonl` | [AppConfig.ChatHistoryPath](../src/SenseEase.App/Configuration/AppConfig.cs#L188) → [FileChatHistoryStore](../src/SenseEase.Infrastructure/Storage/FileChatHistoryStore.cs) | Phase 4 main chatbot transcript — survives restarts so returning user sees prior context | JSONL (append, best-effort) | Permanent until user deletes |
-| `calibration_history.jsonl` | `%LOCALAPPDATA%\SenseEase\calibration_history.jsonl` | [AppConfig.CalibrationHistoryPath](../src/SenseEase.App/Configuration/AppConfig.cs#L195) | Phase 5b calibration-mode LLM transcript — separate from main chat so VIMS-monitoring context never bleeds into longitudinal-comparison reasoning | JSONL (append) | Permanent until user deletes |
-| `model_trace.jsonl` | `%LOCALAPPDATA%\SenseEase\model_trace.jsonl` | [MistralChatbotService.LogModelTrace](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L423) | Raw model input + raw output (every chatbot turn) — used to distinguish "model produced empty reply, lexicon backfilled" from "model produced the right reply" | JSONL (append) | Permanent; tail to verify model behavior |
+| `calibration_history.jsonl` | `%LOCALAPPDATA%\SenseEase\calibration_history.jsonl` | **REMOVED** — writer deleted with calibration subsystem (D-13); migration delete at [App.OnStartup (FEAT-13/DEAD-07)](../src/SenseEase.App/App.xaml.cs) | Phase 5b calibration-mode LLM transcript (content-bearing PII). Writer removed at D-13; file is deleted on first startup post-upgrade. T4 Settings clear-all also deletes it (both are correct). | JSONL (append) — no writer | Deleted by migration; absence is steady state |
+| `model_trace.jsonl` | `%LOCALAPPDATA%\SenseEase\model_trace.jsonl` | [MistralChatbotService.LogModelTrace](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L423) | Raw model input + raw output (every chatbot turn) — used to distinguish "model produced empty reply, lexicon backfilled" from "model produced the right reply". Path resolves through `SenseEaseDataRoot.Provider` (set by App.xaml.cs at startup), so test suites redirect via `DataRootOverride` and the trace never lands in the developer's data folder. | JSONL (append) | Permanent; tail to verify model behavior |
 | `llama-server.log` | `%LOCALAPPDATA%\SenseEase\llama-server.log` | [MistralChatbotService](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L265) | llama-server.exe stdout+stderr tee via cmd.exe wrapper | Plain text (append) | Truncated on each app start (File.Delete then append) |
 | `behavior_log.jsonl` | `%LOCALAPPDATA%\SenseEase\behavior_log.jsonl` | [AppConfig.BehaviorLogPath](../src/SenseEase.App/Configuration/AppConfig.cs) → [DailyBehaviorAggregateWriter](../src/SenseEase.Infrastructure/Storage/DailyBehaviorAggregateWriter.cs) | **UM1** daily passive behaviour aggregate — one **numeric-only** row per day (session minutes, ofi p50/p90, tier modal, spike/stable-window/mask counts, offset delta). No raw text → no PII. | JSONL (append, idempotent by `date`) | Permanent until user deletes / H24 clear / H25 uninstall. No rotation (Pre-Alpha follow-up) |
 | `user_model_index.json` | `%LOCALAPPDATA%\SenseEase\user_model_index.json` | [AppConfig.UserModelIndexPath](../src/SenseEase.App/Configuration/AppConfig.cs) → [UserModelIndexStore](../src/SenseEase.Infrastructure/Storage/UserModelIndexStore.cs) | **UM3** incremental-analysis index — `last_analyzed_chat_turn_index` + per-month `bucket_manifest`. Carries `exportable:false` / `deletable_on_clear:true`. | JSON schema v1, atomic tmp+File.Replace | Permanent until user deletes / H24 clear / H25 uninstall |
 | `crash.log` | `%LOCALAPPDATA%\SenseEase\crash.log` | [App.xaml.cs:18-86](../src/SenseEase.App/App.xaml.cs#L18-L86) | Crash logger — Dispatcher / AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException. Best-effort, never throws inside itself. | Plain text (append) | Permanent. **First file to check on "cannot start" reports.** |
 | `first-run-complete.flag` | `%LOCALAPPDATA%\SenseEase\first-run-complete.flag` | [AppConfig.MarkFirstRunComplete](../src/SenseEase.App/Configuration/AppConfig.cs#L171) | Empty marker file — presence is the entire signal. Drives dashboard welcome banner suppression. | Empty (mtime = first-completion timestamp) | Permanent until user deletes |
-| `wgc_diag.txt` | `%TEMP%\wgc_diag.txt` | [WgcDiagLog.Append](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L43) | **Primary diagnostic sink.** WGC Sensing + Sidecar lifecycle + Tray ctor + MainWindow load + 9 ex-SafeLog sites all route here. Clause-5 reference: append-only, retry-on-IOException, `[N=xxxxxxx]` monotonic sequence prefix. | Plain text (append) | Subject to %TEMP% auto-cleanup |
-| `wgc_diag.lost.log` | `%TEMP%\wgc_diag.lost.log` | [WgcDiagLog](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L46) | **Orthogonal loss sink** (UVHS Playbook clause 5). When primary sink IOException retry exhausts, message goes here. SilentLossCount counter exposed for invariant tests. | Plain text (append) | Subject to %TEMP% auto-cleanup |
+| `wgc_diag.txt` | `%LOCALAPPDATA%\SenseEase\diag\wgc_diag.txt` | [WgcDiagLog.Append](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L43) | **Primary diagnostic sink.** WGC Sensing + Sidecar lifecycle + Tray ctor + MainWindow load + 9 ex-SafeLog sites all route here. Clause-5 reference: append-only, retry-on-IOException, `[N=xxxxxxx]` monotonic sequence prefix. H51: moved from `%TEMP%` to `%LOCALAPPDATA%\SenseEase\diag\` so the usage-time fingerprint is cleaned by H25 uninstall instead of leaking across runs until 30-day %TEMP% auto-cleanup. Rotates to `wgc_diag.prev.txt` at 5 MB. | Plain text (append, rotated at 5 MB) | Durable; cleaned by H25 uninstall |
+| `wgc_diag.lost.log` | `%LOCALAPPDATA%\SenseEase\diag\wgc_diag.lost.log` | [WgcDiagLog](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L46) | **Orthogonal loss sink** (UVHS Playbook clause 5). When primary sink IOException retry exhausts, message goes here. SilentLossCount counter exposed for invariant tests. H51: moved from `%TEMP%` alongside `wgc_diag.txt`. | Plain text (append) | Durable; cleaned by H25 uninstall |
 | `wgc_ofi_trace.txt` | `%TEMP%\wgc_ofi_trace.txt` | [WgcSensingProvider.OnTick](../src/SenseEase.Infrastructure/Real/WgcSensingProvider.cs#L313) | Per-tick OFI trace (env-var gated; zero overhead in production). Header line written once on Start; per-tick rows appended. | CSV-like text (append) | Subject to %TEMP% auto-cleanup |
 | `display-baseline.json` | `%LOCALAPPDATA%\SenseEase\display-baseline.json` | **REMOVED at v0.11** ([App.OnStartup migration](../src/SenseEase.App/App.xaml.cs#L190-L218)) | Display Comfort decommissioned. Idempotent one-time delete on startup; never re-created. | — | Deleted; absence is the steady state |
 
@@ -51,7 +51,7 @@ Resolved via `Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicati
 #### Transcripts (append-only JSONL)
 
 - **[chat_history.jsonl](../src/SenseEase.App/Configuration/AppConfig.cs#L188)** — main chatbot turns. Best-effort; if append fails, the turn is dropped from history but rendered to UI.
-- **[calibration_history.jsonl](../src/SenseEase.App/Configuration/AppConfig.cs#L195)** — calibration-mode LLM turns. **Intentionally separate** from `chat_history.jsonl` so VIMS-monitoring context (main chat) and longitudinal-comparison reasoning (calibration) do not cross-contaminate. See [CalibrationChatbotService](../src/SenseEase.Infrastructure/Real/CalibrationChatbotService.cs).
+- ~~**calibration_history.jsonl**~~ — **REMOVED (D-13 / FEAT-13/DEAD-07)**. Writer (CalibrationChatbotService) deleted with the calibration subsystem. File is content-bearing PII (calibration Q&A, may include health details). [App.OnStartup](../src/SenseEase.App/App.xaml.cs) performs an idempotent `File.Delete` on every launch (FEAT-13/DEAD-07 migration) so upgraded installs are cleaned on first run. T4 (Settings clear-all) also deletes it. Path constant `AppConfig.CalibrationHistoryPath` is retained as the migration's path source only. Absence is the steady state.
 - **[model_trace.jsonl](../src/SenseEase.Infrastructure/Real/MistralChatbotService.cs#L423)** — every (user_text, raw_model_output) pair across both chatbots. Per-line JSON object with `t`, `user`, raw model fields. Critical for distinguishing model-produced replies from lexicon-backfilled empties. Used as a verbatim trace source by [HabituationOverrideParserRealLlmTraceTests](../tests/SenseEase.Tests/HabituationOverrideParserRealLlmTraceTests.cs).
 - **[adjustments.jsonl](../src/SenseEase.App/Configuration/AppConfig.cs#L148)** — per-user personalization adjustments. Survives restarts. [FileAdjustmentLog](../src/SenseEase.Infrastructure/Storage/FileAdjustmentLog.cs) is the writer.
 
@@ -67,20 +67,29 @@ Resolved via `Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicati
 
 - **[first-run-complete.flag](../src/SenseEase.App/Configuration/AppConfig.cs#L165)** — file presence is the entire signal (banner shown iff file does not exist). Content = UTC ISO-8601 timestamp written via `File.WriteAllText` but never read. Lives alongside other LocalAppData state so a manual wipe of `%LOCALAPPDATA%\SenseEase\` also resets first-run.
 
-#### Removed at v0.11 (one-time migration deletes it)
+#### Removed (one-time migration deletes on startup)
 
 - **`display-baseline.json`** — Display Comfort feature decommissioned (UI Consolidation Sprint Phase 4). [App.OnStartup](../src/SenseEase.App/App.xaml.cs#L190-L218) performs an idempotent `File.Delete` on every launch; absence is the steady state. Migration is in [CHANGELOG.md v0.11 Removed](../CHANGELOG.md). Outcome of delete is logged through [WgcDiagLog](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs).
+- **`calibration_history.jsonl`** — Calibration subsystem removed (D-13 / FEAT-13/DEAD-07). Content-bearing PII; writer (CalibrationChatbotService) deleted. [App.OnStartup (FEAT-13/DEAD-07)](../src/SenseEase.App/App.xaml.cs) performs an idempotent `File.Delete` via `AppConfig.CalibrationHistoryPath` on every launch so upgraded installs are cleaned even if the user never visits Settings. T4 (Settings clear-all) also deletes it. Outcome logged through [WgcDiagLog](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs).
 
-### 2.2 `%TEMP%\` — diagnostic sinks (subject to OS cleanup)
+### 2.2 `%LOCALAPPDATA%\SenseEase\diag\` — diagnostic sinks (H51: moved from `%TEMP%`)
 
-Resolved via `Path.GetTempPath()` which returns `C:\Users\<user>\AppData\Local\Temp\` on Windows 11.
+**H51 (B1a):** `wgc_diag.txt` and `wgc_diag.lost.log` were moved from `%TEMP%` to `%LOCALAPPDATA%\SenseEase\diag\` so the usage-time fingerprint is cleaned by the H25 uninstall flow instead of leaking across runs until 30-day `%TEMP%` auto-cleanup. The fallback (if `LocalApplicationData` is unavailable) is still `%TEMP%`.
+
+Resolved via `Environment.GetFolderPath(SpecialFolder.LocalApplicationData)` + `"SenseEase\diag"`. Directory created on first `WgcDiagLog.Append` call.
 
 - **[wgc_diag.txt](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L43)** — **single most important diagnostic file.** UVHS Playbook clause 5 reference implementation:
   - Append-only (no `WriteAllText` ever — historical bug that silently truncated)
   - Retry on `IOException` (concurrent-writer contention)
   - `[N=xxxxxxx]` monotonic sequence prefix on every line (orthogonal probe — gaps detect silent loss)
+  - Rotates to `wgc_diag.prev.txt` at 5 MB (H51/H36)
   - 9 ex-`SafeLog` call sites route through this single sink: `[App.xaml.cs]`, `[MainWindow.xaml.cs]`, `[MainViewModel.cs]`, `[TrayIconService.cs]`, `[ValidationModeBanner.cs]`, plus `WgcSensingProvider` lifecycle, sidecar lifecycle, mutex catch, hydrate fail. See [WgcDiagLog.cs](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs) header XML doc for full call-site enumeration.
 - **[wgc_diag.lost.log](../src/SenseEase.Infrastructure/Real/WgcDiagLog.cs#L46)** — independent loss sink (clause 5). When primary append's retry budget exhausts, the message is written here instead. `WgcDiagLog.SilentLossCount` is incremented for invariant testing. **This file existing with content = silent-loss occurred on primary; investigate the parent run.**
+
+### 2.2b `%TEMP%\` — remaining items in temp (subject to OS cleanup)
+
+Resolved via `Path.GetTempPath()` which returns `C:\Users\<user>\AppData\Local\Temp\` on Windows 11.
+
 - **[wgc_ofi_trace.txt](../src/SenseEase.Infrastructure/Real/WgcSensingProvider.cs#L313)** — env-var gated (`SENSEEASE_WGC_OFI_TRACE=1`). Zero overhead when off (env var read once at Start). Per-tick OFI trace for dev diagnostics. Header line written once; one row per tick. Trace path also referenced from [MainWindow.xaml.cs:1057](../src/SenseEase.App/MainWindow.xaml.cs#L1057) for the user-facing "Trace path" hint.
 
 #### Caches (NOT logs — for reference)
@@ -98,6 +107,29 @@ Sidecar communicates with the C# parent via **pipes, not files**, on user machin
 - **`head_tracker.py --soak`** — emits one JSON report object on stdout (used to produce `soak_report.json` at repo root during dev runs; not user-machine output).
 
 See [docs/HEAD-TRACKING-PRIVACY.md](HEAD-TRACKING-PRIVACY.md) for the privacy posture (sidecar emits only `yaw_deg`, `pitch_deg`, `confidence`, `face_present` — never frames, never landmarks, never identifiers).
+
+### 2.4 Support bundle — `scripts/collect-logs.ps1`
+
+**Canonical support-bundle flow.** Run this script to package diagnostic files into a zip for the test team.
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\collect-logs.ps1
+```
+
+Output: `SenseEase-diag-<yyyyMMdd-HHmm>.zip` on the Desktop.
+
+**Included** (technical diagnostics only):
+- `%LOCALAPPDATA%\SenseEase\diag\*` — `wgc_diag.txt`, `wgc_diag.lost.log`, `wgc_diag.prev.txt` (if rotated)
+- `%LOCALAPPDATA%\SenseEase\logs\*` — daily-rolled event / chatbot-action audit logs (numeric state + action lifecycle only — no chat text)
+- `%LOCALAPPDATA%\SenseEase\crash.log`
+- `%LOCALAPPDATA%\SenseEase\llama-server.log`
+
+**Excluded** (PII / health data — NOT included by default):
+- `chat_history.jsonl`, `model_trace.jsonl`, `calibration_history.jsonl` (legacy; deleted by migration), `habituation_profile.json`, `behavior_log.jsonl`
+
+An opt-in full-folder zip command is documented (but commented out) at the bottom of the script for cases where the test team explicitly requests full data.
+
+**`model_trace.jsonl` path note:** resolves through `SenseEaseDataRoot.Provider` (set in `App.xaml.cs` to `AppConfig.DataRoot`). In production this is `%LOCALAPPDATA%\SenseEase\model_trace.jsonl`. In tests the `DataRootOverride` seam redirects it to an isolated temp directory, so the trace never lands in the developer's data folder during test runs.
 
 ---
 
@@ -143,13 +175,14 @@ NOT user-machine output. Captured during development; committed for advisor + UV
 |---|---|
 | **Atomic write (tmp + File.Replace)** | `user-preferences.json`, `habituation_profile.json`, `user_model_index.json` (UM3) |
 | **Append-only with retry + sequence-prefix (clause 5)** | `wgc_diag.txt` |
-| **Append-only best-effort (no clause 5)** | `chat_history.jsonl`, `calibration_history.jsonl`, `model_trace.jsonl`, `adjustments.jsonl`, `behavior_log.jsonl` (UM1, idempotent by date), `crash.log`, `wgc_diag.lost.log`, `wgc_ofi_trace.txt` |
+| **Append-only best-effort (no clause 5)** | `chat_history.jsonl`, `model_trace.jsonl`, `adjustments.jsonl`, `behavior_log.jsonl` (UM1, idempotent by date), `crash.log`, `wgc_diag.lost.log`, `wgc_ofi_trace.txt` (`calibration_history.jsonl` removed — no writer; migration delete on startup) |
 | **Truncated on app start** | `llama-server.log` (deletes then re-creates) |
-| **Subject to %TEMP% auto-cleanup** | `wgc_diag.txt`, `wgc_diag.lost.log`, `wgc_ofi_trace.txt` |
-| **No size cap / no rotation** | All JSONL transcripts. Diagnostic Storage Sense or manual user delete is the only cleanup. |
+| **Subject to %TEMP% auto-cleanup** | `wgc_ofi_trace.txt` only (`wgc_diag.txt` and `wgc_diag.lost.log` moved to `%LOCALAPPDATA%\SenseEase\diag\` at H51) |
+| **Rotates at 5 MB (single generation)** | `wgc_diag.txt` → `wgc_diag.prev.txt` (H51/H36) |
+| **No size cap / no rotation** | All JSONL transcripts + `crash.log`. Diagnostic Storage Sense or manual user delete is the only cleanup. |
 | **No max-age** | All persistent files. None expire automatically. |
 
-**No file currently rotates by size or age.** If a chatbot-heavy user runs the app for months, `chat_history.jsonl` and `model_trace.jsonl` grow unbounded. Identified as a Pre-Alpha follow-up.
+**JSONL transcripts do not rotate by size or age.** If a chatbot-heavy user runs the app for months, `chat_history.jsonl` and `model_trace.jsonl` grow unbounded. Identified as a Pre-Alpha follow-up. `wgc_diag.txt` is the exception — it rotates at 5 MB since H51/H36.
 
 ---
 
@@ -158,7 +191,7 @@ NOT user-machine output. Captured during development; committed for advisor + UV
 Per standing instruction "no PII in any logs (no window titles, class names, notification content)":
 
 - `wgc_diag.txt` ✓ — clause-5 enforced: numbers + identifiers only (PIDs, sequence numbers, event-type names, exception types). Recent Phase 4 audit found 0 PII leaks.
-- `chat_history.jsonl`, `calibration_history.jsonl`, `model_trace.jsonl` — contain user-typed text and model responses. **By design — these ARE the user's conversation.** Not subject to the no-PII rule (the rule targets *system* logs, not user content).
+- `chat_history.jsonl`, `model_trace.jsonl` — contain user-typed text and model responses. **By design — these ARE the user's conversation.** Not subject to the no-PII rule (the rule targets *system* logs, not user content). (`calibration_history.jsonl` was also in this category; writer removed at D-13, file deleted by migration.)
 - `crash.log` — stack traces only; PII-free by construction.
 - `head_tracker.py` sidecar — privacy-by-design ([docs/HEAD-TRACKING-PRIVACY.md](HEAD-TRACKING-PRIVACY.md)): emits only numeric angles + face_present boolean. No frames, no landmarks, no identifiers.
 - WindowsActivityFilter event sink — explicitly does NOT log window titles or class names per the standing rule.
@@ -175,4 +208,4 @@ Audit checklist for each commit:
 3. Did I change an atomic strategy or retention property? → update §6.
 4. Did I add a new event-log category or in-memory store? → update §3.
 
-Last verified: 2026-05-31, HEAD = `c47bb21`, branch = `main`.
+Last verified: 2026-06-11, HEAD = `alpha1-w2-engine-integrity`, branch = `alpha1-w2-engine-integrity`. Changes: H51 diag-path fix (wgc_diag → %LOCALAPPDATA%\SenseEase\diag\); FEAT-13/DEAD-07 calibration_history.jsonl migration-delete; collect-logs.ps1 support-bundle section; model_trace.jsonl SenseEaseDataRoot note.
