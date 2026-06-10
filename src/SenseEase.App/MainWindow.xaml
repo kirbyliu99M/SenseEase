@@ -35,6 +35,15 @@
         <conv:TierToFeelLabelConverter    x:Key="TierToFeelLabel"/>
         <conv:TierToFillPercentConverter  x:Key="TierToFillPercent"/>
 
+        <!-- UX-06: auto Driver/Passenger mode token → calm plain protection label,
+             live on language. Replaces the bare {Binding Mode} on the hero pill. -->
+        <conv:ModeToProtectionLabelConverter   x:Key="ModeToProtectionLabel"/>
+        <!-- UX-06: localized mask-state / overlay-visibility labels for the Advanced
+             expander (a Setter.Value can't hold a {loc:T} Binding, so these build the
+             localized text from the bound bool + language). -->
+        <conv:MaskStateLabelConverter          x:Key="MaskStateLabel"/>
+        <conv:OverlayVisibilityLabelConverter  x:Key="OverlayVisibilityLabel"/>
+
         <!-- ── Card ──
              Clean rounded surface (myHP / HP Smart look): Radius.md corner,
              generous Pad.CardAll padding, soft Elev.2 shadow, plus a hairline
@@ -86,22 +95,15 @@
 
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
             <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+            <!-- UX-11: AccentHover (#3552D9) on SurfaceMuted clears WCAG AA 4.5:1;
+                 plain Accent (#4B6EF5) measured 3.76:1 — see TokenContrastTests. -->
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}"/>
         </Style>
 
-        <!-- Profile quick-access pill. The ACTIVE profile lights up via a per-pill
-             DataTrigger on {Binding CurrentProfile} (set on each Button below). -->
-        <Style x:Key="ProfilePill" TargetType="Button">
-            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="16,7"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
-            <Setter Property="Template" Value="{StaticResource RoundBtn}"/>
-        </Style>
+        <!-- UX-18 / D-3 (2026-06-11): the orphaned ProfilePill style was deleted here
+             (zero usages — the dashboard profile-pill card was removed 2026-06-09 and
+             profiles are now auto-managed). SelectProfileCommand / CurrentProfile stay
+             on the VM for tests; this presentation-only style had no consumer. -->
 
         <!-- ── Text styles ── -->
         <Style x:Key="CardLabel" TargetType="TextBlock">
@@ -158,6 +160,46 @@
     </Window.Resources>
 
     <DockPanel>
+
+        <!-- ══════════ UX-13: FIRST-RUN WELCOME STRIP ══════════
+             One-time, dismissible, plain-language card answering "Am I protected?".
+             Keyed off the EXISTING AppConfig.IsFirstRun flag (its designed use) via the
+             VM's FirstRunStripVisibility; Dismiss calls MarkFirstRunComplete so it never
+             shows again. Sequenced BEFORE the vestibular prompt bar: while this strip is
+             visible the vestibular bar is held back (VestibularPromptVisibility ANDs in
+             "first-run dismissed"), so a fresh user sees framing first, not a bare
+             medical-adjacent question. Reduce-Motion-safe (no entrance animation). Theme
+             tokens only; ≥12px (body 14, caption 12). -->
+        <Border DockPanel.Dock="Top"
+                Visibility="{Binding FirstRunStripVisibility}"
+                Background="{DynamicResource SurfaceMuted}"
+                BorderBrush="{DynamicResource Separator}" BorderThickness="0,0,0,1"
+                Padding="28,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock FontSize="14" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}"
+                               Text="{loc:T Zh='歡迎使用 SenseEase — 您已受到保護', En='Welcome to SenseEase — you are protected'}"/>
+                    <TextBlock FontSize="14" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Foreground="{DynamicResource TextSecondary}"
+                               Text="{loc:T Zh='SenseEase 會在背景偵測畫面動態，並自動將周邊輕微調暗，幫助減緩視覺不適。', En='SenseEase watches screen motion in the background and gently dims the edges to ease visual discomfort.'}"/>
+                    <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Foreground="{DynamicResource TextTertiary}"
+                               Text="{loc:T Zh='關閉視窗會縮到系統匣繼續運作（不會結束程式）；所有選項都在「設定」分頁。', En='Closing the window minimizes it to the tray and keeps running (close is not quit). All options live in the Settings tab.'}"/>
+                </StackPanel>
+                <Button Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0"
+                        Content="{loc:T Zh='開始使用', En='Get started'}"
+                        Command="{Binding DismissFirstRunCommand}"
+                        Background="{DynamicResource Accent}" Foreground="White" BorderThickness="0"
+                        Padding="20,9" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Template="{StaticResource RoundBtn}"
+                        AutomationProperties.Name="{loc:T Zh='開始使用 SenseEase', En='Get started with SenseEase'}"/>
+            </Grid>
+        </Border>
 
         <!-- Alpha-2 addendum: one-time vestibular first-use prompt (auto-profiling world).
              Non-blocking bottom bar; hidden unless AutoProfilingEnabled AND not-yet-answered.
@@ -310,11 +352,19 @@
                                     </MultiBinding>
                                 </TextBlock.Text>
                             </TextBlock>
+                            <!-- UX-06: calm plain protection label (操作中／觀看中), live on
+                                 language, instead of the raw "Driver"/"Passenger" token. -->
                             <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="12,0,0,0"
                                     VerticalAlignment="Center"
                                     Background="{DynamicResource SurfaceMuted}">
-                                <TextBlock Text="{Binding Mode}" FontSize="12"
-                                           Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondary}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource ModeToProtectionLabel}">
+                                            <Binding Path="Mode"/>
+                                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
                             </Border>
                         </StackPanel>
 
@@ -433,18 +483,27 @@
                                         </Style>
                                     </Ellipse.Style>
                                 </Ellipse>
-                                <TextBlock>
+                                <!-- UX-06: localized mask state (was EN-only "Mask inactive" /
+                                     "Mask ACTIVE"). Text via a MultiBinding converter (Setter.Value
+                                     can't hold a {loc:T} Binding); colour stays on a DataTrigger and
+                                     the glyph-dot beside it pairs status with a non-colour cue, so
+                                     colour never carries the state alone. -->
+                                <TextBlock VerticalAlignment="Center">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock" BasedOn="{StaticResource CardLabel}">
-                                            <Setter Property="Text" Value="Mask inactive"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding MaskActive}" Value="True">
-                                                    <Setter Property="Text" Value="Mask ACTIVE"/>
                                                     <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </TextBlock.Style>
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource MaskStateLabel}">
+                                            <Binding Path="MaskActive"/>
+                                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
                                 </TextBlock>
                             </StackPanel>
                         </StackPanel>
@@ -458,17 +517,15 @@
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{loc:T Zh='遮罩： ', En='Overlay: '}" Style="{StaticResource CardLabel}"/>
+                            <!-- UX-06: localized overlay visibility (was EN-only "Hidden"/"Visible").
+                                 MultiBinding converter — Setter.Value can't hold a {loc:T} Binding. -->
                             <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Text" Value="Hidden"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding OverlayVisible}" Value="True">
-                                                <Setter Property="Text" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
+                                <TextBlock.Text>
+                                    <MultiBinding Converter="{StaticResource OverlayVisibilityLabel}">
+                                        <Binding Path="OverlayVisible"/>
+                                        <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
                             </TextBlock>
                         </StackPanel>
                         <!-- Phase-C nit: diagnostic-hint caption so the relocated FMS
@@ -476,6 +533,55 @@
                         <TextBlock Style="{StaticResource Type.Caption}"
                                    Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
                                    Text="{loc:T Zh='詳細數據,日常使用可忽略', En='Detailed data — safe to ignore in everyday use.'}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- INTENT-06 / D-6 (2026-06-11): DisplayStressPercent surfaced again so
+                     personalization is visible (R1). Two users at equal raw pressure but
+                     different effective triggers read different values here — the engine
+                     already computes/propagates it; this only makes it visible. Hero meter
+                     keeps VimsTier; this is the personal-threshold telemetry row. -->
+                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="12,8" Margin="0,8,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{loc:T Zh='個人壓力指數： ', En='Personal stress: '}" Style="{StaticResource CardLabel}"/>
+                            <TextBlock Text="{Binding DisplayStressPercent, StringFormat='{}{0}%'}"
+                                       Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Type.Caption}"
+                                   Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
+                                   Text="{loc:T Zh='相對於您的個人閾值', En='Relative to your personal threshold'}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- UX-18: the ActivityStatus row (the "why isn't sensing reacting?"
+                     typing/drag-suppression explanation) moved here from the now-deleted
+                     Eye-Care advanced expander — it answers a real user question and belongs
+                     with the diagnostic telemetry. Status is paired with a glyph-dot (green
+                     idle / amber suppressing) so colour never carries it alone. ActivityStatus
+                     is a diagnostic-only dev string, presented inside the Advanced expander. -->
+                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="12,8" Margin="0,8,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,6,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{DynamicResource ComfortRising}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ActivityStatus}" Value="Idle">
+                                                <Setter Property="Fill" Value="{DynamicResource ComfortSteady}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding ActivityStatus}" Style="{StaticResource CardLabel}"
+                                       VerticalAlignment="Center"
+                                       AutomationProperties.Name="{loc:T Zh='系統介面活動抑制狀態', En='OS-chrome activity suppression status'}"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Type.Caption}"
+                                   Foreground="{DynamicResource TextTertiary}" Margin="15,4,0,0"
+                                   Text="{loc:T Zh='偵測為何暫停反應（打字／拖曳時暫停感測）', En='Why sensing pauses (during typing / dragging).'}"/>
                     </StackPanel>
                 </Border>
                 </StackPanel>
@@ -586,11 +692,19 @@
                                             </MultiBinding>
                                         </TextBlock.Text>
                                     </TextBlock>
+                                    <!-- UX-06: calm plain protection label, live on language
+                                         (same converter as the Dashboard hero). -->
                                     <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="12,0,0,0"
                                             VerticalAlignment="Center"
                                             Background="{DynamicResource SurfaceMuted}">
-                                        <TextBlock Text="{Binding Mode}" FontSize="12"
-                                                   Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondary}">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{StaticResource ModeToProtectionLabel}">
+                                                    <Binding Path="Mode"/>
+                                                    <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
                                     </Border>
                                 </StackPanel>
                                 <!-- ComfortMeter (2026-06-09): fill ← live motion TIER (TierToFillPercent),
@@ -633,92 +747,13 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- H4 (audit): the raw 5-column live metrics demoted into a
-                             collapsed Advanced expander — the hero above carries the
-                             calm at-a-glance status. Bindings byte-identical. -->
-                        <Expander Header="{loc:T Zh='進階即時數據', En='Advanced — live metrics'}" IsExpanded="False" Margin="0,0,0,16"
-                                  Visibility="Collapsed"><!-- advanced telemetry lives on the Dashboard only -->
-                        <Border Style="{StaticResource Card}">
-                            <StackPanel>
-                                <UniformGrid Rows="1" Columns="5">
-                                    <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding OpticalFlowIndex, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='光流', En='Optical Flow'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding Pressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='VIMS 壓力', En='VIMS Pressure'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
-                                                   HorizontalAlignment="Center">
-                                            <Run Text="{Binding VimsTier, Mode=OneWay}"/><Run Text=" / 12"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{loc:T Zh='VIMS 階', En='VIMS Tier'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding FovRadiusPercent, StringFormat='{}{0}%'}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='FOV 半徑', En='FOV Radius'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="22"
-                                                   HorizontalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Text" Value="OFF"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding MaskActive}" Value="True">
-                                                            <Setter Property="Text" Value="ACTIVE"/>
-                                                            <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                        <TextBlock Text="{loc:T Zh='遮罩狀態', En='Mask State'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                </UniformGrid>
-                                <!-- Cross-component status row: OS-chrome suppression + auto Driver/Passenger -->
-                                <Separator Background="{DynamicResource Separator}" Margin="0,12,0,10"/>
-                                <UniformGrid Rows="1" Columns="2">
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                        <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,6,0">
-                                            <Ellipse.Style>
-                                                <!-- Green when idle (no suppression), amber when any chrome event
-                                                     is currently suppressing OFI. Default is amber; the trigger
-                                                     flips to green when ActivityStatus == "Idle" exactly. -->
-                                                <Style TargetType="Ellipse">
-                                                    <Setter Property="Fill" Value="{DynamicResource ComfortRising}"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding ActivityStatus}" Value="Idle">
-                                                            <Setter Property="Fill" Value="{DynamicResource ComfortSteady}"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Ellipse.Style>
-                                        </Ellipse>
-                                        <TextBlock Text="{Binding ActivityStatus}" Style="{StaticResource CardLabel}"
-                                                   VerticalAlignment="Center"
-                                                   AutomationProperties.Name="{loc:T Zh='系統介面活動抑制狀態', En='OS-chrome activity suppression status'}"/>
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding AutoModeText}" Style="{StaticResource CardLabel}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               AutomationProperties.Name="{loc:T Zh='自動駕駛／乘客模式', En='Auto driver / passenger mode'}"/>
-                                </UniformGrid>
-                            </StackPanel>
-                        </Border>
-                        </Expander>
+                        <!-- UX-18 (2026-06-11): the hardcoded-Collapsed Eye-Care "Advanced —
+                             live metrics" expander was DELETED here. Its only live consumer (the
+                             ActivityStatus "why isn't sensing reacting?" row) moved to the
+                             Dashboard Advanced expander, which is the single home for advanced
+                             telemetry; the rest (raw OFI/Pressure/Tier/FOV/Mask grid + the
+                             AutoModeText row) duplicated the Dashboard cards and was never shown
+                             (Visibility=Collapsed). Bindings used here live on the Dashboard. -->
 
                         <!-- Protection-activity chart: the calm GRAPHICAL view the Eye-Care
                              tab is meant to show (restored — Wave 2 over-collapsed it). Plain-
@@ -747,50 +782,11 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Session Summary — advanced raw metrics, hidden from the
-                             Eye-Care tab (advanced info lives on the Dashboard). -->
-                        <Border Style="{StaticResource Card}" Visibility="Collapsed">
-                            <StackPanel>
-                                <TextBlock Text="{loc:T Zh='本次工作階段', En='Session Summary'}" Style="{StaticResource SectionTitle}"/>
-                                <UniformGrid Rows="1" Columns="5">
-                                    <StackPanel HorizontalAlignment="Center" Margin="6">
-                                        <TextBlock Text="{Binding SessionFovIntercepts}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='FOV 攔截次數', En='FOV Intercepts'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center" TextAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center" Margin="6">
-                                        <TextBlock Text="{Binding SessionPeakOfi, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='尖峰光流', En='Peak Optical Flow'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center" TextAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center" Margin="6">
-                                        <TextBlock Text="{Binding SessionPeakPressure, StringFormat='{}{0:F1}'}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='尖峰 VIMS 壓力', En='Peak VIMS Pressure'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center" TextAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center" Margin="6">
-                                        <TextBlock Text="{Binding SessionMaskActiveText}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='遮罩啟用時間', En='Mask Active Time'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center" TextAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel HorizontalAlignment="Center" Margin="6">
-                                        <TextBlock Text="{Binding SessionUptimeText}"
-                                                   Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="26"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{loc:T Zh='工作階段時間', En='Session Uptime'}" Style="{StaticResource CardLabel}"
-                                                   HorizontalAlignment="Center" TextAlignment="Center"/>
-                                    </StackPanel>
-                                </UniformGrid>
-                            </StackPanel>
-                        </Border>
+                        <!-- UX-18 (2026-06-11): the hardcoded-Collapsed Session-Summary card was
+                             DELETED here (it was never shown). The Session* VM properties
+                             (SessionFovIntercepts / SessionPeakOfi / SessionPeakPressure /
+                             SessionMaskActiveText / SessionUptimeText) stay on MainViewModel —
+                             they feed session metrics + tests; only this dead card is removed. -->
 
                     </StackPanel>
                 </ScrollViewer>

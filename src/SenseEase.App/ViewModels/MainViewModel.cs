@@ -147,6 +147,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public System.Windows.Visibility ConsoleResetVisibility =>
         AutoProfilingActive ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
+    // ── UX-13: one-time first-run welcome strip ──────────────────────────────
+    // Keyed off the EXISTING AppConfig.IsFirstRun flag (its designed-but-dead use):
+    // a fresh user — flag-file absent — sees a plain-language "Am I protected?" strip
+    // BEFORE the medical-adjacent vestibular prompt. Dismiss calls MarkFirstRunComplete
+    // (writes the flag file) so it never shows again. The flag is read once at
+    // construction so the strip's visibility is stable across the session even though
+    // MarkFirstRunComplete writes to disk synchronously on dismiss.
+    private bool _firstRunStripVisible = AppConfig.IsFirstRun;
+
+    /// <summary>True while the one-time first-run welcome strip should show (fresh install,
+    /// not yet dismissed). Exposed for tests; the XAML binds <see cref="FirstRunStripVisibility"/>.</summary>
+    public bool IsFirstRunStripVisible => _firstRunStripVisible;
+
+    /// <summary>Visibility of the UX-13 first-run welcome strip.</summary>
+    public System.Windows.Visibility FirstRunStripVisibility =>
+        _firstRunStripVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public ICommand DismissFirstRunCommand { get; private set; } = null!;
+
+    /// <summary>UX-13: dismiss the first-run strip. Persists the AppConfig.IsFirstRun flag
+    /// (MarkFirstRunComplete) so it never reappears, hides the strip, and unblocks the
+    /// vestibular prompt bar (its visibility ANDs in "first-run dismissed"), so the
+    /// vestibular question only surfaces AFTER the framing strip.</summary>
+    private void DismissFirstRun()
+    {
+        if (!_firstRunStripVisible) return; // idempotent
+        AppConfig.MarkFirstRunComplete();
+        _firstRunStripVisible = false;
+        OnPropertyChanged(nameof(IsFirstRunStripVisible));
+        OnPropertyChanged(nameof(FirstRunStripVisibility));
+        // The vestibular bar was held back behind the strip — re-evaluate it now so it
+        // appears (if still un-answered) the instant the strip is dismissed.
+        OnPropertyChanged(nameof(VestibularPromptVisibility));
+    }
+
     // One-time vestibular prompt (auto-profiling world). Non-blocking bottom bar shown on
     // first use until the user gives ANY response. "Asked once, not flashed-and-counted":
     // VestibularPromptAnswered is set ONLY by the Yes/No commands (an actual click), so
@@ -154,9 +189,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _vestibularPromptVisible =
         AppConfig.AutoProfilingEnabled && !UserPreferences.Current.VestibularPromptAnswered;
 
-    /// <summary>Visibility of the one-time vestibular first-use prompt bar.</summary>
+    /// <summary>Visibility of the one-time vestibular first-use prompt bar. UX-13: held back
+    /// (Collapsed) while the first-run welcome strip is still showing, so a fresh user sees
+    /// the plain-language framing strip FIRST and only meets the medical-adjacent vestibular
+    /// question after dismissing it.</summary>
     public System.Windows.Visibility VestibularPromptVisibility =>
-        _vestibularPromptVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        (_vestibularPromptVisible && !_firstRunStripVisible)
+            ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
     public ICommand VestibularPromptYesCommand { get; private set; } = null!;
     public ICommand VestibularPromptNoCommand  { get; private set; } = null!;
@@ -965,6 +1004,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // Alpha-2 addendum: one-time vestibular prompt responses (auto-profiling world).
         VestibularPromptYesCommand = new RelayCommand(_ => AnswerVestibularPrompt(true));
         VestibularPromptNoCommand  = new RelayCommand(_ => AnswerVestibularPrompt(false));
+        // UX-13: one-time first-run welcome strip dismissal.
+        DismissFirstRunCommand = new RelayCommand(_ => DismissFirstRun());
 
         _sensing.OpticalFlowSampled += OnOpticalFlowSampled;
         // D3 liveness contract: subscribe once to the concrete WGC provider's
