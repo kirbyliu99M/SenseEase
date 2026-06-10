@@ -10,7 +10,8 @@ namespace SenseEase.Infrastructure.Real;
 /// <summary>
 /// H9/H10: process-lifetime holder for the random Bearer API key that
 /// <see cref="MistralChatbotService"/> generates when it spawns llama-server.
-/// The server is launched with <c>--api-key &lt;key&gt;</c> so every HTTP caller
+/// The server receives the key via the <c>LLAMA_ARG_API_KEY</c> child environment
+/// variable (SEC-06 — never on the command line) so every HTTP caller
 /// (the NLU service AND this calibration client) must present the SAME key. The
 /// client is constructed via a parameterless <c>new LlamaServerCalibrationClient()</c>
 /// at a call site we cannot modify, so it reads the key from here at request time

@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -99,6 +98,56 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // EXIT-02 (CW-11): register every crash / lifecycle hook as the FIRST
+        // statements of OnStartup — BEFORE the mutex / integrity / localization /
+        // prefs work below. Those are exactly the steps where a Trend-Micro
+        // transient file-lock bites at login-autostart; with the handlers wired
+        // first, a throw ANYWHERE in startup still leaves a crash.log record
+        // instead of dying with zero evidence. The handlers are self-contained
+        // statics (LogCrash / SafeShutdownActivityFilter / the crash-flush hook
+        // accessor) that never touch instance state, so moving them ahead of the
+        // rest of startup is safe — none of them depend on anything initialized
+        // later in this method.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            LogCrash(args.Exception, "DispatcherUnhandledException");
+            // EXIT-05: best-effort flush of the in-memory behaviour aggregate so a
+            // UI-thread crash doesn't lose the ≤60 s tail. Static-safe (the VM may
+            // not exist yet) and never throws — see TryFlushBehaviorForCrash.
+            TryFlushBehaviorForCrash();
+            SafeShutdownActivityFilter();
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            LogCrash(args.ExceptionObject as Exception, "AppDomain.UnhandledException");
+            // Only act when the runtime is terminating — non-terminating exceptions
+            // on background threads must NOT trigger shutdown.
+            if (args.IsTerminating)
+            {
+                // EXIT-05: terminating fault — flush the behaviour tail before teardown.
+                TryFlushBehaviorForCrash();
+                SafeShutdownActivityFilter();
+            }
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            // Unhandled Task exceptions: log but don't terminate (mark observed).
+            LogCrash(args.Exception, "UnobservedTaskException");
+            args.SetObserved();
+        };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeShutdownActivityFilter();
+        SessionEnding += (_, _) => SafeShutdownActivityFilter();
+
+        // B0 deferred seam: push the App-layer data-root override down into
+        // Infrastructure so MistralChatbotService's model_trace.jsonl routes through
+        // the SAME AppConfig.DataRoot the App-layer paths use (Infrastructure must
+        // NOT reference the App assembly — same cross-boundary pattern as
+        // ChatbotUiLanguage / LlamaSessionKey). The lambda reads AppConfig.DataRoot
+        // at call time, so production resolves the real per-user folder and the test
+        // suite's per-class override redirects the trace off the developer's data.
+        SenseEase.Infrastructure.Real.SenseEaseDataRoot.Provider =
+            () => Configuration.AppConfig.DataRoot;
+
         // v0.8 hotfix: single-instance check FIRST, before AUMID/tray/diag.
         // If another SenseEase.App is already running, surface its window
         // and exit this process immediately — no MainWindow, no tray icon,
@@ -222,6 +271,48 @@ public partial class App : Application
                 $"[{DateTime.UtcNow:O}] [App.Integrity] verify threw: " +
                 $"{ex.GetType().Name}: {ex.Message} — continuing without integrity gate");
         }
+
+        // PKG-06: full manifest sweep — verify EVERY listed file (the loaded
+        // llama*.dll / mtmd.dll / libomp*.dll, the PyInstaller _internal/ tree, the
+        // face_landmarker.task model), not just the two spawn-gated exe stubs the
+        // synchronous gate above covers. Runs ONCE, on a background task, because
+        // hashing ~350 MB must never block the UI thread / first frame.
+        //
+        // DIAGNOSTIC this wave (Alpha-1 posture per SECURITY.md / SEC-03): a sweep
+        // failure is logged to wgc_diag (redacted) but does NOT raise the
+        // 'please reinstall' suppression — that stays gated to the two synchronous
+        // exe checks above exactly as today, so a manifest-vs-_internal mismatch on a
+        // dev/alpha build can't strand the app. Once a manifest actually ships and the
+        // packaging phase lands, this is where a stricter posture would hook in. On
+        // current builds (no manifest) VerifyManifestSweep returns an empty list and
+        // logs "integrity sweep skipped: no manifest" — a no-op. Self-contained +
+        // never-throws (the task body is fully wrapped) so it can run before the VM /
+        // window exist without any ordering dependency.
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var sweep = SenseEase.Infrastructure.Storage.IntegrityVerifier.VerifyManifestSweep();
+                foreach (var entry in sweep)
+                {
+                    if (entry.Status == SenseEase.Infrastructure.Storage.ManifestEntryStatus.Ok)
+                        continue;
+
+                    // SEC-01: the Detail can carry a resolved "...\Users\<name>\..."
+                    // path, so redact before it reaches wgc_diag (handbook-zipped).
+                    string detail = SenseEase.Infrastructure.Storage.PathRedactor.Redact(entry.Detail);
+                    SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                        $"[{DateTime.UtcNow:O}] [App.Integrity.Sweep] {entry.Status}: " +
+                        $"{entry.Key} — {detail} (diagnostic only; no reinstall surface this wave)");
+                }
+            }
+            catch (Exception ex)
+            {
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [App.Integrity.Sweep] threw: " +
+                    $"{ex.GetType().Name}: {ex.Message} — sweep skipped (non-blocking)");
+            }
+        });
 
         // Path Z UX iter 5: detect autostart-from-Windows-login. The
         // AutoStartRegistry HKCU entry passes --minimized so the app
@@ -393,27 +484,6 @@ public partial class App : Application
                 $"{ex.GetType().Name}: {ex.Message} — leaving stale file in place");
         }
 
-        DispatcherUnhandledException += (_, args) =>
-        {
-            LogCrash(args.Exception, "DispatcherUnhandledException");
-            SafeShutdownActivityFilter();
-        };
-        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-        {
-            LogCrash(args.ExceptionObject as Exception, "AppDomain.UnhandledException");
-            // Only act when the runtime is terminating — non-terminating exceptions
-            // on background threads must NOT trigger shutdown.
-            if (args.IsTerminating) SafeShutdownActivityFilter();
-        };
-        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
-        {
-            // Unhandled Task exceptions: log but don't terminate (mark observed).
-            LogCrash(args.Exception, "UnobservedTaskException");
-            args.SetObserved();
-        };
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeShutdownActivityFilter();
-        SessionEnding += (_, _) => SafeShutdownActivityFilter();
-
         // UM4: kick off the silent retrospective user-model analysis. App.xaml uses
         // StartupUri, so Application.MainWindow is still NULL at the end of OnStartup —
         // the window is created/shown AFTER OnStartup returns. Calling the kickoff here
@@ -500,7 +570,9 @@ public partial class App : Application
     {
         try
         {
-            string redacted = UserPathRedaction.Replace(line, @"\Users\<redacted>$1");
+            // SEC-01: single source of truth — delegate to the shared PathRedactor
+            // (the inline H19 regex this used to carry was lifted there verbatim).
+            string redacted = SenseEase.Infrastructure.Storage.PathRedactor.Redact(line);
             Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
             File.AppendAllText(CrashLogPath,
                 $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [App.SingleInstance] =====" + Environment.NewLine
@@ -524,32 +596,73 @@ public partial class App : Application
         catch { /* never crash on shutdown */ }
     }
 
-    // H19: runtime PII guard for crash.log. The Directory.Build.props PathMap
-    // normalizes compiler-embedded source paths at build time, but stack
-    // traces can still surface absolute paths captured at runtime (e.g. from
-    // third-party/precompiled assemblies whose PDBs we don't control, or from
-    // exception messages that interpolate a file path under the user profile).
-    // Any "...\Users\<name>\..." segment leaks the OS account name, so we
-    // redact the <name> component to a placeholder before writing. Case-
-    // insensitive; the captured group preserves the trailing separator.
-    private static readonly Regex UserPathRedaction = new(
-        @"\\Users\\[^\\/]+(\\)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    /// <summary>EXIT-05 (CW-11): best-effort, static-safe flush of the in-memory daily
+    /// behaviour aggregate on a crash path, via the hook G2 exposed on MainViewModel
+    /// (<see cref="SenseEase.App.ViewModels.MainViewModel.TryFlushBehaviorAggregateForCrash"/>).
+    /// Called from the DispatcherUnhandledException and the IsTerminating
+    /// AppDomain.UnhandledException handlers so a hard termination doesn't lose the
+    /// ≤60 s behaviour tail accumulated since the last durability heartbeat.
+    ///
+    /// <para><b>Static-safe.</b> The crash can fire BEFORE StartupUri creates the window
+    /// (so <c>Current</c> / <c>MainWindow</c> / its <c>DataContext</c> may all be null) or
+    /// off any thread; every dereference is null-conditional and the whole body is wrapped
+    /// so a crash handler NEVER throws a second exception. When no VM exists yet there is
+    /// simply nothing to flush. The VM hook is itself idempotent (idempotent-by-date
+    /// writer) and Q4.5-safe — it writes telemetry only, never engine/habituation state,
+    /// so it can never clear the habituation offset.</para></summary>
+    private static void TryFlushBehaviorForCrash()
+    {
+        try
+        {
+            (Current?.MainWindow?.DataContext as SenseEase.App.ViewModels.MainViewModel)
+                ?.TryFlushBehaviorAggregateForCrash();
+        }
+        catch { /* never throw a second exception from inside a crash handler */ }
+    }
+
+    // SEC-01: the H19 runtime PII guard (the inline "\Users\<name>\" → "<redacted>"
+    // regex) was lifted verbatim into SenseEase.Infrastructure.Storage.PathRedactor
+    // so crash.log, wgc_diag.txt, and llama-server.log all redact through ONE source
+    // of truth. App.xaml.cs now calls PathRedactor.Redact(...) at its two crash-log
+    // write sites (LogCrash + LogStartupDiagnostic) instead of carrying its own regex.
 
     /// <summary>Appends one timestamped record per crash. Best-effort: any IO failure
-    /// here is silently swallowed — we are already in a crash path.</summary>
+    /// here is silently swallowed — we are already in a crash path.
+    /// <para>EXIT-05: the AppendAllText gets ONE short bounded retry on IOException
+    /// (the crash often coincides with an AV / Trend-Micro transient lock on the very
+    /// file we are trying to write). Mirrors <c>AtomicJsonWriter.TryRead</c>'s escalating
+    /// backoff but smaller — 2 quick retries (20/40 ms) rather than 5 — because a crash
+    /// path must not stall teardown. A still-locked file after the retries is swallowed
+    /// like any other failure: losing the record is acceptable, hanging the exit is not.</para></summary>
     private static void LogCrash(Exception? ex, string source)
     {
         if (ex == null) return;
         try
         {
-            // H19: redact any "\Users\<name>\" segment before persisting so the
-            // OS account name never lands in the shipped crash.log.
-            string redacted = UserPathRedaction.Replace(ex.ToString(), @"\Users\<redacted>$1");
+            // SEC-01: redact any "\Users\<name>\" segment via the shared PathRedactor
+            // before persisting so the OS account name never lands in the shipped
+            // crash.log. PathRedactor never throws and is a no-op when there is no
+            // path to redact.
+            string redacted = SenseEase.Infrastructure.Storage.PathRedactor.Redact(ex.ToString());
             Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
-            File.AppendAllText(CrashLogPath,
+            string record =
                 $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{source}] =====" + Environment.NewLine
-                + redacted + Environment.NewLine + Environment.NewLine);
+                + redacted + Environment.NewLine + Environment.NewLine;
+
+            // EXIT-05: one short bounded retry on a transient IOException (file lock).
+            const int maxAttempts = 3; // initial try + 2 retries
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    File.AppendAllText(CrashLogPath, record);
+                    return;
+                }
+                catch (IOException) when (attempt < maxAttempts)
+                {
+                    try { Thread.Sleep(20 * attempt); } catch { /* ignore */ }
+                }
+            }
         }
         catch { /* never crash inside the crash handler */ }
     }

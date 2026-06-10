@@ -54,6 +54,50 @@ public static class ChatbotUiLanguage
 }
 
 /// <summary>
+/// B0 deferred (SEC seam): process-lifetime holder for the App layer's data-root
+/// override, mirroring the <see cref="ChatbotUiLanguage"/> cross-boundary static
+/// pattern. SenseEase.App owns the test-isolation seam
+/// (<c>AppConfig.DataRootOverride</c> / <c>AppConfig.DataRoot</c>), but Infrastructure
+/// must NOT reference the App assembly (App → Infrastructure → Core is the only
+/// allowed direction). So the host wires this provider ONCE at startup —
+/// <c>SenseEaseDataRoot.Provider = () =&gt; AppConfig.DataRoot;</c> — and the model
+/// trace below routes through it so the test suite isolates its writes off the real
+/// user data (CW-9), exactly as the App-layer paths already do.
+///
+/// <para>When the provider is unwired (headless tests that never set it, production
+/// before the host wires it) <see cref="Resolve"/> falls back to the real per-user
+/// <see cref="Environment.SpecialFolder.LocalApplicationData"/> folder — byte-identical
+/// to the prior inline computation, so production behaviour is unchanged.</para>
+/// </summary>
+public static class SenseEaseDataRoot
+{
+    /// <summary>Host-supplied lookup for the data-root folder (the parent of the
+    /// <c>SenseEase</c> subfolder). Set once by SenseEase.App at startup; null until
+    /// then. A lambda — not a stored string — so it always reflects the LIVE override
+    /// at call time (the App-layer seam is recomputed at access, and tests retarget it
+    /// per-class).</summary>
+    public static Func<string>? Provider { get; set; }
+
+    /// <summary>The wired provider's folder, or — when no provider is wired (or it
+    /// throws / returns empty) — the real per-user LocalApplicationData folder. The
+    /// returned value is the bare data root; callers combine it with "SenseEase".</summary>
+    public static string Resolve()
+    {
+        var p = Provider;
+        if (p is not null)
+        {
+            try
+            {
+                string root = p();
+                if (!string.IsNullOrEmpty(root)) return root;
+            }
+            catch { /* fall through to the OS folder below */ }
+        }
+        return Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    }
+}
+
+/// <summary>
 /// Local chatbot driver. Spawns the bundled `llama-server.exe` as a child process
 /// and talks to it over HTTP (OpenAI-compatible /v1/chat/completions). This bypasses
 /// LLamaSharp's in-process inference path, which was incompatible with the b9294
@@ -82,10 +126,11 @@ public sealed class MistralChatbotService : IChatbotService
     private const int ServerPort = 8181;
     private string ServerUrl => $"http://127.0.0.1:{ServerPort}";
 
-    // H9/H10: per-process random Bearer key minted at LoadAsync. llama-server is
-    // launched with --api-key <this>; both _http (below, via the Authorization
-    // header set at spawn) and the calibration client (via LlamaSessionKey) must
-    // present it. Null until the first successful LoadAsync.
+    // H9/H10: per-process random Bearer key minted at LoadAsync. llama-server
+    // receives it via the LLAMA_ARG_API_KEY child environment variable (SEC-06 —
+    // never on the command line, which any same-user process can read); both _http
+    // (below, via the Authorization header set at spawn) and the calibration client
+    // (via LlamaSessionKey) must present it. Null until the first successful LoadAsync.
     private string? _apiKey;
 
     // H34: bound JSON parse recursion so a malformed deeply-nested 200 body
@@ -341,9 +386,10 @@ public sealed class MistralChatbotService : IChatbotService
 
             // H9: mint a fresh random Bearer key for this server lifetime and
             // publish it so the calibration client (LlamaServerCalibrationClient)
-            // presents the same credential. The server is launched with
-            // --api-key <key> below, so an unauthenticated local process cannot
-            // drive the model through our loopback port.
+            // presents the same credential. The server receives the key via its
+            // private environment (LLAMA_ARG_API_KEY — see the psi injection below;
+            // SEC-06 moved it off the command line), so an unauthenticated local
+            // process cannot drive the model through our loopback port.
             _apiKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
             LlamaSessionKey.Set(_apiKey);
             _http.DefaultRequestHeaders.Authorization =
@@ -371,14 +417,24 @@ public sealed class MistralChatbotService : IChatbotService
             Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
             try { File.Delete(logPath); } catch { }
 
+            // SEC-06 (H9 threat model): the minted Bearer key is delivered to the
+            // child via its ENVIRONMENT (LLAMA_ARG_API_KEY — llama.cpp maps every
+            // --arg to an LLAMA_ARG_<UPPER_SNAKE> env var, see the env-var injection
+            // on psi below), NOT on the command line. Same-user processes can read
+            // another process's command line (WMI Win32_Process.CommandLine), so an
+            // api-key argument on the CLI would leak the loopback credential to exactly
+            // the attacker class H9's loopback auth is meant to exclude — defeating the
+            // control for the server's whole lifetime. Environment blocks are not
+            // readable across processes without elevated handles, so the key stays
+            // private. The CLI carries only the non-secret flags below.
             string serverArgs =
                 $"--model \"{_modelPath}\" " +
                 $"--n-gpu-layers 99 " +
                 $"--host 127.0.0.1 --port {ServerPort} " +
-                // H9: require the minted Bearer key on every request, disable the
-                // built-in web UI (no need for an attack surface), and pin the
-                // context so a model swap can't silently shift behaviour.
-                $"--api-key {_apiKey} --no-webui --no-context-shift " +
+                // H9: disable the built-in web UI (no need for an attack surface) and
+                // pin the context so a model swap can't silently shift behaviour.
+                // (--api-key moved off the CLI to LLAMA_ARG_API_KEY — see SEC-06 above.)
+                $"--no-webui --no-context-shift " +
                 // Context budget. The expanded SystemPrompt (LANGUAGE RULE + 4
                 // delta fields + 7 worked examples) plus the [RecentAdjustments]/
                 // [RecentEvents] history blocks plus the user turn comes in at
@@ -398,12 +454,22 @@ public sealed class MistralChatbotService : IChatbotService
                 FileName               = serverExe,   // H10: direct exe, no cmd.exe shell
                 Arguments              = serverArgs,
                 WorkingDirectory       = serverDir,
-                UseShellExecute        = false,
+                UseShellExecute        = false,        // required so EnvironmentVariables is honored
                 CreateNoWindow         = true,
                 RedirectStandardOutput = false,        // leave stdout attached (WPF fast-exit guard)
                 RedirectStandardError  = true,         // H10: capture stderr ourselves
                 StandardErrorEncoding  = Encoding.UTF8,
             };
+
+            // SEC-06 (H9 threat model): inject the Bearer key through the child's
+            // private environment instead of the command line. llama.cpp's arg parser
+            // reads LLAMA_ARG_API_KEY as the equivalent of --api-key (it derives an
+            // LLAMA_ARG_<UPPER_SNAKE> env name for each long flag), so the server still
+            // enforces the same key on every request — but the secret is no longer
+            // visible in Win32_Process.CommandLine to same-user processes. Env blocks
+            // require an elevated/own-process handle to read, which the H9 attacker
+            // class (unprivileged same-user code) does not have.
+            psi.EnvironmentVariables["LLAMA_ARG_API_KEY"] = _apiKey;
 
             _serverProcess = Process.Start(psi);
             if (_serverProcess is null)
@@ -411,8 +477,9 @@ public sealed class MistralChatbotService : IChatbotService
 
             // H10: drain stderr on a background thread to the log file so the
             // pipe buffer can never fill and back-pressure / stall the server.
-            // PathRedactor (H20) is not present in this build, so paths are
-            // written as-is; if/when that helper lands, redact each line here.
+            // SEC-01: each line is run through PathRedactor before it is written so
+            // a "...\Users\<name>\..." segment (e.g. the model path llama-server
+            // echoes at load) never lands in the shipped llama-server.log.
             StartStderrPump(_serverProcess, logPath);
 
             // Adopt into a Job Object configured with KILL_ON_JOB_CLOSE — Windows
@@ -486,9 +553,12 @@ public sealed class MistralChatbotService : IChatbotService
                 string? line;
                 while ((line = reader.ReadLine()) is not null)
                 {
-                    // PathRedactor (H20) helper not present in this build — write the
-                    // line verbatim. Wire redaction here if that helper lands.
-                    try { writer.WriteLine(line); } catch { break; }
+                    // SEC-01: redact any "\Users\<name>\" segment before persisting so
+                    // the OS account name never leaks into llama-server.log (which the
+                    // handbook log-zip ships to the test team). PathRedactor never
+                    // throws and returns the line unchanged when there is nothing to
+                    // redact, so this is a no-op on the common (path-free) line.
+                    try { writer.WriteLine(PathRedactor.Redact(line)); } catch { break; }
                 }
             }
             catch { /* pipe closed / process gone — nothing to do */ }
@@ -650,9 +720,16 @@ public sealed class MistralChatbotService : IChatbotService
     /// %LocalAppData%\SenseEase\model_trace.jsonl. Tail this file to verify what
     /// the model actually emitted vs what the UI rendered — critical for
     /// distinguishing "model produced empty reply, lexicon backfilled" from
-    /// "model produced the right reply".</summary>
-    private static readonly string _modelTracePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    /// "model produced the right reply".
+    /// <para>B0 deferred: computed at ACCESS time (expression-bodied, not a cached
+    /// <c>static readonly</c> field) so it routes through the <see cref="SenseEaseDataRoot"/>
+    /// seam the host wires to <c>AppConfig.DataRoot</c> — the test suite retargets that
+    /// override per-class, so the trace can never land in (or be deleted from) the
+    /// developer's real SenseEase folder. Mirrors the AppConfig.ModelTracePath the App
+    /// layer computes for the "clear all my data" button (both sides resolve the SAME
+    /// file independently because Infrastructure can't see App config).</para></summary>
+    private static string _modelTracePath => Path.Combine(
+        SenseEaseDataRoot.Resolve(),
         "SenseEase", "model_trace.jsonl");
 
     /// <summary>H41 (PII): the model trace logs the user's chat text verbatim to
