@@ -227,6 +227,40 @@ if (-not (Test-Path $readmeSrc)) {
 }
 
 # -----------------------------------------------------------------------------
+# 5b. Emit installer .sha256 sidecar (PKG-03)
+# -----------------------------------------------------------------------------
+# Run AFTER the installer is compiled (ISCC produces it in installer/).
+# This step is a build-time reminder + convenience wrapper; call it manually
+# once ISCC finishes:
+#
+#   $exe = "installer\SenseEase_Setup-Alpha_Test.0609.exe"   # bump each release
+#   $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+#   "$hash *$(Split-Path $exe -Leaf)" | Set-Content "$exe.sha256" -Encoding ascii
+#
+# The .sha256 format matches the 0608 sidecar: lowercase hex + space + asterisk
+# + filename, no trailing newline beyond what Set-Content adds.
+# The step below auto-runs when the installer artifact already sits next to
+# this script's sibling installer/ folder (i.e. on the build machine post-ISCC).
+Write-Section "Emit installer .sha256 sidecar (PKG-03)"
+$installerPattern = Join-Path "installer" "SenseEase_Setup-Alpha_Test.*.exe"
+$installerFiles   = Get-ChildItem -Path $installerPattern -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Extension -eq ".exe" }
+if ($installerFiles) {
+    foreach ($exe in $installerFiles) {
+        $sidecar = "$($exe.FullName).sha256"
+        if (-not (Test-Path $sidecar)) {
+            $hash = (Get-FileHash -Path $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($exe.Name)" | Set-Content -Path $sidecar -Encoding ascii -NoNewline
+            Write-Host "  wrote: $($exe.Name).sha256"
+        } else {
+            Write-Host "  exists (skipped): $($exe.Name).sha256"
+        }
+    }
+} else {
+    Write-Host "  (no installer artifacts found in installer/ -- run ISCC first, then re-run this step)" -ForegroundColor Yellow
+}
+
+# -----------------------------------------------------------------------------
 # 6. Generate install.manifest.json (H32) -- engine-integrity manifest
 # -----------------------------------------------------------------------------
 Write-Section "Generate install.manifest.json (H32)"

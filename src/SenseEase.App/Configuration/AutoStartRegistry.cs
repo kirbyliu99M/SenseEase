@@ -31,19 +31,35 @@ public static class AutoStartRegistry
     /// reads this from <see cref="StartupEventArgs.Args"/>.</summary>
     public const string MinimizedArg = "--minimized";
 
-    /// <summary>Reads the current registry state. Returns true iff a value
-    /// is set for SenseEase under the Run key. Self-healing: when a value is
-    /// present but no longer matches the current EXE (e.g. after an in-place
-    /// update to a versioned folder, a reinstall, or a portable move), the
-    /// Run-key value is rewritten to the correct path so autostart keeps
-    /// launching the live EXE. A rewrite failure does not change the reported
-    /// state — a stale-but-present value still reports enabled.</summary>
+    /// <summary>Reads the current registry state. Returns true iff a non-empty
+    /// value is set for SenseEase under the Run key. Self-healing:
+    /// <list type="bullet">
+    ///   <item>Empty/whitespace value — left by the 0608/0609 installer bug —
+    ///   is treated as DISABLED and is immediately deleted to avoid a ghost Run
+    ///   entry that launches nothing.</item>
+    ///   <item>Non-empty value that no longer matches the current EXE (e.g. after
+    ///   an in-place update to a versioned folder, a reinstall, or a portable move)
+    ///   is rewritten to the correct path so autostart keeps launching the live
+    ///   EXE. A rewrite failure does not change the reported state — a stale-but-
+    ///   present value still reports enabled.</item>
+    /// </list>
+    /// </summary>
     public static bool IsEnabled()
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
             if (key?.GetValue(ValueName) is not string current) return false;
+
+            // Defense-in-depth: empty/whitespace was written by the 0608/0609
+            // installer bug (ValueType: string with dontcreatekey still wrote
+            // SenseEase="" because HKCU\...\Run always exists). Treat as disabled
+            // and purge so it never ghost-launches anything.
+            if (string.IsNullOrWhiteSpace(current))
+            {
+                DeleteValue();
+                return false;
+            }
 
             string? expected = BuildRunValue();
             if (expected is not null &&
@@ -67,6 +83,24 @@ public static class AutoStartRegistry
     {
         string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
         return string.IsNullOrEmpty(exePath) ? null : $"\"{exePath}\" {MinimizedArg}";
+    }
+
+    /// <summary>Deletes the Run-key value. Used by <see cref="IsEnabled"/> to
+    /// purge an empty/whitespace ghost entry left by the 0608/0609 installer
+    /// bug. Failures are swallowed (logged only).</summary>
+    private static void DeleteValue()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            if (key is null) return;
+            key.DeleteValue(ValueName, throwOnMissingValue: false);
+            Debug.WriteLine("[AutoStartRegistry] purged empty/whitespace Run-key ghost value.");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AutoStartRegistry] DeleteValue failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>Rewrites the Run-key value to <paramref name="value"/>. Used by
