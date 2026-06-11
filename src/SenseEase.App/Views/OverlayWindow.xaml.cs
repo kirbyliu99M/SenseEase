@@ -251,8 +251,9 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
     /// <summary>Grid brightness target — the SAME tier/pressure-driven signal that drove
     /// GridCanvas.Opacity before A2. EMA-smoothed; GridCeiling stays the brightness
-    /// ceiling driver (and the gv=0 → ceiling 0 "/grid off" behaviour). The grid is drawn
-    /// world-locked inside the field's clear zone.</summary>
+    /// ceiling driver (and the gv=0 → ceiling 0 "/grid off" behaviour). The world-locked
+    /// grid lines are revealed in the dimmed PERIPHERY (sharing the FOV mask's window); the
+    /// centre stays clean — this brightness scales the faint line alpha there.</summary>
     private void ResolveGridBrightness(SenseState state)
     {
         double intensity = ComputeAdaptiveIntensity(state);
@@ -385,6 +386,29 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         return peakAlpha * s;
     }
 
+    /// <summary>Resolve the faint grid LINE alpha at a pixel — the periphery-only,
+    /// world-locked grid reveal (UVHS 2026-06-11 layout). Returns 0 unless the pixel is
+    /// ON a world-locked grid line AND the shared peripheral window is open past
+    /// <paramref name="gridThreshold"/> (so the clean centre, where <paramref name="window"/>
+    /// ≈ 0, NEVER shows grid). On a periphery line pixel the alpha is the faint line ceiling
+    /// (<paramref name="gridLineAlpha"/> = brightness × OverlayGridLineMaxAlpha) scaled by the
+    /// SAME radial window the FOV mask uses (the inverse-feather reveal — clean centre,
+    /// faint-in-periphery), gamma-shaped before encode. This reproduces the reference
+    /// <c>_gridOpacityMaskBrush</c> behaviour inside the single pass. Pure + internal for
+    /// unit coverage.
+    ///
+    /// <para><paramref name="window"/> is the shared falloff at peak 1.0 (0 in the clean
+    /// centre, 1.0 in the far periphery) — identical geometry to the FOV mask, so the grid
+    /// and mask windows share center/radius/feather with no seam. The grid line POSITIONS
+    /// (the <paramref name="onLine"/> flag) are world-locked upstream via mod(px, cell) and
+    /// are independent of the window — only the visibility follows the head.</para></summary>
+    internal static double ResolveGridLineAlpha(
+        double window, double gridLineAlpha, bool onLine, double gridThreshold, double gamma)
+    {
+        if (!onLine || gridLineAlpha <= 0.0 || window <= gridThreshold) return 0.0;
+        return GammaShape(Math.Clamp(gridLineAlpha * window, 0.0, 1.0), gamma);
+    }
+
     /// <summary>D-2: map MaskDepth [0,1] → EFFECTIVE peak alpha. Bounded multiplier on the
     /// tier ceiling, then the locked guarantees:
     /// <list type="bullet">
@@ -513,9 +537,20 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         _fieldDirty = false;
     }
 
-    /// <summary>Fill <see cref="_fieldBuf"/> with the single per-pixel field: mask-vs-grid
-    /// mutually-exclusive (one alpha per pixel). Premultiplied BGRA (Pbgra32). Below the
-    /// alpha threshold the world-locked faint grid shows; else the mask.</summary>
+    /// <summary>Fill <see cref="_fieldBuf"/> with the single per-pixel field. One output
+    /// pixel, ONE alpha — the single-surface property. Premultiplied BGRA (Pbgra32).
+    ///
+    /// <para>SPATIAL LAYOUT (UVHS 2026-06-11 correction — restores the 3762a42 presentation):
+    /// the faint world-locked grid appears in the PERIPHERY, sharing the FOV mask's exact
+    /// radial window; the centre is CLEAN (no grid, no dim). This is the INVERSE of the
+    /// earlier (inverted) A2 read where the grid filled the clear centre. The grid's
+    /// VISIBILITY follows the mask falloff (the reference's <c>_gridOpacityMaskBrush</c> was
+    /// the inverse of the FOV mask, sharing identical center/radius/feather geometry) — so a
+    /// periphery grid-line pixel renders the white line BLENDED OVER the mask dim at that
+    /// pixel (one alpha), not the grid INSTEAD of the mask. The grid LINE POSITIONS stay
+    /// world-locked: <c>mod(px, cell)</c> in screen/field space, never offset by the mask
+    /// center — only the visibility window follows the head, exactly as at 3762a42 (the hole
+    /// moves, the lines stay pinned to pixel origin).</para></summary>
     private void ComputeField()
     {
         int w = _fieldW, h = _fieldH;
@@ -535,55 +570,65 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
         int gridCell = Math.Max(2, (int)Math.Round(SenseDefaults.GridSizePx / (double)ds));
         double gridLineAlpha = _gridBrightness * SenseDefaults.OverlayGridLineMaxAlpha;
+        // The grid-visibility window mirrors the reference _gridOpacityMaskBrush: its feather
+        // is the INVERSE of the clear centre — grid invisible where the mask is clear (centre),
+        // grid revealed where the mask ramps in (periphery). We reuse the SAME smoothstep
+        // falloff geometry (ResolveFieldAlpha at peak 1.0) so the grid window shares the FOV
+        // mask's center/radius/feather byte-for-byte (no seam, no second geometry). The grid
+        // only shows where this window is non-trivially open (> threshold) — the genuinely
+        // peripheral region — so the centre stays CLEAN.
         double gridThreshold = SenseDefaults.OverlayFieldGridThreshold;
 
         for (int y = 0; y < h; y++)
         {
             double py = (y + 0.5) / h;
+            // World-locked grid line test for this row (screen-space mod, NOT center-relative).
             bool yOnGrid = (y % gridCell) == 0;
             int row = y * w * 4;
             for (int x = 0; x < w; x++)
             {
                 double px = (x + 0.5) / w;
                 double r = CornerNormR(px, py, cx, cy, aspect);
-                double maskA = ResolveFieldAlpha(r, peak, featherStart, featherEnd);
 
-                byte oR, oG, oB, oA;
-                if (maskA < gridThreshold)
-                {
-                    // Clear zone → world-locked faint grid (mutual exclusivity: ONE alpha).
-                    bool onLine = yOnGrid || (x % gridCell) == 0;
-                    if (onLine && gridLineAlpha > 0.0)
-                    {
-                        // White faint line. Gamma-shape its (already faint) alpha too.
-                        double ga = GammaShape(Math.Clamp(gridLineAlpha, 0.0, 1.0), gamma);
-                        byte a = (byte)Math.Round(ga * 255.0);
-                        // Premultiplied: white → channels == a.
-                        oA = a; oR = a; oG = a; oB = a;
-                    }
-                    else
-                    {
-                        oA = 0; oR = 0; oG = 0; oB = 0;
-                    }
-                }
-                else
-                {
-                    // Mask. Gamma-shape the alpha fraction before 8-bit encode (banding
-                    // mitigation). Keep non-pure-black: the L12 color is already (0,0,4).
-                    double shaped = GammaShape(Math.Clamp(maskA, 0.0, 1.0), gamma);
-                    byte a = (byte)Math.Round(shaped * 255.0);
-                    oA = a;
-                    // Premultiply the mask color by alpha (Pbgra32).
-                    oR = (byte)((mr * a + 127) / 255);
-                    oG = (byte)((mg * a + 127) / 255);
-                    oB = (byte)((mb * a + 127) / 255);
-                }
+                // The shared radial window (peak 1.0): 0 in the clean centre, ramping to 1.0
+                // in the periphery. The FOV dim is this window scaled by the tier peak; the
+                // grid visibility is this same window (the inverse-feather reveal). Both share
+                // center/radius/feather so they align with no seam, exactly as at 3762a42.
+                double window = ResolveFieldAlpha(r, 1.0, featherStart, featherEnd);
+                double maskA  = window * peak;
+
+                // Mask dim at this pixel (gamma-shaped before 8-bit encode; banding mitigation).
+                double shapedMask = GammaShape(Math.Clamp(maskA, 0.0, 1.0), gamma);
+
+                // World-locked grid line (positions never offset by center). Its on-screen
+                // strength is the faint line alpha × the SAME peripheral window — so the grid
+                // is CLEAN in the centre (window≈0) and faint in the dimmed periphery.
+                bool onLine = yOnGrid || (x % gridCell) == 0;
+                double gridA = ResolveGridLineAlpha(window, gridLineAlpha, onLine, gridThreshold, gamma);
+
+                // ── Composite within the ONE pass: white grid line OVER the mask dim ──────
+                // src-over of an opaque-white line (premultiplied (gridA,gridA,gridA,gridA))
+                // onto the mask backdrop (premultiplied colour, alpha shapedMask). One output
+                // pixel, one alpha — the single-surface property is preserved. In the clean
+                // centre both terms are 0 ⇒ fully transparent (centre clean).
+                double bgA = shapedMask;
+                byte bgR = (byte)((mr * (int)Math.Round(bgA * 255.0) + 127) / 255);
+                byte bgG = (byte)((mg * (int)Math.Round(bgA * 255.0) + 127) / 255);
+                byte bgB = (byte)((mb * (int)Math.Round(bgA * 255.0) + 127) / 255);
+
+                // Premultiplied src-over: out = src + dst·(1 − srcA). src is white at gridA
+                // (premultiplied channels == gridA).
+                double inv  = 1.0 - gridA;
+                double outA = gridA + bgA * inv;
+                double outR = gridA + (bgR / 255.0) * inv;
+                double outG = gridA + (bgG / 255.0) * inv;
+                double outB = gridA + (bgB / 255.0) * inv;
 
                 int i = row + x * 4;
-                buf[i + 0] = oB; // B
-                buf[i + 1] = oG; // G
-                buf[i + 2] = oR; // R
-                buf[i + 3] = oA; // A
+                buf[i + 0] = (byte)Math.Round(Math.Clamp(outB, 0.0, 1.0) * 255.0); // B
+                buf[i + 1] = (byte)Math.Round(Math.Clamp(outG, 0.0, 1.0) * 255.0); // G
+                buf[i + 2] = (byte)Math.Round(Math.Clamp(outR, 0.0, 1.0) * 255.0); // R
+                buf[i + 3] = (byte)Math.Round(Math.Clamp(outA, 0.0, 1.0) * 255.0); // A
             }
         }
     }

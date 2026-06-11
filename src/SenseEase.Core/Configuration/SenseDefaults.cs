@@ -155,10 +155,15 @@ public static class SenseDefaults
     /// mask center.</summary>
     public const double OverlayGridLineMaxAlpha = 130.0 / 255.0;
 
-    /// <summary>Beta A2: alpha threshold below which a pixel draws the faint grid instead
-    /// of the mask (mutual exclusivity — ONE alpha per pixel, no stacked strata). Inside
-    /// the clear zone (field alpha below this) the world-locked grid shows through; outside
-    /// it the mask wins. Low so the grid only appears in the genuinely-clear centre.</summary>
+    /// <summary>Beta A2 (UVHS 2026-06-11 corrected semantics): the open-window threshold for
+    /// the PERIPHERAL grid reveal. The faint world-locked grid lines share the FOV mask's
+    /// radial window (clean centre, revealed periphery); a line pixel only shows where that
+    /// shared window is open PAST this value — i.e. outside the genuinely-clean centre. This
+    /// keeps the centre grid-free while the grid fills the dimmed periphery (the 3762a42
+    /// presentation). Low so the clean centre stays clean and the grid begins right at the
+    /// feather. (Previously misread as "draw grid where mask alpha is BELOW this", which
+    /// inverted the layout into a centre grid — see BETA_FEATHERING_COHERENCE_PLAN §A2.)
+    /// Still one alpha per output pixel: the periphery line blends OVER the mask dim.</summary>
     public const double OverlayFieldGridThreshold = 0.04;
 
     /// <summary>Beta A2: how often (seconds) the rolling field-recompute frame-time stats

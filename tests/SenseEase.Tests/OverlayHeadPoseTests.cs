@@ -862,6 +862,75 @@ public class OverlayHeadPoseTests
         });
     }
 
+    /// <summary>UVHS 2026-06-11 layout (end-to-end, through the rendered buffer): the grid
+    /// appears in the PERIPHERY and the CENTRE is CLEAN. Renders a high-tier centred field
+    /// and asserts: (a) the exact-centre pixel is fully transparent (alpha 0 — no grid, no
+    /// dim); (b) in the deep periphery a world-locked grid-LINE pixel reads BRIGHTER (higher
+    /// luma) than an adjacent OFF-line pixel at the same radius — the faint line blended over
+    /// the near-black mask; (c) that off-line periphery pixel still carries the mask dim
+    /// (alpha > 0). Pins the corrected spatial composition the inverted "grid-in-centre" A2
+    /// field violated. The grid is faint by design (130/255 ceiling, gamma-compressed), so
+    /// this compares ON-line vs OFF-line rather than using an absolute brightness threshold.</summary>
+    [Fact]
+    public void OverlayWindow_RenderedField_GridInPeriphery_CentreClean()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // High tier so the mask renders deep; default GridVisibility drives the grid.
+            // Pump several ticks so the EMA-smoothed grid brightness CONVERGES (a single tick
+            // only reaches ~25% of target — too faint to sample reliably).
+            var state = new SenseState
+            {
+                VimsTier           = 12,
+                MaskActive         = true,
+                HeadTrackingActive = false, // centred (0.5, 0.5)
+                Shader             = new ShaderParams(),
+            };
+            for (int i = 0; i < 40; i++) w.ApplyState(state);
+
+            byte[]? buf = w.FieldBufferSnapshotForTests;
+            Assert.NotNull(buf);
+            int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
+            Assert.True(fw > 12 && fh > 12, $"field too small to sample: {fw}x{fh}");
+
+            // (a) CENTRE CLEAN: the exact centre pixel is fully transparent (no grid, no dim).
+            int cxPix = fw / 2, cyPix = fh / 2;
+            int ci = (cyPix * fw + cxPix) * 4;
+            Assert.Equal(0, buf![ci + 3]); // centre alpha 0 — clean hole
+
+            // World-locked grid cell in field-space pixels (GridSizePx / downscale), matching
+            // ComputeField. Pick a deep-periphery row and find an on-line vs off-line column.
+            int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
+            int gridCell = Math.Max(2, (int)Math.Round(SenseDefaults.GridSizePx / (double)ds));
+
+            int periRow = 1; // deep periphery (top edge), window ≈ saturated
+            // On-line column: a multiple of gridCell that is in-bounds (x=0 is a line, but
+            // pick gridCell so it's clearly inside). Off-line column: that + 1.
+            int onCol  = gridCell;
+            int offCol = gridCell + (gridCell / 2); // safely between lines
+            Assert.True(onCol < fw && offCol < fw, "sample columns must be in-bounds");
+
+            int onI  = (periRow * fw + onCol)  * 4;
+            int offI = (periRow * fw + offCol) * 4;
+            int onLuma  = buf[onI + 0]  + buf[onI + 1]  + buf[onI + 2];   // B+G+R
+            int offLuma = buf[offI + 0] + buf[offI + 1] + buf[offI + 2];
+
+            // (b) the world-locked grid LINE pixel is brighter than the off-line neighbour at
+            // the same periphery radius — the faint white line blended over the dark mask.
+            Assert.True(onLuma > offLuma,
+                $"periphery grid-line pixel must read brighter than its off-line neighbour " +
+                $"(UVHS 2026-06-11: grid in periphery): onLuma={onLuma}, offLuma={offLuma}");
+
+            // (c) the off-line periphery pixel still carries the mask dim (the grid does not
+            // replace the mask — it blends over it; off-line, only the mask is present).
+            Assert.True(buf[offI + 3] > 0,
+                $"the peripheral mask dim must be present off the grid lines, alpha was {buf[offI + 3]}");
+        });
+    }
+
     private static bool BuffersEqual(byte[] a, byte[] b)
     {
         if (a.Length != b.Length) return false;
