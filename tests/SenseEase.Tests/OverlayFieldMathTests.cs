@@ -552,4 +552,63 @@ public class OverlayFieldMathTests
                     }
         Assert.True(maxDiff <= 1, $"LUT compose must be within 1 byte of exact math, max diff was {maxDiff}");
     }
+
+    /// <summary>Parked-storm fix (2026-06-11) invisibility, part A: snapping cellStrength to the
+    /// 1/256 grid (what ApplyGridIntensity does before the field re-dirt gate) changes the composed
+    /// premultiplied pixel by AT MOST one 8-bit code vs the exact un-quantized strength. So the
+    /// quantization the storm gate relies on is below one 8-bit step end-to-end — invisible (Kirby:
+    /// the change must be invisible, not a visible step). cellStrength reaches the buffer scaled by
+    /// CellFillAlpha (≈0.47) × window × gamma, so a 1/256 snap is already heavily attenuated; the
+    /// only ever-1-byte case is the unavoidable rounding-boundary flip. Sweep window/peak/color and
+    /// a fine cellStrength grid.</summary>
+    [Fact]
+    public void Quantize8Bit_CellStrengthSnap_ComposesWithinOneByte()
+    {
+        (byte, byte, byte)[] colors = { (0, 0, 4), (51, 51, 51), (102, 102, 102), (20, 20, 24) };
+        int maxDiff = 0;
+        foreach (var (mr, mg, mb) in colors)
+            foreach (double window in new[] { 0.0, 0.2, 0.5, 0.8, 1.0 })
+                foreach (double peak in new[] { 0.0, 0.2, 0.5, 0.92 })
+                    for (int k = 0; k <= 200; k++)
+                    {
+                        double cs = k / 200.0;                       // exact strength
+                        double qcs = OverlayWindow.Quantize8Bit(cs); // what the gate stores
+                        var exact = OverlayWindow.ComposeFieldPixelLut(window, mr, mg, mb, peak, cs);
+                        var snap  = OverlayWindow.ComposeFieldPixelLut(window, mr, mg, mb, peak, qcs);
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.B - snap.B));
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.G - snap.G));
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.R - snap.R));
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.A - snap.A));
+                    }
+        Assert.True(maxDiff <= 1,
+            $"snapping cellStrength to 1/256 must change the composed pixel by <= 1 byte " +
+            $"(invisible); max diff was {maxDiff}");
+    }
+
+    /// <summary>Parked-storm fix (2026-06-11) invisibility, part B: two cellStrength inputs that
+    /// quantize to the SAME 1/256 code compose to the BYTE-IDENTICAL pixel — this is exactly the
+    /// case the storm gate exploits (the EMA wobbling WITHIN one code is dropped, no re-dirt). For
+    /// each code, jitter the strength by ±0.49 quantum (staying in the same bucket) and confirm the
+    /// composed pixels are bit-for-bit equal.</summary>
+    [Fact]
+    public void Quantize8Bit_SameBucket_ComposesByteIdentical()
+    {
+        (byte, byte, byte)[] colors = { (0, 0, 4), (51, 51, 51), (20, 20, 24) };
+        double q = SenseDefaults.OverlayEightBitQuantum;
+        foreach (var (mr, mg, mb) in colors)
+            foreach (double window in new[] { 0.0, 0.5, 1.0 })
+                foreach (double peak in new[] { 0.0, 0.5, 0.92 })
+                    for (int code = 0; code <= 256; code++)
+                    {
+                        double centre = code * q;                 // exactly on the grid
+                        double a = OverlayWindow.Quantize8Bit(Math.Clamp(centre + q * 0.49, 0, 1));
+                        double b = OverlayWindow.Quantize8Bit(Math.Clamp(centre - q * 0.49, 0, 1));
+                        if (a != b) continue;                     // skip the clamp endpoints
+                        var pa = OverlayWindow.ComposeFieldPixelLut(window, mr, mg, mb, peak, a);
+                        var pb = OverlayWindow.ComposeFieldPixelLut(window, mr, mg, mb, peak, b);
+                        Assert.True(pa == pb,
+                            $"same-bucket cellStrength must compose byte-identical at code={code}, " +
+                            $"window={window}, peak={peak}, color=({mr},{mg},{mb}): {pa} != {pb}");
+                    }
+    }
 }

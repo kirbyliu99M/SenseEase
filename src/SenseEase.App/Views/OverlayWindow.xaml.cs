@@ -329,6 +329,23 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             _displayedG     += (tG        - _displayedG)     * MaskSmoothingFactor;
             _displayedB     += (tB        - _displayedB)     * MaskSmoothingFactor;
             _displayedAlpha += (tierAlpha - _displayedAlpha) * MaskSmoothingFactor;
+
+            // Parked-storm fix (2026-06-11): SNAP the cross-fade EMAs to their (steady) tier
+            // targets once within half an 8-bit quantum. A geometric EMA never exactly reaches its
+            // target, so for a STEADY tier the displayed values keep changing by ever-smaller sub-
+            // code amounts forever — a residual re-dirt tail. The colour channels already round to
+            // bytes (the colorKey gate stops them), but snapping kills the tail at the source so the
+            // steady non-persistent render also reaches an EXACT fixed point. The snap distance is
+            // below one 8-bit code on each channel (R/G/B in 0..255 units; alpha in 0..1 units), so
+            // the rendered byte is identical to the un-snapped value — invisible by definition. A
+            // genuine tier change moves the target far past the quantum ⇒ the EMA cross-fade resumes
+            // (no visible step). PersistentBaselineSteady takes the snap-to-target branch above.
+            const double colorQuantum = 0.5; // half an 8-bit code in 0..255 channel units
+            double alphaQuantum = SenseDefaults.OverlayEightBitQuantum * 0.5;
+            if (Math.Abs(tR        - _displayedR)     < colorQuantum) _displayedR     = tR;
+            if (Math.Abs(tG        - _displayedG)     < colorQuantum) _displayedG     = tG;
+            if (Math.Abs(tB        - _displayedB)     < colorQuantum) _displayedB     = tB;
+            if (Math.Abs(tierAlpha - _displayedAlpha) < alphaQuantum) _displayedAlpha = tierAlpha;
         }
 
         byte r = (byte)Math.Round(Math.Clamp(_displayedR, 0, 255));
@@ -417,13 +434,33 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
         // Mirror the same target into the field's cell-fill tint strength (the 3762a42
         // modulation: the tint rode GridCanvas.Opacity). Field re-renders on real change.
-        if (double.IsNaN(_lastCellStrength) || Math.Abs(target - _lastCellStrength) > FieldEpsilon)
+        //
+        // Parked-storm fix (2026-06-11): the GridCanvas.Opacity ANIMATION above still rides the
+        // EXACT continuous target (the grid opacity is a WPF property, not an 8-bit buffer — never
+        // quantized). But the field cell-tint strength feeds an 8-bit premultiplied buffer scaled
+        // by CellFillAlpha (≈0.47) × window × gamma, so a sub-1/256 change in cellStrength cannot
+        // flip any output byte. The non-persistent live path EMA-chases OFI/pressure noise, so the
+        // raw target wobbles every engine tick; QUANTIZING cellStrength to the 1/256 grid drops that
+        // sub-8-bit wobble — the gate only re-dirts the field when the quantized strength changes
+        // (the parked non-persistent storm source). PersistentBaselineSteady already feeds a CONSTANT
+        // intensity ⇒ a constant target ⇒ this quantizes to a fixed bucket and never re-dirts (it
+        // already snapped). Invisible by definition (the buffer is 8-bit).
+        double qTarget = Quantize8Bit(target);
+        if (double.IsNaN(_lastCellStrength) || qTarget != _lastCellStrength)
         {
-            _cellStrength = target;
-            _lastCellStrength = target;
+            _cellStrength = qTarget;
+            _lastCellStrength = qTarget;
             MarkFieldDirty();
         }
     }
+
+    /// <summary>Snap a [0,1] contribution to the nearest 1/256 grid (one 8-bit code). A change
+    /// below this cannot flip any byte in the premultiplied 8-bit field buffer, so quantizing an
+    /// EMA output here before the re-dirt gate drops sub-8-bit wobble (live OFI/pressure noise)
+    /// WITHOUT changing the rendered byte — the quantized value reaches the buffer identically to
+    /// the un-quantized one (both round to the same code). Pure + internal for unit coverage.</summary>
+    internal static double Quantize8Bit(double v)
+        => Math.Round(v / SenseDefaults.OverlayEightBitQuantum) * SenseDefaults.OverlayEightBitQuantum;
 
     /// <summary>Kirby round-3 (item 1): grid tier-ONSET ramp. The grid contributes NOTHING
     /// below <see cref="SenseDefaults.GridOnsetTier"/>; from the onset it ramps
@@ -1022,9 +1059,29 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private void MarkFieldDirty() { _fieldDirty = true; _fieldFullDirty = true; }
 
     /// <summary>Fix 2 (dirty-band): mark ONLY the pose as moved (cx/cy/radius). The next render
-    /// may recompute just the union band of the old+new feather annuli instead of the whole
-    /// buffer. If a full recompute is already pending (_fieldFullDirty) this is a no-op upgrade.</summary>
-    private void MarkPoseDirty() => _fieldDirty = true;
+    /// may recompute just the union band of the old+new feather annuli instead of the whole buffer.
+    ///
+    /// <para>Parked-storm fix (2026-06-11): a pose move sets NO dirty FLAG — the render decision is
+    /// made directly from the texel-quantized pose bucket in <see cref="RenderFieldIfDirty"/>. The
+    /// field center + grid-window mirror still track the head on the locked sub-texel epsilon (set
+    /// in ApplyHeadPose), but a sub-texel pose creep produces a byte-identical field, so it must NOT
+    /// force a recompute (the ~165 Hz pump's creep was the dominant ~75/s storm). Kept as a named
+    /// no-op so the two call sites still read as an explicit "pose changed" intent.</para></summary>
+    private void MarkPoseDirty() { /* pose render is gated on the texel bucket, not a flag */ }
+
+    /// <summary>Parked-storm render gate threshold: the smallest normalized pose move that can
+    /// change the rendered field — 1/<see cref="SenseDefaults.OverlayFieldRenderTexelFraction"/> of
+    /// ONE field texel, measured on the LARGER field axis (conservative on both). A move below this
+    /// upscales to a byte-identical low-frequency field, so the render skips it. Measured as an
+    /// ABSOLUTE delta from the last RENDERED pose (not a fixed grid), so it is HYSTERETIC: the
+    /// threshold only advances when a render actually happens, immune to dither straddling a fixed
+    /// bucket boundary. Pure given _fieldW/H. At a 1×1 field (never ships) the texel is the whole
+    /// axis ⇒ the threshold is huge ⇒ the pose gate never forces a recompute (harmless: flat pixel).</summary>
+    private double PoseRenderQuantum()
+    {
+        int maxDim = Math.Max(1, Math.Max(_fieldW, _fieldH));
+        return 1.0 / (maxDim * SenseDefaults.OverlayFieldRenderTexelFraction);
+    }
 
     /// <summary>Recompute + present the field ONLY when an input moved beyond epsilon (a
     /// static screen costs ~zero). Times the recompute for the live perf gate and flushes
@@ -1039,13 +1096,35 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     {
         if (_fieldBmp is null || _fieldBuf is null) return;
 
-        bool poseMoved = double.IsNaN(_lastCx)
-            || Math.Abs(_fieldCx - _lastCx) > FieldEpsilon
-            || Math.Abs(_fieldCy - _lastCy) > FieldEpsilon
-            || Math.Abs(_fieldRadius - _lastRadius) > FieldEpsilon;
-        bool inputsMoved = _fieldDirty || poseMoved || _lastFieldActive != _maskActive;
+        // Parked-storm fix (2026-06-11): split "a non-pose input changed" (color / peak /
+        // feather / cell-strength / active / size — touches every pixel) from "the pose moved".
+        // A non-pose change ALWAYS recomputes. A pose-only move recomputes ONLY when it crossed a
+        // RENDER-VISIBLE texel quantum since the last RENDERED pose — the field center + grid-window
+        // mirror still TRACK the head on the locked sub-texel OverlayFieldMotionEpsilon (set in
+        // ApplyHeadPose), but the ~165 Hz pump's sub-texel One-Euro creep produces a byte-identical
+        // field, so re-rendering it is pure waste (the ~75/s wgc_diag storm). The quantum keeps the
+        // rendered field within 1 LSB end-to-end (pinned by OverlayHeadPoseTests
+        // .ParkedPump_SubTexelPose_RendersWithinOneByte + the parked-zero regressions in
+        // OverlaySmoothnessTests), so this is invisible — NOT a visible step (Kirby's motion
+        // principle holds: the grid hole keeps gliding; only the redundant field re-upload is skipped).
+        bool nonPoseDirty = _fieldDirty || _fieldFullDirty;   // both set by MarkFieldDirty
+        bool activeFlip   = _lastFieldActive != _maskActive;
+        double q = PoseRenderQuantum();
+        bool poseRenderMoved = double.IsNaN(_lastCx)
+            || Math.Abs(_fieldCx - _lastCx) >= q
+            || Math.Abs(_fieldCy - _lastCy) >= q
+            || Math.Abs(_fieldRadius - _lastRadius) >= q;
+        bool inputsMoved = nonPoseDirty || activeFlip || poseRenderMoved;
 
-        if (!inputsMoved) return;
+        if (!inputsMoved)
+        {
+            // Nothing the rendered buffer depends on changed — drop the (possibly pose-set) dirty
+            // flag so a parked overlay costs ~zero. _lastCx/_lastCy are left at the last RENDERED
+            // pose (NOT advanced to the sub-texel creep) so the bucket delta accumulates until it
+            // genuinely crosses a texel — the field can never freeze permanently mid-glide.
+            _fieldDirty = false;
+            return;
+        }
 
         EnsureWindowLut();   // rebuild the r²-indexed window LUT iff featherStart changed
 
@@ -1065,6 +1144,9 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         else
         {
             (y0, y1) = DirtyBandRows(_lastCx, _lastCy, _fieldCx, _fieldCy);
+            // Fix 3: ComputeFieldRows itself chooses single-thread (tiny band) vs capped-parallel
+            // (large band) by pixel count — a small pose nudge runs inline (starvation-immune),
+            // a near-full-height band uses the capped Parallel.For (never starves the whole pool).
             if (y1 > y0) ComputeFieldRows(y0, y1);
         }
 
@@ -1162,6 +1244,22 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// denominator is blended toward the rest-center denominator so the hole/feather grows by
     /// only OverlayFieldCornerGrowthDamping× the old amount. At rest the live and rest denoms are
     /// equal ⇒ byte-identical to today.</summary>
+    /// <summary>Recompute rows [<paramref name="yStart"/>, <paramref name="yEnd"/>) of the field
+    /// buffer. Fix 3 (parked-storm, 2026-06-11): the dispatch is chosen by the band PIXEL COUNT.
+    /// <list type="bullet">
+    ///   <item>A SMALL band (&lt; <see cref="SenseDefaults.OverlayFieldSingleThreadPixelThreshold"/>
+    ///         px — a tiny pose nudge whose feather annulus does not span the field) runs
+    ///         single-threaded on the UI thread: cheaper than fan-out AND immune to thread-pool
+    ///         starvation when a fullscreen game saturates every core.</item>
+    ///   <item>A LARGE band or a full recompute uses <c>Parallel.For</c> with
+    ///         <c>MaxDegreeOfParallelism = </c><see cref="SenseDefaults.OverlayFieldMaxParallelism"/>
+    ///         (= ProcessorCount − 2) so the game can never starve the WHOLE pool from under the
+    ///         render — the cap, not the thread count, is the starvation fix.</item>
+    /// </list>
+    /// For this field geometry the feather disc reaches ±~0.66 normalized, so most pose moves dirty
+    /// a near-full-height band and correctly take the capped-parallel path; only genuinely tiny
+    /// bands go single-threaded. Output is byte-identical either way
+    /// (Fix2_DirtyBand_MatchesFullRecompute_ByteForByte).</summary>
     private void ComputeFieldRows(int yStart, int yEnd)
     {
         int w = _fieldW, h = _fieldH;
@@ -1183,7 +1281,10 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double denom = EffectiveCornerDenom(cx, cy, aspect, SenseDefaults.OverlayFieldCornerGrowthDamping);
         double invDenomSq = denom > 1e-9 ? 1.0 / (denom * denom) : 1e18;
 
-        System.Threading.Tasks.Parallel.For(yStart, yEnd, y =>
+        // The per-row work is identical regardless of dispatch; capture it once so the single-
+        // threaded band path and the capped-parallel full path share one body (byte-identical
+        // output — pinned by Fix2_DirtyBand_MatchesFullRecompute_ByteForByte).
+        void Row(int y)
         {
             double py = (y + 0.5) / h;
             double dy = py - cy;
@@ -1211,7 +1312,24 @@ public partial class OverlayWindow : Window, IOverlayRenderer
                 buf[i + 2] = oR; // R
                 buf[i + 3] = oA; // A
             }
-        });
+        }
+
+        long bandPixels = (long)(yEnd - yStart) * w;
+        if (bandPixels < SenseDefaults.OverlayFieldSingleThreadPixelThreshold)
+        {
+            // Small band — inline on the UI thread (no Parallel.For dispatch; starvation-immune).
+            for (int y = yStart; y < yEnd; y++) Row(y);
+        }
+        else
+        {
+            // Large band / full recompute — capped Parallel.For so a saturated game can never
+            // starve the whole pool (leaves ProcessorCount − 2 cores for the UI/compositor).
+            var opts = new System.Threading.Tasks.ParallelOptions
+            {
+                MaxDegreeOfParallelism = SenseDefaults.OverlayFieldMaxParallelism,
+            };
+            System.Threading.Tasks.Parallel.For(yStart, yEnd, opts, Row);
+        }
     }
 
     private void RecordRecompute(double ms)

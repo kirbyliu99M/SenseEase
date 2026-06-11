@@ -1234,6 +1234,70 @@ public class OverlayHeadPoseTests
         });
     }
 
+    /// <summary>Parked-storm fix (2026-06-11) invisibility: a sub-quantum pose move changes the
+    /// rendered field by AT MOST one 8-bit code (≤1 LSB on the quarter-res buffer). This is the
+    /// justification for the pump render gate skipping it — the change is below the established
+    /// invisibility bar (the SAME ≤1-byte tolerance ComposeFieldPixelLut_MatchesExactCompose meets;
+    /// a single quarter-res texel dithering by 1/255 in one channel, then bilinear-upscaled, is
+    /// imperceptible and is the unavoidable floating-point rounding-boundary chatter — NOT a visible
+    /// step). At several base poses (incl. near a clamp edge where the falloff is steepest), nudge
+    /// the center by 0.9× the quarter-texel quantum on each axis and confirm a full recompute at the
+    /// nudged pose differs from the base by no more than 1 per byte. (At a HALF-texel quantum this
+    /// reached 2 LSB — the reason OverlayFieldRenderTexelFraction is 4, not 2.)</summary>
+    [Fact]
+    public void ParkedPump_SubTexelPose_RendersWithinOneByte()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+            w.ConfigureFieldForTests(720, 450, tier: 12, featherWidth: 0.5);
+            int maxDim = Math.Max(w.FieldWidthForTests, w.FieldHeightForTests);
+            // The render gate quantum. A move strictly below it is skipped; this proves the skip is
+            // within 1 LSB. Probe at 0.9× the quantum on each axis.
+            double quantum = 1.0 / (maxDim * SenseDefaults.OverlayFieldRenderTexelFraction);
+            double nudge = quantum * 0.9;
+
+            (double cx, double cy)[] basePoses =
+            {
+                (0.50, 0.50), (0.62, 0.38), (0.30, 0.70), (0.10, 0.90), (0.90, 0.10),
+            };
+            int maxDelta = 0;
+            foreach (var (cx, cy) in basePoses)
+            {
+                byte[] baseField = w.ComputeFullFieldReferenceForTests(cx, cy);
+                foreach (var (nx, ny) in new[] { (cx + nudge, cy), (cx, cy + nudge), (cx + nudge, cy + nudge) })
+                {
+                    byte[] n = w.ComputeFullFieldReferenceForTests(nx, ny);
+                    for (int i = 0; i < baseField.Length; i++)
+                        maxDelta = Math.Max(maxDelta, Math.Abs(baseField[i] - n[i]));
+                }
+            }
+            Assert.True(maxDelta <= 1,
+                $"a sub-quarter-texel pose nudge ({nudge:E2}) must change the field by <= 1 LSB " +
+                $"(invisible); max byte delta was {maxDelta}");
+        });
+    }
+
+    /// <summary>Fix 3 (parked-storm, 2026-06-11): the field-recompute Parallel.For is CAPPED so a
+    /// fullscreen game saturating every core can never starve the whole thread-pool out from under
+    /// the render (the 19–28 ms wgc_diag spikes were the UNCAPPED Parallel.For fighting the game for
+    /// every core). The cap leaves at least two cores for the UI/compositor on any multi-core box,
+    /// and is always at least 1 (never zero/negative). On a 1–2 core box it floors to 1 (serial),
+    /// which is correct — there is no spare core to fan out to anyway.</summary>
+    [Fact]
+    public void Fix3_FieldParallelism_IsCapped_LeavingHeadroom()
+    {
+        int cap = SenseDefaults.OverlayFieldMaxParallelism;
+        Assert.True(cap >= 1, $"parallelism cap must be at least 1 (serial floor), was {cap}");
+        Assert.True(cap <= Environment.ProcessorCount,
+            $"cap must not exceed the core count ({Environment.ProcessorCount}), was {cap}");
+        if (Environment.ProcessorCount > 2)
+            Assert.True(cap <= Environment.ProcessorCount - 2,
+                $"on a >2-core box the cap must leave >= 2 cores free for the UI/compositor: " +
+                $"cap {cap} vs {Environment.ProcessorCount} cores");
+    }
+
     /// <summary>Fix 1 end-to-end through the RENDERED buffer: the clear-hole radius grows by
     /// HALF the old amount as the center moves to a corner. Measure the hole radius (the first
     /// row from the center where alpha becomes non-zero, scanning a column through the center) at

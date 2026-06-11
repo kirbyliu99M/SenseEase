@@ -114,6 +114,87 @@ public class OverlaySmoothnessTests
         });
     }
 
+    /// <summary>Parked-storm regression (2026-06-11): the ENGINE-tick (ApplyState) path. With the
+    /// overlay parked (head-tracking INACTIVE, steady tier, mask on) and realistic OFI noise (±3
+    /// per tick — the game on the second monitor), the field must converge in a small allowance
+    /// then recompute ZERO times over the tail window. Before the fix the smoothedIntensity EMA
+    /// chased the OFI noise and re-dirtied the field on sub-8-bit wobble every tick (~9% of frames);
+    /// after the 1/256 cellStrength quantization the tail is rock-steady at zero.</summary>
+    [Fact]
+    public void ParkedApplyState_WithOfiNoise_TailRecomputesAreZero()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+            w.ApplyState(MakeParkedState(ofi: 40, pressure: 30, tier: 6));
+
+            const int convergence = 60;
+            const int tail = 240;
+            var rng = new Random(12345);
+            for (int i = 0; i < convergence; i++)
+                w.ApplyState(MakeParkedState(ofi: 40 + (rng.NextDouble() * 6 - 3), pressure: 30, tier: 6));
+
+            long afterConvergence = w.TotalRecomputesForTests;
+            for (int i = 0; i < tail; i++)
+                w.ApplyState(MakeParkedState(ofi: 40 + (rng.NextDouble() * 6 - 3), pressure: 30, tier: 6));
+            long tailStorm = w.TotalRecomputesForTests - afterConvergence;
+
+            Assert.True(tailStorm == 0,
+                $"parked non-persistent overlay must recompute ZERO times over the tail window " +
+                $"once converged (OFI noise must not re-dirt the 8-bit field): tail={tailStorm}");
+        });
+    }
+
+    /// <summary>Parked-storm regression (2026-06-11): the ~165 Hz PUMP path — the DOMINANT storm
+    /// (wgc_diag ~75 recomputes/s with the mask active=False). Head-tracking ACTIVE but near-still:
+    /// the upstream One-Euro filter emits a sub-texel creep/jitter every frame. The field center +
+    /// grid-window mirror still track it (locked epsilon), but the rendered field is byte-identical,
+    /// so after the first render the field must recompute ZERO more times. Before the fix every pump
+    /// frame re-rendered (~83%); after the texel-quantized render gate a near-still pump costs zero.</summary>
+    [Fact]
+    public void ParkedPump_NearStillPose_RecomputesZeroAfterFirst()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+            w.ApplyState(MakeParkedState(ofi: 40, pressure: 30, tier: 6));
+
+            // First active pump frame establishes the rendered pose.
+            w.UpdateHeadGazeCenter(0.5, 0.5, active: true, dtMs: 6.0);
+            long before = w.TotalRecomputesForTests;
+
+            const int frames = 300;
+            var rng = new Random(999);
+            for (int i = 0; i < frames; i++)
+            {
+                // Sub-texel One-Euro creep / sensor dither around a near-still pose (~±1e-4,
+                // far below one quarter-res field texel ≈ 2e-3).
+                double cx = 0.5 + (rng.NextDouble() * 2e-4 - 1e-4);
+                double cy = 0.5 + (rng.NextDouble() * 2e-4 - 1e-4);
+                w.UpdateHeadGazeCenter(cx, cy, active: true, dtMs: 6.0);
+            }
+            long storm = w.TotalRecomputesForTests - before;
+
+            Assert.True(storm == 0,
+                $"a near-still active pump (sub-texel jitter) must NOT re-render the field — the " +
+                $"rendered bytes are identical: {storm} recomputes over {frames} frames");
+        });
+    }
+
+    private static SenseState MakeParkedState(double ofi, double pressure, int tier)
+        => new SenseState
+        {
+            VimsTier = tier,
+            OpticalFlowIndex = ofi,
+            Pressure = pressure,
+            MaskActive = true,
+            HeadTrackingActive = false,
+            HeadGazeX = 0.5,
+            HeadGazeY = 0.5,
+        };
+
     // ── STA harness (copied from OverlayHeadPoseTests) ──
     private static void RunOnSta(Action body)
     {

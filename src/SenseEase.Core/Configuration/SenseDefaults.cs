@@ -231,6 +231,60 @@ public static class SenseDefaults
     /// epsilon. ROUND-4 TUNABLE / UVHS-adjustable.</summary>
     public const double OverlayFieldMotionEpsilon = 0.00005;
 
+    // ── Parked-recompute storm fixes (2026-06-11, alpha1-w2-engine-integrity) ─
+    // wgc_diag showed ~75 field recomputes/SECOND while head-tracking pose was active
+    // (the ~165 Hz CompositionTarget.Rendering pump) but the mask read active=False and the
+    // screen was static — every pump frame re-rendered a field whose 8-bit output was
+    // byte-IDENTICAL to the last (the One-Euro filter creeps in sub-texel steps far below one
+    // quarter-res field texel). At ~75/s the Parallel.For full-recompute spikes (19–28 ms when
+    // a fullscreen game saturates the CPU) chain into the visible freeze. These constants gate
+    // the redundant recomputes at the SOURCE without touching any locked rendered value or the
+    // locked pose-tracking epsilon (the field center + grid-window mirror still track the head
+    // on the exact OverlayFieldMotionEpsilon pose — only the redundant re-RENDER is skipped).
+
+    /// <summary>Render-gate texel fraction for the pose-driven field recompute. The field
+    /// center still TRACKS the head on the locked <see cref="OverlayFieldMotionEpsilon"/> (the
+    /// grid-window mirror glides continuously), but <c>RenderFieldIfDirty</c> only recomputes +
+    /// re-uploads the bitmap when the pose moved by at least 1/this of ONE field texel since the
+    /// last RENDERED pose. A pose move below this changes the bilinear-upscaled low-frequency field
+    /// by AT MOST one 8-bit code (≤1 LSB on the quarter-res buffer — the SAME invisibility bar the
+    /// LUT pipeline already meets: ComposeFieldPixelLut_MatchesExactCompose_WithinOneByte; pinned by
+    /// OverlayHeadPoseTests.ParkedPump_SubTexelPose_RendersWithinOneByte). 4 ⇒ a QUARTER-texel
+    /// quantum: empirically the coarsest fraction that holds the field within 1 LSB across every
+    /// tier/pose (a half-texel showed 2 LSB on the steepest tier-12 falloff). A quarter-texel is
+    /// still ~14× the locked pose-tracking epsilon, so the ~165 Hz pump's sub-texel One-Euro creep
+    /// (~0.05 texel) is converted from ~137 recomputes/s into ~0 when parked, while any real head
+    /// turn still crosses the quantum within one frame and tracks faithfully.</summary>
+    public const double OverlayFieldRenderTexelFraction = 4.0;
+
+    /// <summary>Quantization step for the cell-tint strength + displayed mask alpha re-dirt gate.
+    /// Both feed an 8-bit premultiplied buffer, so a change below 1/256 of full scale cannot flip
+    /// any output byte. ApplyGridIntensity / ResolveMaskParams quantize their EMA outputs to this
+    /// grid before deciding to mark the field dirty: the EMA chases live OFI/pressure noise and
+    /// would otherwise re-dirt on sub-8-bit wobble every engine tick (the parked non-persistent
+    /// storm). 1/256 is exactly one 8-bit code ⇒ the quantized value reaches the rendered byte
+    /// identically; sub-code wobble is dropped. Invisible by definition (the buffer is 8-bit).</summary>
+    public const double OverlayEightBitQuantum = 1.0 / 256.0;
+
+    /// <summary>Max threads for the field-recompute <c>Parallel.For</c>. Capped at
+    /// <c>max(1, ProcessorCount − 2)</c> so a fullscreen game saturating every core can never starve
+    /// the WHOLE thread-pool out from under the render: two cores are always left for the
+    /// UI/compositor (this is the real starvation fix — the 19–28 ms spikes in wgc_diag were the
+    /// uncapped Parallel.For fighting the game for every core). With the parked-storm fixes a render
+    /// only happens on a genuine visible change, so this cost is rare anyway.</summary>
+    public static int OverlayFieldMaxParallelism => Math.Max(1, Environment.ProcessorCount - 2);
+
+    /// <summary>Pixel-count threshold below which a field recompute runs SINGLE-THREADED (no
+    /// Parallel.For dispatch). A small dirty band (a tiny pose nudge whose feather annulus does not
+    /// span the field) is cheaper to compute inline than to fan out — and running it on the UI
+    /// thread makes it immune to thread-pool starvation. Bands at or above this (and every full
+    /// recompute) use the CAPPED Parallel.For. ~16 rows × a 720-wide field ≈ 11.5k px is well under
+    /// 1 ms single-thread (measured ≈0.07 ms/row); above it the parallel fan-out wins even capped.
+    /// NOTE: for THIS field geometry (feather disc reaches ±~0.66 normalized) most pose moves dirty
+    /// a near-full-height band, so they correctly take the capped-parallel path — only genuinely
+    /// tiny bands go single-threaded.</summary>
+    public const int OverlayFieldSingleThreadPixelThreshold = 12_000;
+
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;
     // Base decay alpha for a 100 ms step (tau ~= 2.81s).
