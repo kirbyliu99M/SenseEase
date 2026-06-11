@@ -15,9 +15,10 @@ namespace SenseEase.Tests;
 ///   <item>corner-normalized radial coordinate at the center / corners (no animated
 ///         global radius — the breathing killer);</item>
 ///   <item>the shared FOV-mask / grid-window smoothstep falloff at sample radii;</item>
-///   <item>the grid-line reveal (UVHS 2026-06-11 layout): grid ZERO in the clean centre,
-///         non-zero only on world-locked periphery line pixels, scaling on the SAME radial
-///         window the FOV mask uses — and gated by the GridCeiling brightness pipeline;</item>
+///   <item>the cell-fill fold (UVHS round 2, 2026-06-11): the legacy near-black cell tint
+///         folded UNDER the tier mask dim, both windowed by the SAME inverse-feather — clean
+///         centre, deepened periphery tone matching 3762a42; grid lines are no longer
+///         rasterized into the field (they are full-res vector geometry on a separate surface);</item>
 ///   <item>MaskDepth (D-2) → bounded effective peak with the ≥0.20 floor / table ceiling
 ///         and byte-identity at the default;</item>
 ///   <item>FeatherWidth (D-2) → feather-band start slide with envelope-identity at default;</item>
@@ -109,144 +110,120 @@ public class OverlayFieldMathTests
         }
     }
 
-    // ── Grid-line reveal (UVHS 2026-06-11 corrected layout) ─────────────────
+    // ── Cell-fill fold (UVHS round 2, 2026-06-11 — replaces the field grid-term tests) ──
     //
-    // The authoritative 3762a42 presentation: faint world-locked grid lines appear ONLY
-    // in the dimmed PERIPHERY (sharing the FOV mask's radial window), the centre is CLEAN.
-    // These pin the pure per-pixel grid term ResolveGridLineAlpha(window, gridLineAlpha,
-    // onLine, threshold, gamma):
-    //   (a) grid term is ZERO at/near the mask centre (window ≈ 0 ⇒ centre clean);
-    //   (b) grid term is non-zero on a line pixel in the periphery (window open);
-    //   (c) line POSITIONS are window-independent — world-lock is enforced by the onLine
-    //       flag (mod(px, cell)), proven here by the term being identical for the same
-    //       onLine pixel regardless of which mask CENTRE produced its window value;
-    //   (d) grid alpha tracks the GridCeiling brightness pipeline (gridLineAlpha input);
-    //   (e) the periphery line term BLENDS over the mask dim (it scales WITH the window,
-    //       it does not replace the mask) — both non-zero at the same periphery radius.
+    // The grid is no longer rasterized INTO the quarter-res field (a 1.2 px hairline cannot
+    // survive the downscale — "grid FORM wrong / grid JUMPS"). It is now full-res WPF vector
+    // geometry on a separate surface. The field carries ONLY low-frequency content: the FOV
+    // mask dim WITH the legacy cell-fill tint folded in (the reference _cellFillRect's
+    // #08080A@120 windowed by the SAME inverse-feather, composited UNDER the tier mask). These
+    // pin the pure per-pixel fold ComposeFieldPixel(window, maskR/G/B, maskPeak, gamma,
+    // cellStrength):
+    //   (a) centre is CLEAN: at window 0 the composed pixel is fully transparent (no dim, no
+    //       tint) — the centre-clean invariant survives the fold;
+    //   (b) the periphery carries BOTH the mask dim AND the cell tint (composed alpha exceeds
+    //       a mask-only field at the same window — the tint deepens the periphery tone to
+    //       match 3762a42);
+    //   (c) the fold is monotonic in the window (a deeper window ⇒ a deeper composed alpha);
+    //   (d) composed alpha never exceeds 1.0 (premultiplied-safe encode);
+    //   (e) the tint is modulated by cellStrength — the SAME ApplyGridIntensity target that
+    //       drives GridCanvas.Opacity (at 3762a42 the _cellFillRect rode that opacity).
+    //       cellStrength = 0 (L1 resting, tierFraction = 0) ⇒ tint contributes NOTHING, so
+    //       the A2 hard-stop "resting 0.00 at L1" holds (no permanent peripheral vignette).
 
-    private const double GThresh = SenseDefaults.OverlayFieldGridThreshold;
-    private const double GGamma  = SenseDefaults.OverlayFieldGamma;
+    private const double GGamma = SenseDefaults.OverlayFieldGamma;
 
     [Fact]
-    public void GridLineAlpha_AtCenter_IsZero_CentreClean()
+    public void ComposeFieldPixel_AtCentre_IsFullyTransparent_CentreClean()
     {
-        // In the clean centre the shared window is 0 (r ≤ featherStart) — even on a grid
-        // line pixel and at full brightness the grid term is ZERO. Centre is clean.
+        // In the clean centre the shared window is 0 (r ≤ featherStart) — the cell-fill tint
+        // AND the mask dim are both windowed by it, so the composed pixel is fully transparent.
         double windowCentre = OverlayWindow.ResolveFieldAlpha(0.0, 1.0, 0.35, 0.95);   // == 0
         Assert.Equal(0.0, windowCentre, 9);
-        double full = SenseDefaults.OverlayGridLineMaxAlpha; // brightness 1.0
-        Assert.Equal(0.0, OverlayWindow.ResolveGridLineAlpha(windowCentre, full, onLine: true, GThresh, GGamma), 9);
+        var (b, g, r, a) = OverlayWindow.ComposeFieldPixel(windowCentre, 0, 0, 4, 0.92, GGamma, 1.0);
+        Assert.Equal(0, a);  // centre alpha 0 — clean hole (no dim, no tint)
+        Assert.Equal(0, b);
+        Assert.Equal(0, g);
+        Assert.Equal(0, r);
 
-        // Just inside the feather start the window is still 0 ⇒ still no grid.
+        // Just inside the feather start the window is still 0 ⇒ still clean.
         double windowNearCentre = OverlayWindow.ResolveFieldAlpha(0.34, 1.0, 0.35, 0.95);
-        Assert.Equal(0.0, OverlayWindow.ResolveGridLineAlpha(windowNearCentre, full, onLine: true, GThresh, GGamma), 9);
+        var (_, _, _, a2) = OverlayWindow.ComposeFieldPixel(windowNearCentre, 0, 0, 4, 0.92, GGamma, 1.0);
+        Assert.Equal(0, a2);
     }
 
     [Fact]
-    public void GridLineAlpha_InPeriphery_OnLine_IsNonZero()
+    public void ComposeFieldPixel_InPeriphery_CarriesMaskDimPlusCellTint()
     {
-        // Far periphery (r ≥ featherEnd) ⇒ window saturates at 1.0 ⇒ a line pixel reveals
-        // the faint grid at its full (gamma-shaped) ceiling.
+        // Far periphery (window 1.0): the composed pixel carries BOTH the tier mask dim and
+        // the cell-fill tint folded under it. The composed alpha must EXCEED a mask-only field
+        // at the same window — the tint deepens the periphery tone (the reference _cellFillRect
+        // contribution), which is exactly what makes the periphery match 3762a42.
         double window = OverlayWindow.ResolveFieldAlpha(1.0, 1.0, 0.35, 0.95); // == 1.0
         Assert.Equal(1.0, window, 9);
-        double full = SenseDefaults.OverlayGridLineMaxAlpha;
-        double ga = OverlayWindow.ResolveGridLineAlpha(window, full, onLine: true, GThresh, GGamma);
-        Assert.True(ga > 0.0, $"periphery line pixel must reveal the grid, was {ga}");
-        Assert.Equal(OverlayWindow.GammaShape(full, GGamma), ga, 9);
+
+        // Use a mid tier so there is headroom for the tint to add visible alpha (a 0.92 peak
+        // gamma-shapes to a high mask alpha already; mid tier shows the fold clearly).
+        double peak = 0.50;
+        var (_, _, _, composedA) = OverlayWindow.ComposeFieldPixel(window, 51, 51, 51, peak, GGamma, 1.0);
+
+        // Mask-only reference alpha at the same window (gamma-shaped, no cell-fill fold).
+        byte maskOnlyA = (byte)Math.Round(
+            Math.Clamp(OverlayWindow.GammaShape(window * peak, GGamma), 0.0, 1.0) * 255.0);
+
+        Assert.True(composedA > 0, $"the periphery must carry the mask dim, alpha was {composedA}");
+        Assert.True(composedA > maskOnlyA,
+            $"the folded cell-fill tint must deepen the periphery tone past a mask-only field: " +
+            $"composed={composedA}, maskOnly={maskOnlyA}");
     }
 
     [Fact]
-    public void GridLineAlpha_OffLine_IsAlwaysZero()
+    public void ComposeFieldPixel_AlphaIsMonotonic_InWindow()
     {
-        // Between the world-locked lines there is no grid anywhere — periphery included.
-        double window = OverlayWindow.ResolveFieldAlpha(1.0, 1.0, 0.35, 0.95);
-        double full = SenseDefaults.OverlayGridLineMaxAlpha;
-        Assert.Equal(0.0, OverlayWindow.ResolveGridLineAlpha(window, full, onLine: false, GThresh, GGamma), 9);
+        // A deeper shared window ⇒ a deeper composed alpha (both the mask dim and the tint
+        // scale WITH the window). Pin monotonicity across the band.
+        int prevA = -1;
+        for (double r = 0.35; r <= 1.0 + 1e-9; r += 0.02)
+        {
+            double window = OverlayWindow.ResolveFieldAlpha(r, 1.0, 0.35, 0.95);
+            var (_, _, _, a) = OverlayWindow.ComposeFieldPixel(window, 0, 0, 4, 0.80, GGamma, 1.0);
+            Assert.True(a >= prevA, $"composed alpha must be monotonic in window, r={r}: {prevA} -> {a}");
+            prevA = a;
+        }
     }
 
     [Fact]
-    public void GridLineAlpha_LinePositions_WorldLocked_IndependentOfMaskCenter()
+    public void ComposeFieldPixel_NeverExceedsOpaque()
     {
-        // World-lock has TWO parts; both are asserted here.
-        //
-        // PART 1 — the line POSITION (the onLine flag) is pure screen-space mod(px, cell),
-        // so it does NOT shift when the mask centre moves. Model the ComputeField test
-        // exactly: onLine = (y % cell == 0) || (x % cell == 0), with NO center term. The
-        // same screen pixel is on/off a line identically regardless of where the head looks.
-        int ds   = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
-        int cell = Math.Max(2, (int)Math.Round(SenseDefaults.GridSizePx / (double)ds));
-        // A pixel exactly on a vertical line stays on it for any conceivable centre — the
-        // mod test never consults the centre.
-        int xOnLine  = cell;        // cell % cell == 0  → on a vertical line
-        int xOffLine = cell + cell / 2;
-        Assert.True((xOnLine  % cell) == 0, "world-locked line column is center-independent");
-        Assert.True((xOffLine % cell) != 0, "off-line column is center-independent");
-
-        // PART 2 — ResolveGridLineAlpha takes NO centre argument: for the SAME window value
-        // (the only quantity the centre influences) the grid alpha is identical. So the line
-        // alpha is a pure function of (window, brightness, onLine) — the centre can change
-        // the window VALUE but can never move the line itself.
-        double full = SenseDefaults.OverlayGridLineMaxAlpha;
-        const double sameWindow = 0.90; // some peripheral window value
-        double g1 = OverlayWindow.ResolveGridLineAlpha(sameWindow, full, onLine: true, GThresh, GGamma);
-        double g2 = OverlayWindow.ResolveGridLineAlpha(sameWindow, full, onLine: true, GThresh, GGamma);
-        Assert.Equal(g1, g2, 9);
-        Assert.True(g1 > 0.0, "a periphery line pixel must be visible");
-
-        // And two DIFFERENT mask centres that yield the SAME window at an on-line pixel
-        // produce the SAME line alpha — the reveal rides the window, the line never moves.
-        double aspect = 16.0 / 9.0;
-        // Pick two pixels (one per centre) engineered to share a window value via equal r.
-        // r is what the smoothstep consumes; equal r ⇒ equal window ⇒ equal line alpha.
-        double rA = OverlayWindow.CornerNormR(0.05, 0.05, 0.5, 0.5, aspect);
-        double rB = rA; // same radial coordinate under a hypothetical second centre
-        double wA = OverlayWindow.ResolveFieldAlpha(rA, 1.0, 0.35, 0.95);
-        double wB = OverlayWindow.ResolveFieldAlpha(rB, 1.0, 0.35, 0.95);
-        Assert.Equal(
-            OverlayWindow.ResolveGridLineAlpha(wA, full, onLine: true, GThresh, GGamma),
-            OverlayWindow.ResolveGridLineAlpha(wB, full, onLine: true, GThresh, GGamma), 9);
+        // Even at the deepest window + peak the composed alpha is premultiplied-safe (≤ 255)
+        // and channels never exceed their alpha.
+        var (b, g, r, a) = OverlayWindow.ComposeFieldPixel(1.0, 0, 0, 4, 0.92, GGamma, 1.0);
+        Assert.InRange(a, (byte)0, (byte)255);
+        Assert.True(b <= a && g <= a && r <= a,
+            $"premultiplied channels must not exceed alpha: B={b} G={g} R={r} A={a}");
     }
 
     [Fact]
-    public void GridLineAlpha_ScalesWithBrightness_GridCeilingPipeline()
+    public void ComposeFieldPixel_AtRest_TintContributesNothing_A2RestingInvariant()
     {
-        // (d) The grid alpha tracks the brightness pipeline: gridLineAlpha = brightness ×
-        // OverlayGridLineMaxAlpha (the GridCeiling/tier driver feeds brightness). A dimmer
-        // brightness ⇒ a fainter line; /grid off (brightness 0) ⇒ no line at all.
-        double window = 1.0; // far periphery, window fully open
-        double max = SenseDefaults.OverlayGridLineMaxAlpha;
+        // L1 resting: maskPeak = 0 (VimsLevels L1) AND cellStrength = 0 (the ApplyGridIntensity
+        // target is tierFraction-driven — 0 at L1). The composed pixel must be FULLY transparent
+        // even in the far periphery: no permanent vignette at rest (A2 hard-stop "resting 0.00
+        // at L1"). This is the 3762a42 modulation — the tint rode GridCanvas.Opacity.
+        var (b, g, r, a) = OverlayWindow.ComposeFieldPixel(1.0, 0, 0, 4, 0.0, GGamma, 0.0);
+        Assert.Equal(0, a);
+        Assert.Equal(0, b);
+        Assert.Equal(0, g);
+        Assert.Equal(0, r);
 
-        double bright = OverlayWindow.ResolveGridLineAlpha(window, 0.75 * max, onLine: true, GThresh, GGamma);
-        double dim    = OverlayWindow.ResolveGridLineAlpha(window, 0.30 * max, onLine: true, GThresh, GGamma);
-        double off    = OverlayWindow.ResolveGridLineAlpha(window, 0.0  * max, onLine: true, GThresh, GGamma);
-
-        Assert.True(dim < bright, $"dimmer grid brightness ⇒ fainter line: bright={bright}, dim={dim}");
-        Assert.Equal(0.0, off, 9); // GridCeiling(gv=0)=0 ⇒ "/grid off" truly hides the grid
-        Assert.Equal(OverlayWindow.GammaShape(0.75 * max, GGamma), bright, 9);
-    }
-
-    [Fact]
-    public void GridLineAlpha_Periphery_BlendsOverMaskDim_NotInsteadOf()
-    {
-        // (e) At a single periphery radius BOTH the mask dim AND the grid term are non-zero:
-        // the grid line BLENDS OVER the mask (one pixel, one alpha), it does not replace it.
-        // Same window drives both: maskA = window × peak; gridA = window × lineCeiling.
-        double window = OverlayWindow.ResolveFieldAlpha(0.90, 1.0, 0.35, 0.95);
-        Assert.True(window > 0.0, "precondition: a genuinely peripheral radius (window open)");
-
-        double peak  = 0.50; // a mid-tier mask peak
-        double maskA = window * peak;
-        double gridA = OverlayWindow.ResolveGridLineAlpha(
-            window, SenseDefaults.OverlayGridLineMaxAlpha, onLine: true, GThresh, GGamma);
-
-        Assert.True(maskA > 0.0, $"the mask dim must be present at this periphery pixel, was {maskA}");
-        Assert.True(gridA > 0.0, $"the grid line must be present at this periphery pixel, was {gridA}");
-        // The single-surface composite (white line src-over the mask backdrop) keeps the
-        // mask contribution: src-over output alpha = gridA + maskA·(1−gridA) ≥ maskA, so the
-        // dim is never erased by the line.
-        double composedAlpha = gridA + maskA * (1.0 - gridA);
-        Assert.True(composedAlpha >= maskA - 1e-12,
-            $"the grid line must blend OVER the mask, not erase it: composed={composedAlpha}, mask={maskA}");
+        // And with a live mask but zero cell strength, the field equals the mask-only value
+        // (the tint adds nothing when its strength is zero).
+        double window = 1.0;
+        double peak = 0.50;
+        var (_, _, _, composedA) = OverlayWindow.ComposeFieldPixel(window, 51, 51, 51, peak, GGamma, 0.0);
+        byte maskOnlyA = (byte)Math.Round(
+            Math.Clamp(OverlayWindow.GammaShape(window * peak, GGamma), 0.0, 1.0) * 255.0);
+        Assert.Equal(maskOnlyA, composedA);
     }
 
     // ── MaskDepth (D-2) → bounded effective peak ────────────────────────────

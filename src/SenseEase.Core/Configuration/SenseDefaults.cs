@@ -147,24 +147,17 @@ public static class SenseDefaults
     /// how far the start can travel either way within safe clamps.</summary>
     public const double OverlayFeatherStartSpan = 0.20;
 
-    /// <summary>Beta A2: faint screen-locked grid line alpha ceiling (0..1) at full grid
-    /// brightness. Matches the legacy GridLineBrush A=130/255 ≈ 0.51 so the field grid
-    /// reads at the same faintness the separate grid Lines did. The per-frame
-    /// GridCeiling(gridVisibility) curve still drives the brightness; this is the value it
-    /// scales toward. Grid stays WORLD-LOCKED (mod(px, GridSizePx)) — never moves with the
-    /// mask center.</summary>
-    public const double OverlayGridLineMaxAlpha = 130.0 / 255.0;
-
-    /// <summary>Beta A2 (UVHS 2026-06-11 corrected semantics): the open-window threshold for
-    /// the PERIPHERAL grid reveal. The faint world-locked grid lines share the FOV mask's
-    /// radial window (clean centre, revealed periphery); a line pixel only shows where that
-    /// shared window is open PAST this value — i.e. outside the genuinely-clean centre. This
-    /// keeps the centre grid-free while the grid fills the dimmed periphery (the 3762a42
-    /// presentation). Low so the clean centre stays clean and the grid begins right at the
-    /// feather. (Previously misread as "draw grid where mask alpha is BELOW this", which
-    /// inverted the layout into a centre grid — see BETA_FEATHERING_COHERENCE_PLAN §A2.)
-    /// Still one alpha per output pixel: the periphery line blends OVER the mask dim.</summary>
-    public const double OverlayFieldGridThreshold = 0.04;
+    // TOMBSTONE (UVHS round 2, 2026-06-11): OverlayGridLineMaxAlpha (= 130.0/255.0) and
+    // OverlayFieldGridThreshold (= 0.04) were the additive A2-era constants that fed the
+    // GRID-LINE rasterization INTO the quarter-res field (ResolveGridLineAlpha + the
+    // peripheral-open-window threshold). The hybrid fix REMOVED grid rasterization from the
+    // field — a 1.2 px world-locked hairline cannot survive the quarter-res downscale (it
+    // became a fat bilinear band that popped in 4 px-quantized steps: the "grid FORM wrong /
+    // grid JUMPS" verdict). The grid is now full-res WPF vector geometry (OverlayWindow.DrawGrid,
+    // GridLineBrush A=130/255 used DIRECTLY as a frozen brush — not via a constant). Neither
+    // value is read by any code or test anymore, so both are removed. The grid faintness lives
+    // in GridLineBrush; the periphery reveal lives in the inverse-feather OpacityMask window.
+    // These were additive-era constants (not locked values); the lock allows additive removal.
 
     /// <summary>Beta A2: how often (seconds) the rolling field-recompute frame-time stats
     /// (avg / p99) are flushed to wgc_diag while the overlay is active, for Kirby's live

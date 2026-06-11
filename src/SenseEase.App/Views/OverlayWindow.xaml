@@ -10,18 +10,28 @@
         ResizeMode="NoResize"
         WindowState="Maximized"
         IsHitTestVisible="False">
-    <!-- Beta A2 (single-pass field): the mask, cell-fill and anchor grid were three
-         independently-shaped translucent strata (a Gestalt common-fate / scission
-         "multilayer halo"). They are now ONE per-pixel field computed into a single
-         premultiplied-BGRA WriteableBitmap and presented through this one Image with
-         smooth (bilinear) upscale from reduced resolution. One alpha per pixel → no
-         stacked layers, no separate cell-fill rect, no scalar-radius "breathing".
-         Stretch=Fill so the reduced-res field covers the maximized window; the
-         RenderOptions hint keeps the low-frequency gradient smooth rather than blocky. -->
+    <!-- Beta A2 HYBRID (UVHS round 2, 2026-06-11): content split by spatial frequency.
+         A 1.2 px world-locked hairline grid CANNOT survive rasterization into the
+         quarter-res field bitmap (each line becomes a fat bilinear-blurred band that
+         pops in 4 px-quantized steps — the "grid FORM wrong / grid JUMPS" verdict), so
+         only LOW-frequency content lives in the reduced-res field; the grid stays full-
+         res vector geometry.
+
+         z-order (bottom → top), both click-through:
+           1. FieldImage  — the reduced-res FOV-mask dim + folded cell-fill tint, bilinear-
+                            upscaled (Stretch=Fill). One per-pixel field, one alpha.
+           2. GridCanvas  — full-resolution white Chang-Hain anchor Line shapes, windowed by
+                            an inverse-feather RadialGradientBrush OpacityMask on the one-clock
+                            pose. Drawn OVER the dim so the faint lines read in the dimmed
+                            periphery; the clear-centre window keeps the centre grid-free.
+                            Opacity starts at 0 (NE30 anti-flash) — ApplyGridIntensity ramps it. -->
     <Grid>
         <Image x:Name="FieldImage"
                IsHitTestVisible="False"
                Stretch="Fill"
                RenderOptions.BitmapScalingMode="LowQuality" />
+        <Canvas x:Name="GridCanvas"
+                IsHitTestVisible="False"
+                Opacity="0" />
     </Grid>
 </Window>

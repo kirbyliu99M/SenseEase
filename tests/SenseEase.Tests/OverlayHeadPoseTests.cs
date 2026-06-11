@@ -862,26 +862,22 @@ public class OverlayHeadPoseTests
         });
     }
 
-    /// <summary>UVHS 2026-06-11 layout (end-to-end, through the rendered buffer): the grid
-    /// appears in the PERIPHERY and the CENTRE is CLEAN. Renders a high-tier centred field
-    /// and asserts: (a) the exact-centre pixel is fully transparent (alpha 0 — no grid, no
-    /// dim); (b) in the deep periphery a world-locked grid-LINE pixel reads BRIGHTER (higher
-    /// luma) than an adjacent OFF-line pixel at the same radius — the faint line blended over
-    /// the near-black mask; (c) that off-line periphery pixel still carries the mask dim
-    /// (alpha > 0). Pins the corrected spatial composition the inverted "grid-in-centre" A2
-    /// field violated. The grid is faint by design (130/255 ceiling, gamma-compressed), so
-    /// this compares ON-line vs OFF-line rather than using an absolute brightness threshold.</summary>
+    /// <summary>UVHS round 2 (2026-06-11), end-to-end through the rendered field buffer: the
+    /// LOW-frequency field carries the FOV mask dim WITH the legacy cell-fill tint folded in,
+    /// in the PERIPHERY, and the CENTRE is CLEAN. The grid is no longer in the field (it is
+    /// full-res vector geometry on GridCanvas — see the grid tests below), so this asserts only
+    /// the mask+tint fold: (a) the exact-centre pixel is fully transparent (alpha 0 — no dim,
+    /// no tint); (b) a deep-periphery pixel carries the composited dim+tint (alpha > 0) and its
+    /// colour is near-black (the cool-shifted L12 mask over the #08080A tint).</summary>
     [Fact]
-    public void OverlayWindow_RenderedField_GridInPeriphery_CentreClean()
+    public void OverlayWindow_RenderedField_DimAndCellTintInPeriphery_CentreClean()
     {
         RunOnSta(() =>
         {
             var w = new OverlayWindow();
             w.ApplyTemplate();
 
-            // High tier so the mask renders deep; default GridVisibility drives the grid.
-            // Pump several ticks so the EMA-smoothed grid brightness CONVERGES (a single tick
-            // only reaches ~25% of target — too faint to sample reliably).
+            // High tier so the mask renders deep.
             var state = new SenseState
             {
                 VimsTier           = 12,
@@ -896,38 +892,134 @@ public class OverlayHeadPoseTests
             int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
             Assert.True(fw > 12 && fh > 12, $"field too small to sample: {fw}x{fh}");
 
-            // (a) CENTRE CLEAN: the exact centre pixel is fully transparent (no grid, no dim).
+            // (a) CENTRE CLEAN: the exact centre pixel is fully transparent (no dim, no tint).
             int cxPix = fw / 2, cyPix = fh / 2;
             int ci = (cyPix * fw + cxPix) * 4;
             Assert.Equal(0, buf![ci + 3]); // centre alpha 0 — clean hole
 
-            // World-locked grid cell in field-space pixels (GridSizePx / downscale), matching
-            // ComputeField. Pick a deep-periphery row and find an on-line vs off-line column.
-            int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
-            int gridCell = Math.Max(2, (int)Math.Round(SenseDefaults.GridSizePx / (double)ds));
+            // (b) DEEP PERIPHERY: the top-edge pixel carries the composited mask dim + folded
+            // cell tint. Alpha must be present, and the colour near-black (the dim is deep at
+            // L12; the cell tint adds a faint cool near-black underneath).
+            int periRow = 1;            // deep periphery (top edge), window ≈ saturated
+            int periCol = fw / 2;       // mid-column, still deep periphery vertically
+            int pi = (periRow * fw + periCol) * 4;
+            Assert.True(buf[pi + 3] > 0,
+                $"the peripheral mask dim + cell tint must be present, alpha was {buf[pi + 3]}");
+            // Near-black: each premultiplied channel is small relative to a fully opaque white.
+            Assert.True(buf[pi + 0] < 64 && buf[pi + 1] < 64 && buf[pi + 2] < 64,
+                $"periphery tone must be near-black (dim + tint): B={buf[pi + 0]} G={buf[pi + 1]} R={buf[pi + 2]}");
+        });
+    }
 
-            int periRow = 1; // deep periphery (top edge), window ≈ saturated
-            // On-line column: a multiple of gridCell that is in-bounds (x=0 is a line, but
-            // pick gridCell so it's clearly inside). Off-line column: that + 1.
-            int onCol  = gridCell;
-            int offCol = gridCell + (gridCell / 2); // safely between lines
-            Assert.True(onCol < fw && offCol < fw, "sample columns must be in-bounds");
+    // ── 10) UVHS round 2 (2026-06-11): full-res VECTOR grid (restored 3762a42) ──────────
+    //
+    // The grid returned as full-resolution WPF Line shapes on GridCanvas (a 1.2 px world-locked
+    // hairline cannot survive rasterization into the quarter-res field — "grid FORM wrong / grid
+    // JUMPS"). These STA tests pin the restored 3762a42 grid: DrawGrid produces real lines at
+    // DPI-scaled spacing, GridCanvas opacity follows the ApplyGridIntensity / GridCeiling
+    // pipeline, and the OpacityMask window mirrors the one-clock pose.
 
-            int onI  = (periRow * fw + onCol)  * 4;
-            int offI = (periRow * fw + offCol) * 4;
-            int onLuma  = buf[onI + 0]  + buf[onI + 1]  + buf[onI + 2];   // B+G+R
-            int offLuma = buf[offI + 0] + buf[offI + 1] + buf[offI + 2];
+    /// <summary>DrawGrid produces full-res vector Line shapes at the DPI/resolution-scaled
+    /// spacing (step = max(20, round(GridSizePx × physicalWidth/1920))). After a layout the
+    /// canvas holds a non-trivial number of lines and the resolved step is at least the
+    /// 1920-baseline GridSizePx (40) clamped to ≥ 20.</summary>
+    [Fact]
+    public void OverlayWindow_DrawGrid_ProducesVectorLines_AtDpiScaledSpacing()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
 
-            // (b) the world-locked grid LINE pixel is brighter than the off-line neighbour at
-            // the same periphery radius — the faint white line blended over the dark mask.
-            Assert.True(onLuma > offLuma,
-                $"periphery grid-line pixel must read brighter than its off-line neighbour " +
-                $"(UVHS 2026-06-11: grid in periphery): onLuma={onLuma}, offLuma={offLuma}");
+            // Drive a state so ApplyState → DrawGrid runs at least once. The unshown STA window
+            // never lays out, so DrawGrid uses its primary-screen fallback (same as EnsureField).
+            w.ApplyState(new SenseState { VimsTier = 6, MaskActive = true, Shader = new ShaderParams() });
 
-            // (c) the off-line periphery pixel still carries the mask dim (the grid does not
-            // replace the mask — it blends over it; off-line, only the mask is present).
-            Assert.True(buf[offI + 3] > 0,
-                $"the peripheral mask dim must be present off the grid lines, alpha was {buf[offI + 3]}");
+            Assert.True(w.GridLineCountForTests > 0,
+                $"DrawGrid must produce full-res vector lines, count was {w.GridLineCountForTests}");
+            // The step is DPI/resolution-scaled with a 20 px floor; at the 1920 baseline it is 40.
+            Assert.True(w.GridStepForTests >= 20,
+                $"grid step must be DPI-scaled with a >= 20 floor, was {w.GridStepForTests}");
+        });
+    }
+
+    /// <summary>GridCanvas opacity TARGET follows the ApplyGridIntensity pipeline (GridCeiling ×
+    /// tier fraction × intensity, EMA-smoothed): a hot high tier converges the target to a
+    /// clearly-visible value, and "/grid off" (GridVisibility 0 ⇒ GridCeiling 0) drives the
+    /// target to zero. The curve itself is pinned byte-for-byte by GridCeilingTests; this checks
+    /// the live wiring. Reads the animation .To target (a bare STA thread has no render clock to
+    /// advance the 280 ms animation, so the live GridCanvas.Opacity would read the base value).</summary>
+    [Fact]
+    public void OverlayWindow_GridOpacityTarget_FollowsApplyGridIntensity()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // High tier + default GridVisibility: pump to converge the EMA. The target rises
+            // toward GridCeiling(0.75)=1.0 × tierFraction(L12=1.0) × (0.55 + 0.45·intensity).
+            var hot = new SenseState
+            {
+                VimsTier   = 12,
+                MaskActive = true,
+                Pressure   = SenseDefaults.TriggerPressure, // drive intensity high
+                Shader     = new ShaderParams(),            // default GridVisibility 0.75
+            };
+            for (int i = 0; i < 40; i++) w.ApplyState(hot);
+            Assert.True(w.GridOpacityTargetForTests > 0.0,
+                $"a hot high tier must make the grid visible, target was {w.GridOpacityTargetForTests}");
+
+            // "/grid off": GridVisibility 0 ⇒ GridCeiling 0 ⇒ target clamped to 0.
+            var gridOff = new SenseState
+            {
+                VimsTier   = 12,
+                MaskActive = true,
+                Pressure   = SenseDefaults.TriggerPressure,
+                Shader     = new ShaderParams { GridVisibility = 0.0 },
+            };
+            for (int i = 0; i < 40; i++) w.ApplyState(gridOff);
+            Assert.Equal(0.0, w.GridOpacityTargetForTests, 6); // truly off
+        });
+    }
+
+    /// <summary>One-clock (UVHS round 2): after a pose step, the grid OpacityMask window
+    /// (Center / GradientOrigin / RadiusX/Y) equals the field center/radius in the SAME frame —
+    /// the hole rides the head while the LINES stay world-locked. This restores the M5.1-A
+    /// mirror onto the one clock: same pose value, same call, no divergent geometry.</summary>
+    [Fact]
+    public void OverlayWindow_OneClock_GridMaskWindow_EqualsFieldCenter_InSameFrame()
+    {
+        RunOnSta(() =>
+        {
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+
+                // Pose step in one frame: field center + grid mask window resolve together.
+                w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: true, dtMs: 6.0);
+
+                var mask = w.GridMaskBrushForTests;
+                // The grid hole CENTER equals the field center in the same frame.
+                Assert.Equal(w.FieldCenterXForTests, mask.Center.X, 6);
+                Assert.Equal(w.FieldCenterYForTests, mask.Center.Y, 6);
+                Assert.Equal(w.FieldCenterXForTests, mask.GradientOrigin.X, 6);
+                Assert.Equal(w.FieldCenterYForTests, mask.GradientOrigin.Y, 6);
+                // The grid hole RADIUS equals the field radius in the same frame.
+                Assert.Equal(w.FieldRadiusForTests, mask.RadiusX, 6);
+                Assert.Equal(w.FieldRadiusForTests, mask.RadiusY, 6);
+
+                // Snap back: inactive returns both to the v0.9 baseline together.
+                w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: false, dtMs: 6.0);
+                Assert.Equal(0.5, mask.Center.X, 6);
+                Assert.Equal(0.5, mask.Center.Y, 6);
+                Assert.Equal(0.85, mask.RadiusX, 6);
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
