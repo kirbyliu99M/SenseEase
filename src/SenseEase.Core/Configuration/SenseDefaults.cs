@@ -251,6 +251,28 @@ public static class SenseDefaults
     /// WITHOUT the per-tick OFI/pressure jitter that made the grid pulse. ROUND-4 TUNABLE.</summary>
     public const double OverlaySteadyBaselineIntensity = 0.55;
 
+    /// <summary>Round-10 trembling audit (2026-06-11): per-tick retain of the grid-intensity
+    /// EMA in ApplyGridIntensity. The old literal 0.85 was documented as "τ≈1.7 s at 300 ms
+    /// tick" — but ApplyGridIntensity runs at the REAL StateChanged cadence of ~66 ms
+    /// (<see cref="WgcCaptureIntervalMs"/>); the assumption was stale on arrival (inherited
+    /// from the legacy renderer's era), so the EMA ran at ~4.5× its design noise bandwidth
+    /// (τ≈0.41 s) and the grid brightness followed OFI/pressure wander. 0.85^(66/300) ≈ 0.965
+    /// restores the designed τ≈1.85 s at the actual cadence. (On the 300 ms idle-decay
+    /// fallback path this is slower than design — harmless: idle has no noise and the grid is
+    /// invisible at idle tiers.)</summary>
+    public const double OverlayGridIntensityEmaRetain = 0.965;
+
+    /// <summary>Round-10 trembling audit (2026-06-11): hysteresis quantum for re-aiming the
+    /// grid-opacity animation. The live target re-aimed <c>GridCanvas.Opacity</c>'s 280 ms
+    /// animation EVERY ~66 ms tick straight off OFI/pressure noise — the only un-deadbanded
+    /// noise follower left after the mask-alpha snap and the cell-tint 1/256 gate. The
+    /// animation now re-aims only when a discrete input changes (tier/gv/steady) or the
+    /// continuous target moved ≥ this much from the last AIMED value: 2 on-screen 8-bit codes
+    /// at the frozen 130/255 stroke (ΔOpacity per code = (1/255)/(130/255) = 1/130). A
+    /// permanently-withheld sub-quantum difference is invisible by the project's own 8-bit
+    /// bar.</summary>
+    public const double GridOpacityRetargetQuantum = 2.0 / 130.0;
+
     /// <summary>Kirby round-3 (item 4.1): field recompute / pose-mutation threshold used
     /// while head-tracking is ACTIVE. The coarser <c>OverlayWindow.FieldEpsilon</c> (0.0005)
     /// is sized for the static-screen "cost ~zero" gate; it can quantize the One-Euro filter's

@@ -209,6 +209,27 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     // field input anymore (the grid is a separate full-res vector surface).
     private double _smoothedIntensity;
 
+    // Round-10 hysteretic re-aim gate (2026-06-11 audit): the live grid-opacity target was
+    // the last un-deadbanded noise follower — .To re-aimed + BeginAnimation re-begun every
+    // ~66 ms engine tick straight off OFI/pressure wander (the mask alpha and the cell tint
+    // both already have quantize/snap gates). Anchor the last AIMED target and re-aim only
+    // when a DISCRETE input changes (tier / gv / steady flag — deliberate, not noise) or the
+    // continuous target moved ≥ GridOpacityRetargetQuantum (~2 on-screen 8-bit codes at the
+    // 130/255 stroke). Mirrors the pose gate's anchored-hysteresis rationale.
+    private double _lastAimedGridTarget = double.NaN;
+    private int    _lastAimedGridTier   = int.MinValue;
+    private double _lastAimedGridGv     = double.NaN;
+    private bool?  _lastAimedGridSteady;
+
+    // Round-10 seam fix (2026-06-11 audit, static ~12 device px offset): the grid-window
+    // OpacityMask brush used RelativeToBoundingBox, which maps over the GridCanvas RENDER
+    // bounds — and DrawGrid's last overshoot line (at ceil(w/step)·step ≥ w; Canvas does not
+    // clip) inflates those bounds past the screen, shifting/stretching the grid hole off the
+    // field hole. Record the field's true extent (DrawGrid's w/h, same pre-layout fallback as
+    // EnsureFieldBitmap) and map the brush ABSOLUTELY onto it instead.
+    private double _gridMaskExtentW;
+    private double _gridMaskExtentH;
+
     // ── Grid: cached frozen white line stroke (3762a42) ──────────────────────
     /// <summary>Frozen white grid-line stroke (A=130/255). Allocated once at class load.</summary>
     private static readonly SolidColorBrush GridLineBrush = CreateGridLineBrush();
@@ -291,11 +312,26 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         ResolveMaskParams(state);
         ApplyGridIntensity(state);     // drives GridCanvas.Opacity (full-res vector grid)
         EnsureGridOpacityMask();
-        // Head pose comes from the SAME state on the engine-tick path; the ~165 Hz pump
-        // path uses UpdateHeadGazeCenter. Both funnel into ApplyHeadPose.
-        ApplyHeadPose(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
+        // Round-10 one-clock fix (2026-06-11 audit, smoking gun): state.HeadGazeX/Y on this
+        // engine-tick path carries the RAW un-One-Euro'd sidecar sample (MainViewModel
+        // .UpdateFromState writes poseReader.ReadLatest() straight in — no filter, no
+        // FaceDetected grace). While the ~165 Hz pump owns the pose (UpdateHeadGazeCenter
+        // feeding the single One-Euro output), applying the raw pose here made TWO writers
+        // fight over _fieldCx at ~15 Hz — the presented hole hopped raw↔filtered by ~1-7
+        // device px, bypassing the filter entirely (the post-freeze 抖動). The pump's clock
+        // is authoritative: skip the pose write whenever it is subscribed. With the pump
+        // parked (head tracking off / power save) this path remains the pose fallback.
+        if (!PoseOwnedByPump)
+            ApplyHeadPose(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
         RenderFieldIfDirty();
     }
+
+    /// <summary>Round-10 one-clock fix: true while the MainWindow head-pose pump
+    /// (CompositionTarget.Rendering → UpdateHeadGazeCenter, the single One-Euro clock) is
+    /// subscribed. MainWindow refreshes it on every OnStateChanged, so ApplyState never
+    /// injects the raw engine-tick pose while the pump runs (dual-writer tremble), and the
+    /// engine path automatically becomes the fallback when the pump parks.</summary>
+    internal bool PoseOwnedByPump { get; set; }
 
     /// <summary>High-frequency entry point for the head-pose pump (~165 Hz
     /// <c>CompositionTarget.Rendering</c>, MainWindow). Bypasses the full mask/grid
@@ -425,23 +461,28 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// never pulses on live OFI/pressure noise.</para></summary>
     private void ApplyGridIntensity(SenseState state)
     {
-        // Item 3: when rendering the persistent baseline steadily, use a CONSTANT intensity
-        // (the 0.55 floor) — no smoothedIntensity OFI/pressure term — so the grid + cell tint
-        // hold rock-steady instead of pulsing on live sensing noise. The live path (spike or
-        // non-persistent) keeps the EMA-smoothed adaptive intensity.
-        double intensityTerm;
-        if (state.PersistentBaselineSteady)
-        {
-            intensityTerm = SenseDefaults.OverlaySteadyBaselineIntensity; // 0.55 constant floor
-        }
-        else
-        {
-            // EMA smoothing (α=0.85, τ≈1.7 s at 300 ms tick) — eliminates per-tick jumps from
-            // WGC pixel-diff noise without losing responsiveness to sustained pressure.
-            double intensity = ComputeAdaptiveIntensity(state);
-            _smoothedIntensity = 0.85 * _smoothedIntensity + 0.15 * intensity;
-            intensityTerm = 0.55 + (0.45 * _smoothedIntensity);
-        }
+        // Round-10 (2026-06-11 audit findings 2-4): the EMA stays ALIVE on BOTH branches.
+        // The steady branch used to skip it entirely, freezing _smoothedIntensity at whatever
+        // the last live episode left (possibly saturated ~1.0 for minutes) — so every
+        // steady→live edge re-entered the live path with a STALE intensity, stepping the grid
+        // target by up to ~22 on-screen codes in one tick (the largest single pulse in the
+        // pipeline). Now the EMA keeps tracking the live signals silently while steady renders
+        // the constant floor, so the handoff is continuous — mirroring how ResolveMaskParams'
+        // steady branch keeps seeding _displayedR/G/B/Alpha for the same reason.
+        //
+        // The retain is sized for the REAL StateChanged cadence (~66 ms, WgcCaptureIntervalMs)
+        // restoring the designed τ≈1.85 s: the old literal 0.85 was written for a 300 ms tick
+        // that never existed in this repo — the EMA ran at ~4.5× its design noise bandwidth.
+        double retain = SenseDefaults.OverlayGridIntensityEmaRetain;
+        _smoothedIntensity = retain * _smoothedIntensity
+                           + (1.0 - retain) * ComputeAdaptiveIntensity(state);
+
+        // Item 3 (round-3): while rendering the persistent baseline steadily, the RENDERED
+        // intensity is the CONSTANT 0.55 floor — never the live EMA — so the grid + cell tint
+        // hold rock-steady instead of pulsing on live sensing noise.
+        double intensityTerm = state.PersistentBaselineSteady
+            ? SenseDefaults.OverlaySteadyBaselineIntensity
+            : 0.55 + (0.45 * _smoothedIntensity);
 
         int    tier         = Math.Clamp(state.VimsTier, 1, 12);
         // Item 1: grid tier-ONSET. Below GridOnsetTier the grid is fully invisible; from the
@@ -456,10 +497,29 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // (ceiling 0 ⇒ computed 0) is preserved (min(0, cap) = 0).
         double target       = Math.Min(computed, SenseDefaults.GridOpacityCap);
 
-        // Reuse the single pre-allocated DoubleAnimation; only mutate .To. From is left
-        // unset → WPF animates from the current animated value (zero per-tick allocation).
-        _gridOpacityAnim.To = target;
-        GridCanvas.BeginAnimation(OpacityProperty, _gridOpacityAnim, HandoffBehavior.SnapshotAndReplace);
+        // Round-10 hysteretic re-aim gate (audit finding: the only un-deadbanded noise
+        // follower left). Re-aim the 280 ms animation ONLY when a discrete input changed
+        // (tier / gv / steady — a deliberate or protection-relevant step, never noise) or the
+        // continuous target drifted ≥ ~2 on-screen 8-bit codes from the last AIMED value.
+        // Below that the previous aim stands — the difference is invisible by the project's
+        // own 8-bit bar, and the lines stop breathing on OFI/pressure wander. The anchor
+        // advances only on re-aim (a fixed-grid quantize is NOT enough: the target drifts
+        // >1/256 over seconds and would still re-aim every crossing).
+        bool discreteChanged = tier != _lastAimedGridTier
+                            || gv   != _lastAimedGridGv
+                            || state.PersistentBaselineSteady != _lastAimedGridSteady;
+        if (double.IsNaN(_lastAimedGridTarget) || discreteChanged
+            || Math.Abs(target - _lastAimedGridTarget) >= SenseDefaults.GridOpacityRetargetQuantum)
+        {
+            // Reuse the single pre-allocated DoubleAnimation; only mutate .To. From is left
+            // unset → WPF animates from the current animated value (zero per-tick allocation).
+            _gridOpacityAnim.To = target;
+            GridCanvas.BeginAnimation(OpacityProperty, _gridOpacityAnim, HandoffBehavior.SnapshotAndReplace);
+            _lastAimedGridTarget = target;
+            _lastAimedGridTier   = tier;
+            _lastAimedGridGv     = gv;
+            _lastAimedGridSteady = state.PersistentBaselineSteady;
+        }
 
         // Mirror the same target into the field's cell-fill tint strength (the 3762a42
         // modulation: the tint rode GridCanvas.Opacity). Field re-renders on real change.
@@ -474,7 +534,10 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // (the parked non-persistent storm source). PersistentBaselineSteady already feeds a CONSTANT
         // intensity ⇒ a constant target ⇒ this quantizes to a fixed bucket and never re-dirts (it
         // already snapped). Invisible by definition (the buffer is 8-bit).
-        double qTarget = Quantize8Bit(target);
+        //
+        // Round-10: mirror the AIMED target (not the raw per-tick one) so the cell tint and the
+        // vector lines move on the same re-aim events — strictly quieter, divergence < 2 codes.
+        double qTarget = Quantize8Bit(_lastAimedGridTarget);
         if (double.IsNaN(_lastCellStrength) || qTarget != _lastCellStrength)
         {
             _cellStrength = qTarget;
@@ -548,6 +611,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // SizeChanged / DPI-monitor change with no immediately-following ApplyState can never
         // paint full-strength grid lines across the whole screen. The brush defaults to the
         // centred at-rest feather; ApplyHeadPose updates its centre/radius when the head moves.
+        //
+        // Round-10 seam fix: this w/h IS the field's extent (same pre-layout fallback as
+        // EnsureFieldBitmap) — record it so the window brush maps ABSOLUTELY onto it instead
+        // of onto the overshoot-inflated canvas render bounds (~12 device px hole offset).
+        _gridMaskExtentW = w;
+        _gridMaskExtentH = h;
         EnsureGridOpacityMask();
 
         // Scale grid spacing and line thickness proportionally from the 1920×1080 baseline so
@@ -639,6 +708,20 @@ public partial class OverlayWindow : Window, IOverlayRenderer
                 ViewportUnits = BrushMappingMode.RelativeToBoundingBox,
             };
             RenderOptions.SetBitmapScalingMode(_gridWindowMaskBrush, BitmapScalingMode.LowQuality);
+        }
+        // Round-10 seam fix (2026-06-11 audit): map the window ABSOLUTELY onto the field's
+        // extent. RelativeToBoundingBox mapped over the GridCanvas RENDER bounds, which
+        // DrawGrid's overshoot lines (last line at ceil(w/step)·step ≥ w; Canvas never clips)
+        // inflate past the screen — stretching the window so the grid hole sat ~12 device px
+        // off the field hole (a static concentricity error on the seam Kirby checks). With an
+        // absolute viewport the window spans exactly the field rect; the overshoot strip falls
+        // outside the viewport (mask 0) and is off-screen anyway.
+        if (_gridMaskExtentW > 0 && _gridMaskExtentH > 0)
+        {
+            _gridWindowMaskBrush.ViewportUnits = BrushMappingMode.Absolute;
+            var extent = new Rect(0, 0, _gridMaskExtentW, _gridMaskExtentH);
+            if (_gridWindowMaskBrush.Viewport != extent)
+                _gridWindowMaskBrush.Viewport = extent;
         }
         if (!ReferenceEquals(GridCanvas.OpacityMask, _gridWindowMaskBrush))
             GridCanvas.OpacityMask = _gridWindowMaskBrush;

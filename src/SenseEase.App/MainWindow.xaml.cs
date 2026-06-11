@@ -1824,6 +1824,12 @@ public partial class MainWindow : Window
                 state.MaskPeakAlphaOverride = _viewModel.ResolveDisplayedMaskOverride(displayed, originalOverride);
             if (baselineSteady)
                 state.PersistentBaselineSteady = true;
+            // Round-10 one-clock fix: state.HeadGazeX/Y here is the RAW un-One-Euro'd sidecar
+            // sample (MainViewModel.UpdateFromState). While the per-frame pump is subscribed
+            // its One-Euro output is the single pose authority — tell the overlay to ignore
+            // the raw pose on this path (the dual-writer ~15 Hz tremble). Refreshed every
+            // tick so it tracks pump subscribe/unsubscribe regardless of lifecycle order.
+            _overlay.PoseOwnedByPump = _renderingSubscribed;
             _overlay.ApplyState(state);
             // Restore so any other subscriber (or the engine's next-tick logging)
             // sees the un-elevated values.
