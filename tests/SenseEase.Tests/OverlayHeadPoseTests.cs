@@ -977,7 +977,7 @@ public class OverlayHeadPoseTests
     /// <summary>DrawGrid produces full-res vector Line shapes at the DPI/resolution-scaled
     /// spacing (step = max(20, round(GridSizePx × physicalWidth/1920))). After a layout the
     /// canvas holds a non-trivial number of lines and the resolved step is at least the
-    /// 1920-baseline GridSizePx (40) clamped to ≥ 20.</summary>
+    /// 1920-baseline GridSizePx (32 since Kirby's 2026-06-11 −20% spacing ruling) clamped to ≥ 20.</summary>
     [Fact]
     public void OverlayWindow_DrawGrid_ProducesVectorLines_AtDpiScaledSpacing()
     {

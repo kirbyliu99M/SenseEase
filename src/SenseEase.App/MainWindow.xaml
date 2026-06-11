@@ -244,10 +244,9 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <!-- Subtitle removed entirely (zh+en) per Kirby ruling 2026-06-11. -->
                     <TextBlock Text="SenseEase"
                                FontSize="22" FontWeight="Bold" Foreground="{DynamicResource TextPrimary}"/>
-                    <TextBlock Text="{loc:T Zh='OS 層級預防性視覺舒適原型', En='OS-level Preventive Visual Comfort Prototype'}"
-                               Foreground="{DynamicResource TextTertiary}" FontSize="12"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -527,43 +526,12 @@
                                     </MultiBinding>
                                 </TextBlock.Text>
                             </TextBlock>
-                        </StackPanel>
-                        <!-- Phase-C nit: diagnostic-hint caption so the relocated FMS
-                             strip reads as developer/diagnostic info, not a daily metric. -->
-                        <TextBlock Style="{StaticResource Type.Caption}"
-                                   Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
-                                   Text="{loc:T Zh='詳細數據,日常使用可忽略', En='Detailed data — safe to ignore in everyday use.'}"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- INTENT-06 / D-6 (2026-06-11): DisplayStressPercent surfaced again so
-                     personalization is visible (R1). Two users at equal raw pressure but
-                     different effective triggers read different values here — the engine
-                     already computes/propagates it; this only makes it visible. Hero meter
-                     keeps VimsTier; this is the personal-threshold telemetry row. -->
-                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="12,8" Margin="0,8,0,0">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{loc:T Zh='個人壓力指數： ', En='Personal stress: '}" Style="{StaticResource CardLabel}"/>
-                            <TextBlock Text="{Binding DisplayStressPercent, StringFormat='{}{0}%'}"
-                                       Foreground="{DynamicResource TextPrimary}" FontWeight="Bold" FontSize="12"/>
-                        </StackPanel>
-                        <TextBlock Style="{StaticResource Type.Caption}"
-                                   Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
-                                   Text="{loc:T Zh='相對於您的個人閾值', En='Relative to your personal threshold'}"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- UX-18: the ActivityStatus row (the "why isn't sensing reacting?"
-                     typing/drag-suppression explanation) moved here from the now-deleted
-                     Eye-Care advanced expander — it answers a real user question and belongs
-                     with the diagnostic telemetry. Status is paired with a glyph-dot (green
-                     idle / amber suppressing) so colour never carries it alone. ActivityStatus
-                     is a diagnostic-only dev string, presented inside the Advanced expander. -->
-                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="12,8" Margin="0,8,0,0">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,6,0">
+                            <!-- Kirby ruling 2026-06-11: the ActivityStatus (Idle/Suppressed)
+                                 indicator moved INLINE here, right of the 遮罩 status. Dot +
+                                 word (never colour-only); the long explanation lives in the
+                                 ToolTip instead of a caption row. -->
+                            <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="14,0,6,0"
+                                     ToolTip="{loc:T Zh='偵測為何暫停反應（打字／拖曳時暫停感測）', En='Why sensing pauses (during typing / dragging).'}">
                                 <Ellipse.Style>
                                     <Style TargetType="Ellipse">
                                         <Setter Property="Fill" Value="{DynamicResource ComfortRising}"/>
@@ -577,13 +545,23 @@
                             </Ellipse>
                             <TextBlock Text="{Binding ActivityStatus}" Style="{StaticResource CardLabel}"
                                        VerticalAlignment="Center"
+                                       ToolTip="{loc:T Zh='偵測為何暫停反應（打字／拖曳時暫停感測）', En='Why sensing pauses (during typing / dragging).'}"
                                        AutomationProperties.Name="{loc:T Zh='系統介面活動抑制狀態', En='OS-chrome activity suppression status'}"/>
                         </StackPanel>
+                        <!-- Phase-C nit: diagnostic-hint caption so the relocated FMS
+                             strip reads as developer/diagnostic info, not a daily metric. -->
                         <TextBlock Style="{StaticResource Type.Caption}"
-                                   Foreground="{DynamicResource TextTertiary}" Margin="15,4,0,0"
-                                   Text="{loc:T Zh='偵測為何暫停反應（打字／拖曳時暫停感測）', En='Why sensing pauses (during typing / dragging).'}"/>
+                                   Foreground="{DynamicResource TextTertiary}" Margin="0,4,0,0"
+                                   Text="{loc:T Zh='詳細數據,日常使用可忽略', En='Detailed data — safe to ignore in everyday use.'}"/>
                     </StackPanel>
                 </Border>
+
+                <!-- Kirby ruling 2026-06-11: the 個人壓力指數 (DisplayStressPercent) row was
+                     DELETED entirely after review (reverses the D-6 surfacing). The engine
+                     still computes/propagates the signal (VM property intact); it simply has
+                     no UI consumer again — whitepaper §6.5's consumer list is stale by ruling.
+                     The ActivityStatus indicator moved INLINE next to the 遮罩 status label
+                     (same ruling) — see the status strip above. -->
                 </StackPanel>
                 </Expander>
 

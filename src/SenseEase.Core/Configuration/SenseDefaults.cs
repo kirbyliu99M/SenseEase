@@ -11,7 +11,9 @@ public static class SenseDefaults
     // Decoupled from ComplaintFovDelta, which is a chatbot-feedback nudge — different policy knob.
     public const int TightestNaturalFovRadiusPercent = 15;
     public const int OuterTransitionRadiusPercent = 45;
-    public const int GridSizePx = 40;
+    // Kirby ruling 2026-06-11 (UVHS live): grid cell spacing reduced 20% (40 → 32) —
+    // 「目前網格的每格間距有點大，可以縮小20%」. DPI-scaled at draw time as before.
+    public const int GridSizePx = 32;
     public const double GridOpacity = 0.75;
     public const double NoiseGateThreshold = 8;
     public const double TriggerPressure = 85;
