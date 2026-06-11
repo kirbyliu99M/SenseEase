@@ -32,6 +32,7 @@ namespace SenseEase.Tests;
 ///         power-save status) differ between languages, so a live EN / 繁中 flip
 ///         actually re-picks them.</item>
 /// </list></summary>
+[Collection("TestDataRoot")]
 public class TrayFaultCopyTests
 {
     // ── UX-03: fault copy is honest + paused-free, both languages ─────────────

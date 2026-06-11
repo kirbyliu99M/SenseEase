@@ -23,6 +23,7 @@ namespace SenseEase.Tests;
 /// <see cref="Exception"/> field so xUnit gets the original failure stack
 /// instead of a generic "thread died" error.</para>
 /// </summary>
+[Collection("TestDataRoot")]
 public class NotificationCardWindowTests
 {
     /// <summary>Test 1 (D2): SetContent formats the numeric title with
