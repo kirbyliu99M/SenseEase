@@ -83,8 +83,13 @@ public static class SenseDefaults
     /// smoothing of slow/near-still motion (less jitter); the responsiveness floor.</summary>
     public const double OverlayOneEuroFcMin = 1.0;
     /// <summary>Beta A1: One-Euro speed coefficient. Higher ⇒ the cutoff opens up
-    /// faster as the head speeds up (less lag on fast moves). 0.007 per the plan.</summary>
-    public const double OverlayOneEuroBeta = 0.007;
+    /// faster as the head speeds up (less lag on fast moves). Kirby round-3 (item 4.2,
+    /// 2026-06-11): raised 0.007 → 0.015 — the plan's 0.007 under-reacted to fast head
+    /// turns, so the mask lagged then caught up, read as 彈跳 (bounce). 0.015 keeps the
+    /// heavy near-still smoothing (FcMin unchanged) while opening the cutoff sooner on
+    /// fast moves (speed-adaptive: smooth when slow, responsive when fast). ROUND-4
+    /// TUNABLE / UVHS-adjustable.</summary>
+    public const double OverlayOneEuroBeta = 0.015;
     /// <summary>Beta A1: One-Euro derivative-estimate cutoff (Hz). Low-passes the
     /// speed estimate that drives the adaptive cutoff so a single noisy frame
     /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
@@ -163,6 +168,47 @@ public static class SenseDefaults
     /// (avg / p99) are flushed to wgc_diag while the overlay is active, for Kirby's live
     /// 165 Hz perf gate. One line a minute — negligible log volume.</summary>
     public const double OverlayFieldPerfLogIntervalSeconds = 60.0;
+
+    // ── Kirby round-3 overlay-rendering tunables (2026-06-11) ─────────────────
+    // ADDITIVE constants for the UVHS round-3 feedback (items 1, 2, 4). They do NOT
+    // touch any locked rendered value: VimsLevels and the GridCeiling CURVE stay
+    // byte-identical — these are a tier-ONSET gate + an OPACITY CAP that WRAP the
+    // GridCeiling output, and a single One-Euro beta bump (responsiveness). All four
+    // are flagged for Kirby's round-4 review.
+
+    /// <summary>Kirby round-3 (item 1): grid tier-ONSET. The full-res vector grid
+    /// contributes NOTHING below this tier — at L1..L(onset-1) the grid is fully
+    /// invisible. From the onset the contribution ramps
+    /// <c>gridTierFraction = clamp((tier − GridOnsetTier) / (12 − GridOnsetTier), 0, 1)</c>,
+    /// reaching full strength at L12. Kirby found the crisp vector lines read hotter
+    /// than the old blurry band and appeared too EARLY (the old tierFraction faded in
+    /// from L2 ≈ 5%); onset L4 keeps L1..L3 grid-free. ROUND-4 TUNABLE.</summary>
+    public const int GridOnsetTier = 4;
+
+    /// <summary>Kirby round-3 (item 2): grid opacity CAP. The ApplyGridIntensity target
+    /// is clamped to <c>min(computedTarget, GridOpacityCap)</c>. Effective max on-screen
+    /// line alpha becomes cap × stroke(130/255) ≈ 0.40 × 0.51 ≈ 0.20 — clearly half-
+    /// transparent (Kirby found the crisp lines too STRONG). The GridCeiling CURVE itself
+    /// is UNTOUCHED (GridCeilingTests stay green); this cap WRAPS its output. ROUND-4
+    /// TUNABLE.</summary>
+    public const double GridOpacityCap = 0.40;
+
+    /// <summary>Kirby round-3 (item 4): the CONSTANT intensity floor used for the grid +
+    /// cell-tint strength while the persistent-overlay baseline is rendering steadily
+    /// (保持遮罩開啟 ON, live tier &lt;= baseline). It is the SAME 0.55 floor the live path
+    /// uses at zero smoothedIntensity, so the steady baseline matches a calm live frame
+    /// WITHOUT the per-tick OFI/pressure jitter that made the grid pulse. ROUND-4 TUNABLE.</summary>
+    public const double OverlaySteadyBaselineIntensity = 0.55;
+
+    /// <summary>Kirby round-3 (item 4.1): field recompute / pose-mutation threshold used
+    /// while head-tracking is ACTIVE. The coarser <c>OverlayWindow.FieldEpsilon</c> (0.0005)
+    /// is sized for the static-screen "cost ~zero" gate; it can quantize the One-Euro filter's
+    /// slow-settling glide (a sub-0.0005 per-frame delta freezes the field while the grid brush
+    /// keeps moving → micro-stutter). This tighter value (sub-texel: ~1/40 px on the quarter-
+    /// res field, &lt;&lt; 1 display px) lets the field follow ANY real head motion faithfully
+    /// while still rejecting pure floating-point noise. Inactive/parked overlays keep the coarse
+    /// epsilon. ROUND-4 TUNABLE / UVHS-adjustable.</summary>
+    public const double OverlayFieldMotionEpsilon = 0.00005;
 
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;

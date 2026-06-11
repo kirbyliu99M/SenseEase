@@ -125,6 +125,10 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private int    _lastColorKey = -1;
     private bool   _lastFieldActive;
     private const double FieldEpsilon = 0.0005;
+    // Kirby round-3 (item 4.1): tighter active-head-tracking motion threshold (SSOT in
+    // SenseDefaults). Used in ApplyHeadPose so a slow One-Euro glide is never quantized
+    // into a freeze-then-jump; the static-screen gate keeps the coarse FieldEpsilon.
+    private const double FieldMotionEpsilon = SenseDefaults.OverlayFieldMotionEpsilon;
 
     // Cell-fill tint strength: the SAME ApplyGridIntensity target that drives
     // GridCanvas.Opacity (tierFraction × GridCeiling × intensity). 0 at L1 resting —
@@ -139,6 +143,10 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private double _recompSumMs;
     private double _recompMaxMs;
     private DateTime _lastPerfFlushUtc = DateTime.MinValue;
+    // Kirby round-3 (item 4.5): monotonic count of field recomputes (== WritePixels calls)
+    // since construction — never reset by the per-minute perf flush. Lets the anti-double-
+    // compute test assert recomputes over N pumped frames stay <= N.
+    private long _totalRecomputes;
 
     /// <summary>Debug property for the live perf gate: rolling average field-recompute
     /// time (ms) since the last one-minute flush. ~0 while the screen is static (the
@@ -296,8 +304,13 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             ? state.MaskPeakAlphaOverride
             : tableAlpha;
 
-        // Seed the cross-fade on first tick so we don't ease in from black at startup.
-        if (!_displayedSeeded)
+        // Item 3 (persistent-overlay sensing isolation): when rendering the baseline tier
+        // steadily, snap the displayed mask color+alpha straight to the baseline tier target
+        // — no cross-fade chase, no OFI flicker. The baseline tier is already debounced by the
+        // engine's VimsTier hysteresis (live tier <= baseline ⇒ ResolveDisplayedTier floors to
+        // the constant baseline), so the steady render holds rock-still. The first tick of a
+        // spike (steady→live) just resumes the EMA cross-fade from the held value.
+        if (!_displayedSeeded || state.PersistentBaselineSteady)
         {
             _displayedR = tR; _displayedG = tG; _displayedB = tB; _displayedAlpha = tierAlpha;
             _displayedSeeded = true;
@@ -346,20 +359,48 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// tier/pressure signal as the legacy renderer (issue #4 fix: pressure-driven, not
     /// FOV-driven). EMA(α=0.85)-smoothed intensity × GridCeiling(gv) ceiling × tier fraction,
     /// eased over 280 ms via the single reusable DoubleAnimation. <c>GridCeiling(gv=0)=0</c>
-    /// keeps "/grid off" truly off. PRESERVED byte-for-byte from 3762a42 (GridCeilingTests).</summary>
+    /// keeps "/grid off" truly off (curve PRESERVED byte-for-byte from 3762a42 — GridCeilingTests).
+    ///
+    /// <para>Kirby round-3 (items 1, 2, 2026-06-11): the grid now has a tier ONSET
+    /// (<see cref="SenseDefaults.GridOnsetTier"/>) — it contributes NOTHING below it and ramps
+    /// from there to full strength at L12 (it appeared too EARLY/STRONG as crisp vector lines),
+    /// and the target is capped at <see cref="SenseDefaults.GridOpacityCap"/> so the on-screen
+    /// line alpha stays clearly half-transparent. Both WRAP the GridCeiling curve; the curve is
+    /// unchanged. Item 3: while <see cref="SenseState.PersistentBaselineSteady"/> is set the
+    /// intensity term is the CONSTANT 0.55 floor (no smoothedIntensity) so the steady baseline
+    /// never pulses on live OFI/pressure noise.</para></summary>
     private void ApplyGridIntensity(SenseState state)
     {
-        // EMA smoothing (α=0.85, τ≈1.7 s at 300 ms tick) — eliminates per-tick jumps from
-        // WGC pixel-diff noise without losing responsiveness to sustained pressure.
-        double intensity = ComputeAdaptiveIntensity(state);
-        _smoothedIntensity = 0.85 * _smoothedIntensity + 0.15 * intensity;
+        // Item 3: when rendering the persistent baseline steadily, use a CONSTANT intensity
+        // (the 0.55 floor) — no smoothedIntensity OFI/pressure term — so the grid + cell tint
+        // hold rock-steady instead of pulsing on live sensing noise. The live path (spike or
+        // non-persistent) keeps the EMA-smoothed adaptive intensity.
+        double intensityTerm;
+        if (state.PersistentBaselineSteady)
+        {
+            intensityTerm = SenseDefaults.OverlaySteadyBaselineIntensity; // 0.55 constant floor
+        }
+        else
+        {
+            // EMA smoothing (α=0.85, τ≈1.7 s at 300 ms tick) — eliminates per-tick jumps from
+            // WGC pixel-diff noise without losing responsiveness to sustained pressure.
+            double intensity = ComputeAdaptiveIntensity(state);
+            _smoothedIntensity = 0.85 * _smoothedIntensity + 0.15 * intensity;
+            intensityTerm = 0.55 + (0.45 * _smoothedIntensity);
+        }
 
         int    tier         = Math.Clamp(state.VimsTier, 1, 12);
-        double tierFraction = (tier - 1) / 11.0;                 // 0 at L1, 1 at L12
+        // Item 1: grid tier-ONSET. Below GridOnsetTier the grid is fully invisible; from the
+        // onset it ramps 0→1 reaching full strength at L12 (replaces the old (tier-1)/11 ramp
+        // that faded in from L2 ≈ 5%). At onset 4: L1..L3 ⇒ 0, L12 ⇒ 1.
+        double gridTierFraction = GridTierFraction(tier);
         double gv           = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
         double ceiling      = GridCeiling(gv);
-        double target       = Math.Clamp(tierFraction * ceiling * (0.55 + (0.45 * _smoothedIntensity)),
-                                         0.0, ceiling);
+        double computed     = Math.Clamp(gridTierFraction * ceiling * intensityTerm, 0.0, ceiling);
+        // Item 2: opacity CAP — the on-screen line alpha (cap × stroke 130/255) stays clearly
+        // half-transparent. min() with the ceiling-clamped computed target; "/grid off"
+        // (ceiling 0 ⇒ computed 0) is preserved (min(0, cap) = 0).
+        double target       = Math.Min(computed, SenseDefaults.GridOpacityCap);
 
         // Reuse the single pre-allocated DoubleAnimation; only mutate .To. From is left
         // unset → WPF animates from the current animated value (zero per-tick allocation).
@@ -374,6 +415,19 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             _lastCellStrength = target;
             MarkFieldDirty();
         }
+    }
+
+    /// <summary>Kirby round-3 (item 1): grid tier-ONSET ramp. The grid contributes NOTHING
+    /// below <see cref="SenseDefaults.GridOnsetTier"/>; from the onset it ramps
+    /// <c>clamp((tier − onset) / (12 − onset), 0, 1)</c>, reaching full strength (1.0) at L12.
+    /// Pure + internal so GridOnsetTests can pin tier 1..3 ⇒ 0, the monotonic ramp, and L12 ⇒ 1.</summary>
+    internal static double GridTierFraction(int tier)
+    {
+        int onset = SenseDefaults.GridOnsetTier;
+        if (tier < onset) return 0.0;
+        double span = 12.0 - onset;
+        if (span <= 0.0) return 1.0;               // degenerate guard (onset >= 12)
+        return Math.Clamp((tier - onset) / span, 0.0, 1.0);
     }
 
     private static double ComputeAdaptiveIntensity(SenseState state)
@@ -580,9 +634,20 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             radius = BrushRadius;
         }
 
-        if (Math.Abs(cx - _fieldCx) > FieldEpsilon
-            || Math.Abs(cy - _fieldCy) > FieldEpsilon
-            || Math.Abs(radius - _fieldRadius) > FieldEpsilon)
+        // Kirby round-3 (item 4.1): the dirty-mark / mutation threshold. The legacy
+        // FieldEpsilon (0.0005) was sized for the STATIC-screen "cost ~zero" gate, but while
+        // head-tracking is ACTIVE the One-Euro filter emits a continuous slow-settling stream
+        // whose per-frame delta can dip just below 0.0005 — freezing the field mid-glide while
+        // the grid brush (mirrored below at WPF's own tighter Point inequality) keeps moving,
+        // a divergence the eye reads as micro-stutter / 彈跳. While active we recompute on ANY
+        // real motion (a sub-texel threshold, ~1/40 px on the quarter-res field) so the field
+        // follows the head faithfully; while inactive the coarser FieldEpsilon keeps a parked
+        // overlay free. The field center/radius are kept in exact lock-step with the brush
+        // mirror (one clock) — no quantized divergence.
+        double motionEps = active ? FieldMotionEpsilon : FieldEpsilon;
+        if (Math.Abs(cx - _fieldCx) > motionEps
+            || Math.Abs(cy - _fieldCy) > motionEps
+            || Math.Abs(radius - _fieldRadius) > motionEps)
         {
             _fieldCx = cx; _fieldCy = cy; _fieldRadius = radius;
             MarkFieldDirty();
@@ -592,6 +657,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // brush so the grid's transparency hole tracks the field's clear zone in the SAME
         // frame. Same pose value, same call — the A1 one-clock property holds (no divergent
         // clocks). The grid LINES stay world-locked at pixel origin; only the WINDOW follows.
+        // The center uses the raw doubles (no integer rounding in the hole-center mapping —
+        // item 4.3) so the hole rides the head with the same sub-pixel precision as the field.
         var center = new Point(cx, cy);
         if (_gridOpacityMaskBrush.Center != center)
         {
@@ -811,6 +878,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         ComputeField();
         _fieldBmp.WritePixels(
             new Int32Rect(0, 0, _fieldW, _fieldH), _fieldBuf, _fieldW * 4, 0);
+        _totalRecomputes++;   // Kirby round-3 (item 4.5): monotonic recompute/WritePixels count
 
         long endTicks = System.Diagnostics.Stopwatch.GetTimestamp();
         double ms = (endTicks - startTicks) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -934,6 +1002,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
     internal int FieldWidthForTests  => _fieldW;
     internal int FieldHeightForTests => _fieldH;
+
+    /// <summary>Kirby round-3 (item 4.5) test seam: monotonic count of field recomputes
+    /// (== WriteableBitmap.WritePixels calls) since construction, never reset by the
+    /// per-minute perf flush. Lets the anti-double-compute smoothness test assert that the
+    /// recompute count over N pumped frames stays &lt;= N (one WritePixels per dirty frame).</summary>
+    internal long TotalRecomputesForTests => _totalRecomputes;
 
     /// <summary>UVHS round 2 (2026-06-11) test seam: the grid OpacityMask brush (the grid's
     /// transparency-hole window — the full-res vector grid's visibility geometry) so the

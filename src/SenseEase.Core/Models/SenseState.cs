@@ -108,4 +108,20 @@ public class SenseState
     /// Default false. When false, consumers MUST fall back to the (0.5, 0.5)
     /// center default — never trust HeadGazeX/Y when this is false.</summary>
     public bool HeadTrackingActive { get; set; } = false;
+
+    // ── Kirby round-3 item 3: persistent-overlay sensing isolation ───────────
+    /// <summary>Kirby round-3 (item 3, 2026-06-11): forward-only DISPLAY flag set by the
+    /// host (<c>MainWindow.OnStateChanged</c>) when 保持遮罩開啟 (PersistentOverlayEnabled)
+    /// is rendering the CHOSEN baseline tier steadily — i.e. the persistent baseline floor
+    /// has ELEVATED the displayed tier above the engine's live/natural tier (live tier
+    /// &lt;= baseline). While true the OverlayWindow renders the baseline tier WITHOUT
+    /// live-sensing jitter: a CONSTANT grid/cell-tint intensity (the 0.55 floor, no
+    /// <c>smoothedIntensity</c> OFI/pressure term) so the mask/grid hold steady instead of
+    /// JUMPING on live OFI/pressure noise. When the live tier genuinely EXCEEDS the baseline
+    /// (a real spike — protection must never weaken) the host leaves this false and normal
+    /// live smoothing takes over; it returns to the steady baseline (riding the existing
+    /// VimsTier debounce hysteresis) when the spike subsides. The engine MUST NOT read this
+    /// — it is a compositing knob mutated by the display layer before each Apply pass.
+    /// Default false ⇒ byte-identical to pre-round-3 live behaviour.</summary>
+    public bool PersistentBaselineSteady { get; set; } = false;
 }

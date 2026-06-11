@@ -1803,17 +1803,33 @@ public partial class MainWindow : Window
             int original = state.VimsTier;
             int displayed = _viewModel.ResolveDisplayedTier(original);
             double originalOverride = state.MaskPeakAlphaOverride;
+            bool originalSteady = state.PersistentBaselineSteady;
             state.VimsTier = displayed;
             // When the floor ELEVATES the tier, the engine's MaskPeakAlphaOverride was resolved
             // for the raw (calm ≈ L1 ⇒ ~0) tier and would blank the always-on mask in
             // ApplyFovMask. Re-resolve it for the displayed tier so the baseline dimming shows.
+            //
+            // Kirby round-3 (item 3): 保持遮罩開啟 renders the CHOSEN baseline tier steadily
+            // whenever the baseline is AT OR ABOVE the live/natural tier (baselineTier >=
+            // naturalTier) — NOT only when it strictly elevates. The "==" case matters too: if
+            // the live tier merely MEETS the baseline, live OFI/pressure noise would still pulse
+            // the grid/mask within that tier. Flag the state so OverlayWindow renders the baseline
+            // WITHOUT live-sensing jitter (constant intensity, no mask cross-fade chase). Only a
+            // genuine spike — the live tier EXCEEDS the baseline — leaves the flag false so normal
+            // live smoothing takes over (protection never weakens); it returns to the steady
+            // baseline (riding the engine VimsTier debounce hysteresis) when the spike subsides.
+            bool baselineSteady = _viewModel.PersistentOverlayEnabled
+                                  && _viewModel.PersistentOverlayBaselineTier >= original;
             if (displayed != original)
                 state.MaskPeakAlphaOverride = _viewModel.ResolveDisplayedMaskOverride(displayed, originalOverride);
+            if (baselineSteady)
+                state.PersistentBaselineSteady = true;
             _overlay.ApplyState(state);
             // Restore so any other subscriber (or the engine's next-tick logging)
             // sees the un-elevated values.
-            state.VimsTier             = original;
-            state.MaskPeakAlphaOverride = originalOverride;
+            state.VimsTier               = original;
+            state.MaskPeakAlphaOverride  = originalOverride;
+            state.PersistentBaselineSteady = originalSteady;
         }
     }
 

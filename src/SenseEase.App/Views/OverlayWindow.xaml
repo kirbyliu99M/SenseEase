@@ -26,6 +26,9 @@
                             periphery; the clear-centre window keeps the centre grid-free.
                             Opacity starts at 0 (NE30 anti-flash) — ApplyGridIntensity ramps it. -->
     <Grid>
+        <!-- BitmapScalingMode=LowQuality is WPF's BILINEAR (linear) interpolation — the
+             correct, cheap upscale for the low-frequency field (Kirby round-3 item 4.4):
+             a smooth gradient, no Fant/HighQuality cost, no nearest-neighbour stepping. -->
         <Image x:Name="FieldImage"
                IsHitTestVisible="False"
                Stretch="Fill"
