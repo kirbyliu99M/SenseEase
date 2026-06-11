@@ -92,4 +92,13 @@ public class SenseDefaultsConstantsTests
     [Fact]
     public void OverlayBrushRadius_locked_at_0_85()
         => Assert.Equal(0.85, SenseDefaults.OverlayBrushRadius);
+
+    /// <summary>Kirby band-pass ruling (2026-06-11): the grid-line inverse-feather window's
+    /// fade-OUT band start. 0.95 == the feather end (the rise's rampEnd) so the lines PEAK
+    /// exactly where the FOV mask saturates, then fade to fully transparent across [0.95, 1.0].
+    /// UVHS-tunable; pinned so an accidental nudge surfaces here. Implemented in
+    /// OverlayWindow.BuildLevelFeather; shape pinned by OverlayHeadPoseTests band-pass tests.</summary>
+    [Fact]
+    public void GridWindowFadeOutStart_locked_at_0_95()
+        => Assert.Equal(0.95, SenseDefaults.GridWindowFadeOutStart);
 }

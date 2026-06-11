@@ -1078,6 +1078,135 @@ public class OverlayHeadPoseTests
         });
     }
 
+    // ── 10b) Kirby BAND-PASS ruling (2026-06-11): grid OpacityMask fades back to ──────
+    //         FULLY TRANSPARENT beyond the feather end (a band-pass visibility window).
+    //
+    // The grid OpacityMask (BuildLevelFeather(255, white)) used to HOLD solid from rampEnd
+    // 0.95 to 1.0 (monotonic reveal — lines at max strength over the darkest periphery /
+    // farthest corner). Kirby ruled the lines must INVERSELY fade to fully transparent past
+    // the feather end: r 0.00→0.35 clear · 0.35→0.95 smootherstep RISE · 0.95→1.00
+    // smootherstep FALL back to clear. These pin the new tail and re-pin the rise as
+    // byte-identical to before the ruling. The FALL is grid-ONLY — the FOV mask falloff
+    // (ResolveFieldAlpha) and the cell-fill tint it windows are untouched (asserted by the
+    // existing field tests, which stay green).
+    //
+    // The stops are read straight off the live GridMaskBrushForTests brush so the test pins
+    // exactly what WPF rasterizes as the OpacityMask.
+
+    /// <summary>Reads the grid OpacityMask's frozen gradient stops, ordered by Offset, off a
+    /// freshly-constructed OverlayWindow (the brush is built at field-init).</summary>
+    private static GradientStop[] GridMaskStopsOrdered(OverlayWindow w)
+    {
+        var stops = w.GridMaskBrushForTests.GradientStops;
+        var arr   = new GradientStop[stops.Count];
+        for (int i = 0; i < stops.Count; i++) arr[i] = stops[i];
+        Array.Sort(arr, (a, b) => a.Offset.CompareTo(b.Offset));
+        return arr;
+    }
+
+    /// <summary>BAND-PASS first/last stops: CLEAR at offset 0 and 0.35 (clear centre), a stop
+    /// AT FadeOutStart (0.95) at PEAK alpha (the rise's peak == the fall's band start, coincident),
+    /// and the LAST stop CLEAR (alpha 0) exactly at offset 1.0 — the lines fade to nothing at the
+    /// farthest corner. Re-pinned 2026-06-11 from the pre-ruling "solid@1.0" hold to Kirby's
+    /// band-pass window.</summary>
+    [Fact]
+    public void OverlayWindow_GridMask_BandPass_FirstAndLastStops()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            var stops = GridMaskStopsOrdered(w);
+
+            // Clear centre: first two stops at offset 0 and 0.35 are alpha 0.
+            Assert.Equal(0.0,  stops[0].Offset, 6);
+            Assert.Equal(0,    stops[0].Color.A);
+            Assert.Equal(0.35, stops[1].Offset, 6);
+            Assert.Equal(0,    stops[1].Color.A);
+
+            // A PEAK stop sits exactly at FadeOutStart (0.95) — the rise's peak and the fall's
+            // band start coincide there (lines peak where the FOV mask saturates).
+            var atFadeStart = Array.Find(stops, s => Math.Abs(s.Offset - SenseDefaults.GridWindowFadeOutStart) < 1e-9);
+            Assert.NotNull(atFadeStart);
+            Assert.Equal(255, atFadeStart!.Color.A); // peakAlpha (white, A=255)
+
+            // RE-PIN (2026-06-11, Kirby band-pass ruling): the FINAL stop is now CLEAR at offset
+            // 1.0 — NOT solid@1.0. The grid is fully transparent at the farthest corner.
+            var last = stops[^1];
+            Assert.Equal(1.0, last.Offset, 6);
+            Assert.Equal(0,   last.Color.A); // fully transparent (was 255 before the ruling)
+        });
+    }
+
+    /// <summary>The FALL band (FadeOutStart → 1.0) is monotonically DECREASING in alpha and is
+    /// smootherstep-shaped: at a sampled interior offset the alpha equals peak·(1−Smootherstep(t))
+    /// (the rise mirrored). Confirms the lines fade out as gently as they faded in.</summary>
+    [Fact]
+    public void OverlayWindow_GridMask_BandPass_FallIsMonotonicDecreasingSmootherstep()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            var stops = GridMaskStopsOrdered(w);
+
+            // Isolate the FALL band: every stop with offset in [FadeOutStart, 1.0].
+            double fadeStart = SenseDefaults.GridWindowFadeOutStart;
+            var fall = Array.FindAll(stops, s => s.Offset >= fadeStart - 1e-9);
+
+            // Monotonically decreasing alpha from peak down to 0 (allow equal only at the ends).
+            Assert.Equal(255, fall[0].Color.A);  // peak at the band start
+            Assert.Equal(0,   fall[^1].Color.A); // clear at 1.0
+            for (int i = 1; i < fall.Length; i++)
+                Assert.True(fall[i].Color.A <= fall[i - 1].Color.A,
+                    $"FALL alpha must be non-increasing: stop {i} A={fall[i].Color.A} > prev A={fall[i - 1].Color.A}");
+            // At least one strict decrease in the interior (it actually descends, not a flat hold).
+            Assert.True(fall[0].Color.A > fall[^1].Color.A, "FALL must descend from peak to clear");
+
+            // Smootherstep SHAPE at a sample point: the k-th interior sub-stop sits at
+            // pos = fadeStart + (1−fadeStart)·t with alpha = round(255·(1−Smootherstep(t))).
+            // Pick the midpoint sub-stop k=8 of n=16 (t=0.5 ⇒ Smootherstep=0.5 ⇒ alpha≈round(255·0.5)).
+            const int n = 16, k = 8;
+            double t   = (double)k / n;
+            double pos = fadeStart + (1.0 - fadeStart) * t;
+            byte expected = (byte)Math.Round(255 * (1.0 - OverlayWindow.Smootherstep(t)));
+            var sample = Array.Find(stops, s => Math.Abs(s.Offset - pos) < 1e-9);
+            Assert.NotNull(sample);
+            Assert.Equal(expected, sample!.Color.A);
+        });
+    }
+
+    /// <summary>The RISE section (0.35 → 0.95) is BYTE-IDENTICAL to before the band-pass ruling:
+    /// a mid-rise sub-stop still equals peak·Smootherstep(t) at the same offset. The ruling only
+    /// inverted the TAIL (0.95→1.0); the rise — and thus its seam-alignment with the field's
+    /// ResolveFieldAlpha — is unchanged.</summary>
+    [Fact]
+    public void OverlayWindow_GridMask_RiseSection_ByteIdenticalToPreRuling()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            var stops = GridMaskStopsOrdered(w);
+
+            // Mid-rise sub-stop k=8 of n=16 across [0.35, 0.95]: pos = 0.35 + 0.60·t,
+            // alpha = round(255·Smootherstep(t)).
+            const double rampStart = 0.35, rampEnd = 0.95, rampWidth = rampEnd - rampStart;
+            const int n = 16, k = 8;
+            double t   = (double)k / n;
+            double pos = rampStart + rampWidth * t;
+            byte expected = (byte)Math.Round(255 * OverlayWindow.Smootherstep(t));
+
+            var sample = Array.Find(stops, s => Math.Abs(s.Offset - pos) < 1e-9);
+            Assert.NotNull(sample);
+            Assert.Equal(expected, sample!.Color.A);
+
+            // And the rise is monotonically NON-DECREASING from clear up to peak (the reveal).
+            var rise = Array.FindAll(stops, s => s.Offset >= rampStart - 1e-9 && s.Offset <= rampEnd + 1e-9);
+            for (int i = 1; i < rise.Length; i++)
+                Assert.True(rise[i].Color.A >= rise[i - 1].Color.A,
+                    $"RISE alpha must be non-decreasing: stop {i} A={rise[i].Color.A} < prev A={rise[i - 1].Color.A}");
+            Assert.Equal(255, rise[^1].Color.A); // peaks at rampEnd 0.95
+        });
+    }
+
     // ── 11) Fix 2 (Kirby round-4): perf harness + dirty-band correctness ──────────────
     //
     // ComputeField ran ~324k px/frame (2880×1800/4) at up to 165 Hz single-threaded with TWO

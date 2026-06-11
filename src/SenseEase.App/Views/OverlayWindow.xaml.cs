@@ -187,12 +187,17 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private double _lastDrawnH    = -1;
     private int    _lastDrawnStep = -1;
 
-    // ── Grid: inverse-feather OpacityMask brush (the visibility window, 3762a42) ─
-    /// <summary>Radial inverse-feather used as GridCanvas.OpacityMask: clear centre,
-    /// revealed periphery (BuildLevelFeather(255, white) — the 0.35→0.95 window). Per-instance
-    /// + UNFROZEN so its Center/RadiusX/Y can be mirrored from the one-clock pose alongside the
-    /// field center each frame (M5.1-A). Same falloff geometry as the field's ResolveFieldAlpha
-    /// so the grid window and the FOV mask align with no seam.</summary>
+    // ── Grid: inverse-feather OpacityMask brush (the BAND-PASS window, 3762a42) ─
+    /// <summary>Radial BAND-PASS inverse-feather used as GridCanvas.OpacityMask: clear centre,
+    /// revealed mid-periphery, then clear again at the farthest corner (BuildLevelFeather(255,
+    /// white)). Kirby band-pass ruling (2026-06-11): the window is clear 0.00→0.35, RISES
+    /// 0.35→0.95 (smootherstep), then FALLS 0.95→1.00 (smootherstep) back to fully transparent —
+    /// so the grid lines PEAK exactly where the FOV mask saturates and FADE to nothing at the
+    /// corner. Per-instance + UNFROZEN so its Center/RadiusX/Y can be mirrored from the one-clock
+    /// pose alongside the field center each frame (M5.1-A). The RISE shares the SAME falloff
+    /// geometry as the field's ResolveFieldAlpha so the grid window and the FOV mask align with
+    /// no seam on the way up; the FALL is grid-only (the FOV mask stays saturated in the deep
+    /// periphery — only the LINES band-pass out).</summary>
     private RadialGradientBrush _gridOpacityMaskBrush = BuildGridOpacityMaskBrush();
     private static RadialGradientBrush BuildGridOpacityMaskBrush()
     {
@@ -598,21 +603,36 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     }
 
     /// <summary>
-    /// Builds the FIXED feather gradient mandated by the VIMS comfort spec:
-    ///   r ∈ [0.00, 0.35]  fully transparent (clear centre)
-    ///   r ∈ [0.35, 0.95]  smootherstep ramp 0 → peakAlpha
-    ///   r ∈ [0.95, 1.00]  hold at peakAlpha
+    /// Builds the FIXED BAND-PASS feather gradient mandated by the VIMS comfort spec +
+    /// Kirby's band-pass ruling:
+    ///   r ∈ [0.00, 0.35]            fully transparent (clear centre)
+    ///   r ∈ [0.35, 0.95]            smootherstep RISE 0 → peakAlpha
+    ///   r ∈ [0.95(FadeOutStart), 1.00]  smootherstep FALL peakAlpha → 0 (back to clear)
     /// Used for the grid OpacityMask (peakAlpha 255, white) — the inverse-feather window
-    /// (clear centre, revealed periphery) — sharing the SAME falloff geometry as the field's
-    /// <see cref="ResolveFieldAlpha"/> so the grid and FOV mask align with no seam.
+    /// (clear centre, revealed mid-periphery, clear again at the corner). The RISE shares the
+    /// SAME falloff geometry as the field's <see cref="ResolveFieldAlpha"/> so the grid and FOV
+    /// mask align with no seam on the way up.
     ///
-    /// <para><b>Banding round-5 (2026-06-11, plan-sanctioned):</b> the stop-interpolated curve was
-    /// upgraded to SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³ to MATCH the field's new falloff (the grid window
+    /// <para><b>Band-pass FALL (Kirby ruling, 2026-06-11):</b> the old tail HELD solid from 0.95
+    /// to 1.0 (monotonic reveal — lines at max strength over the darkest periphery). The ruling
+    /// INVERTS that tail: the grid lines must fade back to FULLY TRANSPARENT beyond the feather
+    /// end, a band-pass visibility window. The FALL MIRRORS the rise — the same smootherstep
+    /// s(t)=6t⁵−15t⁴+10t³ run in reverse (1−s) across [<see cref="SenseDefaults.GridWindowFadeOutStart"/>,
+    /// 1.0] with the same sub-stop density, peak→0, final stop CLEAR at offset 1.0. The band start
+    /// (0.95 default) equals the rise end, so the lines PEAK exactly where the FOV mask saturates.
+    /// This is a GRID-ONLY change: the field path (<see cref="ResolveFieldAlpha"/>) is untouched,
+    /// so the FOV mask stays saturated in the deep periphery — only the LINES band-pass out (the
+    /// cell-fill tint in the field is windowed by ResolveFieldAlpha and is UNCHANGED by design).
+    /// <b>Geometry:</b> r=1.0 is the farthest CORNER; the four screen-edge MIDPOINTS sit at
+    /// corner-normalized ~0.7-0.9, so with the default band the corners lose the grid entirely
+    /// while the edge midpoints keep PARTIAL line strength — intended; the tunable moves the band.</para>
+    ///
+    /// <para><b>Banding round-5 (2026-06-11, plan-sanctioned):</b> the stop-interpolated RISE was
+    /// upgraded to SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³ to MATCH the field's falloff (the grid window
     /// MUST track the same curve or the grid reveal would seam against the FOV dim). The sub-stop
     /// count was raised 8 → 16: WPF linearly interpolates BETWEEN gradient stops, so doubling the
     /// stops halves the residual linear-segment error and lets the brush faithfully track the
-    /// gentler smootherstep shape (which curves more in the interior than smoothstep did). Same
-    /// 0.35→0.95 endpoints, same peak output.</para>
+    /// gentler smootherstep shape. Same 0.35→0.95 rise endpoints, same peak output.</para>
     /// </summary>
     private static GradientStopCollection BuildLevelFeather(byte peakAlpha, Color color)
     {
@@ -625,6 +645,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         const double rampWidth = rampEnd - rampStart;
         const int    n         = 16; // doubled (was 8) — finer tracking of the smootherstep curve
 
+        // ── RISE: clear centre → smootherstep up to peak at rampEnd (UNCHANGED — byte-identical
+        //         to the pre-ruling rise; the field's ResolveFieldAlpha tracks the same curve). ──
         stops.Add(new GradientStop(clear, 0.0));
         stops.Add(new GradientStop(clear, rampStart));
         for (int k = 1; k < n; k++)
@@ -636,7 +658,23 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             stops.Add(new GradientStop(Color.FromArgb(a, color.R, color.G, color.B), pos));
         }
         stops.Add(new GradientStop(solid, rampEnd));
-        stops.Add(new GradientStop(solid, 1.0));
+
+        // ── FALL (Kirby band-pass ruling): peak → fully transparent across [FadeOutStart, 1.0].
+        //    Mirrors the rise — same smootherstep run in reverse (1−s) at the same sub-stop
+        //    density — so the lines fade out as gently as they faded in. FadeOutStart == rampEnd
+        //    (0.95) so the peak stop above and this band start coincide (no gap, no double stop
+        //    at a different alpha). The final stop is CLEAR exactly at offset 1.0 (the corner).
+        const double fadeStart = SenseDefaults.GridWindowFadeOutStart;
+        const double fadeWidth = 1.0 - fadeStart;
+        for (int k = 1; k < n; k++)
+        {
+            double t   = (double)k / n;
+            double s   = Smootherstep(t);            // 0 → 1 …
+            double pos = fadeStart + (fadeWidth * t);
+            byte a     = (byte)Math.Round(peakAlpha * (1.0 - s)); // … inverted: peak → 0 (the FALL)
+            stops.Add(new GradientStop(Color.FromArgb(a, color.R, color.G, color.B), pos));
+        }
+        stops.Add(new GradientStop(clear, 1.0)); // fully transparent at the farthest corner
         stops.Freeze();
         return stops;
     }
