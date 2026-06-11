@@ -26,9 +26,13 @@
 ;          "c:\Users\kirby\Desktop\SenseEase APP\installer\SenseEase-v0.11.iss"
 ; =============================================================================
 
+; v0.11.5 (2026-06-11, second build of the day): supersedes the STALE 0.11.4/0611
+; artifact (renamed to .old — it predates the round-9 corner-growth freeze and the
+; round-10 one-clock trembling fixes, commits eede9bd + 0d56af4). Same-day rebuilds
+; follow the 0608 precedent: previous artifact renamed *.old, plain name = current.
 #define MyAppName        "SenseEase"
-#define MyAppVersion     "0.11.4"
-#define MyAppVerName     "SenseEase 0.11.4"
+#define MyAppVersion     "0.11.5"
+#define MyAppVerName     "SenseEase 0.11.5"
 #define MyAppPublisher   "ATCC A02_SenseEase"
 #define MyAppExeName     "SenseEase.App.exe"
 #define MyOutputName     "SenseEase_Setup-Alpha_Test.0611"
