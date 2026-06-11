@@ -72,14 +72,17 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private const int FakeStreamMaxMs = 1500;
     private const int FakeStreamStepMs = 30;
 
-    /// <summary>Bilingual welcome shown when the transcript is empty — on first
-    /// launch (constructor, when prior.Count == 0) and after Clear() so the
-    /// chat surface doesn't go blank mid-session. Not persisted; if Clear()
-    /// deleted the file, the constructor's empty-prior branch re-shows it on
-    /// the next launch.</summary>
-    private const string WelcomeMessage =
-        "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。\n" +
-        "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.";
+    /// <summary>UX-19: welcome shown when the transcript is empty — on first launch
+    /// (constructor, when prior.Count == 0) and after Clear() so the chat surface doesn't
+    /// go blank mid-session. Previously a single stacked zh+en const (both languages on
+    /// one bubble, breaking the one-language-per-string rule); now a single-language Pick
+    /// chosen at DISPLAY time. Safe to localize at display time because the welcome is
+    /// NEVER persisted — if Clear() deleted the file, the constructor's empty-prior branch
+    /// re-shows it (re-picked) on the next launch, so no stale-language copy survives.</summary>
+    private static string WelcomeMessage() =>
+        LocalizationManager.Current.Pick(
+            "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。",
+            "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.");
 
     private bool _isGenerating;
     private bool _isPaused;
@@ -100,7 +103,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         private set
         {
             if (Set(ref _isGenerating, value))
+            {
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
+                // NE6: the Cancel affordance is only live during an in-flight turn, so
+                // re-evaluate its executability whenever generation starts/stops.
+                ((RelayCommand)CancelGenerationCommand).RaiseCanExecuteChanged();
+            }
         }
     }
 
@@ -143,6 +151,16 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
     public ICommand SendCommand { get; }
     public ICommand ClearCommand { get; }
+
+    /// <summary>NE6: cancel the in-flight interactive LLM turn. Cancels the same
+    /// <see cref="_streamCts"/> that <see cref="SendAsync"/> links the model call into
+    /// (via <c>callCts</c>), so the awaited <c>SendAsync</c> unwinds through the existing
+    /// <see cref="OperationCanceledException"/> catch — the typing indicator is removed
+    /// and the existing localized cancelled-state copy ("回應花的時間有點久…" /
+    /// "That took a while…") renders, exactly as the 60 s ceiling path does. CanExecute is
+    /// true only while a turn is generating, so the button collapses when there's nothing
+    /// to cancel.</summary>
+    public ICommand CancelGenerationCommand { get; }
 
 
     /// <summary>M2 (Phase 6c): host-provided lookup for "is Power Save
@@ -205,6 +223,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         SendCommand = new RelayCommand(async _ => await SendAsync(),
             _ => !IsGenerating && !IsPaused && !string.IsNullOrWhiteSpace(InputText));
         ClearCommand = new RelayCommand(_ => Clear());
+        // NE6: cancel only does anything while a turn is actually in flight.
+        CancelGenerationCommand = new RelayCommand(_ => CancelGeneration(), _ => IsGenerating);
 
 
         // Idle/standby shows NOTHING (Kirby: the "ready" badge is needless chrome). The
@@ -246,7 +266,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
         else
         {
-            Messages.Add(new ChatMessageViewModel(WelcomeMessage, ChatRole.Assistant));
+            Messages.Add(new ChatMessageViewModel(WelcomeMessage(), ChatRole.Assistant));
         }
     }
 
@@ -725,6 +745,19 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>NE6: user-triggered cancel of the in-flight interactive turn. Cancels the
+    /// shared <see cref="_streamCts"/> — the live model call is linked into it (see the
+    /// <c>callCts</c> in <see cref="SendAsync"/>), so the awaited call faults with
+    /// <see cref="OperationCanceledException"/> and unwinds through the existing catch:
+    /// the typing placeholder is removed and the localized cancelled-state copy renders.
+    /// No-op when nothing is generating. Best-effort: a Cancel on an already-disposed CTS
+    /// (turn just finished) is swallowed so the click can never throw.</summary>
+    private void CancelGeneration()
+    {
+        if (!IsGenerating) return;
+        try { _streamCts.Cancel(); } catch { /* CTS may already be disposed if the turn just ended */ }
+    }
+
     /// <summary>
     /// Animate <paramref name="full"/> into <paramref name="bubble"/>.Content in
     /// chunks so the typing-indicator gets visible airtime in lexicon-only mode.
@@ -955,8 +988,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             string resetMsg = "⚙ " + LocalizationManager.Current.Pick(
                 "已重設所有個人化設定", "Overlay settings reset to default");
             if (_isOverlayVisible()) return resetMsg;
+            // UX-19: ASCII parens in the EN string (the zh string keeps full-width parens
+            // to match its CJK punctuation). A mixed full-width "（…）" in English mode read
+            // as a rendering glitch.
             return resetMsg + LocalizationManager.Current.Pick(
-                "（開啟 Overlay 以查看）", "（open the overlay to see it）");
+                "（開啟 Overlay 以查看）", " (open the overlay to see it)");
         }
 
         // Each tuple: (label, formatted-change-string). Only populated for non-zero
@@ -983,10 +1019,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             }
         }
 
-        // CW-2: set when a recorded mask-depth / feather change lands in the summary
-        // so the honest "takes visual effect in the Beta renderer" note is appended
-        // (those two knobs are recorded-but-not-rendered until Beta A2).
-        bool recordedInertShaderChange = false;
+        // CW-2 CLOSED (D-2, Beta A2): MaskDepth + FeatherWidth are now rendered live by
+        // the single-pass field, so no "recorded-but-not-rendered" caveat is appended —
+        // every applied shader row is truthfully live.
         bool hasShaderDelta = result.MaskDepthDelta != 0
                            || result.GridVisibilityDelta != 0
                            || result.FeatherWidthDelta != 0;
@@ -1010,12 +1045,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             if (appliedFeatherWidth != 0)
                 rows.Add(("Feather",    $"{(appliedFeatherWidth > 0 ? "+" : "")}{appliedFeatherWidth:0.00}"));
 
-            // CW-2 (honesty): MaskDepth/FeatherWidth are recorded-but-not-rendered
-            // until the Beta A2 renderer wires them (BETA_FEATHERING_COHERENCE_PLAN.md).
-            // The value mutation + adjustment-log entry above are kept EXACTLY as-is so
-            // the persisted preference survives for the A2 wiring; only the CLAIM changes.
-            // GridVisibility + FOV ARE live, so their rows / overlay note stay truthful.
-            recordedInertShaderChange = appliedMaskDepth != 0 || appliedFeatherWidth != 0;
+            // CW-2 CLOSED (D-2, Beta A2): MaskDepth + FeatherWidth now render live via the
+            // single-pass field — every row above is a truthful, applied change. No interim
+            // "recorded only" caveat.
         }
 
         AdjustmentApplied?.Invoke(this, EventArgs.Empty);
@@ -1034,12 +1066,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         sb.Append("**").Append(LocalizationManager.Current.Pick("系統調整", "System adjustment")).Append("**\n");
         foreach (var (label, change) in rows)
             sb.Append('`').Append(label.PadRight(labelWidth)).Append(change).Append("`\n");
-        // CW-2 (honesty): mask-depth / feather are recorded-but-not-rendered until the
-        // Beta A2 renderer wires them — never claim an immediate visual effect for them.
-        if (recordedInertShaderChange)
-            sb.Append("\n_").Append(LocalizationManager.Current.Pick(
-                "已記錄您的偏好，視覺效果將在 Beta 版渲染引擎生效。",
-                "Preference recorded — it takes visual effect in the Beta renderer.")).Append('_').Append('\n');
+        // CW-2 CLOSED (D-2, Beta A2): mask-depth / feather render live via the single-pass
+        // field now — no "recorded only" caveat; the rows above are all truthfully applied.
         if (!_isOverlayVisible())
             sb.Append("\n_").Append(LocalizationManager.Current.Pick(
                 "開啟 Overlay 以查看", "Open the overlay to see it")).Append('_');
@@ -1069,7 +1097,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         _persistedLineCount = 0;
         // H5: Clear() starts a fresh session → restore the observation-write budget.
         _observationWritesThisSession = 0;
-        Messages.Add(new ChatMessageViewModel(WelcomeMessage, ChatRole.Assistant));
+        Messages.Add(new ChatMessageViewModel(WelcomeMessage(), ChatRole.Assistant));
     }
 
     /// <summary>Raised after an NLU result mutates the shared engine, so the host can refresh rendering.</summary>

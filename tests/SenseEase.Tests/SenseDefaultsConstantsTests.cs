@@ -60,9 +60,9 @@ public class SenseDefaultsConstantsTests
     // ── TEST-10: locked-constant literal pins ─────────────────────────────────
     // Each assert pins the constant to the exact literal value used in the shipped
     // engine. Any accidental value change breaks this test before behaviour tests
-    // surface the drift.  Lock source noted inline per HANDOVER.md / whitepaper §12.
+    // surface the drift.  Lock source noted inline per docs/ALPHA_HANDOVER.md / whitepaper §12.
 
-    /// <summary>Lock source: HANDOVER.md hard-constraint — engine trigger threshold.</summary>
+    /// <summary>Lock source: docs/ALPHA_HANDOVER.md hard-constraint — engine trigger threshold.</summary>
     [Fact]
     public void TriggerPressure_locked_at_85()
         => Assert.Equal(85.0, SenseDefaults.TriggerPressure);
@@ -82,7 +82,7 @@ public class SenseDefaultsConstantsTests
     public void WgcMadNormFactor_locked_at_4()
         => Assert.Equal(4.0, SenseDefaults.WgcMadNormFactor);
 
-    /// <summary>Lock source: HANDOVER.md hard-constraint — cursor + WGC EMA smoothing alpha.</summary>
+    /// <summary>Lock source: docs/ALPHA_HANDOVER.md hard-constraint — cursor + WGC EMA smoothing alpha.</summary>
     [Fact]
     public void CursorEmaAlpha_locked_at_0_55()
         => Assert.Equal(0.55, SenseDefaults.CursorEmaAlpha);

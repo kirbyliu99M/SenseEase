@@ -8,13 +8,16 @@ namespace SenseEase.Core.Models;
 /// </summary>
 public sealed class ShaderParams
 {
-    // CW-2: MaskDepth + FeatherWidth are currently RECORDED-but-NOT-RENDERED — the
-    // chatbot/NLU persists user preferences here, but no live overlay path consumes
-    // them yet; they are wired into the renderer in Beta A2 (see
-    // docs/BETA_FEATHERING_COHERENCE_PLAN.md). GridVisibility is the rendered knob today.
-    public const double DefaultMaskDepth      = 0.74;   // recorded-but-not-rendered until Beta A2 (renderer will map md→mask opacity)
+    // CW-2 CLOSED (D-2, Beta A2): MaskDepth + FeatherWidth are now REAL renderer inputs —
+    // rendered by the single-pass field (A2). MaskDepth maps to a bounded multiplier on the
+    // tier-resolved peak alpha (clamped to the ≥0.20 floor / VimsLevels ceiling); FeatherWidth
+    // slides the smoothstep ramp start within safe clamps. At each knob's default the field
+    // output is byte-identical to the prior baseline (the VimsLevels table / the 0.35→0.95
+    // envelope). GridVisibility was already the rendered grid-brightness knob.
+    // See docs/BETA_FEATHERING_COHERENCE_PLAN.md §A2 and OverlayWindow's field math.
+    public const double DefaultMaskDepth      = 0.74;   // rendered by the single-pass field (A2): md→bounded peak-alpha multiplier (mult=1.0 at 0.74 ⇒ table-identical)
     public const double DefaultGridVisibility = 0.75;   // RENDERED knob — reproduces tuned-good grid floor=0.30, ceiling=1.00 with formula (0.40*gv / 0.40+0.80*gv)
-    public const double DefaultFeatherWidth   = 0.50;   // recorded-but-not-rendered until Beta A2 (renderer will map fw→edge feather)
+    public const double DefaultFeatherWidth   = 0.50;   // rendered by the single-pass field (A2): fw→feather-band start slide (start=0.35 at 0.50 ⇒ envelope-identical)
 
     public double MaskDepth      { get; set; } = DefaultMaskDepth;
     public double GridVisibility { get; set; } = DefaultGridVisibility;

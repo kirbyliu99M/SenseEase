@@ -90,6 +90,82 @@ public static class SenseDefaults
     /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
     public const double OverlayOneEuroDCutoff = 1.0;
 
+    // ── Beta A2: single-pass field renderer (mask + grid as ONE per-pixel field) ─
+    // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A2.) The mask, the cell-fill and the
+    // grid are no longer three independently-shaped translucent strata composited on
+    // top of one another (the Gestalt common-fate / scission "multilayer halo"). The
+    // field is computed once per frame into a premultiplied-BGRA WriteableBitmap at
+    // REDUCED resolution and presented through ONE Image with smooth bilinear upscale
+    // — the plan states no perceptual loss for a low-frequency gradient + faint grid,
+    // and reduced-res keeps the CPU software-composition cost low (AllowsTransparency
+    // pins the overlay off the GPU). The ShaderEffect path remains a documented
+    // follow-up if the live 165 Hz perf gate fails.
+    //
+    // These are ADDITIVE constants (SenseDefaults values lock allows additive
+    // constants where specified). None of them change a locked rendered value: the
+    // field reproduces the VimsLevels depth/peak/floor and the 0.35→0.95 feather
+    // envelope byte-identically at the knob defaults (see OverlayWindow field math).
+
+    /// <summary>Beta A2: field render downscale factor. The field bitmap is computed
+    /// at 1/this of the screen resolution and bilinear-upscaled by the one Image.
+    /// 4 ⇒ quarter-res per axis ⇒ ~1/16 the pixel work. A low-frequency gradient +
+    /// faint grid carries no visible loss at this factor; raise if banding shows.</summary>
+    public const int OverlayFieldDownscale = 4;
+
+    /// <summary>Beta A2: gamma applied to the falloff parameter before 8-bit encode
+    /// (banding mitigation, best-effort, no dithering — dithering is locked out). The
+    /// dark-ramp interpolation is shaped in gamma-space so the limited 8-bit codes are
+    /// distributed where the eye is most sensitive in the near-black band. ~2.2 per the
+    /// plan. 1.0 would be linear (the un-shaped baseline).</summary>
+    public const double OverlayFieldGamma = 2.2;
+
+    /// <summary>Beta A2 (D-2): MaskDepth → effective-peak multiplier span. MaskDepth is
+    /// normalised [0,1] with default <c>ShaderParams.DefaultMaskDepth</c> (0.74). The
+    /// renderer maps it to a bounded multiplier on the tier-resolved peak alpha:
+    /// <c>mult = 1 + (maskDepth − 0.74) · span</c>, then clamps the EFFECTIVE alpha so it
+    /// is never below the 0.20 floor (when the mask is commanded on) and never above the
+    /// VimsLevels table value for the tier. At the 0.74 default the multiplier is exactly
+    /// 1.0 ⇒ byte-identical to the table. Span chosen so the full knob travel reaches the
+    /// bounds: driving MaskDepth to 1.0 saturates the multiplier into the table-ceiling
+    /// clamp, and driving it to 0 collapses a high-tier peak all the way down into the
+    /// 0.20 floor clamp — the knob is meaningful across its whole range yet still bounded
+    /// by the ceiling above and the always-on floor below.</summary>
+    public const double OverlayMaskDepthMultiplierSpan = 1.15;
+
+    /// <summary>Beta A2 (D-2): always-on mask depth floor enforced IN the field. When the
+    /// mask is commanded on, the effective peak alpha can never resolve below this even if
+    /// MaskDepth is driven to 0 — the core VIMS protection floor (deliberately stricter
+    /// than VR norms; clinical choice). Mirrors <c>ShaderCommandLexicon.MaskDepthSafetyFloor</c>.</summary>
+    public const double OverlayMaskEffectiveAlphaFloor = 0.20;
+
+    /// <summary>Beta A2 (D-2): FeatherWidth → feather-band-width scale. FeatherWidth is
+    /// normalised [0,1] with default <c>ShaderParams.DefaultFeatherWidth</c> (0.50). The
+    /// renderer keeps the ramp END pinned at 0.95 (corner hold) and slides the ramp START
+    /// so a wider feather pulls the start inward (a longer, softer band) and a narrower
+    /// feather pushes it outward (a tighter band). At the 0.50 default the start resolves
+    /// to exactly 0.35 ⇒ the locked 0.35→0.95 envelope, byte-identical. This span bounds
+    /// how far the start can travel either way within safe clamps.</summary>
+    public const double OverlayFeatherStartSpan = 0.20;
+
+    /// <summary>Beta A2: faint screen-locked grid line alpha ceiling (0..1) at full grid
+    /// brightness. Matches the legacy GridLineBrush A=130/255 ≈ 0.51 so the field grid
+    /// reads at the same faintness the separate grid Lines did. The per-frame
+    /// GridCeiling(gridVisibility) curve still drives the brightness; this is the value it
+    /// scales toward. Grid stays WORLD-LOCKED (mod(px, GridSizePx)) — never moves with the
+    /// mask center.</summary>
+    public const double OverlayGridLineMaxAlpha = 130.0 / 255.0;
+
+    /// <summary>Beta A2: alpha threshold below which a pixel draws the faint grid instead
+    /// of the mask (mutual exclusivity — ONE alpha per pixel, no stacked strata). Inside
+    /// the clear zone (field alpha below this) the world-locked grid shows through; outside
+    /// it the mask wins. Low so the grid only appears in the genuinely-clear centre.</summary>
+    public const double OverlayFieldGridThreshold = 0.04;
+
+    /// <summary>Beta A2: how often (seconds) the rolling field-recompute frame-time stats
+    /// (avg / p99) are flushed to wgc_diag while the overlay is active, for Kirby's live
+    /// 165 Hz perf gate. One line a minute — negligible log volume.</summary>
+    public const double OverlayFieldPerfLogIntervalSeconds = 60.0;
+
     public const double PassiveFlowWeight = 2.0;
     public const double QuadraticTerm = 0.0008;
     // Base decay alpha for a 100 ms step (tau ~= 2.81s).
@@ -145,21 +221,12 @@ public static class SenseDefaults
     public const double HabituationStablePressureFraction     = 0.25; // calm  => pressure < 25% of TriggerPressure
     public const double HabituationRecurrencePressureFraction = 0.60; // spike => pressure >= 60% of TriggerPressure
 
-    // ── DEPRECATED (Phase 2): superseded by HabituationProfileParams ──────────
-    // The 7 constants below were the engine's only tuning source before the
-    // three-profile system landed. They are retained as the RESILIENT-profile
-    // defaults (verified bit-for-bit identical to HabituationProfileParams.Resilient).
-    // The engine no longer reads them; new code should reference
-    // HabituationProfileParams instead. See docs/HABITUATION-PROFILE.md §1, §2.
-    // Kept (not removed) for backward compat — Phase 3+ may relocate them
-    // entirely once we're confident no out-of-tree consumer depends on them.
-    public const double HabituationStableWindowSeconds        = 120.0; // -> HabituationProfileParams.Resilient.StableWindowSeconds
-    public const double HabituationMaxWindowSeconds           = 240.0; // -> _params.StableWindowSeconds * 2.0 (per Q1 rule)
-    public const double HabituationStepIntervalSeconds        = 30.0;  // -> HabituationProfileParams.Resilient.StepIntervalSeconds
-    public const double HabituationStepPercent                = 2.0;   // -> HabituationProfileParams.Resilient.StepMagnitudePp
-    public const int    HabituationMaxOffset                  = 30;    // -> HabituationProfileParams.Resilient.HabOffsetCapPp
-    public const double HabituationPauseCooldownSeconds       = 90.0;  // -> HabituationProfileParams.Resilient.PostSpikePauseLowSeconds
-    public const int    HabituationPersonalizationMinSamples  = 3;     // -> HabituationProfileParams.Resilient.MinSamplesForFullWeight
+    // DEAD-09: The 7 DEPRECATED (Phase 2) habituation constants
+    // (HabituationStableWindowSeconds, HabituationMaxWindowSeconds,
+    //  HabituationStepIntervalSeconds, HabituationStepPercent,
+    //  HabituationMaxOffset, HabituationPauseCooldownSeconds,
+    //  HabituationPersonalizationMinSamples) were removed 2026-06-11.
+    // Successors: HabituationProfileParams.Resilient (e.g. .HabOffsetCapPp = 30).
 
     // ── Still actively read (not in HabituationProfileParams) ─────────────────
     // These remain SenseDefaults-owned because they're either profile-independent

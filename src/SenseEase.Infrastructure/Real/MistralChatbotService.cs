@@ -150,9 +150,9 @@ public sealed class MistralChatbotService : IChatbotService
         // ── ACTUATOR PARAMETERS — what your deltas physically do ──
         "ACTUATOR PARAMETERS (your deltas modify the user's screen — be cautious):\n" +
         "  fov_delta (int -30..0, percent): tightens the radius of the clear central viewport. More negative = smaller clear zone, larger peripheral mask, less peripheral motion, less vection. The baseline is 100 % (full clear); your delta subtracts from that. Bottom clamp at 15 % so the user always has some clear viewport.\n" +
-        "  mask_depth_delta (float -0.3..0.3): opacity preference for the peripheral mask. Default mask depth is 0.74. Positive deepens (more occlusion of peripheral motion), negative lightens. NOTE: this preference is RECORDED but does NOT change the screen yet — it takes visual effect in the Beta renderer. Do NOT tell the user the mask just changed visibly; only fov and grid actuate now.\n" +
+        "  mask_depth_delta (float -0.3..0.3): opacity of the peripheral mask. Default mask depth is 0.74. Positive deepens (more occlusion of peripheral motion), negative lightens. This actuates the screen LIVE (the single-pass field renders it) — within safe limits: depth can never drop the mask below its always-on protection floor, and can never exceed the level the engine has commanded for the current tier.\n" +
         "  grid_visibility_delta (float -0.3..0.3): visibility of the static Chang-Hain anchor grid. Default 0.75. The grid gives the user a fixed visual reference and is particularly useful when they report dizziness / spinning / vertigo — it suppresses vection. Less helpful for pure eye strain.\n" +
-        "  feather_width_delta (float -0.3..0.3): softness preference for the mask edge. Default 0.50. Positive softens the transition (less harsh boundary). Adjust this rarely — only when the user specifically complains the mask edge is too hard / too soft. NOTE: like mask_depth, this preference is RECORDED but does NOT change the screen yet — it takes visual effect in the Beta renderer. Do NOT claim an immediate visual change.\n\n" +
+        "  feather_width_delta (float -0.3..0.3): softness of the mask edge. Default 0.50. Positive softens the transition (a wider, gentler feather band), negative tightens it. This actuates the screen LIVE. Adjust it rarely — only when the user specifically complains the mask edge is too hard / too soft.\n\n" +
 
         // ── PERSONALIZATION FREEDOM + CAUTION ──
         "PERSONALIZATION POLICY:\n" +
@@ -305,14 +305,14 @@ public sealed class MistralChatbotService : IChatbotService
         // ── EXAMPLES ──
         "EXAMPLES (compact JSON, one line each):\n" +
         "User: I have a mild headache\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view to ease the visual load, and noted your mask preference for the upcoming renderer update.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view to ease the visual load and deepened the peripheral mask a touch.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
         "User: I have a REALLY bad migraine, the screen is killing me\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV and raised the anchor grid to cut visual stimulation, and recorded a deeper mask preference for the upcoming renderer.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV, deepened the mask and raised the anchor grid to cut visual stimulation.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
         "User: 我覺得有點頭暈\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV 並提升錨點網格能見度以穩定視覺，並記下您的遮罩偏好供新版渲染引擎使用。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV、加深周邊遮罩並提升錨點網格能見度以穩定視覺。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04,\"feather_width_delta\":0.0}\n" +
         "User: still a bit dizzy after the last adjustment\n" +
         "(state shows [RecentAdjustments] FovRadius -20% already applied 2 min ago)\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — raising the anchor grid a touch rather than another big FOV cut, and noting a small mask preference for the renderer.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — raising the anchor grid a touch and nudging the mask slightly rather than another big FOV cut.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05,\"feather_width_delta\":0.0}\n" +
         "User: 好多了，謝謝\n" +
         "{\"intent\":\"ReportComfort\",\"severity\":1,\"reply\":\"很好，系統會持續監測；如果再次出現不適隨時告訴我。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
         "User: reset everything to default\n" +
@@ -486,7 +486,11 @@ public sealed class MistralChatbotService : IChatbotService
             // reaps the llama-server child whenever we exit (Stop-Process, Task
             // Manager kill, crash, etc.), preventing orphan llama-server.exe
             // instances from accumulating across dev runs.
+            // SIDE-05: log any Win32/ctor failure from the reaper to the existing
+            // llama-server.log so the non-fatal failure isn't completely silent.
             ChildProcessReaper.Adopt(_serverProcess);
+            if (ChildProcessReaper.LastError is { } reaperErr)
+                try { File.AppendAllText(logPath, reaperErr + Environment.NewLine); } catch { }
 
             await WaitForServerReadyAsync(TimeSpan.FromMinutes(2)).ConfigureAwait(false);
             IsModelLoaded = true;

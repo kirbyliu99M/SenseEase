@@ -21,8 +21,8 @@ namespace SenseEase.Tests;
 ///   <item>Reader-returns-sample path propagates Cx/Cy through SenseState.</item>
 ///   <item>MockSweepHeadPoseReader generates the expected 20-second pattern
 ///         at key timestamps.</item>
-///   <item>OverlayWindow's <c>_fovBrush.Center</c> follows
-///         <c>HeadGazeX/Y</c> when <c>HeadTrackingActive</c> is true.</item>
+///   <item>OverlayWindow's resolved field center (<c>FieldCenterXForTests</c>)
+///         follows <c>HeadGazeX/Y</c> when <c>HeadTrackingActive</c> is true.</item>
 /// </list>
 /// These are the M5 acceptance gates. STA-required tests reuse the same
 /// pattern as <see cref="NotificationCardWindowTests"/> (own STA thread +
@@ -191,16 +191,16 @@ public class OverlayHeadPoseTests
         Assert.Null(s6);
     }
 
-    // ── 5) OverlayWindow brush center follows HeadGaze ─────────────────────
+    // ── 5) OverlayWindow field center follows HeadGaze (A2) ────────────────
 
     [Fact]
-    public void OverlayWindow_BrushCenter_FollowsHeadGaze()
+    public void OverlayWindow_FieldCenter_FollowsHeadGaze()
     {
         // STA test — mirrors NotificationCardWindowTests.RunOnSta pattern.
-        // Construct OverlayWindow, apply a state with HeadTrackingActive=true
-        // and HeadGazeX=0.6, then assert the brush center moved to that
-        // point. The flag-off path is covered by the M3 invariant test
-        // above plus the static literal-read in OverlayWindow.ApplyFovMask.
+        // Beta A2: there is no RadialGradientBrush anymore (single-pass field). The
+        // resolved field center (FieldCenterX/YForTests) is the one-clock pose value the
+        // corner-normalized field uses. Construct OverlayWindow, apply a state with
+        // HeadTrackingActive=true, then assert the field center moved to that point.
         RunOnSta(() =>
         {
             var w = new OverlayWindow();
@@ -208,7 +208,7 @@ public class OverlayHeadPoseTests
 
             var state = new SenseState
             {
-                VimsTier            = 3,        // mid tier so the brush actually allocates
+                VimsTier            = 3,        // mid tier so the mask actually renders
                 HeadGazeX           = 0.6,
                 HeadGazeY           = 0.4,
                 HeadTrackingActive  = true,
@@ -216,12 +216,8 @@ public class OverlayHeadPoseTests
             };
             w.ApplyState(state);
 
-            var brush = w.FovBrushForTests;
-            Assert.NotNull(brush);
-            Assert.Equal(0.6, brush!.Center.X, 3);
-            Assert.Equal(0.4, brush.Center.Y, 3);
-            Assert.Equal(0.6, brush.GradientOrigin.X, 3);
-            Assert.Equal(0.4, brush.GradientOrigin.Y, 3);
+            Assert.Equal(0.6, w.FieldCenterXForTests, 3);
+            Assert.Equal(0.4, w.FieldCenterYForTests, 3);
 
             // Flag-off branch on the same window: snaps back to (0.5, 0.5).
             var stateOff = new SenseState
@@ -234,8 +230,8 @@ public class OverlayHeadPoseTests
             };
             w.ApplyState(stateOff);
 
-            Assert.Equal(0.5, brush.Center.X, 3);
-            Assert.Equal(0.5, brush.Center.Y, 3);
+            Assert.Equal(0.5, w.FieldCenterXForTests, 3);
+            Assert.Equal(0.5, w.FieldCenterYForTests, 3);
         });
     }
 
@@ -268,10 +264,8 @@ public class OverlayHeadPoseTests
                     HeadTrackingActive  = true,
                     MaskActive          = true,
                 });
-                var brush = w.FovBrushForTests;
-                Assert.NotNull(brush);
-                Assert.Equal(0.90, brush!.Center.X, 3);
-                Assert.Equal(0.90, brush.Center.Y, 3);
+                Assert.Equal(0.90, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.90, w.FieldCenterYForTests, 3);
 
                 // Other corner (0.0, 0.0) clamps to (0.10, 0.10).
                 w.ApplyState(new SenseState
@@ -282,8 +276,8 @@ public class OverlayHeadPoseTests
                     HeadTrackingActive  = true,
                     MaskActive          = true,
                 });
-                Assert.Equal(0.10, brush.Center.X, 3);
-                Assert.Equal(0.10, brush.Center.Y, 3);
+                Assert.Equal(0.10, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.10, w.FieldCenterYForTests, 3);
 
                 // In-range value (0.55, 0.45) passes through unchanged.
                 w.ApplyState(new SenseState
@@ -294,8 +288,8 @@ public class OverlayHeadPoseTests
                     HeadTrackingActive  = true,
                     MaskActive          = true,
                 });
-                Assert.Equal(0.55, brush.Center.X, 3);
-                Assert.Equal(0.45, brush.Center.Y, 3);
+                Assert.Equal(0.55, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.45, w.FieldCenterYForTests, 3);
             }
             finally
             {
@@ -328,10 +322,8 @@ public class OverlayHeadPoseTests
                     HeadTrackingActive  = true,
                     MaskActive          = true,
                 });
-                var brush = w.FovBrushForTests;
-                Assert.NotNull(brush);
-                Assert.Equal(1.0, brush!.Center.X, 3);
-                Assert.Equal(1.0, brush.Center.Y, 3);
+                Assert.Equal(1.0, w.FieldCenterXForTests, 3);
+                Assert.Equal(1.0, w.FieldCenterYForTests, 3);
 
                 // Other corner.
                 w.ApplyState(new SenseState
@@ -342,8 +334,8 @@ public class OverlayHeadPoseTests
                     HeadTrackingActive  = true,
                     MaskActive          = true,
                 });
-                Assert.Equal(0.0, brush.Center.X, 3);
-                Assert.Equal(0.0, brush.Center.Y, 3);
+                Assert.Equal(0.0, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.0, w.FieldCenterYForTests, 3);
 
                 // Out-of-range still clamped to [0, 1] for safety.
                 w.ApplyState(new SenseState
@@ -354,8 +346,8 @@ public class OverlayHeadPoseTests
                     HeadTrackingActive  = true,
                     MaskActive          = true,
                 });
-                Assert.Equal(1.0, brush.Center.X, 3);
-                Assert.Equal(0.0, brush.Center.Y, 3);
+                Assert.Equal(1.0, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.0, w.FieldCenterYForTests, 3);
             }
             finally
             {
@@ -397,9 +389,7 @@ public class OverlayHeadPoseTests
                 MaskActive          = true,
             };
             w.ApplyState(stateCenter);
-            var brush = w.FovBrushForTests;
-            Assert.NotNull(brush);
-            Assert.Equal(0.85, brush!.RadiusX, 3);
+            Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
             // Corner: radius = sqrt(2) * 1.10 ≈ 1.556.
             var stateCorner = new SenseState
@@ -412,8 +402,7 @@ public class OverlayHeadPoseTests
             };
             w.ApplyState(stateCorner);
             double expected = Math.Sqrt(2.0) * 1.10;
-            Assert.Equal(expected, brush.RadiusX, 3);
-            Assert.Equal(expected, brush.RadiusY, 3);
+            Assert.Equal(expected, w.FieldRadiusForTests, 3);
 
             // Edge (1, 0.5): radius = sqrt(1 + 0.25) * 1.10 ≈ 1.230.
             var stateEdge = new SenseState
@@ -426,7 +415,7 @@ public class OverlayHeadPoseTests
             };
             w.ApplyState(stateEdge);
             double expectedEdge = Math.Sqrt(1.0 + 0.25) * 1.10;
-            Assert.Equal(expectedEdge, brush.RadiusX, 3);
+            Assert.Equal(expectedEdge, w.FieldRadiusForTests, 3);
 
             // Flag-off: radius snaps back to v0.9 baseline 0.85.
             var stateOff = new SenseState
@@ -438,8 +427,7 @@ public class OverlayHeadPoseTests
                 MaskActive          = true,
             };
             w.ApplyState(stateOff);
-            Assert.Equal(0.85, brush.RadiusX, 3);
-            Assert.Equal(0.85, brush.RadiusY, 3);
+            Assert.Equal(0.85, w.FieldRadiusForTests, 3);
             }
             finally
             {
@@ -472,22 +460,20 @@ public class OverlayHeadPoseTests
                 MaskActive          = true,
             };
             w.ApplyState(stateInit);
-            var brush = w.FovBrushForTests;
-            Assert.NotNull(brush);
 
             // Now exercise the pump's entry point directly (dtMs = 0 → snap).
             w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: true);
-            Assert.Equal(0.7, brush!.Center.X, 3);
-            Assert.Equal(0.3, brush.Center.Y, 3);
+            Assert.Equal(0.7, w.FieldCenterXForTests, 3);
+            Assert.Equal(0.3, w.FieldCenterYForTests, 3);
             // Radius math: farX = 0.7, farY = 0.7, farthest = sqrt(0.98) ≈ 0.99, × 1.10 ≈ 1.089.
             double expected = Math.Sqrt(0.49 + 0.49) * 1.10;
-            Assert.Equal(expected, brush.RadiusX, 3);
+            Assert.Equal(expected, w.FieldRadiusForTests, 3);
 
             // Snap back via active=false.
             w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: false);
-            Assert.Equal(0.5, brush.Center.X, 3);
-            Assert.Equal(0.5, brush.Center.Y, 3);
-            Assert.Equal(0.85, brush.RadiusX, 3);
+            Assert.Equal(0.5, w.FieldCenterXForTests, 3);
+            Assert.Equal(0.5, w.FieldCenterYForTests, 3);
+            Assert.Equal(0.85, w.FieldRadiusForTests, 3);
         });
     }
 
@@ -504,9 +490,15 @@ public class OverlayHeadPoseTests
     //     (no separate 600 ms release lag — the percept the A1 change kills);
     //   • the grid OpacityMask hole (the third geometry) tracks center+radius in
     //     the same frame (one moving boundary, not three).
-    // The dtMs parameter is now inert inside ApplyHeadPoseToBrush (kept on the
+    // The dtMs parameter is now inert inside the head-pose application (kept on the
     // signature for a clean revert to f381a43); the smoothing that used to live
     // here is exercised at the One-Euro level by the convergence test below.
+    //
+    // Beta A2: the seams are now the resolved FIELD values (FieldCenterX/YForTests,
+    // FieldRadiusForTests) — there is no RadialGradientBrush in the single-pass field.
+    // The grid hole is no longer a separate geometry at all (it is the same per-pixel
+    // field), so the old "grid hole tracks the brush" test is replaced by a field-level
+    // assertion that center+radius derive from the same pose in the same frame.
 
     /// <summary>One-clock: radius reaches the head-coupled corner-reach target in a
     /// single frame regardless of dtMs (because radius is now a pure function of the
@@ -523,21 +515,18 @@ public class OverlayHeadPoseTests
             {
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
-                // Seed brush + baseline radius via a flag-off ApplyState.
+                // Seed baseline radius via a flag-off ApplyState.
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
-                var brush = w.FovBrushForTests;
-                Assert.NotNull(brush);
-                Assert.Equal(0.85, brush!.RadiusX, 3);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
                 // A realistic ~6 ms frame (NOT a giant dt) toward the corner: with the
                 // separate envelope removed, radius lands on target the SAME frame the
                 // center does — no 600 ms lag.
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 6.0);
                 double target = Math.Sqrt(2.0) * 1.10;
-                Assert.Equal(1.0, brush.Center.X, 3);
-                Assert.Equal(1.0, brush.Center.Y, 3);
-                Assert.Equal(target, brush.RadiusX, 3);
-                Assert.Equal(target, brush.RadiusY, 3);
+                Assert.Equal(1.0, w.FieldCenterXForTests, 3);
+                Assert.Equal(1.0, w.FieldCenterYForTests, 3);
+                Assert.Equal(target, w.FieldRadiusForTests, 3);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
@@ -559,29 +548,29 @@ public class OverlayHeadPoseTests
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
-                var brush = w.FovBrushForTests!;
 
                 // Reach the corner (center 1,1 → radius sqrt(2)*1.10).
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 6.0);
-                Assert.True(brush.RadiusX > 1.5, $"precondition: radius at corner, was {brush.RadiusX}");
+                Assert.True(w.FieldRadiusForTests > 1.5, $"precondition: radius at corner, was {w.FieldRadiusForTests}");
 
                 // Centre handed back (the upstream filter would have already eased it):
                 // a single small-dt frame collapses the radius to the floor in lockstep
                 // with the center — proving the old 600 ms release clock is gone.
                 w.UpdateHeadGazeCenter(headGazeX: 0.5, headGazeY: 0.5, active: true, dtMs: 6.0);
-                Assert.Equal(0.5, brush.Center.X, 3);
-                Assert.Equal(0.85, brush.RadiusX, 3);
-                Assert.Equal(0.85, brush.RadiusY, 3);
+                Assert.Equal(0.5, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    /// <summary>One-clock: the grid OpacityMask hole (the third moving geometry)
-    /// tracks the FOV brush's Center and Radius in the SAME frame — one moving
-    /// boundary, not a separately-clocked grid layer that lags the mask.</summary>
+    /// <summary>One-clock (A2): the mask and the grid are now the SAME per-pixel field —
+    /// there is no separate grid-hole geometry that could lag the mask (the third moving
+    /// stratum is gone entirely). Center and radius derive from the same pose in the same
+    /// frame. This pins that center + radius update together in one UpdateHeadGazeCenter
+    /// call (one moving boundary).</summary>
     [Fact]
-    public void OverlayWindow_OneClock_GridHole_TracksMask_InSameFrame()
+    public void OverlayWindow_OneClock_CenterAndRadius_DeriveTogether_InSameFrame()
     {
         RunOnSta(() =>
         {
@@ -592,17 +581,17 @@ public class OverlayHeadPoseTests
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
-                var fov  = w.FovBrushForTests!;
-                var grid = w.GridMaskBrushForTests;
 
                 w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: true, dtMs: 6.0);
 
-                // Grid hole center + radius are byte-identical to the FOV brush's,
-                // updated in the same call — no lag, no second clock.
-                Assert.Equal(fov.Center.X,  grid.Center.X,  6);
-                Assert.Equal(fov.Center.Y,  grid.Center.Y,  6);
-                Assert.Equal(fov.RadiusX,   grid.RadiusX,   6);
-                Assert.Equal(fov.RadiusY,   grid.RadiusY,   6);
+                // Center is the clamped pose; radius is the pure corner-reach function of
+                // that SAME center — both resolved in the one call, no second clock.
+                Assert.Equal(0.8, w.FieldCenterXForTests, 6);
+                Assert.Equal(0.2, w.FieldCenterYForTests, 6);
+                double farX = Math.Max(0.8, 0.2);
+                double farY = Math.Max(0.2, 0.8);
+                double expected = Math.Sqrt(farX * farX + farY * farY) * 1.10;
+                Assert.Equal(expected, w.FieldRadiusForTests, 6);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
@@ -623,17 +612,15 @@ public class OverlayHeadPoseTests
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
-                var brush = w.FovBrushForTests!;
 
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
-                Assert.True(brush.RadiusX > 1.5);
+                Assert.True(w.FieldRadiusForTests > 1.5);
 
                 // Tracking drops out → immediate baseline (no 600 ms decay).
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: false, dtMs: 16);
-                Assert.Equal(0.85, brush.RadiusX, 3);
-                Assert.Equal(0.85, brush.RadiusY, 3);
-                Assert.Equal(0.5, brush.Center.X, 3);
-                Assert.Equal(0.5, brush.Center.Y, 3);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3);
+                Assert.Equal(0.5, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.5, w.FieldCenterYForTests, 3);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
@@ -655,14 +642,13 @@ public class OverlayHeadPoseTests
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
-                var brush = w.FovBrushForTests!;
 
                 // Jitter within the central box where farthestCorner*1.10 < 0.85.
                 double[] xs = { 0.50, 0.52, 0.48, 0.51, 0.49 };
                 foreach (var x in xs)
                     w.UpdateHeadGazeCenter(headGazeX: x, headGazeY: 0.5, active: true, dtMs: 16);
 
-                Assert.Equal(0.85, brush.RadiusX, 3);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
@@ -768,6 +754,119 @@ public class OverlayHeadPoseTests
         // (cutoff opened with speed), confirming the adaptive fast-attack behaviour.
         Assert.True(fastDelta > slowDelta,
             $"fast motion should track further than slow dithering: fast={fastDelta}, slow={slowDelta}");
+    }
+
+    // ── 9) TEST-04: Beta A2 single-pass field renderer round-trip ───────────
+    //
+    // D-2 wiring at the RENDERER boundary: two MaskDepth values ⇒ the rendered field
+    // differs; two FeatherWidth values ⇒ the feather band differs; MaskDepth below the
+    // floor clamps the EFFECTIVE peak at the 0.20-equivalent; default knobs ⇒ the
+    // resolved peak is byte-identical to the tier table. Pure field-math unit tests live
+    // in OverlayFieldMathTests; these exercise the full STA ApplyState → WriteableBitmap
+    // path through the public seams.
+
+    private static SenseState FieldState(int tier, double maskDepth, double featherWidth, bool maskActive = true)
+        => new()
+        {
+            VimsTier   = tier,
+            MaskActive = maskActive,
+            Shader     = new ShaderParams { MaskDepth = maskDepth, FeatherWidth = featherWidth },
+        };
+
+    /// <summary>TEST-04: two MaskDepth values produce a DIFFERENT rendered field (the
+    /// depth knob actuates), and the default MaskDepth resolves the effective peak to the
+    /// tier table value byte-identically.</summary>
+    [Fact]
+    public void OverlayWindow_TwoMaskDepths_ProduceDifferentField_DefaultIsTableIdentical()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // Default MaskDepth ⇒ effective peak == the tier-6 table alpha (0.50), identical.
+            w.ApplyState(FieldState(tier: 6, maskDepth: ShaderParams.DefaultMaskDepth, featherWidth: ShaderParams.DefaultFeatherWidth));
+            double tableAlpha = OverlayWindow.VimsLevels[5].Alpha; // L6 == 0.50
+            Assert.Equal(tableAlpha, w.EffectivePeakAlphaForTests, 6);
+            byte[]? deep = w.FieldBufferSnapshotForTests;
+            Assert.NotNull(deep);
+
+            // A SHALLOWER MaskDepth (below default) lowers the effective peak and changes
+            // the rendered pixels — the field differs.
+            w.ApplyState(FieldState(tier: 6, maskDepth: 0.40, featherWidth: ShaderParams.DefaultFeatherWidth));
+            Assert.True(w.EffectivePeakAlphaForTests < tableAlpha,
+                $"shallower MaskDepth should lower the effective peak, was {w.EffectivePeakAlphaForTests}");
+            byte[]? shallow = w.FieldBufferSnapshotForTests;
+            Assert.NotNull(shallow);
+            Assert.False(BuffersEqual(deep!, shallow!), "two MaskDepth values must render different fields");
+        });
+    }
+
+    /// <summary>TEST-04: two FeatherWidth values produce a DIFFERENT rendered field (the
+    /// feather band width actuates), and the default FeatherWidth resolves the band start
+    /// to the locked 0.35 envelope.</summary>
+    [Fact]
+    public void OverlayWindow_TwoFeatherWidths_ProduceDifferentField_DefaultIs035Start()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            w.ApplyState(FieldState(tier: 8, maskDepth: ShaderParams.DefaultMaskDepth, featherWidth: ShaderParams.DefaultFeatherWidth));
+            Assert.Equal(0.35, w.FeatherStartForTests, 6); // envelope-identical at default
+            byte[]? narrow = w.FieldBufferSnapshotForTests;
+            Assert.NotNull(narrow);
+
+            // A WIDER feather pulls the band start inward (< 0.35) → different field.
+            w.ApplyState(FieldState(tier: 8, maskDepth: ShaderParams.DefaultMaskDepth, featherWidth: 0.90));
+            Assert.True(w.FeatherStartForTests < 0.35,
+                $"wider FeatherWidth should pull the band start inward, was {w.FeatherStartForTests}");
+            byte[]? wide = w.FieldBufferSnapshotForTests;
+            Assert.NotNull(wide);
+            Assert.False(BuffersEqual(narrow!, wide!), "two FeatherWidth values must render different fields");
+        });
+    }
+
+    /// <summary>TEST-04: MaskDepth driven to 0 cannot drop the EFFECTIVE peak below the
+    /// 0.20 floor while the mask is commanded ON (the always-on core protection floor).</summary>
+    [Fact]
+    public void OverlayWindow_MaskDepthBelowFloor_ClampsAt020_WhenMaskOn()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // A high tier (ceiling well above 0.20) with MaskDepth driven to 0: the
+            // multiplier collapses the depth, but the floor catches it at 0.20.
+            w.ApplyState(FieldState(tier: 10, maskDepth: 0.0, featherWidth: ShaderParams.DefaultFeatherWidth, maskActive: true));
+            Assert.Equal(0.20, w.EffectivePeakAlphaForTests, 6);
+        });
+    }
+
+    /// <summary>TEST-04: the 0.20 floor applies only when the mask is commanded ON — a
+    /// commanded-OFF mask (e.g. L1's 0.00) is never raised to the floor.</summary>
+    [Fact]
+    public void OverlayWindow_MaskOff_FloorDoesNotApply()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // L1 table alpha is 0.00; mask commanded OFF ⇒ effective peak stays 0 (the
+            // floor must not push a commanded-off mask up to 0.20).
+            w.ApplyState(FieldState(tier: 1, maskDepth: ShaderParams.DefaultMaskDepth, featherWidth: ShaderParams.DefaultFeatherWidth, maskActive: false));
+            Assert.Equal(0.0, w.EffectivePeakAlphaForTests, 6);
+        });
+    }
+
+    private static bool BuffersEqual(byte[] a, byte[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────

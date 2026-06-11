@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Shapes;
+using System.Windows.Media.Imaging;
 using SenseEase.App.Interop;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
@@ -12,34 +10,28 @@ using SenseEase.Core.Models;
 namespace SenseEase.App.Views;
 
 /// <summary>
-/// Transparent, topmost, click-through overlay. Renders a styled anchor grid and
-/// an animated radial FOV mask. Phase-1 prototype — not a DirectX renderer.
+/// Transparent, topmost, click-through overlay. Beta A2 (single-pass field):
+/// renders the peripheral FOV dimming mask AND the screen-locked Chang-Hain anchor
+/// grid as ONE per-pixel field into a single premultiplied-BGRA
+/// <see cref="WriteableBitmap"/>, presented through one <c>Image</c> with smooth
+/// bilinear upscale from reduced resolution.
+///
+/// <para>This replaces the prior three-stratum composition (a center-following
+/// <c>RadialGradientBrush</c> FOV mask + a full-screen near-black cell-fill
+/// <c>Rectangle</c> + white grid <c>Line</c>s under a separate radial OpacityMask)
+/// — the Gestalt common-fate / perceptual-scission "multilayer halo" the
+/// BETA_FEATHERING_COHERENCE_PLAN diagnosed. One alpha per pixel ⇒ no stacked
+/// layers, no separate cell-fill, no scalar-radius "breathing".</para>
+///
+/// <para>The A1 One-Euro-smoothed (cx,cy) handed in by the MainWindow pump remains
+/// the single pose input; one set of field params per frame. MaskDepth and
+/// FeatherWidth are now REAL inputs (D-2, closing CW-2): MaskDepth bounds the peak
+/// alpha (clamped to the ≥0.20 floor / VimsLevels ceiling), FeatherWidth slides the
+/// feather-band start — both byte-identical to the prior baseline at their defaults.</para>
 /// </summary>
 public partial class OverlayWindow : Window, IOverlayRenderer
 {
     private const double BrushRadius = SenseDefaults.OverlayBrushRadius; // F2: single-source
-
-    // M5 UX-iteration 3 (2026-05-29): replace static clamp + fixed expanded
-    // radius with state-driven dynamic radius. User reported the [0.15, 0.85]
-    // clamp blocked the sprint's actual goal — "look at screen corners with
-    // the mask following." Fix B removes the clamp entirely; cx/cy travel
-    // the full [0, 1]. The radius dynamically expands so the farthest screen
-    // corner always sits inside the gradient regardless of mask center
-    // position. v0.9 baseline (HeadTrackingActive=false) keeps BrushRadius
-    // = 0.85 at center (0.5, 0.5) — zero behavioral drift.
-    //
-    // Formula for dynamic radius (in ApplyFovMask):
-    //   farX = max(cx, 1 - cx)
-    //   farY = max(cy, 1 - cy)
-    //   farthestCorner = sqrt(farX² + farY²)
-    //   radius = max(BrushRadius, farthestCorner * BrushRadiusCornerMargin)
-    //
-    // Center=(0.5, 0.5): radius = max(0.85, 0.71 × 1.10) = 0.85 → v0.9 baseline
-    // Center=(0.85, 0.5): radius = max(0.85, 0.99 × 1.10) = 1.09
-    // Center=(1, 1) corner: radius = max(0.85, 1.41 × 1.10) = 1.55
-    //
-    // The radius scales exactly to need with a 10% safety margin so the
-    // farthest corner sits at smoothstep ~0.91, not at the gradient edge.
     private const double BrushRadiusCornerMargin = SenseDefaults.OverlayBrushRadiusCornerMargin; // F2: single-source
 
     /// <summary>
@@ -52,12 +44,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// (state.VimsTier) controls discrete tier identity; OverlayWindow's per-tick
     /// smoothing cross-fades color+alpha between tiers.
     /// </summary>
-    // internal (not private) so D6DayOneProtectionTests can assert L1 == 0% alpha.
-    // Native 12-level scale (Adaptive Fit Q2=B) — was 10 rungs, extended to 12.
-    // L1 stays 0% alpha (D6 day-1 protection floor; pinned by
-    // D6DayOneProtectionTests.BaselineTier1_FloorsToOne_AndIsZeroAlphaAtRest). Alpha
-    // climbs monotonically 0.00 → 0.92; hue shifts neutral gray → cool-shifted near-black
-    // (+blue tint from L8 up so the mask reads as deliberate dimming on bright bg).
+    // internal (not private) so D6DayOneProtectionTests / AdaptiveFit* tests can assert
+    // against the canonical depth table. Native 12-level scale (Adaptive Fit Q2=B).
+    // L1 stays 0% alpha (D6 day-1 protection floor). Alpha climbs monotonically
+    // 0.00 → 0.92; hue shifts neutral gray → cool-shifted near-black (+blue tint from
+    // L8 up so the mask reads as deliberate dimming on bright bg). PRESERVED byte-for-byte
+    // by Beta A2 — the single-pass field reproduces these rows exactly at the knob defaults.
     internal static readonly (byte R, byte G, byte B, double Alpha)[] VimsLevels =
     {
         (102, 102, 102, 0.00), // L1  #666666  0%   neutral gray (day-1 floor)
@@ -74,158 +66,71 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         (  0,   0,   4, 0.92), // L12 #000004  92%  peak — slight blue read on bright bg
     };
 
-    // Smoothed currently-displayed mask color + alpha. Tracks the engine's discrete tier
-    // target via per-tick exponential approach so tier transitions cross-fade visually
-    // over ~250 ms (smoothing factor 0.25 at ~15 Hz tick rate). This gives back the
-    // continuous-looking transitions the user preferred earlier WITHOUT giving up the
-    // tier hysteresis — the engine still snaps `state.VimsTier` discretely; the visual
-    // just eases between tier values.
+    // ── Smoothed mask color + alpha (tier cross-fade) ────────────────────────
+    // Tracks the engine's discrete tier target via per-tick exponential approach so
+    // tier transitions cross-fade visually over ~250 ms. Preserves the continuous-
+    // looking transitions WITHOUT giving up the engine's tier hysteresis.
     private double _displayedR, _displayedG, _displayedB;
     private double _displayedAlpha;
     private bool   _displayedSeeded;
     private const double MaskSmoothingFactor = SenseDefaults.MaskSmoothingFactor; // F2: single-source
 
-    // Peripheral cell-fill: deep near-black at moderate alpha. Final on-screen strength
-    // is further modulated by GridCanvas.Opacity (pressure) and its radial OpacityMask.
-    private static readonly SolidColorBrush CellFillBrush = CreateCellFillBrush();
-
-    private static SolidColorBrush CreateCellFillBrush()
-    {
-        var b = new SolidColorBrush(Color.FromArgb(120, 8, 8, 10));
-        b.Freeze();
-        return b;
-    }
-
-    private bool _lastMaskActive;
+    // Grid brightness EMA (same signal that drove GridCanvas.Opacity before A2).
     private double _smoothedIntensity;
+    private double _gridBrightness; // 0..1, eased toward the per-frame ceiling target
 
-    // ── FIX #1: pre-computed FOV stop offsets and smoothstep weights ─────────
+    // ── A2 single field state (one moving boundary, one alpha per pixel) ─────
+    // The A1 One-Euro-smoothed pose is the SINGLE input; center + radius derive from
+    // it in the SAME frame on the SAME time-constant. The grid is WORLD-LOCKED
+    // (mod(px, GridSizePx)) and never moves with the center.
+    private double _fieldCx = 0.5;
+    private double _fieldCy = 0.5;
+    private double _fieldRadius = BrushRadius;
 
-    /// <summary>
-    /// Constant radial offsets for all 11 gradient stops (0.0, 0.35, ramp×8, 0.95, 1.0).
-    /// Never changes — computed once at class load.
-    /// </summary>
-    private static readonly double[] FovStopOffsets = BuildFovStopOffsets();
-    private static double[] BuildFovStopOffsets()
-    {
-        const double rampStart = 0.35;
-        const double rampEnd   = 0.95;
-        const double rampWidth = rampEnd - rampStart;
-        const int    n         = 8;
-        // 11 stops: [0.0, 0.35, 0.35+w*1/8 … 0.35+w*8/8=0.95, 1.0]
-        var arr = new double[11];
-        arr[0] = 0.0;
-        arr[1] = rampStart;
-        for (int k = 1; k <= n; k++) arr[1 + k] = rampStart + (rampWidth * k / n);
-        arr[10] = 1.0;
-        return arr;
-    }
+    // Resolved per-pixel field parameters (recomputed only on real input change).
+    private byte   _maskR, _maskG, _maskB;
+    private double _maskPeakAlpha;   // effective peak (after MaskDepth + floor/ceiling), 0..1
+    private double _featherStart;    // ramp start, normalized radial coord
+    private bool   _maskActive;
 
-    /// <summary>
-    /// Per-stop smoothstep multiplier s(t)=t²(3-2t) in [0,1]. Index matches FovStopOffsets.
-    /// Stops 0 and 1 are fully transparent (value 0.0). Stop 10 is fully opaque (1.0).
-    /// </summary>
-    private static readonly double[] FovStopSmoothstep = BuildFovStopSmoothstep();
-    private static double[] BuildFovStopSmoothstep()
-    {
-        const int n = 8;
-        var arr = new double[11];
-        arr[0] = 0.0;
-        arr[1] = 0.0; // both clear stops → alpha 0
-        for (int k = 1; k <= n; k++)
-        {
-            double t = (double)k / n;
-            arr[1 + k] = t * t * (3 - 2 * t);
-        }
-        arr[10] = 1.0;
-        return arr;
-    }
+    // ── The single-pass field bitmap (reduced-res, premultiplied BGRA) ───────
+    private WriteableBitmap? _fieldBmp;
+    private int    _fieldW, _fieldH;             // reduced-res field dimensions
+    private double _lastScreenW = -1, _lastScreenH = -1;
+    private byte[]? _fieldBuf;                    // BGRA scratch buffer
 
-    // Mutable (unfrozen) FOV brush reused across ticks; allocated once on first call.
-    private RadialGradientBrush?      _fovBrush;
-    private GradientStopCollection?   _fovStops;
-    /// <summary>Packed (r&lt;&lt;24|g&lt;&lt;16|b&lt;&lt;8|peakAlpha) — skip mutation when unchanged.</summary>
-    private int _lastFovBrushKey = -1;
+    // Recompute gate: only redraw when an input moved beyond epsilon (a static
+    // screen must cost ~zero). Packs the inputs that change the rendered field.
+    private bool   _fieldDirty = true;
+    private double _lastCx = double.NaN, _lastCy = double.NaN, _lastRadius = double.NaN;
+    private double _lastPeak = double.NaN, _lastFeatherStart = double.NaN, _lastGrid = double.NaN;
+    private int    _lastColorKey = -1;
+    private bool   _lastFieldActive;
+    private const double FieldEpsilon = 0.0005;
 
-    // ── Beta A1 (one-clock motion model): radius derives from the smoothed center ─
-    // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A1 item 3.) Previously the radius
-    // ran its OWN asymmetric 25/600 ms envelope (_smoothedRadius), on a different
-    // clock than the 15 ms center-follow — which is itself a "two things moving"
-    // cue (the feather edge breathing out of step with the center translation). A1
-    // removes that separate radius clock: the head pose is now smoothed ONCE,
-    // upstream, by a single One-Euro filter in the MainWindow pump
-    // (OnCompositionRendering); the (cx,cy) handed to this method is already the
-    // one-clock value. The dynamic radius is therefore a PURE deterministic
-    // function of that already-smoothed center, computed in the SAME frame — so it
-    // inherits the center's exact time-constant for free. One value, one clock, one
-    // moving boundary. The asymmetric fast-attack/slow-settle the halo fix bought is
-    // preserved, but as a property of the One-Euro center (it opens up on fast head
-    // motion, smooths hard near-still) rather than a bolt-on radius envelope.
-    //
-    // Rollback note (baseline f381a43): to revert to the separate-clock envelope,
-    // restore _smoothedRadius + the dtMs-driven attack/release block below and the
-    // OverlayRadius{Attack,Release}HalfLifeMs consumers; the SenseDefaults constants
-    // are retained so a revert is a clean diff.
+    // ── Perf instrumentation (Kirby's 165 Hz live gate) ──────────────────────
+    private double _recompAvgMs;
+    private double _recompP99Ms;       // cheap rolling high-water estimate
+    private long   _recompCount;
+    private double _recompSumMs;
+    private double _recompMaxMs;
+    private DateTime _lastPerfFlushUtc = DateTime.MinValue;
 
-    // ── FIX #2: cached, frozen grid opacity-mask brush ───────────────────────
+    /// <summary>Debug property for the live perf gate: rolling average field-recompute
+    /// time (ms) since the last one-minute flush. ~0 while the screen is static (the
+    /// field is not recomputed when inputs are unchanged). Exposed for the UVHS soak.</summary>
+    public double FieldRecomputeAvgMs => _recompAvgMs;
 
-    /// <summary>
-    /// Radial feather used as GridCanvas.OpacityMask. M5.1-A v2 hotfix
-    /// (2026-05-29): converted from static-frozen to per-instance-unfrozen
-    /// so Center + RadiusX/Y can be updated alongside the FOV brush when
-    /// head tracking is active. Previously the grid's transparency hole
-    /// stayed pinned at (0.5, 0.5) while the FOV mask moved → grid lines
-    /// remained visible exactly where the user was looking. Same geometry
-    /// stops (BuildLevelFeather(255, white)) so the two layers stay aligned.
-    /// </summary>
-    private RadialGradientBrush _gridOpacityMaskBrush = BuildGridOpacityMaskBrush();
-    private static RadialGradientBrush BuildGridOpacityMaskBrush()
-    {
-        return new RadialGradientBrush
-        {
-            GradientOrigin = new Point(0.5, 0.5),
-            Center         = new Point(0.5, 0.5),
-            RadiusX        = BrushRadius,
-            RadiusY        = BrushRadius,
-            GradientStops  = BuildLevelFeather(255, Colors.White),
-        };
-    }
-
-    // ── FIX #13: cached grid line objects ────────────────────────────────────
-
-    /// <summary>Frozen white grid-line stroke. Allocated once at class load.</summary>
-    private static readonly SolidColorBrush GridLineBrush = CreateGridLineBrush();
-    private static SolidColorBrush CreateGridLineBrush()
-    {
-        var b = new SolidColorBrush(Color.FromArgb(130, 255, 255, 255));
-        b.Freeze();
-        return b;
-    }
-
-    private System.Windows.Shapes.Rectangle? _cellFillRect;
-    private readonly List<System.Windows.Shapes.Line> _vLines = new();
-    private readonly List<System.Windows.Shapes.Line> _hLines = new();
-    private double _lastDrawnW    = -1;
-    private double _lastDrawnH    = -1;
-    private int    _lastDrawnStep = -1;
-
-    // ── FIX #14: single reusable DoubleAnimation for grid opacity ─────────────
-
-    /// <summary>
-    /// Reused animation object — mutate .To per tick instead of allocating a new one.
-    /// Duration is constant; From is left unset so WPF animates from the current value.
-    /// </summary>
-    private readonly DoubleAnimation _gridOpacityAnim = new()
-    {
-        Duration = new Duration(TimeSpan.FromMilliseconds(280)),
-    };
+    /// <summary>Debug property for the live perf gate: rolling worst-case (p99-ish)
+    /// field-recompute time (ms) since the last one-minute flush.</summary>
+    public double FieldRecomputeP99Ms => _recompP99Ms;
 
     public OverlayWindow()
     {
         InitializeComponent();
         SourceInitialized += OnSourceInitialized;
-        Loaded            += OnLoaded;
-        SizeChanged       += (_, _) => DrawGrid();
+        Loaded            += (_, _) => { EnsureFieldBitmap(); MarkFieldDirty(); RenderFieldIfDirty(); };
+        SizeChanged       += (_, _) => { EnsureFieldBitmap(); MarkFieldDirty(); RenderFieldIfDirty(); };
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -235,124 +140,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // Fade the overlay in so it doesn't pop harshly.
         Opacity = 0;
         BeginAnimation(OpacityProperty,
-            new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(380)))
+            new System.Windows.Media.Animation.DoubleAnimation(
+                0, 1, new Duration(TimeSpan.FromMilliseconds(380)))
             {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut },
             });
-    }
-
-    private void OnLoaded(object? sender, RoutedEventArgs e) => DrawGrid();
-
-    // ── Grid ─────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Draw / refresh CH stationary anchor grid: fixed 40 px spacing, white lines.
-    /// First call builds all child objects; subsequent calls only mutate coordinates
-    /// when the canvas size or step changes — no clear+rebuild allocation.
-    /// </summary>
-    private void DrawGrid()
-    {
-        double w = ActualWidth;
-        double h = ActualHeight;
-        if (w <= 0 || h <= 0) return;
-
-        // NE30: attach the radial feather mask up-front so a DrawGrid triggered by
-        // a SizeChanged / DPI-monitor change with no immediately-following
-        // ApplyState can never paint full-strength grid lines across the whole
-        // screen. The brush defaults to the centred at-rest feather; ApplyState
-        // updates its centre/radius when head-tracking moves the transparency hole.
-        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridOpacityMaskBrush))
-            GridCanvas.OpacityMask = _gridOpacityMaskBrush;
-
-        // Scale grid spacing and line thickness proportionally from the 1920×1080 baseline.
-        double dpiX = PresentationSource.FromVisual(this)?.CompositionTarget.TransformToDevice.M11 ?? 1.0;
-        double physicalWidth = SystemParameters.PrimaryScreenWidth * dpiX;
-        double scale = physicalWidth / 1920.0;
-        int step = Math.Max(20, (int)Math.Round(SenseDefaults.GridSizePx * scale));
-        double thickness = Math.Max(0.5, 1.2 * scale);
-
-        // Early-out when nothing has changed (no size change, no step change).
-        if (w == _lastDrawnW && h == _lastDrawnH && step == _lastDrawnStep)
-            return;
-
-        // ── Cell-fill rectangle ───────────────────────────────────────────────
-        if (_cellFillRect is null)
-        {
-            _cellFillRect = new System.Windows.Shapes.Rectangle
-            {
-                Fill = CellFillBrush,
-            };
-            System.Windows.Controls.Canvas.SetLeft(_cellFillRect, 0);
-            System.Windows.Controls.Canvas.SetTop(_cellFillRect, 0);
-            GridCanvas.Children.Add(_cellFillRect);
-        }
-        _cellFillRect.Width  = w;
-        _cellFillRect.Height = h;
-
-        // ── Vertical lines ────────────────────────────────────────────────────
-        int vCount = (int)Math.Ceiling(w / step) + 1;
-
-        // Grow list if needed.
-        while (_vLines.Count < vCount)
-        {
-            var line = new System.Windows.Shapes.Line
-            {
-                Stroke = GridLineBrush,
-            };
-            _vLines.Add(line);
-            GridCanvas.Children.Add(line);
-        }
-
-        // Shrink list if needed.
-        while (_vLines.Count > vCount)
-        {
-            int last = _vLines.Count - 1;
-            GridCanvas.Children.Remove(_vLines[last]);
-            _vLines.RemoveAt(last);
-        }
-
-        // Mutate endpoints + thickness.
-        for (int i = 0; i < vCount; i++)
-        {
-            double x = i * step;
-            var line = _vLines[i];
-            line.X1 = x;  line.X2 = x;
-            line.Y1 = 0;  line.Y2 = h;
-            line.StrokeThickness = thickness;
-        }
-
-        // ── Horizontal lines ──────────────────────────────────────────────────
-        int hCount = (int)Math.Ceiling(h / step) + 1;
-
-        while (_hLines.Count < hCount)
-        {
-            var line = new System.Windows.Shapes.Line
-            {
-                Stroke = GridLineBrush,
-            };
-            _hLines.Add(line);
-            GridCanvas.Children.Add(line);
-        }
-
-        while (_hLines.Count > hCount)
-        {
-            int last = _hLines.Count - 1;
-            GridCanvas.Children.Remove(_hLines[last]);
-            _hLines.RemoveAt(last);
-        }
-
-        for (int i = 0; i < hCount; i++)
-        {
-            double y = i * step;
-            var line = _hLines[i];
-            line.X1 = 0;  line.X2 = w;
-            line.Y1 = y;  line.Y2 = y;
-            line.StrokeThickness = thickness;
-        }
-
-        _lastDrawnW    = w;
-        _lastDrawnH    = h;
-        _lastDrawnStep = step;
     }
 
     // ── IOverlayRenderer ─────────────────────────────────────────────────────
@@ -360,273 +153,162 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// <summary>Update the overlay from the current SenseState.</summary>
     public void ApplyState(SenseState state)
     {
-        bool maskChanged = state.MaskActive != _lastMaskActive;
-        _lastMaskActive  = state.MaskActive;
-
-        if (maskChanged || GridCanvas.Children.Count == 0)
-        {
-            DrawGrid();
-            // Grid opacity is fully driven by ApplyGridIntensity via BeginAnimation.
-            // Do NOT call GridCanvas.BeginAnimation(OpacityProperty) here — any HoldEnd
-            // animation would permanently block the pressure-driven opacity updates.
-        }
-
-        ApplyGridIntensity(state);
-        ApplyFovMask(state);
-        ApplyGridFalloff(state);
+        EnsureFieldBitmap();
+        ResolveMaskParams(state);
+        ResolveGridBrightness(state);
+        // Head pose comes from the SAME state on the engine-tick path; the ~165 Hz pump
+        // path uses UpdateHeadGazeCenter. Both funnel into ApplyHeadPose.
+        ApplyHeadPose(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
+        RenderFieldIfDirty();
     }
 
-    /// <summary>Render the FOV mask for the supplied state. Mutates the
-    /// shared <c>_fovBrush</c> (a <see cref="RadialGradientBrush"/> on
-    /// <c>FovMask.Fill</c>) — so <b>must run on the UI dispatcher thread</b>.
-    /// The v0.9.3 cross-thread-marshal hotfix in
-    /// <c>MainWindow.OnStateChanged</c> already wraps the inbound
-    /// <c>StateChanged</c> callback in <c>Dispatcher.CheckAccess + BeginInvoke</c>,
-    /// so by the time <c>ApplyState → ApplyFovMask</c> runs we are always
-    /// on the dispatcher. M5 (head-pose centering) relies on this invariant
-    /// and does NOT introduce a new background → UI code path.</summary>
-    private void ApplyFovMask(SenseState state)
+    /// <summary>High-frequency entry point for the head-pose pump (~165 Hz
+    /// <c>CompositionTarget.Rendering</c>, MainWindow). Bypasses the full mask/grid
+    /// parameter recomputation and updates ONLY the pose-derived center + radius, then
+    /// re-renders the field if anything moved beyond epsilon.
+    ///
+    /// <para>Beta A1 (one-clock): the pose handed in is ALREADY the single One-Euro-
+    /// smoothed value (the pump owns the one filter); this method does NOT re-smooth.
+    /// <paramref name="dtMs"/> is retained for signature compatibility but no longer
+    /// drives a separate radius envelope — radius derives directly from the smoothed
+    /// center. Must run on the UI thread (mutates a WriteableBitmap).</para></summary>
+    public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
     {
-        // Engine snaps `state.VimsTier` discretely (hysteresis + debounce → no flicker on
-        // sub-tier noise). Visual layer eases between tier values via per-tick exponential
-        // smoothing (~250 ms convergence) so transitions feel continuous, matching the
-        // user's earlier-praised smooth look without re-introducing per-tick flicker.
-        // L7+ carries a subtle cool tint so the mask reads as deliberate dimming even on
-        // bright backgrounds (pure-black mask on white content reads as "uniform gray
-        // wash" — the slight blue shift restores the "out-of-focus" perceptual cue).
+        if (_fieldBmp is null) return;
+        ApplyHeadPose(headGazeX, headGazeY, active);
+        RenderFieldIfDirty();
+    }
+
+    // ── Mask + grid parameter resolution (engine-tick cadence) ───────────────
+
+    /// <summary>Resolve the per-frame mask color + EFFECTIVE peak alpha + feather-band
+    /// start from the state. MaskDepth and FeatherWidth (D-2) are wired here:
+    /// <list type="bullet">
+    ///   <item><b>MaskDepth</b> → bounded multiplier on the tier-resolved peak alpha,
+    ///   then the EFFECTIVE alpha is clamped so it is never below the 0.20 floor (when the
+    ///   mask is commanded on) and never above the VimsLevels table value for the tier;
+    ///   MaskPeakAlphaOverride precedence is preserved. At MaskDepth's default the
+    ///   multiplier is 1.0 ⇒ byte-identical to the table.</item>
+    ///   <item><b>FeatherWidth</b> → slides the smoothstep ramp start within safe clamps
+    ///   (end pinned at 0.95). At FeatherWidth's default the start is 0.35 ⇒ the locked
+    ///   0.35→0.95 envelope.</item>
+    /// </list></summary>
+    private void ResolveMaskParams(SenseState state)
+    {
         int tier = Math.Clamp(state.VimsTier, 1, 12);
-        var (tR, tG, tB, tAlpha) = VimsLevels[tier - 1];
+        var (tR, tG, tB, tableAlpha) = VimsLevels[tier - 1];
 
-        // Alpha-2 (selector→renderer): the active AdaptiveFit set's curve overrides the mask
-        // DEPTH (peak alpha) when set (>= 0); the HUE/colour stays tier-keyed (above). This is
-        // what makes the 50-set selector's chosen envelope actually visible — previously the
-        // set's PeakMaskAlpha was computed but ignored and every set rendered the static tier
-        // alpha. -1 (flag OFF / no override) keeps the static tier alpha, byte-identical to
-        // before. set0 resolves to exactly tAlpha, so the default set looks unchanged. L1's
-        // override is always 0.00 (the D6 day-1 floor is preserved end-to-end).
-        if (state.MaskPeakAlphaOverride >= 0.0)
-            tAlpha = state.MaskPeakAlphaOverride;
+        // Selector→renderer DEPTH override (Alpha-2): the active AdaptiveFit set's curve
+        // overrides the tier alpha when set (>= 0); hue stays tier-keyed. -1 keeps the
+        // static tier alpha. set0 resolves to exactly tableAlpha (default set unchanged).
+        double tierAlpha = state.MaskPeakAlphaOverride >= 0.0
+            ? state.MaskPeakAlphaOverride
+            : tableAlpha;
 
-        // Seed on first tick so we don't ease in from black/zero at startup.
+        // Seed the cross-fade on first tick so we don't ease in from black at startup.
         if (!_displayedSeeded)
         {
-            _displayedR = tR; _displayedG = tG; _displayedB = tB; _displayedAlpha = tAlpha;
+            _displayedR = tR; _displayedG = tG; _displayedB = tB; _displayedAlpha = tierAlpha;
             _displayedSeeded = true;
         }
         else
         {
-            _displayedR     += (tR     - _displayedR)     * MaskSmoothingFactor;
-            _displayedG     += (tG     - _displayedG)     * MaskSmoothingFactor;
-            _displayedB     += (tB     - _displayedB)     * MaskSmoothingFactor;
-            _displayedAlpha += (tAlpha - _displayedAlpha) * MaskSmoothingFactor;
+            _displayedR     += (tR        - _displayedR)     * MaskSmoothingFactor;
+            _displayedG     += (tG        - _displayedG)     * MaskSmoothingFactor;
+            _displayedB     += (tB        - _displayedB)     * MaskSmoothingFactor;
+            _displayedAlpha += (tierAlpha - _displayedAlpha) * MaskSmoothingFactor;
         }
 
-        byte r         = (byte)Math.Round(Math.Clamp(_displayedR,     0, 255));
-        byte g         = (byte)Math.Round(Math.Clamp(_displayedG,     0, 255));
-        byte b         = (byte)Math.Round(Math.Clamp(_displayedB,     0, 255));
-        byte peakAlpha = (byte)Math.Round(Math.Clamp(_displayedAlpha, 0, 1) * 255.0);
+        byte r = (byte)Math.Round(Math.Clamp(_displayedR, 0, 255));
+        byte g = (byte)Math.Round(Math.Clamp(_displayedG, 0, 255));
+        byte b = (byte)Math.Round(Math.Clamp(_displayedB, 0, 255));
 
-        // ── Build brush once; thereafter mutate stops in-place (FIX #1) ───────
-        if (_fovBrush is null)
+        // D-2: MaskDepth → bounded effective peak alpha. The locked guarantees are
+        // enforced IN the field (see ResolveEffectivePeakAlpha): floor 0.20 when the
+        // mask is on, ceiling = the (smoothed) table/override alpha, identity at default.
+        double effectivePeak = ResolveEffectivePeakAlpha(
+            _displayedAlpha, state.Shader.MaskDepth, state.MaskActive);
+
+        // D-2: FeatherWidth → ramp start (band-width slide), end pinned at 0.95.
+        double featherStart = ResolveFeatherStart(state.Shader.FeatherWidth);
+
+        int colorKey = (r << 16) | (g << 8) | b;
+        if (colorKey != _lastColorKey
+            || Math.Abs(effectivePeak - _lastPeak) > FieldEpsilon
+            || Math.Abs(featherStart - _lastFeatherStart) > FieldEpsilon
+            || state.MaskActive != _maskActive)
         {
-            _fovStops = new GradientStopCollection();
-            for (int i = 0; i < FovStopOffsets.Length; i++)
-                _fovStops.Add(new GradientStop(Colors.Transparent, FovStopOffsets[i]));
-
-            _fovBrush = new RadialGradientBrush
-            {
-                GradientOrigin = new Point(0.5, 0.5),
-                Center         = new Point(0.5, 0.5),
-                RadiusX        = BrushRadius,
-                RadiusY        = BrushRadius,
-                GradientStops  = _fovStops,
-            };
-            FovMask.Fill = _fovBrush;
-        }
-
-        // Pack quantized key; skip mutation when nothing changed.
-        int key = (r << 24) | (g << 16) | (b << 8) | peakAlpha;
-        if (key != _lastFovBrushKey)
-        {
-            _lastFovBrushKey = key;
-
-            var clear = Color.FromArgb(0, r, g, b);
-            _fovStops![0].Color = clear;
-            _fovStops[1].Color  = clear;
-            for (int i = 2; i < _fovStops.Count; i++)
-            {
-                byte a = (byte)Math.Round(peakAlpha * FovStopSmoothstep[i]);
-                _fovStops[i].Color = Color.FromArgb(a, r, g, b);
-            }
-        }
-
-        // ── M5: head-pose-driven center ───────────────────────────────────
-        // When state.HeadTrackingActive is true, follow the smoothed head
-        // gaze; otherwise snap back to the v0.9 hardcoded (0.5, 0.5) center.
-        // Q3-verified self-consistent: sidecar cx/cy use the same
-        // MappingMode.RelativeToBoundingBox convention as the WPF brush,
-        // so no axis or sign conversion happens at any layer. The
-        // Center != center guard short-circuits no-op mutations to avoid
-        // re-rendering on identical updates (and to preserve the v0.9
-        // baseline byte-for-byte when HeadTrackingEnabled is false).
-        // M5 UX-iter 3: head-pose application is factored into
-        // ApplyHeadPoseToBrush so the high-frequency dispatcher timer
-        // (Fix C, MainWindow Loaded#5) can also call it without
-        // re-running the grid/mask color recomputation above. State-driven
-        // path runs at engine tick; timer-driven path runs at ~30 Hz.
-        ApplyHeadPoseToBrush(state.HeadGazeX, state.HeadGazeY, state.HeadTrackingActive);
-
-        // M5.1-B: don't clobber the escape-hatch alpha animation. When
-        // _escapeHatchActive is true, the Storyboard owns FovMask.Opacity
-        // until it completes and clears the flag.
-        if (!_escapeHatchActive)
-        {
-            FovMask.BeginAnimation(OpacityProperty, null);
-            FovMask.Opacity = 1.0;
+            _maskR = r; _maskG = g; _maskB = b;
+            _maskPeakAlpha = effectivePeak;
+            _featherStart  = featherStart;
+            _maskActive    = state.MaskActive;
+            _lastColorKey = colorKey;
+            _lastPeak = effectivePeak;
+            _lastFeatherStart = featherStart;
+            MarkFieldDirty();
         }
     }
 
-    // ── M5.1-B: escape-hatch alpha dip ───────────────────────────────────────
-
-    private bool _escapeHatchActive;
-    private Storyboard? _escapeHatchStoryboard;
-
-    /// <summary>M8 head-tracking sprint: host-wired lookup of "does the user
-    /// have a vestibular diagnosis on file?". When set and returns true,
-    /// <see cref="TriggerEscapeHatch"/> is a no-op even if
-    /// <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
-    /// is true. The FOV mask IS the VIMS protection for vestibular-sensitive
-    /// users — opening a 3-second window of 30 % opacity could surface
-    /// symptoms during a high-motion moment. This is the defensive layer;
-    /// the Settings UI also greys out the checkbox at load time. Read-only
-    /// consumer of the existing MainViewModel.HasVestibularDiagnosis API
-    /// (the engine + snapshot types from SenseEase.Core are NOT modified
-    /// by the head-tracking sprint — verified via empty diff at M8 close).
-    /// Mirrors the same Func&lt;bool&gt; pattern used by NotificationCardWindow.HasVestibularDiagnosis.
-    /// Null defaults to "() =&gt; false" so an unwired test or future caller
-    /// keeps the old behaviour. Locked-file note: the lookup itself lives
-    /// on MainViewModel (read-only consumer of the calibration responses
-    /// on the habituation profile snapshot — engine + snapshot types are
-    /// not modified by the head-tracking sprint).</summary>
-    public Func<bool>? HasVestibularDiagnosis { get; set; }
-
-    /// <summary>M5.1-B: temporarily fade the FOV mask to 30 % opacity for
-    /// 3 seconds with a 250 ms fade-down + 500 ms fade-up. Triggered by
-    /// double-tapping Ctrl when <see cref="Configuration.AppConfig.HeadTrackingEscapeHatchEnabled"/>
-    /// is true. Lets a Balanced-mode user peek at a screen corner without
-    /// committing to FullFollow permanently. Orthogonal to the follow-mode
-    /// choice — works whether head-tracking is on or off, in either mode.
-    /// Safe to call repeatedly: a new call mid-animation resets the cycle
-    /// (the user gets a fresh 3 second window).
-    ///
-    /// <para>M8 escape × vestibular guard: returns early when
-    /// <see cref="HasVestibularDiagnosis"/> reports true. The FOV mask is
-    /// the VIMS protection for vestibular-sensitive users; we never lower
-    /// it. Defensive layer — the Settings UI ALSO disables the checkbox
-    /// at load time, but a user with a forced-on JSON edit (or a Ctrl tap
-    /// before the prefs are hydrated) still gets the protection here.</para></summary>
-    public void TriggerEscapeHatch()
+    /// <summary>Grid brightness target — the SAME tier/pressure-driven signal that drove
+    /// GridCanvas.Opacity before A2. EMA-smoothed; GridCeiling stays the brightness
+    /// ceiling driver (and the gv=0 → ceiling 0 "/grid off" behaviour). The grid is drawn
+    /// world-locked inside the field's clear zone.</summary>
+    private void ResolveGridBrightness(SenseState state)
     {
-        if (!Configuration.AppConfig.HeadTrackingEscapeHatchEnabled) return;
-        // M8: vestibular guard — read-only consumer of the host's lookup.
-        // Null fallback returns false (i.e. unwired = previous behaviour).
-        if (HasVestibularDiagnosis?.Invoke() == true) return;
+        double intensity = ComputeAdaptiveIntensity(state);
+        _smoothedIntensity = 0.85 * _smoothedIntensity + 0.15 * intensity;
 
-        try { _escapeHatchStoryboard?.Stop(this); } catch { /* ignore */ }
+        int    tier         = Math.Clamp(state.VimsTier, 1, 12);
+        double tierFraction = (tier - 1) / 11.0;                 // 0 at L1, 1 at L12
+        double gv           = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
+        double ceiling      = GridCeiling(gv);
+        double target       = Math.Clamp(tierFraction * ceiling * (0.55 + (0.45 * _smoothedIntensity)),
+                                         0.0, ceiling);
 
-        var sb = new Storyboard();
+        // Ease toward target on the SAME tick cadence (replaces the 280 ms DoubleAnimation
+        // + GridCanvas.Opacity EMA — folded onto one clock per A1). MaskSmoothingFactor
+        // gives ~250 ms convergence, matching the prior perceived grid fade timing.
+        _gridBrightness += (target - _gridBrightness) * MaskSmoothingFactor;
 
-        var fadeDown = new DoubleAnimation
+        if (Math.Abs(_gridBrightness - _lastGrid) > FieldEpsilon)
         {
-            From          = 1.0,
-            To            = 0.30,
-            Duration      = new Duration(TimeSpan.FromMilliseconds(250)),
-            BeginTime     = TimeSpan.Zero,
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
-        };
-        Storyboard.SetTarget(fadeDown, FovMask);
-        Storyboard.SetTargetProperty(fadeDown, new PropertyPath(OpacityProperty));
-        sb.Children.Add(fadeDown);
-
-        // 250 ms (end of fade-down) + 3000 ms hold → fade-up starts at 3250 ms.
-        var fadeUp = new DoubleAnimation
-        {
-            From          = 0.30,
-            To            = 1.0,
-            Duration      = new Duration(TimeSpan.FromMilliseconds(500)),
-            BeginTime     = TimeSpan.FromMilliseconds(3250),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
-        };
-        Storyboard.SetTarget(fadeUp, FovMask);
-        Storyboard.SetTargetProperty(fadeUp, new PropertyPath(OpacityProperty));
-        sb.Children.Add(fadeUp);
-
-        sb.Completed += (_, _) =>
-        {
-            _escapeHatchActive = false;
-            // After the storyboard ends, hand opacity back to ApplyFovMask
-            // by leaving it animated-to-1.0; ApplyFovMask's own reset will
-            // take over on the next tick.
-        };
-
-        _escapeHatchStoryboard = sb;
-        _escapeHatchActive = true;
-        sb.Begin(this, true);
+            _lastGrid = _gridBrightness;
+            MarkFieldDirty();
+        }
     }
 
-    /// <summary>M5 test seam: expose the FOV mask brush so STA-bound unit
-    /// tests can verify <c>Center</c> follows <c>HeadGazeX/Y</c>. Internal
-    /// + <c>InternalsVisibleTo("SenseEase.Tests")</c>, no widening of the
-    /// public surface.</summary>
-    internal RadialGradientBrush? FovBrushForTests => _fovBrush;
-
-    /// <summary>Beta A1 test seam: expose the grid OpacityMask brush (the grid's
-    /// transparency hole — the third moving geometry) so the one-clock convergence
-    /// tests can assert it tracks the FOV brush's Center/Radius in the SAME frame
-    /// (no separate clock). Internal, no public-surface widening.</summary>
-    internal RadialGradientBrush GridMaskBrushForTests => _gridOpacityMaskBrush;
-
-    /// <summary>High-frequency entry point for the head-pose pump. Originally a
-    /// ~30 Hz DispatcherTimer (M5 UX-iter 3 Fix C); since M5.1-C iter 2 the pump
-    /// is <c>CompositionTarget.Rendering</c> (~display refresh, ~165 Hz). Bypasses
-    /// the full ApplyState grid/mask colour recomputation and updates ONLY the
-    /// brush's <c>Center</c> + <c>Radius</c>.
-    ///
-    /// <para>Beta A1 (one-clock motion model): the <paramref name="headGazeX"/>/
-    /// <paramref name="headGazeY"/> handed in are ALREADY the single One-Euro-smoothed
-    /// pose value (the pump owns the one filter); this method does NOT re-smooth.
-    /// <paramref name="dtMs"/> is retained for signature compatibility but no longer
-    /// drives a separate radius envelope — radius derives directly from the smoothed
-    /// center. Must run on UI thread (mutates DependencyObjects).</para></summary>
-    public void UpdateHeadGazeCenter(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
+    private static double ComputeAdaptiveIntensity(SenseState state)
     {
-        if (_fovBrush is null) return;
-        ApplyHeadPoseToBrush(headGazeX, headGazeY, active, dtMs);
+        double flowTerm     = Math.Clamp(state.OpticalFlowIndex / 120.0, 0.0, 1.0);
+        double pressureTerm = Math.Clamp(state.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
+        return Math.Clamp((flowTerm * 0.35) + (pressureTerm * 0.85), 0.0, 1.0);
     }
 
-    /// <summary>M5 UX-iter 3: shared head-pose → brush mutation. Both the
-    /// state-driven path (ApplyFovMask, engine tick) and the pump path
-    /// (UpdateHeadGazeCenter, ~165 Hz CompositionTarget.Rendering) call this so
-    /// the brush state stays consistent. Active=false snaps to v0.9 baseline
-    /// (center 0.5/0.5, radius BrushRadius).
-    ///
-    /// <para>Beta A1 (one-clock motion model): center, radius and the grid-hole
-    /// (OpacityMask) all derive from the SAME (cx,cy) in the SAME frame on the same
-    /// time-constant — the pose was smoothed ONCE upstream by the pump's One-Euro
-    /// filter, so radius is a pure function of the smoothed center (no separate
-    /// asymmetric radius clock). <paramref name="dtMs"/> is unused here now; it
-    /// remains in the signature so the pump call site and tests are unchanged and a
-    /// revert to the f381a43 envelope is a clean diff.</para></summary>
-    private void ApplyHeadPoseToBrush(double headGazeX, double headGazeY, bool active, double dtMs = 0.0)
-    {
-        if (_fovBrush is null) return;
+    /// <summary>
+    /// Maps grid-visibility knob → max grid opacity (the per-frame ceiling). Extracted as
+    /// a pure static so the curve is unit-testable. gv=0 ⇒ ceiling 0 exactly ("/grid off"
+    /// is truly off); for gv>0 the curve is 0.40 + 0.80·gv (default gv=0.75 ⇒ ceiling 1.00).
+    /// PRESERVED byte-for-byte (GridCeilingTests).
+    /// </summary>
+    internal static double GridCeiling(double gv)
+        => gv > 0.0 ? Math.Min(1.0, 0.40 + (0.80 * gv)) : 0.0;
 
-        // M5.1-B: mode-based clamp. Balanced (default) restricts travel to
-        // [0.10, 0.90] so the periphery is always partially dimmed regardless
-        // of gaze direction — clinical default for VIMS mitigation. FullFollow
-        // (opt-in) allows the full [0, 1] range; user uses the escape-hatch
-        // hotkey if they want to peek at a corner without committing to
-        // FullFollow permanently.
+    // ── Head pose → field center + radius (one clock, one boundary) ──────────
+
+    /// <summary>Shared head-pose → field-center mutation. Both the state-driven path
+    /// (ApplyState, engine tick) and the pump path (UpdateHeadGazeCenter, ~165 Hz) call
+    /// this. Active=false snaps to the v0.9 baseline (center 0.5/0.5, radius BrushRadius).
+    ///
+    /// <para>Beta A1 (one-clock): center, radius and the grid hole all derive from the
+    /// SAME (cx,cy) in the SAME frame — the pose was smoothed ONCE upstream by the pump's
+    /// One-Euro filter, so radius is a pure function of the smoothed center (no separate
+    /// asymmetric radius clock). The corner-normalized radial field (ResolveFieldAlpha)
+    /// uses this center directly; there is no animated GLOBAL radius — corner coverage is
+    /// guaranteed per-pixel (kills the scalar-radius "breathing").</para></summary>
+    private void ApplyHeadPose(double headGazeX, double headGazeY, bool active)
+    {
+        // M5.1-B: mode-based clamp. Balanced (default) restricts travel to [0.10, 0.90]
+        // so the periphery is always partially dimmed; FullFollow (opt-in) allows [0, 1].
         double low, high;
         if (Configuration.AppConfig.HeadTrackingFollowMode
             == Configuration.HeadTrackingFollowModeKind.FullFollow)
@@ -639,26 +321,11 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         }
         double cx = active ? Math.Clamp(headGazeX, low, high) : 0.5;
         double cy = active ? Math.Clamp(headGazeY, low, high) : 0.5;
-        var center = new Point(cx, cy);
-        if (_fovBrush.Center != center)
-        {
-            _fovBrush.Center         = center;
-            _fovBrush.GradientOrigin = center;
-        }
 
-        // Fix B + Beta A1: dynamic radius scales to the farthest screen corner so
-        // even at full-corner center, opposite (0, 0) sits inside gradient at
-        // smoothstep ~0.91. v0.9 baseline (active=false) keeps 0.85.
-        //
-        // ONE-CLOCK: the (cx,cy) above is ALREADY the single One-Euro-smoothed pose
-        // (smoothed once upstream in the pump). The radius is therefore a pure
-        // deterministic function of that smoothed center, evaluated in the SAME
-        // frame — it inherits the center's exact time-constant, so center and edge
-        // move together as one boundary. The previous separate asymmetric radius
-        // envelope (_smoothedRadius + dtMs attack/release) is removed: it ran on a
-        // different clock than the center-follow and was itself a "two things moving"
-        // halo cue. dtMs is now unused here (kept on the signature for a clean revert
-        // to f381a43 and so the pump call site / tests need no change).
+        // Dynamic radius scales to the farthest screen corner so even at full-corner
+        // center the opposite corner sits inside the falloff. v0.9 baseline (active=false)
+        // keeps 0.85. ONE-CLOCK: (cx,cy) is the already-smoothed pose, so radius inherits
+        // the center's exact time-constant (no separate envelope, dtMs unused).
         double radius;
         if (active)
         {
@@ -669,130 +336,317 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         }
         else
         {
-            radius = BrushRadius; // inactive → byte-identical v0.9 baseline
+            radius = BrushRadius;
         }
 
-        if (_fovBrush.RadiusX != radius)
+        if (Math.Abs(cx - _fieldCx) > FieldEpsilon
+            || Math.Abs(cy - _fieldCy) > FieldEpsilon
+            || Math.Abs(radius - _fieldRadius) > FieldEpsilon)
         {
-            _fovBrush.RadiusX = radius;
-            _fovBrush.RadiusY = radius;
+            _fieldCx = cx; _fieldCy = cy; _fieldRadius = radius;
+            MarkFieldDirty();
         }
+    }
 
-        // M5.1-A v2 hotfix: mirror the FOV brush's Center / Radius onto the
-        // grid OpacityMask brush so the grid's transparency hole tracks the
-        // FOV clear zone. Without this, the grid lines remain visible
-        // exactly where the user is looking — the exact glitch reported
-        // during M5.1-A v2 UVHS. Same coordinates, same radius scaling.
-        if (_gridOpacityMaskBrush.Center != center)
+    // ── Field math (PURE — unit-testable without WPF) ────────────────────────
+
+    /// <summary>Corner-normalized radial coordinate: dist(px, center) divided by the
+    /// distance from the center to its FARTHEST corner. 0 at the center, 1 at the
+    /// farthest corner — corner coverage WITHOUT an animated global radius (the breathing
+    /// killer). px/py and cx/cy are normalized [0,1]; aspect corrects to screen pixels so
+    /// the falloff is radially symmetric on screen, not in UV.</summary>
+    internal static double CornerNormR(double px, double py, double cx, double cy, double aspect)
+    {
+        // Work in aspect-corrected space (x scaled by aspect = w/h) so a circle on screen
+        // stays a circle. distanceToFarthestCorner from center within [0,1]² (aspect-scaled).
+        double dx = (px - cx) * aspect;
+        double dy = (py - cy);
+        double dist = Math.Sqrt(dx * dx + dy * dy);
+
+        double farX = Math.Max(cx, 1.0 - cx) * aspect;
+        double farY = Math.Max(cy, 1.0 - cy);
+        double farDist = Math.Sqrt(farX * farX + farY * farY);
+        if (farDist <= 1e-9) return 0.0;
+        return dist / farDist;
+    }
+
+    /// <summary>Continuous smoothstep falloff, 0 inside <paramref name="featherStart"/>,
+    /// ramping to <paramref name="peakAlpha"/> by <paramref name="featherEnd"/> (0.95),
+    /// then held. Preserves the prior 0.35→0.95 envelope SHAPE; the band START is the D-2
+    /// FeatherWidth wiring. Output is the field alpha at corner-normalized coordinate r.
+    /// At the default ramp (0.35→0.95) and a tier peak this reproduces the prior
+    /// BuildLevelFeather output at the same r.</summary>
+    internal static double ResolveFieldAlpha(double r, double peakAlpha, double featherStart, double featherEnd)
+    {
+        if (r <= featherStart) return 0.0;
+        if (r >= featherEnd)   return peakAlpha;
+        double t = (r - featherStart) / (featherEnd - featherStart);
+        double s = t * t * (3.0 - (2.0 * t)); // smoothstep s(t)=t²(3-2t)
+        return peakAlpha * s;
+    }
+
+    /// <summary>D-2: map MaskDepth [0,1] → EFFECTIVE peak alpha. Bounded multiplier on the
+    /// tier ceiling, then the locked guarantees:
+    /// <list type="bullet">
+    ///   <item>identity at MaskDepth's default (multiplier = 1.0 ⇒ exactly the ceiling);</item>
+    ///   <item>never above the tier ceiling (the VimsLevels table value / override);</item>
+    ///   <item>never below the 0.20 floor when the mask is commanded on.</item>
+    /// </list>
+    /// When the mask is OFF the floor does NOT apply (a commanded-off mask can resolve to
+    /// 0, e.g. L1's 0.00). Pure + internal for unit coverage.</summary>
+    internal static double ResolveEffectivePeakAlpha(double tierCeiling, double maskDepth, bool maskActive)
+    {
+        double mult = 1.0 + (maskDepth - ShaderParams.DefaultMaskDepth)
+                            * SenseDefaults.OverlayMaskDepthMultiplierSpan;
+        double effective = tierCeiling * mult;
+
+        // Ceiling: never above the tier table/override value.
+        if (effective > tierCeiling) effective = tierCeiling;
+
+        // Floor: never below 0.20 when commanded on — BUT only up to the ceiling itself
+        // (a tier whose ceiling is below 0.20, e.g. L1 0.00 or L2 0.14, is never pushed
+        // ABOVE its own table value by the floor — the floor cannot raise depth past the
+        // tier the engine commanded). So the floor is min(0.20, ceiling).
+        if (maskActive)
         {
-            _gridOpacityMaskBrush.Center         = center;
-            _gridOpacityMaskBrush.GradientOrigin = center;
+            double floor = Math.Min(SenseDefaults.OverlayMaskEffectiveAlphaFloor, tierCeiling);
+            if (effective < floor) effective = floor;
         }
-        if (_gridOpacityMaskBrush.RadiusX != radius)
+
+        if (effective < 0.0) effective = 0.0;
+        if (effective > 1.0) effective = 1.0;
+        return effective;
+    }
+
+    /// <summary>D-2: map FeatherWidth [0,1] → smoothstep ramp START (band-width slide).
+    /// The ramp END is pinned at 0.95 (corner hold). A WIDER feather pulls the start
+    /// inward (longer, softer band); a NARROWER feather pushes it outward (tighter band).
+    /// At FeatherWidth's default (0.50) the start resolves to exactly 0.35 ⇒ the locked
+    /// 0.35→0.95 envelope. Clamped so the start never crosses 0 or the end. Pure +
+    /// internal for unit coverage.</summary>
+    internal static double ResolveFeatherStart(double featherWidth)
+    {
+        const double baseStart = 0.35;
+        const double end       = 0.95;
+        // featherWidth > 0.5 → wider band → start moves toward 0; < 0.5 → start moves toward end.
+        double start = baseStart - (featherWidth - ShaderParams.DefaultFeatherWidth)
+                                  * 2.0 * SenseDefaults.OverlayFeatherStartSpan;
+        // Safe clamps: keep a non-degenerate band strictly inside (0, end).
+        double lo = 0.05;
+        double hi = end - 0.05;
+        if (start < lo) start = lo;
+        if (start > hi) start = hi;
+        return start;
+    }
+
+    /// <summary>Gamma-shape the falloff parameter before 8-bit encode (banding mitigation,
+    /// best-effort, no dithering). Shapes the [0,1] alpha fraction in gamma-space so the
+    /// 8-bit codes concentrate where the eye is most sensitive in the near-black band.
+    /// gamma=1.0 ⇒ linear (no shaping). Pure + internal for unit coverage.</summary>
+    internal static double GammaShape(double a01, double gamma)
+    {
+        if (a01 <= 0.0) return 0.0;
+        if (a01 >= 1.0) return 1.0;
+        return Math.Pow(a01, gamma);
+    }
+
+    // ── WriteableBitmap field renderer ───────────────────────────────────────
+
+    /// <summary>(Re)allocate the reduced-res field bitmap when the screen size changes.
+    /// The field is computed at 1/<see cref="SenseDefaults.OverlayFieldDownscale"/> per
+    /// axis and the one Image bilinear-upscales it (Stretch=Fill). Idempotent.</summary>
+    private void EnsureFieldBitmap()
+    {
+        double sw = ActualWidth, sh = ActualHeight;
+        if (sw <= 0 || sh <= 0)
         {
-            _gridOpacityMaskBrush.RadiusX = radius;
-            _gridOpacityMaskBrush.RadiusY = radius;
+            // Before layout: fall back to the primary screen so a pre-layout ApplyState
+            // (engine tick can beat Loaded) still produces a valid field.
+            sw = SystemParameters.PrimaryScreenWidth;
+            sh = SystemParameters.PrimaryScreenHeight;
+            if (sw <= 0 || sh <= 0) return;
         }
+        if (Math.Abs(sw - _lastScreenW) < 0.5 && Math.Abs(sh - _lastScreenH) < 0.5 && _fieldBmp is not null)
+            return;
+
+        _lastScreenW = sw; _lastScreenH = sh;
+        int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
+        _fieldW = Math.Max(1, (int)Math.Ceiling(sw / ds));
+        _fieldH = Math.Max(1, (int)Math.Ceiling(sh / ds));
+
+        _fieldBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
+        _fieldBuf = new byte[_fieldW * _fieldH * 4];
+        FieldImage.Source = _fieldBmp;
+        MarkFieldDirty();
     }
 
-    private void ApplyGridFalloff(SenseState state)
+    private void MarkFieldDirty() => _fieldDirty = true;
+
+    /// <summary>Recompute + present the field ONLY when an input moved beyond epsilon (a
+    /// static screen costs ~zero). Times the recompute for the live perf gate and flushes
+    /// rolling avg/p99 stats to wgc_diag once a minute while the overlay is active.</summary>
+    private void RenderFieldIfDirty()
     {
-        // Grid OpacityMask uses the SAME fixed feather geometry as the FOV mask so
-        // the two layers stay aligned — no visible seam at the transition. Only the
-        // ramp ceiling differs (255 here because it's an OpacityMask that needs to
-        // fully reveal the grid in the periphery). Per-VIMS opacity is carried by
-        // GridCanvas.Opacity (driven in ApplyGridIntensity by `coverage`).
-        // FIX #2: assign the pre-built frozen brush; one reference-compare guards
-        // against external code clearing the mask — avoids allocation every tick.
-        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridOpacityMaskBrush))
-            GridCanvas.OpacityMask = _gridOpacityMaskBrush;
+        if (_fieldBmp is null || _fieldBuf is null) return;
+
+        bool inputsMoved = _fieldDirty
+            || double.IsNaN(_lastCx)
+            || Math.Abs(_fieldCx - _lastCx) > FieldEpsilon
+            || Math.Abs(_fieldCy - _lastCy) > FieldEpsilon
+            || Math.Abs(_fieldRadius - _lastRadius) > FieldEpsilon
+            || _lastFieldActive != _maskActive;
+
+        if (!inputsMoved) return;
+
+        long startTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        ComputeField();
+        _fieldBmp.WritePixels(
+            new Int32Rect(0, 0, _fieldW, _fieldH), _fieldBuf, _fieldW * 4, 0);
+
+        long endTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        double ms = (endTicks - startTicks) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        RecordRecompute(ms);
+
+        _lastCx = _fieldCx; _lastCy = _fieldCy; _lastRadius = _fieldRadius;
+        _lastFieldActive = _maskActive;
+        _fieldDirty = false;
     }
 
-    // Builds the FIXED gradient structure mandated by the VIMS comfort spec:
-    //   r ∈ [0.00, 0.35]  fully transparent
-    //   r ∈ [0.35, 0.95]  smoothstep ramp 0 → peakAlpha
-    //   r ∈ [0.95, 1.00]  hold at peakAlpha
-    // Smoothstep: s(t) = t² × (3 - 2t). Only `peakAlpha` (and color, for the FOV vs
-    // grid layers) varies — the structure is identical between layers so they align.
-    private static System.Windows.Media.GradientStopCollection BuildLevelFeather(byte peakAlpha, Color color)
+    /// <summary>Fill <see cref="_fieldBuf"/> with the single per-pixel field: mask-vs-grid
+    /// mutually-exclusive (one alpha per pixel). Premultiplied BGRA (Pbgra32). Below the
+    /// alpha threshold the world-locked faint grid shows; else the mask.</summary>
+    private void ComputeField()
     {
-        var stops  = new System.Windows.Media.GradientStopCollection();
-        var clear  = Color.FromArgb(0, color.R, color.G, color.B);
-        var solid  = Color.FromArgb(peakAlpha, color.R, color.G, color.B);
+        int w = _fieldW, h = _fieldH;
+        double aspect = (double)w / h;
+        double cx = _fieldCx, cy = _fieldCy;
+        double peak = _maskPeakAlpha;
+        double featherStart = _featherStart;
+        const double featherEnd = 0.95;
+        double gamma = SenseDefaults.OverlayFieldGamma;
+        var buf = _fieldBuf!;
 
-        const double rampStart = 0.35;
-        const double rampEnd   = 0.95;
-        const double rampWidth = rampEnd - rampStart;
-        const int    n         = 8;
+        byte mr = _maskR, mg = _maskG, mb = _maskB;
 
-        stops.Add(new GradientStop(clear, 0.0));
-        stops.Add(new GradientStop(clear, rampStart));
-        for (int k = 1; k < n; k++)
+        // World-locked grid: cell size in REDUCED-RES field pixels. The grid never moves
+        // with the center (mod(px, cell) in field space). Scale GridSizePx by the downscale
+        // factor so the on-screen spacing matches the legacy grid after upscale.
+        int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
+        int gridCell = Math.Max(2, (int)Math.Round(SenseDefaults.GridSizePx / (double)ds));
+        double gridLineAlpha = _gridBrightness * SenseDefaults.OverlayGridLineMaxAlpha;
+        double gridThreshold = SenseDefaults.OverlayFieldGridThreshold;
+
+        for (int y = 0; y < h; y++)
         {
-            double t   = (double)k / n;
-            double s   = t * t * (3.0 - (2.0 * t)); // smoothstep
-            double pos = rampStart + (rampWidth * t);
-            byte a     = (byte)Math.Round(peakAlpha * s);
-            stops.Add(new GradientStop(Color.FromArgb(a, color.R, color.G, color.B), pos));
+            double py = (y + 0.5) / h;
+            bool yOnGrid = (y % gridCell) == 0;
+            int row = y * w * 4;
+            for (int x = 0; x < w; x++)
+            {
+                double px = (x + 0.5) / w;
+                double r = CornerNormR(px, py, cx, cy, aspect);
+                double maskA = ResolveFieldAlpha(r, peak, featherStart, featherEnd);
+
+                byte oR, oG, oB, oA;
+                if (maskA < gridThreshold)
+                {
+                    // Clear zone → world-locked faint grid (mutual exclusivity: ONE alpha).
+                    bool onLine = yOnGrid || (x % gridCell) == 0;
+                    if (onLine && gridLineAlpha > 0.0)
+                    {
+                        // White faint line. Gamma-shape its (already faint) alpha too.
+                        double ga = GammaShape(Math.Clamp(gridLineAlpha, 0.0, 1.0), gamma);
+                        byte a = (byte)Math.Round(ga * 255.0);
+                        // Premultiplied: white → channels == a.
+                        oA = a; oR = a; oG = a; oB = a;
+                    }
+                    else
+                    {
+                        oA = 0; oR = 0; oG = 0; oB = 0;
+                    }
+                }
+                else
+                {
+                    // Mask. Gamma-shape the alpha fraction before 8-bit encode (banding
+                    // mitigation). Keep non-pure-black: the L12 color is already (0,0,4).
+                    double shaped = GammaShape(Math.Clamp(maskA, 0.0, 1.0), gamma);
+                    byte a = (byte)Math.Round(shaped * 255.0);
+                    oA = a;
+                    // Premultiply the mask color by alpha (Pbgra32).
+                    oR = (byte)((mr * a + 127) / 255);
+                    oG = (byte)((mg * a + 127) / 255);
+                    oB = (byte)((mb * a + 127) / 255);
+                }
+
+                int i = row + x * 4;
+                buf[i + 0] = oB; // B
+                buf[i + 1] = oG; // G
+                buf[i + 2] = oR; // R
+                buf[i + 3] = oA; // A
+            }
         }
-        stops.Add(new GradientStop(solid, rampEnd));
-        stops.Add(new GradientStop(solid, 1.0));
-        stops.Freeze();
-        return stops;
     }
 
-    private void ApplyGridIntensity(SenseState state)
+    private void RecordRecompute(double ms)
     {
-        // EMA smoothing (α=0.85, τ≈1.7 s at 300 ms tick) — eliminates per-tick jumps
-        // from WGC pixel-diff noise without losing responsiveness to sustained pressure.
-        double intensity = ComputeAdaptiveIntensity(state);
-        _smoothedIntensity = 0.85 * _smoothedIntensity + 0.15 * intensity;
+        _recompCount++;
+        _recompSumMs += ms;
+        if (ms > _recompMaxMs) _recompMaxMs = ms;
 
-        // Grid presence now tracks the SAME VIMS tier signal as the FOV mask alpha
-        // (issue #4 fix): pressure-driven, not FOV-driven. The previous coverage-based
-        // formula (1 − FovRadius/100) kept the grid visible after a user "I feel dizzy"
-        // had narrowed FOV even when current pressure was zero — wrong, because no
-        // motion → no vection risk → no anchor grid needed.
-        //
-        // Also: when always-on overlay is enabled, the floor applied to state.VimsTier
-        // by MainWindow.OnStateChanged flows through here automatically (issue #1 fix),
-        // so the Chang-Hain anchor grid appears at the user's baseline tier even on a
-        // calm screen.
-        int    tier        = Math.Clamp(state.VimsTier, 1, 12);
-        double tierFraction = (tier - 1) / 11.0;                 // 0 at L1, 1 at L12
-        double gv          = Math.Clamp(state.Shader.GridVisibility, 0.0, 1.0);
-        double ceiling     = GridCeiling(gv);
-        double target      = Math.Clamp(tierFraction * ceiling * (0.55 + (0.45 * _smoothedIntensity)),
-                                        0.0, ceiling);
+        // Flush rolling avg / p99-ish (worst-case) to wgc_diag once a minute while active.
+        var now = DateTime.UtcNow;
+        if (_lastPerfFlushUtc == DateTime.MinValue) _lastPerfFlushUtc = now;
+        if ((now - _lastPerfFlushUtc).TotalSeconds >= SenseDefaults.OverlayFieldPerfLogIntervalSeconds
+            && _recompCount > 0)
+        {
+            _recompAvgMs = _recompSumMs / _recompCount;
+            _recompP99Ms = _recompMaxMs; // cheap high-water proxy (recompute count/min is small)
 
-        // FIX #14: reuse the single pre-allocated DoubleAnimation; only mutate .To.
-        // From is left unset → WPF animates from the current animated value (identical
-        // visual behavior, zero per-tick allocation).
-        _gridOpacityAnim.To = target;
-        GridCanvas.BeginAnimation(OpacityProperty, _gridOpacityAnim, HandoffBehavior.SnapshotAndReplace);
+            try
+            {
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[A2-field] recompute/min n={_recompCount} avg={_recompAvgMs:F3}ms " +
+                    $"max={_recompP99Ms:F3}ms field={_fieldW}x{_fieldH} active={_maskActive}");
+            }
+            catch { /* perf log is best-effort; never break the render */ }
+
+            _recompCount = 0; _recompSumMs = 0; _recompMaxMs = 0;
+            _lastPerfFlushUtc = now;
+        }
     }
 
-    private static double ComputeAdaptiveIntensity(SenseState state)
-    {
-        double flowTerm = Math.Clamp(state.OpticalFlowIndex / 120.0, 0.0, 1.0);
-        double pressureTerm = Math.Clamp(state.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
-        return Math.Clamp((flowTerm * 0.35) + (pressureTerm * 0.85), 0.0, 1.0);
-    }
+    // ── Test seams ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Maps grid-visibility knob → max grid opacity (the per-frame ceiling used by
-    /// <see cref="ApplyGridIntensity"/>). Extracted as a pure static so the curve is
-    /// unit-testable without spinning up the WPF window.
-    ///
-    /// BUG FIX (live user test): the chatbot "/grid off" sets GridVisibility=0 and
-    /// reports "格線已隱藏 / Grid hidden", but the grid stayed visible. The old curve
-    /// 0.40 + 0.80*gv produced ceiling=0.40 at gv=0, so the anchor grid still rendered
-    /// up to 40%*tierFraction whenever tier>1 — never truly off. We now gate the 0.40
-    /// floor behind gv>0: gv=0 yields ceiling=0 exactly, forcing target opacity to 0
-    /// (ApplyGridIntensity clamps target to [0, ceiling]). For all gv>0 the curve is
-    /// unchanged, so the tuned default gv=0.75 stays byte-identical (ceiling=1.00,
-    /// grid floor 0.30) — see ShaderParams.DefaultGridVisibility.
-    /// </summary>
-    internal static double GridCeiling(double gv)
-        => gv > 0.0 ? Math.Min(1.0, 0.40 + (0.80 * gv)) : 0.0;
+    /// <summary>Beta A2 test seam: the resolved field center X (after the head-pose clamp).
+    /// Replaces the removed RadialGradientBrush.Center.X seam (no brush in the single-pass
+    /// field). Internal + InternalsVisibleTo("SenseEase.Tests"); no public-surface widening.</summary>
+    internal double FieldCenterXForTests => _fieldCx;
+    internal double FieldCenterYForTests => _fieldCy;
+
+    /// <summary>Beta A2 test seam: the resolved corner-reach field radius (the head-coupled
+    /// dynamic radius). Replaces RadialGradientBrush.RadiusX/Y.</summary>
+    internal double FieldRadiusForTests => _fieldRadius;
+
+    /// <summary>Beta A2 test seam: the resolved EFFECTIVE peak mask alpha (after MaskDepth +
+    /// floor/ceiling). Lets TEST-04 assert MaskDepth wiring + the 0.20-floor clamp + table
+    /// identity at the default.</summary>
+    internal double EffectivePeakAlphaForTests => _maskPeakAlpha;
+
+    /// <summary>Beta A2 test seam: the resolved feather-band start (FeatherWidth wiring).</summary>
+    internal double FeatherStartForTests => _featherStart;
+
+    /// <summary>Beta A2 test seam: snapshot the rendered reduced-res BGRA buffer so TEST-04
+    /// can assert two MaskDepth/FeatherWidth values produce DIFFERENT fields. Returns a copy
+    /// (the live buffer is reused each frame). Null before the first render.</summary>
+    internal byte[]? FieldBufferSnapshotForTests => _fieldBuf is null ? null : (byte[])_fieldBuf.Clone();
+
+    internal int FieldWidthForTests  => _fieldW;
+    internal int FieldHeightForTests => _fieldH;
+
+    /// <summary>M8 head-tracking sprint: host-wired lookup of "does the user have a
+    /// vestibular diagnosis on file?". Read-only consumer of MainViewModel
+    /// .HasVestibularDiagnosis. Retained as the overlay's read-only vestibular-status seam
+    /// (the escape hatch it once guarded was removed in D-10; the mask is never weakened).</summary>
+    public Func<bool>? HasVestibularDiagnosis { get; set; }
 }
