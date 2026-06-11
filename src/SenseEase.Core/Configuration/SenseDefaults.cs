@@ -185,26 +185,29 @@ public static class SenseDefaults
     /// 165 Hz perf gate. One line a minute — negligible log volume.</summary>
     public const double OverlayFieldPerfLogIntervalSeconds = 60.0;
 
-    /// <summary>Kirby round-4 ruling (2026-06-11): HALVE the corner-approach field growth
-    /// (放大的範圍砍半). The A2 field normalizes each pixel's radial coordinate by the distance
-    /// to the farthest screen corner FROM THE CURRENT CENTER (the CornerNormR denominator). As
-    /// the One-Euro center approaches an edge/corner that live denominator grows (~2× a full
-    /// linear corner excursion vs. rest), so the clear hole + feather band visibly ENLARGE as
-    /// the head moves out — the "corner-approach zoom" Kirby flagged. (The grid-window radius is
-    /// already frozen at 84d6fd3; this is the FIELD's remaining growth.) The renderer blends the
-    /// live denominator toward the REST denominator by this factor:
+    /// <summary>Kirby round-9 ruling (2026-06-11): FREEZE the corner-approach field growth
+    /// entirely (邊角縮放問題再現 → 0). Lineage: the A2 field normalizes each pixel's radial
+    /// coordinate by the distance to the farthest screen corner FROM THE CURRENT CENTER (the
+    /// CornerNormR denominator), so as the One-Euro center approached an edge/corner the clear
+    /// hole + feather band ENLARGED — the "corner-approach zoom". Round-4 halved it (0.5,
+    /// 放大的範圍砍半) while the grid-window brush stayed fully frozen (84d6fd3), which made the
+    /// residual mask growth tolerable. The canvas-model unification (dae9879) then retired that
+    /// frozen brush and generated the grid window from THIS field geometry — so the grid lines
+    /// (high-frequency content) inherited the half growth and the zoom percept returned. The
+    /// renderer blends the live denominator toward the REST denominator by this factor:
     /// <c>effectiveDenom = restDenom + (liveDenom − restDenom) · damping</c>, where restDenom is
     /// the farthest-corner distance from the REST center (0.5, 0.5) under the SAME aspect
     /// correction (a pure function of aspect, computed once per field-size change — never per
-    /// pixel), and liveDenom is today's value from the current center. damping = 0.5 halves the
-    /// growth: at the rest center liveDenom == restDenom so the result is BYTE-IDENTICAL to today
-    /// (no effect when not moving — a STATIC geometry change, never an animated value); at a full
-    /// corner the hole/feather grows by HALF the old amount. This NEVER weakens protection: with
-    /// the center at an extreme, smaller denom ⇒ the farthest screen corner's normalized r is
-    /// LARGER (≥ 1), so that corner saturates the feather to full dim even harder. ROUND-4
-    /// TUNABLE / UVHS-adjustable (1.0 ⇒ today's full growth; 0.0 ⇒ a fully frozen rest-size
-    /// field that ignores the center entirely).</summary>
-    public const double OverlayFieldCornerGrowthDamping = 0.5;
+    /// pixel). damping = 0.0 pins effectiveDenom == restDenom ALWAYS: the hole/feather SIZE is
+    /// constant everywhere and only the hole CENTER follows the head — the exact shape of the
+    /// standing motion principle (「跟著User頭部追蹤已經是最大的限度」). At the rest center this
+    /// is byte-identical to the 0.5 build (liveDenom == restDenom there for any damping). It
+    /// NEVER weakens protection: with the center at an extreme, the smaller frozen denom makes
+    /// the farthest screen corner's normalized r LARGER (≥ 1), so that corner saturates the
+    /// feather to full dim even harder — both the mask and the unified grid window go SOLID
+    /// there (canvas full). UVHS-adjustable (1.0 ⇒ pre-round-4 full growth; 0.5 ⇒ round-4
+    /// halved growth; 0.0 ⇒ frozen size, center still head-follows).</summary>
+    public const double OverlayFieldCornerGrowthDamping = 0.0;
 
     // TOMBSTONE (UVHS round-8 fix, 2026-06-11): GridWindowFadeOutStart (was 0.95) drove the
     // grid OpacityMask's band-pass FALL — the outer fade where the grid lines faded back to

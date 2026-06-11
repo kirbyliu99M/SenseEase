@@ -407,16 +407,19 @@ public class OverlayFieldMathTests
             Assert.Equal(a, OverlayWindow.GammaShape(a, 1.0), 9);
     }
 
-    // ── FIX 1 (Kirby round-4, 2026-06-11): HALVE the corner-approach growth ─────────
+    // ── FIX 1 (Kirby round-4 HALVED → round-9 FROZEN, 2026-06-11): corner-approach growth ──
     //
     // The field normalizes each pixel's radial coordinate by the distance to the farthest
     // screen corner FROM THE CURRENT CENTER (the CornerNormR denominator). As the One-Euro
     // center approaches an edge/corner that denominator GROWS, enlarging the clear hole +
-    // feather band (the "corner-approach zoom"). The renderer now blends the live denominator
+    // feather band (the "corner-approach zoom"). The renderer blends the live denominator
     // toward the REST denominator: effectiveDenom = restDenom + (liveDenom − restDenom)·damping.
-    // These pin: (a) byte-identity at rest (damping inert when liveDenom == restDenom); (b) HALF
-    // the growth at a full corner; (c) protection never weakens (the farthest screen corner's
-    // normalized r still saturates the feather to full dim — r ≥ 1).
+    // Round-4 set damping 0.5 (砍半); after the canvas-model unification (dae9879) put the grid
+    // window on this same geometry the zoom percept returned on the grid lines, and round-9
+    // froze it: damping 0.0 ⇒ effectiveDenom == restDenom ALWAYS. These pin: (a) byte-identity
+    // at rest (damping inert when liveDenom == restDenom); (b) ZERO growth at a full corner —
+    // the hole/feather size is constant, only the center head-follows; (c) protection never
+    // weakens (the farthest screen corner's normalized r still saturates to full dim — r ≥ 1).
 
     private const double Damp = SenseDefaults.OverlayFieldCornerGrowthDamping;
 
@@ -451,38 +454,39 @@ public class OverlayFieldMathTests
     }
 
     [Fact]
-    public void EffectiveCornerDenom_AtFullCorner_GrowsByHalfTheOldGrowth()
+    public void EffectiveCornerDenom_AtFullCorner_GrowthIsFrozen()
     {
-        // INVARIANT (b): the denominator GROWTH (over rest) at a full-corner center is halved.
-        // FullFollow lets the center reach (1,1). Old growth = liveDenom − restDenom; the
-        // damped effective denom must sit exactly half-way: restDenom + 0.5·(liveDenom−restDenom).
+        // INVARIANT (b), round-9: the denominator does NOT grow at all at a full-corner center.
+        // FullFollow lets the center reach (1,1). The undamped live denom DOES grow there (that
+        // is the zoom source being killed); the effective denom must equal the rest denom exactly.
         double aspect = 16.0 / 9.0;
         double rest = OverlayWindow.RestCornerDenom(aspect);
         double live = OverlayWindow.LiveCornerDenom(1.0, 1.0, aspect);
         double oldGrowth = live - rest;
-        Assert.True(oldGrowth > 0, "the live denom must grow at a full corner");
+        Assert.True(oldGrowth > 0, "the live denom must grow at a full corner (the zoom source)");
 
         double eff = OverlayWindow.EffectiveCornerDenom(1.0, 1.0, aspect, Damp);
         double newGrowth = eff - rest;
-        // Exactly half the old growth at damping 0.5 (assert the arithmetic directly).
+        // Frozen: zero growth at damping 0.0 (assert both the blend arithmetic and the pin).
         Assert.Equal(oldGrowth * Damp, newGrowth, 12);
-        Assert.Equal(oldGrowth * 0.5, newGrowth, 12);
+        Assert.Equal(0.0, newGrowth, 12);
+        Assert.Equal(rest, eff, 12);
     }
 
     [Fact]
-    public void EffectiveCornerDenom_HoleRadius_GrowsByHalf_InScreenUnits()
+    public void EffectiveCornerDenom_HoleRadius_IsFrozen_InScreenUnits()
     {
         // The clear-hole edge sits at r == featherStart, i.e. screen radius = featherStart·denom.
-        // Halving the denominator growth halves the hole-radius growth — pin it in screen units.
+        // With the frozen denominator the hole radius is CONSTANT in screen units at every
+        // center — only the hole's position follows the head, never its size.
         double aspect = 16.0 / 9.0;
         const double featherStart = 0.35;
         double restHole = featherStart * OverlayWindow.RestCornerDenom(aspect);
         double liveHole = featherStart * OverlayWindow.LiveCornerDenom(1.0, 1.0, aspect);
         double dampHole = featherStart * OverlayWindow.EffectiveCornerDenom(1.0, 1.0, aspect, Damp);
 
-        double oldHoleGrowth  = liveHole - restHole;
-        double dampHoleGrowth = dampHole - restHole;
-        Assert.Equal(oldHoleGrowth * 0.5, dampHoleGrowth, 12);
+        Assert.True(liveHole > restHole, "the undamped hole would still grow (the zoom source)");
+        Assert.Equal(restHole, dampHole, 12);
     }
 
     [Fact]

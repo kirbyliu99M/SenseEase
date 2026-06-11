@@ -739,7 +739,9 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// distance from <paramref name="cx"/>/<paramref name="cy"/> to its farthest corner of the
     /// [0,1]² screen. This is the value that GROWS as the center approaches an edge/corner
     /// (≈2× at a full corner vs. rest), enlarging the field's clear hole + feather band — the
-    /// "corner-approach zoom" Kirby's round-4 ruling halves. Depends ONLY on (cx,cy,aspect),
+    /// "corner-approach zoom" Kirby's round-9 ruling freezes out entirely (round-4 had halved
+    /// it; the canvas-model unification put the grid window on this same geometry and the zoom
+    /// percept returned on the grid lines). Depends ONLY on (cx,cy,aspect),
     /// NOT on the pixel, so the field loop hoists it out (today's per-pixel CornerNormR
     /// recomputed it 324k×/frame — a hidden per-pixel sqrt). Pure + internal for unit cover.</summary>
     internal static double LiveCornerDenom(double cx, double cy, double aspect)
@@ -764,6 +766,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// <list type="bullet">
     ///   <item>damping = 1.0 ⇒ effectiveDenom == liveDenom (today's full growth, unchanged);</item>
     ///   <item>damping = 0.5 ⇒ HALF the growth (the round-4 default);</item>
+    ///   <item>damping = 0.0 ⇒ ZERO growth (the round-9 default): effectiveDenom == restDenom
+    ///         always — the hole/feather SIZE is frozen, only the CENTER head-follows;</item>
     ///   <item>at the rest center liveDenom == restDenom ⇒ effectiveDenom == restDenom for
     ///         ANY damping ⇒ BYTE-IDENTICAL to today (the damping is inert when not moving).</item>
     /// </list>

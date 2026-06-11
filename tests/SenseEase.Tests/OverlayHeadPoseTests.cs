@@ -1593,13 +1593,13 @@ public class OverlayHeadPoseTests
                 $"cap {cap} vs {Environment.ProcessorCount} cores");
     }
 
-    /// <summary>Fix 1 end-to-end through the RENDERED buffer: the clear-hole radius grows by
-    /// HALF the old amount as the center moves to a corner. Measure the hole radius (the first
-    /// row from the center where alpha becomes non-zero, scanning a column through the center) at
-    /// rest vs. at a full corner, and confirm the corner-vs-rest hole growth is about half what
-    /// the UNDAMPED denominator would have produced. Also confirms rest is unchanged.</summary>
+    /// <summary>Fix 1 end-to-end through the RENDERED buffer, round-9 semantics: the clear-hole
+    /// radius does NOT grow as the center moves to a corner (damping 0.0 — frozen size, the hole
+    /// only translates). Measure the hole half-width by scanning left from the hole center at
+    /// rest vs. at a near-corner pose and confirm they match, while the UNDAMPED denominator
+    /// would have produced real growth (the zoom source being killed).</summary>
     [Fact]
-    public void Fix1_RenderedHole_GrowsByHalf_OnCornerApproach()
+    public void Fix1_RenderedHole_SizeFrozen_OnCornerApproach()
     {
         RunOnSta(() =>
         {
@@ -1623,28 +1623,28 @@ public class OverlayHeadPoseTests
                 double undampedGrowth = featherStart * (liveDenomCorner - restDenom);
                 double dampedGrowth   = featherStart * (dampDenomCorner - restDenom);
 
-                // The rendered field uses the damped denom, so the hole growth is the damped one,
-                // and it is exactly half the undamped growth at damping 0.5.
-                Assert.Equal(undampedGrowth * 0.5, dampedGrowth, 9);
+                // The rendered field uses the damped denom; at damping 0.0 the growth is ZERO
+                // while the undamped path would still have grown (proves the pin has teeth).
+                Assert.True(undampedGrowth > 0,
+                    "the undamped denom must grow at the corner (the zoom source being killed)");
+                Assert.Equal(0.0, dampedGrowth, 9);
 
                 // Cross-check against the actual rendered buffer: measure the hole half-width by
                 // scanning LEFT from the ACTUAL hole-center pixel (cx·fw) toward x=0 for the first
                 // dimmed pixel. The hole rides the head, so the scan must start at the moved center
                 // (not the buffer center). Both rest (center 0.5) and corner (center 0.9) have
-                // room toward x=0. (Sanity that the field really renders with the damped denom.)
+                // room toward x=0. (Sanity that the field really renders with the frozen denom.)
                 w.RenderOnceForTests(0.5, 0.5, forceFull: true);
                 int restHole = MeasureHoleHalfWidthLeft(w, 0.5, 0.5);
                 w.RenderOnceForTests(0.9, 0.9, forceFull: true);
                 int cornerHole = MeasureHoleHalfWidthLeft(w, 0.9, 0.9);
 
-                // The corner hole is larger than rest (the hole DID grow) but not by the full
-                // undamped amount — pin it is strictly less than the rest hole plus the undamped
-                // growth (i.e. damping demonstrably shrank the growth). Both in px.
-                Assert.True(cornerHole >= restHole,
-                    $"corner hole should be >= rest hole (it grows, just by half): rest={restHole}, corner={cornerHole}");
-                int undampedHoleEst = restHole + (int)Math.Round(undampedGrowth * fw);
-                Assert.True(cornerHole < undampedHoleEst,
-                    $"damped corner hole {cornerHole} must be < the undamped estimate {undampedHoleEst} (growth halved)");
+                // Frozen size: the corner hole matches the rest hole to within one field pixel
+                // (center-quantization slack) — far below the undamped growth in px.
+                int undampedGrowthPx = (int)Math.Round(undampedGrowth * fw);
+                Assert.True(Math.Abs(cornerHole - restHole) <= 1,
+                    $"hole size must be frozen on corner approach: rest={restHole}, corner={cornerHole} " +
+                    $"(undamped growth would be ~{undampedGrowthPx}px)");
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
