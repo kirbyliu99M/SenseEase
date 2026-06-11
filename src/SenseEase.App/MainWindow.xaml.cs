@@ -301,11 +301,20 @@ public partial class MainWindow : Window
         // (some apps Topmost themselves, some fullscreen-exclusive). Re-
         // assert the bar's Topmost on every MainWindow activation +
         // restore-from-minimized event. Cheap (one SetWindowPos round-trip).
-        Activated += (_, _) => _persistentBar?.ReassertTopmost();
+        // ABCD test fix (2026-06-12): the OVERLAY gets the same recovery — one of the
+        // four test machines lost it behind a topmost-claiming app permanently.
+        Activated += (_, _) =>
+        {
+            _persistentBar?.ReassertTopmost();
+            if (_overlay is { IsVisible: true }) _overlay.ReassertTopmost();
+        };
         StateChanged += (_, _) =>
         {
             if (WindowState == WindowState.Normal || WindowState == WindowState.Maximized)
+            {
                 _persistentBar?.ReassertTopmost();
+                if (_overlay is { IsVisible: true }) _overlay.ReassertTopmost();
+            }
         };
 
         // v0.8 hotfix: click on MainWindow (the dashboard) also dismisses
@@ -1761,6 +1770,10 @@ public partial class MainWindow : Window
             }
 
             _overlay.Show();
+            // ABCD test fix: claim the top of the topmost band the moment the overlay
+            // shows — WPF asserts Topmost only once at Show, and a foreign topmost
+            // window (game/launcher/consent prompt) can sit above it from frame one.
+            _overlay.ReassertTopmost();
             _overlay.ApplyState(_viewModel.CurrentState);
         }
         else

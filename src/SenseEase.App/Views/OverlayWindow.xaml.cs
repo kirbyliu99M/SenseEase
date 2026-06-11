@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -266,6 +267,46 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
     private bool _lastMaskActive;
 
+    // ── Win32 topmost re-assert (ABCD test fix, 2026-06-12) ──────────────────
+    // One of the four alpha-test machines lost the overlay over every window
+    // except SenseEase itself: a foreign app (game/launcher/consent prompt)
+    // claimed the top of the topmost band and the overlay NEVER RECOVERED,
+    // because WPF's Topmost=true is only asserted at Show time. This is the
+    // exact bug class PersistentBarWindow already fixed (Path Z UX iter 4:
+    // "WPF's Topmost=true doesn't always survive Alt-Tab round-trips against
+    // other windows that briefly claim topmost") — the overlay just never got
+    // the same armor. SetWindowPos(HWND_TOPMOST) is the authoritative path;
+    // it re-tops the topmost band without activating, moving, or resizing.
+    // NOTE: this cannot help against true EXCLUSIVE-fullscreen apps (DWM
+    // composes nothing over them) or a game on a different monitor — those
+    // are environment triage, not z-order.
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_FORCE_TOPMOST = 0x0001 | 0x0002 | 0x0010 | 0x0200;
+        // SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER
+
+    /// <summary>Engine ticks (~66 ms) between periodic topmost re-asserts while the
+    /// overlay is visible: 16 ≈ once per second. The call is one idempotent Win32
+    /// round-trip (the bar fires the same call 5×/s) — negligible.</summary>
+    private const int TopmostReassertTicks = 16;
+    private int  _topmostTick;
+    private long _topmostReasserts;
+
+    /// <summary>Force the overlay back to the top of the topmost band. Safe no-op
+    /// before the HWND exists or while hidden. Mirrors PersistentBarWindow.ReassertTopmost.</summary>
+    public void ReassertTopmost()
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        _topmostReasserts++;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_FORCE_TOPMOST);
+    }
+
+    /// <summary>Test seam: count of Win32 topmost re-asserts actually issued.</summary>
+    internal long TopmostReassertsForTests => _topmostReasserts;
+
     public OverlayWindow()
     {
         InitializeComponent();
@@ -303,6 +344,13 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     public void ApplyState(SenseState state)
     {
         EnsureFieldBitmap();
+
+        // ABCD test fix: periodic topmost re-assert (~1/s at the 66 ms engine tick).
+        // Recovers the overlay after a foreign app claims the top of the topmost band
+        // (the 1-of-4-machines "overlay only shows over SenseEase" report) — the same
+        // self-healing the persistent bar has had since Path Z iter 4.
+        if (IsVisible && _topmostTick++ % TopmostReassertTicks == 0)
+            ReassertTopmost();
 
         bool maskChanged = state.MaskActive != _lastMaskActive;
         _lastMaskActive  = state.MaskActive;
