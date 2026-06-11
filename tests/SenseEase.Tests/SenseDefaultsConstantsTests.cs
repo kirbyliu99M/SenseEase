@@ -93,12 +93,11 @@ public class SenseDefaultsConstantsTests
     public void OverlayBrushRadius_locked_at_0_85()
         => Assert.Equal(0.85, SenseDefaults.OverlayBrushRadius);
 
-    /// <summary>Kirby band-pass ruling (2026-06-11): the grid-line inverse-feather window's
-    /// fade-OUT band start. 0.95 == the feather end (the rise's rampEnd) so the lines PEAK
-    /// exactly where the FOV mask saturates, then fade to fully transparent across [0.95, 1.0].
-    /// UVHS-tunable; pinned so an accidental nudge surfaces here. Implemented in
-    /// OverlayWindow.BuildLevelFeather; shape pinned by OverlayHeadPoseTests band-pass tests.</summary>
-    [Fact]
-    public void GridWindowFadeOutStart_locked_at_0_95()
-        => Assert.Equal(0.95, SenseDefaults.GridWindowFadeOutStart);
+    // RETIRED (UVHS round-8 fix, 2026-06-11): GridWindowFadeOutStart_locked_at_0_95 pinned the
+    // grid OpacityMask's band-pass FALL band start. Kirby's clarified CANVAS MODEL REVOKES the
+    // outer fade entirely (the grid canvas is PRESENT everywhere outside the gaze hole — every
+    // corner at every gaze), so the constant + the RadialGradientBrush window it parameterized
+    // are tombstoned in SenseDefaults. The grid window is now the _gridWindowBmp written in the
+    // field pass; its geometry is pinned by the canvas-model tests in OverlayHeadPoseTests
+    // (seam-equality, canvas-full corners, the gaze hole, dirty-band byte-equality).
 }

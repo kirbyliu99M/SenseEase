@@ -1038,12 +1038,16 @@ public class OverlayHeadPoseTests
         });
     }
 
-    /// <summary>One-clock (UVHS round 2): after a pose step, the grid OpacityMask window
-    /// (Center / GradientOrigin / RadiusX/Y) equals the field center/radius in the SAME frame —
-    /// the hole rides the head while the LINES stay world-locked. This restores the M5.1-A
-    /// mirror onto the one clock: same pose value, same call, no divergent geometry.</summary>
+    /// <summary>One-clock + CANVAS MODEL (UVHS round-8 fix, 2026-06-11), test (c) HOLE: the
+    /// centre of the gaze hole in the grid-window bitmap tracks a moved center in the SAME frame
+    /// (replaces the retired brush-mirror test). The window-bitmap pixel AT the resolved field
+    /// center is the gaze hole (alpha 0 — the grid is hidden there), and it MOVED with the pose in
+    /// one UpdateHeadGazeCenter call — the field center and the window hole derive from the same
+    /// pose in the same RenderFieldIfDirty pass (the grid lines stay world-locked; only the hole
+    /// follows). Also confirms the OpacityMask is the canvas-model ImageBrush, not a radial
+    /// gradient.</summary>
     [Fact]
-    public void OverlayWindow_OneClock_GridMaskWindow_EqualsFieldCenter_InSameFrame()
+    public void OverlayWindow_OneClock_GridWindowHole_TracksMovedCenter_InSameFrame()
     {
         RunOnSta(() =>
         {
@@ -1053,157 +1057,257 @@ public class OverlayHeadPoseTests
             {
                 var w = new OverlayWindow();
                 w.ApplyTemplate();
-                w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
+                w.ConfigureFieldForTests(720, 450, tier: 6, featherWidth: 0.5);
+                w.ApplyState(new SenseState { VimsTier = 6, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
 
-                // Pose step in one frame: field center + grid mask window resolve together.
-                w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: true, dtMs: 6.0);
+                // The OpacityMask is the canvas-model ImageBrush over the window bitmap (no radial).
+                Assert.NotNull(w.GridWindowMaskBrushForTests);
 
-                var mask = w.GridMaskBrushForTests;
-                // The grid hole CENTER equals the field center in the same frame.
-                Assert.Equal(w.FieldCenterXForTests, mask.Center.X, 6);
-                Assert.Equal(w.FieldCenterYForTests, mask.Center.Y, 6);
-                Assert.Equal(w.FieldCenterXForTests, mask.GradientOrigin.X, 6);
-                Assert.Equal(w.FieldCenterYForTests, mask.GradientOrigin.Y, 6);
-                // The grid hole RADIUS equals the field radius in the same frame.
-                Assert.Equal(w.FieldRadiusForTests, mask.RadiusX, 6);
-                Assert.Equal(w.FieldRadiusForTests, mask.RadiusY, 6);
+                // Centred: the hole sits at the buffer centre (window alpha 0 there).
+                w.RenderOnceForTests(0.5, 0.5, forceFull: true);
+                int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
+                Assert.Equal(0, GridWindowAlphaAt(w, fw / 2, fh / 2));
 
-                // Snap back: inactive returns both to the v0.9 baseline together.
-                w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: false, dtMs: 6.0);
-                Assert.Equal(0.5, mask.Center.X, 6);
-                Assert.Equal(0.5, mask.Center.Y, 6);
-                Assert.Equal(0.85, mask.RadiusX, 6);
+                // Pose step in ONE frame: the field center + the window hole resolve together.
+                w.RenderOnceForTests(0.8, 0.2, forceFull: false);
+                Assert.Equal(0.8, w.FieldCenterXForTests, 6);
+                Assert.Equal(0.2, w.FieldCenterYForTests, 6);
+
+                // The hole MOVED with the pose: the window pixel at the NEW center is the gaze
+                // hole (alpha 0), and the OLD center pixel is no longer the hole (it now reads the
+                // canvas — alpha > 0 — because the hole translated away from it).
+                int newCol = (int)Math.Round(0.8 * fw), newRow = (int)Math.Round(0.2 * fh);
+                Assert.Equal(0, GridWindowAlphaAt(w, Math.Clamp(newCol, 0, fw - 1), Math.Clamp(newRow, 0, fh - 1)));
+                Assert.True(GridWindowAlphaAt(w, fw / 2, fh / 2) > 0,
+                    "the old centre must leave the gaze hole as it tracks the head (the canvas returns there)");
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    // ── 10b) Kirby BAND-PASS ruling (2026-06-11): grid OpacityMask fades back to ──────
-    //         FULLY TRANSPARENT beyond the feather end (a band-pass visibility window).
+    // ── 10b) CANVAS MODEL (UVHS round-8 fix, 2026-06-11): the grid OpacityMask is the ───────
+    //         _gridWindowBmp written in the field pass — the canvas is PRESENT everywhere
+    //         outside the gaze hole (every corner, at every gaze). The band-pass FALL is REVOKED.
     //
-    // The grid OpacityMask (BuildLevelFeather(255, white)) used to HOLD solid from rampEnd
-    // 0.95 to 1.0 (monotonic reveal — lines at max strength over the darkest periphery /
-    // farthest corner). Kirby ruled the lines must INVERSELY fade to fully transparent past
-    // the feather end: r 0.00→0.35 clear · 0.35→0.95 smootherstep RISE · 0.95→1.00
-    // smootherstep FALL back to clear. These pin the new tail and re-pin the rise as
-    // byte-identical to before the ruling. The FALL is grid-ONLY — the FOV mask falloff
-    // (ResolveFieldAlpha) and the cell-fill tint it windows are untouched (asserted by the
-    // existing field tests, which stay green).
-    //
-    // The stops are read straight off the live GridMaskBrushForTests brush so the test pins
-    // exactly what WPF rasterizes as the OpacityMask.
+    // Kirby's clarified CANVAS MODEL: a STATIC full-screen grid canvas, transparent WHERE THE
+    // USER LOOKS (hole + feather follow the head) and PRESENT everywhere else. The grid window is
+    // no longer a RadialGradientBrush whose geometry diverged from the field (ellipse-vs-circle
+    // seam, frozen-vs-damped breathing, the empty zone TRANSLATING with the head, Shape-3/4
+    // featherStart misalignment — the round-8 verdict). It is the SAME monotonic window the field
+    // computes per-pixel (WindowLutLookup), saturated to solid beyond the feather end, written to
+    // the A8-equivalent Pbgra32 _gridWindowBmp in the SAME pass. These read the rendered window
+    // buffer directly (exactly what WPF rasterizes as the OpacityMask).
 
-    /// <summary>Reads the grid OpacityMask's frozen gradient stops, ordered by Offset, off a
-    /// freshly-constructed OverlayWindow (the brush is built at field-init).</summary>
-    private static GradientStop[] GridMaskStopsOrdered(OverlayWindow w)
+    /// <summary>Window-bitmap alpha at (col,row): byte +3 of the Pbgra32 grayscale-alpha window
+    /// buffer (the value the OpacityMask consumes). 0 = the gaze hole (grid hidden), 255 = the
+    /// canvas (grid present).</summary>
+    private static int GridWindowAlphaAt(OverlayWindow w, int col, int row)
     {
-        var stops = w.GridMaskBrushForTests.GradientStops;
-        var arr   = new GradientStop[stops.Count];
-        for (int i = 0; i < stops.Count; i++) arr[i] = stops[i];
-        Array.Sort(arr, (a, b) => a.Offset.CompareTo(b.Offset));
-        return arr;
+        byte[]? win = w.GridWindowBufferSnapshotForTests;
+        if (win is null) return -1;
+        int fw = w.FieldWidthForTests;
+        return win[(row * fw + col) * 4 + 3];
     }
 
-    /// <summary>BAND-PASS first/last stops: CLEAR at offset 0 and 0.35 (clear centre), a stop
-    /// AT FadeOutStart (0.95) at PEAK alpha (the rise's peak == the fall's band start, coincident),
-    /// and the LAST stop CLEAR (alpha 0) exactly at offset 1.0 — the lines fade to nothing at the
-    /// farthest corner. Re-pinned 2026-06-11 from the pre-ruling "solid@1.0" hold to Kirby's
-    /// band-pass window.</summary>
+    /// <summary>Test (a) SEAM EQUALITY: for sample pixels across gazes (center / edge / corner)
+    /// the window-bitmap alpha EQUALS round(255 · saturated-window(field geometry)) EXACTLY — the
+    /// window shares the field's circle / corner-growth damping / featherStart byte-for-byte
+    /// (computed from the SAME EffectiveCornerDenom + WindowLutLookup the field loop runs). This
+    /// is the fix for the four divergences: there is one geometry, consumed by both.</summary>
     [Fact]
-    public void OverlayWindow_GridMask_BandPass_FirstAndLastStops()
+    public void OverlayWindow_GridWindow_SeamEquality_MatchesFieldGeometryExactly()
     {
         RunOnSta(() =>
         {
-            var w = new OverlayWindow();
-            var stops = GridMaskStopsOrdered(w);
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ConfigureFieldForTests(720, 450, tier: 9, featherWidth: 0.5);
+                int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
+                double aspect = (double)fw / fh;
+                double featherStart = w.FeatherStartForTests;
+                double damping = SenseDefaults.OverlayFieldCornerGrowthDamping;
 
-            // Clear centre: first two stops at offset 0 and 0.35 are alpha 0.
-            Assert.Equal(0.0,  stops[0].Offset, 6);
-            Assert.Equal(0,    stops[0].Color.A);
-            Assert.Equal(0.35, stops[1].Offset, 6);
-            Assert.Equal(0,    stops[1].Color.A);
+                // Rebuild the SAME r²-window LUT the renderer uses (default feather start 0.35).
+                const int lutSize = 2048;
+                var lut = new float[lutSize + 1];
+                OverlayWindow.BuildWindowLut(lut, lutSize, featherStart, 0.95);
 
-            // A PEAK stop sits exactly at FadeOutStart (0.95) — the rise's peak and the fall's
-            // band start coincide there (lines peak where the FOV mask saturates).
-            var atFadeStart = Array.Find(stops, s => Math.Abs(s.Offset - SenseDefaults.GridWindowFadeOutStart) < 1e-9);
-            Assert.NotNull(atFadeStart);
-            Assert.Equal(255, atFadeStart!.Color.A); // peakAlpha (white, A=255)
+                // The expected window byte at pixel (col,row) for a given center — the EXACT same
+                // arithmetic ComputeFieldRows runs (aspect-corrected d², damped denom, r² LUT).
+                byte Expected(int col, int row, double cx, double cy)
+                {
+                    double denom = OverlayWindow.EffectiveCornerDenom(cx, cy, aspect, damping);
+                    double invDenomSq = denom > 1e-9 ? 1.0 / (denom * denom) : 1e18;
+                    double px = (col + 0.5) / fw, py = (row + 0.5) / fh;
+                    double dx = (px - cx) * aspect, dy = py - cy;
+                    double r2 = (dx * dx + dy * dy) * invDenomSq;
+                    double window = OverlayWindow.WindowLutLookup(lut, lutSize, r2);
+                    return (byte)(window * 255.0 + 0.5);
+                }
 
-            // RE-PIN (2026-06-11, Kirby band-pass ruling): the FINAL stop is now CLEAR at offset
-            // 1.0 — NOT solid@1.0. The grid is fully transparent at the farthest corner.
-            var last = stops[^1];
-            Assert.Equal(1.0, last.Offset, 6);
-            Assert.Equal(0,   last.Color.A); // fully transparent (was 255 before the ruling)
+                (double cx, double cy)[] gazes = { (0.5, 0.5), (0.9, 0.5), (0.9, 0.9), (0.1, 0.1), (0.5, 0.9) };
+                (int col, int row)[] probes =
+                {
+                    (fw / 2, fh / 2), (0, 0), (fw - 1, 0), (0, fh - 1), (fw - 1, fh - 1),
+                    (fw / 2, 0), (0, fh / 2), (fw / 4, fh / 3), (3 * fw / 4, 2 * fh / 3),
+                };
+
+                foreach (var (cx, cy) in gazes)
+                {
+                    w.RenderOnceForTests(cx, cy, forceFull: true);
+                    foreach (var (col, row) in probes)
+                    {
+                        int actual = GridWindowAlphaAt(w, col, row);
+                        Assert.Equal(Expected(col, row, cx, cy), (byte)actual);
+                    }
+                }
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    /// <summary>The FALL band (FadeOutStart → 1.0) is monotonically DECREASING in alpha and is
-    /// smootherstep-shaped: at a sampled interior offset the alpha equals peak·(1−Smootherstep(t))
-    /// (the rise mirrored). Confirms the lines fade out as gently as they faded in.</summary>
+    /// <summary>Test (b) CANVAS-FULL (the round-8 empty-corner regression, INVERTED): the
+    /// FARTHEST corner from the gaze is 255 (SOLID — the canvas is present) at CENTER gaze AND at
+    /// every edge / corner gaze, AND at CENTER gaze ALL FOUR corners are solid. The old
+    /// RadialGradientBrush band-pass faded the corners to transparent and the empty/saturated zone
+    /// TRANSLATED with the head, so the far corner went grid-free as the user looked away (the
+    /// round-8 verdict). The canvas model holds the far corner solid at every gaze. (A corner NEAR
+    /// the gaze may legitimately sit inside the feather — the user is looking there — so only the
+    /// FAR corner is asserted per off-centre gaze; that is precisely the corner the regression
+    /// emptied.)</summary>
     [Fact]
-    public void OverlayWindow_GridMask_BandPass_FallIsMonotonicDecreasingSmootherstep()
+    public void OverlayWindow_GridWindow_CanvasFull_FarCornersSolid_AtEveryGaze()
     {
         RunOnSta(() =>
         {
-            var w = new OverlayWindow();
-            var stops = GridMaskStopsOrdered(w);
+            var prior = AppConfig.HeadTrackingFollowMode;
+            AppConfig.HeadTrackingFollowMode = HeadTrackingFollowModeKind.FullFollow;
+            try
+            {
+                var w = new OverlayWindow();
+                w.ApplyTemplate();
+                w.ConfigureFieldForTests(720, 450, tier: 9, featherWidth: 0.5);
+                int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
+                (int col, int row)[] corners = { (0, 0), (fw - 1, 0), (0, fh - 1), (fw - 1, fh - 1) };
 
-            // Isolate the FALL band: every stop with offset in [FadeOutStart, 1.0].
-            double fadeStart = SenseDefaults.GridWindowFadeOutStart;
-            var fall = Array.FindAll(stops, s => s.Offset >= fadeStart - 1e-9);
+                // CENTRE gaze: all four corners are equidistant and far ⇒ every corner solid.
+                w.RenderOnceForTests(0.5, 0.5, forceFull: true);
+                foreach (var (col, row) in corners)
+                    Assert.Equal(255, GridWindowAlphaAt(w, col, row));
 
-            // Monotonically decreasing alpha from peak down to 0 (allow equal only at the ends).
-            Assert.Equal(255, fall[0].Color.A);  // peak at the band start
-            Assert.Equal(0,   fall[^1].Color.A); // clear at 1.0
-            for (int i = 1; i < fall.Length; i++)
-                Assert.True(fall[i].Color.A <= fall[i - 1].Color.A,
-                    $"FALL alpha must be non-increasing: stop {i} A={fall[i].Color.A} > prev A={fall[i - 1].Color.A}");
-            // At least one strict decrease in the interior (it actually descends, not a flat hold).
-            Assert.True(fall[0].Color.A > fall[^1].Color.A, "FALL must descend from peak to clear");
-
-            // Smootherstep SHAPE at a sample point: the k-th interior sub-stop sits at
-            // pos = fadeStart + (1−fadeStart)·t with alpha = round(255·(1−Smootherstep(t))).
-            // Pick the midpoint sub-stop k=8 of n=16 (t=0.5 ⇒ Smootherstep=0.5 ⇒ alpha≈round(255·0.5)).
-            const int n = 16, k = 8;
-            double t   = (double)k / n;
-            double pos = fadeStart + (1.0 - fadeStart) * t;
-            byte expected = (byte)Math.Round(255 * (1.0 - OverlayWindow.Smootherstep(t)));
-            var sample = Array.Find(stops, s => Math.Abs(s.Offset - pos) < 1e-9);
-            Assert.NotNull(sample);
-            Assert.Equal(expected, sample!.Color.A);
+                // Off-centre gazes: the FARTHEST corner from the gaze (the round-8 empty corner)
+                // must stay solid. Find it by the corner pixel maximally distant from the gaze.
+                (double cx, double cy)[] gazes =
+                {
+                    (0.9, 0.9), (0.1, 0.1), (0.9, 0.1), (0.1, 0.9), (0.5, 0.9), (0.9, 0.5),
+                };
+                foreach (var (cx, cy) in gazes)
+                {
+                    w.RenderOnceForTests(cx, cy, forceFull: true);
+                    // Farthest corner from (cx,cy): pick the opposite corner in each axis.
+                    int farCol = cx < 0.5 ? fw - 1 : 0;
+                    int farRow = cy < 0.5 ? fh - 1 : 0;
+                    Assert.Equal(255, GridWindowAlphaAt(w, farCol, farRow));
+                }
+            }
+            finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    /// <summary>The RISE section (0.35 → 0.95) is BYTE-IDENTICAL to before the band-pass ruling:
-    /// a mid-rise sub-stop still equals peak·Smootherstep(t) at the same offset. The ruling only
-    /// inverted the TAIL (0.95→1.0); the rise — and thus its seam-alignment with the field's
-    /// ResolveFieldAlpha — is unchanged.</summary>
+    /// <summary>Test (d) Shape-3/4 ALIGNMENT: with FeatherWidth shifted +0.30 (a WIDER feather ⇒
+    /// the band start moves inward below 0.35) the window's rise tracks the field's resolved
+    /// featherStart — the Shape-3/4 seam is fixed automatically because the window IS the field's
+    /// window. Asserted via the pure math seam: every rendered window byte along a centre row
+    /// equals round(255 · WindowLutLookup(LUT built at the RESOLVED featherStart, r²)) EXACTLY,
+    /// and DIFFERS from a LUT built at the DEFAULT 0.35 start (so the rise genuinely shifted with
+    /// the knob — the test is not vacuous).</summary>
     [Fact]
-    public void OverlayWindow_GridMask_RiseSection_ByteIdenticalToPreRuling()
+    public void OverlayWindow_GridWindow_Shape34_RiseStart_MatchesFieldFeatherStart()
     {
         RunOnSta(() =>
         {
             var w = new OverlayWindow();
-            var stops = GridMaskStopsOrdered(w);
+            w.ApplyTemplate();
+            // FeatherWidth default 0.50 ⇒ start 0.35; shift +0.30 ⇒ 0.80 ⇒ a WIDER band, start
+            // pulled inward below 0.35. Configure the field at that feather width.
+            w.ConfigureFieldForTests(720, 450, tier: 9, featherWidth: 0.80);
+            int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
+            double aspect = (double)fw / fh;
+            double featherStart = w.FeatherStartForTests;
+            Assert.True(featherStart < 0.35,
+                $"a +0.30 FeatherWidth shift must pull the band start inward (< 0.35), was {featherStart}");
 
-            // Mid-rise sub-stop k=8 of n=16 across [0.35, 0.95]: pos = 0.35 + 0.60·t,
-            // alpha = round(255·Smootherstep(t)).
-            const double rampStart = 0.35, rampEnd = 0.95, rampWidth = rampEnd - rampStart;
-            const int n = 16, k = 8;
-            double t   = (double)k / n;
-            double pos = rampStart + rampWidth * t;
-            byte expected = (byte)Math.Round(255 * OverlayWindow.Smootherstep(t));
+            w.RenderOnceForTests(0.5, 0.5, forceFull: true);
+            byte[]? win = w.GridWindowBufferSnapshotForTests;
+            Assert.NotNull(win);
 
-            var sample = Array.Find(stops, s => Math.Abs(s.Offset - pos) < 1e-9);
-            Assert.NotNull(sample);
-            Assert.Equal(expected, sample!.Color.A);
+            // The SAME r²-window LUT the renderer used: built at the RESOLVED featherStart.
+            const int lutSize = 2048;
+            var lutResolved = new float[lutSize + 1];
+            OverlayWindow.BuildWindowLut(lutResolved, lutSize, featherStart, 0.95);
+            // A counterfactual LUT at the DEFAULT 0.35 start — the window would NOT match this.
+            var lutDefault = new float[lutSize + 1];
+            OverlayWindow.BuildWindowLut(lutDefault, lutSize, 0.35, 0.95);
 
-            // And the rise is monotonically NON-DECREASING from clear up to peak (the reveal).
-            var rise = Array.FindAll(stops, s => s.Offset >= rampStart - 1e-9 && s.Offset <= rampEnd + 1e-9);
-            for (int i = 1; i < rise.Length; i++)
-                Assert.True(rise[i].Color.A >= rise[i - 1].Color.A,
-                    $"RISE alpha must be non-decreasing: stop {i} A={rise[i].Color.A} < prev A={rise[i - 1].Color.A}");
-            Assert.Equal(255, rise[^1].Color.A); // peaks at rampEnd 0.95
+            double denom = OverlayWindow.EffectiveCornerDenom(0.5, 0.5, aspect, SenseDefaults.OverlayFieldCornerGrowthDamping);
+            double invDenomSq = 1.0 / (denom * denom);
+            int row = fh / 2;
+            bool sawDifferenceVsDefault = false;
+
+            for (int col = fw / 2; col < fw; col++)
+            {
+                double px = (col + 0.5) / fw, py = (row + 0.5) / fh;
+                double dx = (px - 0.5) * aspect, dy = py - 0.5;
+                double r2 = (dx * dx + dy * dy) * invDenomSq;
+
+                byte expectedResolved = (byte)(OverlayWindow.WindowLutLookup(lutResolved, lutSize, r2) * 255.0 + 0.5);
+                byte expectedDefault  = (byte)(OverlayWindow.WindowLutLookup(lutDefault,  lutSize, r2) * 255.0 + 0.5);
+                byte actual = win![(row * fw + col) * 4 + 3];
+
+                // The window tracks the RESOLVED featherStart byte-for-byte.
+                Assert.Equal(expectedResolved, actual);
+                if (expectedResolved != expectedDefault) sawDifferenceVsDefault = true;
+            }
+
+            // The +0.30 shift genuinely moved the rise: somewhere the resolved window differs from
+            // the default-featherStart window (proves the seam tracks the knob, not a fixed 0.35).
+            Assert.True(sawDifferenceVsDefault,
+                "the shifted FeatherWidth must move the window rise away from the default 0.35 start");
+        });
+    }
+
+    /// <summary>Test (e) DIRTY-BAND WINDOW BYTE-EQUALITY: a pose-only move that recomputes only
+    /// the dirty band must produce a WINDOW buffer byte-identical to a full window recompute at
+    /// the same pose — the band path updates exactly the window rows the field band updated (one
+    /// clock), so the canvas-model OpacityMask never carries a stale window pixel.</summary>
+    [Fact]
+    public void OverlayWindow_GridWindow_DirtyBand_MatchesFullRecompute_ByteForByte()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+            w.ConfigureFieldForTests(720, 450, tier: 10, featherWidth: 0.5);
+            w.RenderOnceForTests(0.5, 0.5, forceFull: true);
+
+            (double, double)[] poses =
+            {
+                (0.55, 0.45), (0.70, 0.30), (0.30, 0.70), (0.90, 0.90),
+                (0.10, 0.10), (0.50, 0.50), (0.62, 0.38),
+            };
+            foreach (var (cx, cy) in poses)
+            {
+                w.RenderOnceForTests(cx, cy, forceFull: false);     // dirty-band path
+                byte[]? liveWin = w.GridWindowBufferSnapshotForTests;
+                byte[] refWin   = w.ComputeFullGridWindowReferenceForTests(cx, cy);
+                Assert.NotNull(liveWin);
+                Assert.True(BuffersEqual(liveWin!, refWin),
+                    $"dirty-band WINDOW buffer must equal a full window recompute at pose ({cx},{cy})");
+            }
         });
     }
 
@@ -1325,6 +1429,68 @@ public class OverlayHeadPoseTests
             // (e.g. the LUTs silently reverting to per-pixel Math.Pow) still fails loudly.
             Assert.True(aAvg < 50.0, $"AFTER full-recompute avg liveness ceiling (50 ms), was {aAvg:F3} ms");
             Assert.True(dAvg < 50.0, $"AFTER dirty-band avg liveness ceiling (50 ms), was {dAvg:F3} ms");
+        });
+    }
+
+    /// <summary>UVHS round-8 (2026-06-11) PERF-DELTA HARNESS: isolate the ADDED cost of the
+    /// canvas-model second buffer write (the per-pixel grid-window encode + its WritePixels).
+    /// Times the production full render at 720×450 WITH the window write (real path) vs WITHOUT it
+    /// (the field-only leg, flag flipped via the perf seam), N=200 each, and reports the delta. The
+    /// window write rides the same per-pixel pass (the window value is already computed for the
+    /// field), so the delta is just 4 byte stores/px + one extra WritePixels of an equal-size
+    /// buffer — expected ~negligible. REPORTED, not gated beyond a generous liveness ceiling on the
+    /// WITH-window leg (the same parallel-suite contention caveat as the Fix2 harness applies).</summary>
+    [Fact]
+    public void RoundEight_PerfDelta_GridWindowSecondBufferWrite_720x450()
+    {
+        RunOnStaWithTimeout(TimeSpan.FromSeconds(60), () =>
+        {
+            const int W = 720, H = 450, ITERS = 200, WARM = 20;
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+            w.ConfigureFieldForTests(W, H, tier: 8, featherWidth: 0.5);
+
+            double Cx(int i) => 0.5 + 0.4 * Math.Sin(i * 0.05);
+            double Cy(int i) => 0.5 + 0.4 * Math.Cos(i * 0.037);
+
+            double[] Run(bool withWindow)
+            {
+                w.WriteGridWindowForPerfTests = withWindow;
+                for (int i = 0; i < WARM; i++) w.RenderOnceForTests(Cx(i), Cy(i), forceFull: true); // JIT warm
+                var t = new double[ITERS];
+                for (int i = 0; i < ITERS; i++)
+                    t[i] = w.RenderOnceForTests(Cx(i), Cy(i), forceFull: true);
+                return t;
+            }
+
+            // Interleave-free but order-balanced: measure WITHOUT first, then WITH, then restore.
+            var withoutTimes = Run(withWindow: false);
+            var withTimes    = Run(withWindow: true);
+            w.WriteGridWindowForPerfTests = true; // restore production behaviour
+
+            double Avg(double[] t) { double s = 0; foreach (var v in t) s += v; return s / t.Length; }
+            double P99(double[] t)
+            {
+                var s = (double[])t.Clone(); Array.Sort(s);
+                int i = Math.Clamp((int)Math.Ceiling(0.99 * s.Length) - 1, 0, s.Length - 1);
+                return s[i];
+            }
+
+            double woAvg = Avg(withoutTimes), wAvg = Avg(withTimes);
+            double woP99 = P99(withoutTimes), wP99 = P99(withTimes);
+            double deltaAvg = wAvg - woAvg, deltaP99 = wP99 - woP99;
+
+            _output.WriteLine($"[round-8 grid-window perf delta @720x450, full recompute, n={ITERS}]");
+            _output.WriteLine($"  field ONLY (no window write):   avg={woAvg:F3} ms  p99={woP99:F3} ms");
+            _output.WriteLine($"  field + WINDOW (production):     avg={wAvg:F3} ms  p99={wP99:F3} ms");
+            _output.WriteLine($"  ADDED second-buffer-write cost:  avg={deltaAvg:+0.000;-0.000} ms  p99={deltaP99:+0.000;-0.000} ms");
+            double pct = woAvg > 1e-6 ? 100.0 * deltaAvg / woAvg : 0.0;
+            _output.WriteLine($"  added cost as % of field-only:   {pct:F1}%");
+
+            // Liveness only (REPORTED, not gated on the delta — parallel-suite contention makes
+            // a sub-millisecond delta noisy): the WITH-window full recompute stays well inside the
+            // 165 Hz budget head-room the Fix2 harness already proved.
+            Assert.True(wAvg < 50.0, $"field+window avg liveness ceiling (50 ms), was {wAvg:F3} ms");
         });
     }
 

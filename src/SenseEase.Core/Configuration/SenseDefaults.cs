@@ -206,23 +206,16 @@ public static class SenseDefaults
     /// field that ignores the center entirely).</summary>
     public const double OverlayFieldCornerGrowthDamping = 0.5;
 
-    /// <summary>Kirby band-pass ruling (2026-06-11): the radial position (corner-normalized r)
-    /// at which the GRID-LINE inverse-feather window begins its fade-OUT back to fully
-    /// transparent. The grid OpacityMask (<c>OverlayWindow.BuildLevelFeather</c>) is now a
-    /// BAND-PASS visibility window:
-    /// <list type="bullet">
-    ///   <item>r 0.00→0.35  transparent (clear centre — unchanged);</item>
-    ///   <item>r 0.35→0.95  smootherstep RISE 0 → peak (unchanged);</item>
-    ///   <item>r [this]→1.00 smootherstep FALL peak → 0 (NEW — the fade-out band).</item>
-    /// </list>
-    /// 0.95 == the feather end (the old rampEnd), so the grid lines PEAK exactly where the FOV
-    /// mask saturates, then fade to nothing across the [this, 1.0] band. Geometry note: r=1.0 is
-    /// the farthest CORNER; the four screen-edge MIDPOINTS sit at corner-normalized ~0.7-0.9, so
-    /// with this default band the corners lose the grid entirely while the edge midpoints keep
-    /// PARTIAL line strength — intended. Lowering this widens the fade band (lines vanish earlier);
-    /// raising it toward 1.0 narrows it (lines hold nearer the corner). UVHS-TUNABLE. This touches
-    /// ONLY the grid OpacityMask — the FOV mask falloff (<c>ResolveFieldAlpha</c>) is byte-identical.</summary>
-    public const double GridWindowFadeOutStart = 0.95;
+    // TOMBSTONE (UVHS round-8 fix, 2026-06-11): GridWindowFadeOutStart (was 0.95) drove the
+    // grid OpacityMask's band-pass FALL — the outer fade where the grid lines faded back to
+    // fully transparent beyond the feather end. Kirby's clarified CANVAS MODEL REVOKES that
+    // outer fade: the grid canvas is PRESENT everywhere outside the gaze hole (every corner, at
+    // every gaze), so there is no fade-out band at all. The RadialGradientBrush window
+    // (BuildGridOpacityMaskBrush / BuildLevelFeather) is retired with it; the grid OpacityMask is
+    // now an ImageBrush over the _gridWindowBmp written in the field pass (clear hole →
+    // smootherstep rise → SOLID beyond). No code or test reads this constant anymore; it is
+    // removed (the band-pass FALL it parameterized no longer exists). Additive-era constant
+    // (not a locked value) — the lock allows additive removal.
 
     // ── Kirby round-3 overlay-rendering tunables (2026-06-11) ─────────────────
     // ADDITIVE constants for the UVHS round-3 feedback (items 1, 2, 4). They do NOT

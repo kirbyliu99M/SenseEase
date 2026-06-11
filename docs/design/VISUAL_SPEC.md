@@ -1609,7 +1609,7 @@ This surface's accessibility goal is **provable invisibility to assistive tech**
 4. **Grid + cell-fill tone tokenization** (P2/P3) — view-local theme merge; verify smoke test still constructs.
 5. **Mask L7–L10 cool-slate hue retune** — deliver as an **engineering proposal with before/after evidence** (A2 forbids a direct designer XAML edit to mask depth/hue; alpha column frozen). Requires the user's Layer-3 manual visual review before merge (C6, `QA-AND-TIERING.md §1.3`) — **tests green ≠ done** for this clinical surface.
 
-**Do NOT:** change the radial geometry, the world-lock (`_gridOpacityMaskBrush` tracking, `:608–617`, C1), the click-through (`:12`, C2), the escape-hatch floor (0.30 / 3 s / vestibular-disable, A3), any `VimsLevels` alpha, or the `SetMonitorExcludeRect` registration contract for this on-monitor window (C2 — overlay must remain registered so it doesn't self-feed OFI). Do NOT add any control, text, badge, or focusable element to the overlay.
+**Do NOT:** change the radial geometry, the world-lock (C1 — grid lines stay world-locked; since the 2026-06-11 canvas-model unification the visibility window is the `_gridWindowBmp` ImageBrush written by the field's own pass, the gaze hole being the only sanctioned motion), the click-through (`:12`, C2), the escape-hatch floor (0.30 / 3 s / vestibular-disable, A3), any `VimsLevels` alpha, or the `SetMonitorExcludeRect` registration contract for this on-monitor window (C2 — overlay must remain registered so it doesn't self-feed OFI). Do NOT add any control, text, badge, or focusable element to the overlay.
 
 ---
 

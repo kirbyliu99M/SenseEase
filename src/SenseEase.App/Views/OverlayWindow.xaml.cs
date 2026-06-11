@@ -25,21 +25,33 @@ namespace SenseEase.App.Views;
 ///
 /// <para><b>High-frequency content → full-resolution WPF vector geometry.</b> The
 /// screen-locked Chang-Hain anchor grid is restored to the PROVEN 3762a42 implementation:
-/// real <c>Line</c> shapes drawn into <c>GridCanvas</c> at DPI/resolution-scaled spacing,
-/// windowed by an inverse-feather <c>RadialGradientBrush</c> OpacityMask on the SAME
-/// one-clock pose as the field. A 1.2 px world-locked hairline CANNOT survive rasterization
-/// into a quarter-res field texel (each line would become a fat bilinear-blurred band and
-/// pop in 4 px-quantized brightness steps) — so the grid stays full-res vector geometry,
-/// the resolution-critical layout fix the UVHS round-2 verdict demanded ("grid FORM wrong",
-/// "grid JUMPS").</para>
+/// real <c>Line</c> shapes drawn into <c>GridCanvas</c> at DPI/resolution-scaled spacing.
+/// A 1.2 px world-locked hairline CANNOT survive rasterization into a quarter-res field texel
+/// (each line would become a fat bilinear-blurred band and pop in 4 px-quantized brightness
+/// steps) — so the grid stays full-res vector geometry, the resolution-critical layout fix
+/// the UVHS round-2 verdict demanded ("grid FORM wrong", "grid JUMPS").</para>
+///
+/// <para><b>Grid window = the CANVAS MODEL (UVHS round-8 fix, 2026-06-11).</b> Kirby's
+/// clarified spec: a STATIC full-screen grid canvas that is TRANSPARENT where the user looks
+/// (hole + feather follow the head) and PRESENT everywhere else — every corner, at every
+/// gaze. The grid's <c>OpacityMask</c> was a <c>RadialGradientBrush</c> that diverged from the
+/// field's mask geometry in FOUR ways (ellipse-vs-circle seam, frozen-vs-damped breathing, the
+/// saturated/empty zone TRANSLATING with the head, the Shape-3/4 featherStart misalignment).
+/// It is REPLACED by an <c>ImageBrush</c> over a SECOND reduced-res bitmap written in the SAME
+/// per-pixel pass as the field (see <see cref="ComputeFieldRows"/>): the field's monotonic
+/// window value SATURATED to solid (clear hole → smootherstep rise → SOLID beyond r ≥
+/// featherEnd, including the far r &gt; 1 corners). So the window shares the field's geometry
+/// BYTE-FOR-BYTE — same aspect-corrected circle, same corner-growth damping, same
+/// FeatherWidth-tracked featherStart (Shape-3/4 seam fixed automatically), same one-clock
+/// frame. There is NO outer fade (the round-7 band-pass tail is revoked by this model).</para>
 ///
 /// <para>The A1 One-Euro-smoothed (cx,cy) handed in by the MainWindow pump remains the
-/// single pose input. ComputeField derives the field center/radius from it; the SAME value
-/// is mirrored onto the grid OpacityMask brush in the SAME frame (the M5.1-A mirror) so the
-/// hole rides the head while the LINES stay world-locked at pixel origin — one clock, no
-/// divergent geometry. MaskDepth and FeatherWidth remain REAL inputs (D-2): MaskDepth bounds
-/// the peak alpha (clamped to the ≥0.20 floor / VimsLevels ceiling), FeatherWidth slides the
-/// feather-band start.</para>
+/// single pose input. ComputeField derives the field center/radius from it AND the grid-window
+/// bitmap in the SAME RenderFieldIfDirty pass, so the hole rides the head while the LINES stay
+/// world-locked at pixel origin — one clock, no divergent geometry, no brush to mirror.
+/// MaskDepth and FeatherWidth remain REAL inputs (D-2): MaskDepth bounds the peak alpha
+/// (clamped to the ≥0.20 floor / VimsLevels ceiling), FeatherWidth slides the feather-band
+/// start (and thus the grid window's rise start, from the SAME LUT).</para>
 /// </summary>
 public partial class OverlayWindow : Window, IOverlayRenderer
 {
@@ -119,6 +131,33 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private double _lastScreenW = -1, _lastScreenH = -1;
     private byte[]? _fieldBuf;                    // BGRA scratch buffer
 
+    // ── CANVAS-MODEL grid window bitmap (UVHS round-8 fix, 2026-06-11) ────────
+    // Kirby's CANVAS MODEL: a STATIC full-screen grid canvas that is TRANSPARENT where
+    // the user looks (hole + feather follow the head) and PRESENT everywhere else (every
+    // corner, every gaze). The grid's OpacityMask is no longer a RadialGradientBrush — that
+    // window diverged from the field's mask geometry in FOUR ways (ellipse-vs-circle seam,
+    // frozen-vs-damped breathing, the saturated/empty zone translating with the head, and
+    // the Shape-3/4 featherStart misalignment — the round-8 verdict). Instead the SAME
+    // per-pixel pass that computes the field writes a SECOND reduced-res buffer carrying the
+    // window value SATURATED to solid (canvas semantics: clear hole → smootherstep rise →
+    // SOLID everywhere beyond r >= featherEnd, including the far r>1 corners). The grid's
+    // OpacityMask is an ImageBrush over THIS bitmap (Stretch=Fill, bilinear), so the window
+    // shares the field's geometry BYTE-FOR-BYTE — same aspect-corrected circle, same
+    // corner-growth damping, same FeatherWidth-tracked featherStart, same one-clock frame.
+    //
+    // Format: Pbgra32 grayscale-alpha (premultiplied black with the window in the alpha byte).
+    // WPF's managed PixelFormats does NOT expose A8 (it lives only in WIC/D2D), so the spec's
+    // A8-fallback applies: write (B,G,R,A) = (0,0,0,window) — premultiplied black — and the
+    // OpacityMask consumes ONLY the alpha, which IS the window value. The cheapest CORRECT
+    // OpacityMask source on WPF WriteableBitmap. 4 bytes per pixel like the field buffer.
+    private WriteableBitmap? _gridWindowBmp;
+    private byte[]? _gridWindowBuf;              // Pbgra32 (0,0,0,window) scratch buffer (4 bytes/px)
+    private ImageBrush? _gridWindowMaskBrush;    // GridCanvas.OpacityMask over _gridWindowBmp
+    // Perf-DELTA seam (default true — production ALWAYS writes the window). The perf harness flips
+    // it false to time a field-only pass and isolate the second-buffer-write cost. Never false at
+    // runtime; hoisted to a loop-invariant local in ComputeFieldRows so it costs nothing per pixel.
+    private bool _writeGridWindowForPerfDelta = true;
+
     // Recompute gate: only redraw when an input moved beyond epsilon (a static
     // screen must cost ~zero). Packs the inputs that change the rendered field.
     private bool   _fieldDirty = true;
@@ -187,29 +226,14 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private double _lastDrawnH    = -1;
     private int    _lastDrawnStep = -1;
 
-    // ── Grid: inverse-feather OpacityMask brush (the BAND-PASS window, 3762a42) ─
-    /// <summary>Radial BAND-PASS inverse-feather used as GridCanvas.OpacityMask: clear centre,
-    /// revealed mid-periphery, then clear again at the farthest corner (BuildLevelFeather(255,
-    /// white)). Kirby band-pass ruling (2026-06-11): the window is clear 0.00→0.35, RISES
-    /// 0.35→0.95 (smootherstep), then FALLS 0.95→1.00 (smootherstep) back to fully transparent —
-    /// so the grid lines PEAK exactly where the FOV mask saturates and FADE to nothing at the
-    /// corner. Per-instance + UNFROZEN so its Center/RadiusX/Y can be mirrored from the one-clock
-    /// pose alongside the field center each frame (M5.1-A). The RISE shares the SAME falloff
-    /// geometry as the field's ResolveFieldAlpha so the grid window and the FOV mask align with
-    /// no seam on the way up; the FALL is grid-only (the FOV mask stays saturated in the deep
-    /// periphery — only the LINES band-pass out).</summary>
-    private RadialGradientBrush _gridOpacityMaskBrush = BuildGridOpacityMaskBrush();
-    private static RadialGradientBrush BuildGridOpacityMaskBrush()
-    {
-        return new RadialGradientBrush
-        {
-            GradientOrigin = new Point(0.5, 0.5),
-            Center         = new Point(0.5, 0.5),
-            RadiusX        = BrushRadius,
-            RadiusY        = BrushRadius,
-            GradientStops  = BuildLevelFeather(255, Colors.White),
-        };
-    }
+    // ── Grid OpacityMask: CANVAS-MODEL bitmap window (UVHS round-8 fix, 2026-06-11) ─
+    // RETIRED: the RadialGradientBrush window (BuildGridOpacityMaskBrush / BuildLevelFeather /
+    // the M5.1-A brush mirror) and its band-pass FALL tail. They diverged from the field's
+    // mask geometry in four ways and translated the "empty corner" with the head — the round-8
+    // empty-corner regression. The grid's OpacityMask is now an ImageBrush over the
+    // _gridWindowBmp written in the SAME field pass (clear hole → rise → SOLID everywhere
+    // beyond, including every corner at every gaze), so the canvas is present everywhere it
+    // isn't being looked at, byte-for-byte aligned with the field's circle/damping/featherStart.
 
     // ── Grid: single reusable opacity animation (3762a42 FIX #14) ────────────
     /// <summary>Reused 280 ms animation object — mutate .To per tick instead of allocating a
@@ -592,91 +616,32 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         _lastDrawnStep = step;
     }
 
-    /// <summary>Attach the inverse-feather OpacityMask to GridCanvas if external code (or a
-    /// fresh window) has not yet. One reference-compare guards against re-allocation. The
-    /// grid lines are only revealed where this window is open (the periphery); the centre
-    /// hole is clear so the grid never shows over the clean centre.</summary>
+    /// <summary>Attach the CANVAS-MODEL grid OpacityMask (UVHS round-8 fix, 2026-06-11): an
+    /// <see cref="ImageBrush"/> over the <see cref="_gridWindowBmp"/> reduced-res window bitmap
+    /// (Stretch=Fill, bilinear). The bitmap is written in the SAME per-pixel pass as the field
+    /// (see <see cref="ComputeFieldRows"/>) and carries the field's monotonic window value
+    /// SATURATED to solid — clear hole where the user looks (alpha 0), smootherstep rise, then
+    /// SOLID (alpha 255) everywhere beyond the feather end, including every corner at every gaze.
+    /// So the grid lines are revealed wherever the canvas is present (everywhere outside the
+    /// gaze hole) and hidden inside the hole — and the hole shares the field's geometry
+    /// byte-for-byte. One reference-compare guards re-attachment. No-op until the bitmap exists
+    /// (created by <see cref="EnsureFieldBitmap"/>).</summary>
     private void EnsureGridOpacityMask()
     {
-        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridOpacityMaskBrush))
-            GridCanvas.OpacityMask = _gridOpacityMaskBrush;
-    }
-
-    /// <summary>
-    /// Builds the FIXED BAND-PASS feather gradient mandated by the VIMS comfort spec +
-    /// Kirby's band-pass ruling:
-    ///   r ∈ [0.00, 0.35]            fully transparent (clear centre)
-    ///   r ∈ [0.35, 0.95]            smootherstep RISE 0 → peakAlpha
-    ///   r ∈ [0.95(FadeOutStart), 1.00]  smootherstep FALL peakAlpha → 0 (back to clear)
-    /// Used for the grid OpacityMask (peakAlpha 255, white) — the inverse-feather window
-    /// (clear centre, revealed mid-periphery, clear again at the corner). The RISE shares the
-    /// SAME falloff geometry as the field's <see cref="ResolveFieldAlpha"/> so the grid and FOV
-    /// mask align with no seam on the way up.
-    ///
-    /// <para><b>Band-pass FALL (Kirby ruling, 2026-06-11):</b> the old tail HELD solid from 0.95
-    /// to 1.0 (monotonic reveal — lines at max strength over the darkest periphery). The ruling
-    /// INVERTS that tail: the grid lines must fade back to FULLY TRANSPARENT beyond the feather
-    /// end, a band-pass visibility window. The FALL MIRRORS the rise — the same smootherstep
-    /// s(t)=6t⁵−15t⁴+10t³ run in reverse (1−s) across [<see cref="SenseDefaults.GridWindowFadeOutStart"/>,
-    /// 1.0] with the same sub-stop density, peak→0, final stop CLEAR at offset 1.0. The band start
-    /// (0.95 default) equals the rise end, so the lines PEAK exactly where the FOV mask saturates.
-    /// This is a GRID-ONLY change: the field path (<see cref="ResolveFieldAlpha"/>) is untouched,
-    /// so the FOV mask stays saturated in the deep periphery — only the LINES band-pass out (the
-    /// cell-fill tint in the field is windowed by ResolveFieldAlpha and is UNCHANGED by design).
-    /// <b>Geometry:</b> r=1.0 is the farthest CORNER; the four screen-edge MIDPOINTS sit at
-    /// corner-normalized ~0.7-0.9, so with the default band the corners lose the grid entirely
-    /// while the edge midpoints keep PARTIAL line strength — intended; the tunable moves the band.</para>
-    ///
-    /// <para><b>Banding round-5 (2026-06-11, plan-sanctioned):</b> the stop-interpolated RISE was
-    /// upgraded to SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³ to MATCH the field's falloff (the grid window
-    /// MUST track the same curve or the grid reveal would seam against the FOV dim). The sub-stop
-    /// count was raised 8 → 16: WPF linearly interpolates BETWEEN gradient stops, so doubling the
-    /// stops halves the residual linear-segment error and lets the brush faithfully track the
-    /// gentler smootherstep shape. Same 0.35→0.95 rise endpoints, same peak output.</para>
-    /// </summary>
-    private static GradientStopCollection BuildLevelFeather(byte peakAlpha, Color color)
-    {
-        var stops  = new GradientStopCollection();
-        var clear  = Color.FromArgb(0, color.R, color.G, color.B);
-        var solid  = Color.FromArgb(peakAlpha, color.R, color.G, color.B);
-
-        const double rampStart = 0.35;
-        const double rampEnd   = 0.95;
-        const double rampWidth = rampEnd - rampStart;
-        const int    n         = 16; // doubled (was 8) — finer tracking of the smootherstep curve
-
-        // ── RISE: clear centre → smootherstep up to peak at rampEnd (UNCHANGED — byte-identical
-        //         to the pre-ruling rise; the field's ResolveFieldAlpha tracks the same curve). ──
-        stops.Add(new GradientStop(clear, 0.0));
-        stops.Add(new GradientStop(clear, rampStart));
-        for (int k = 1; k < n; k++)
+        if (_gridWindowBmp is null) return;
+        if (_gridWindowMaskBrush is null
+            || !ReferenceEquals(_gridWindowMaskBrush.ImageSource, _gridWindowBmp))
         {
-            double t   = (double)k / n;
-            double s   = Smootherstep(t); // smootherstep — MATCHES ResolveFieldAlpha (seam-aligned)
-            double pos = rampStart + (rampWidth * t);
-            byte a     = (byte)Math.Round(peakAlpha * s);
-            stops.Add(new GradientStop(Color.FromArgb(a, color.R, color.G, color.B), pos));
+            _gridWindowMaskBrush = new ImageBrush(_gridWindowBmp)
+            {
+                Stretch       = Stretch.Fill,
+                // Match the FieldImage upscale: bilinear (LowQuality) on a low-frequency window.
+                ViewportUnits = BrushMappingMode.RelativeToBoundingBox,
+            };
+            RenderOptions.SetBitmapScalingMode(_gridWindowMaskBrush, BitmapScalingMode.LowQuality);
         }
-        stops.Add(new GradientStop(solid, rampEnd));
-
-        // ── FALL (Kirby band-pass ruling): peak → fully transparent across [FadeOutStart, 1.0].
-        //    Mirrors the rise — same smootherstep run in reverse (1−s) at the same sub-stop
-        //    density — so the lines fade out as gently as they faded in. FadeOutStart == rampEnd
-        //    (0.95) so the peak stop above and this band start coincide (no gap, no double stop
-        //    at a different alpha). The final stop is CLEAR exactly at offset 1.0 (the corner).
-        const double fadeStart = SenseDefaults.GridWindowFadeOutStart;
-        const double fadeWidth = 1.0 - fadeStart;
-        for (int k = 1; k < n; k++)
-        {
-            double t   = (double)k / n;
-            double s   = Smootherstep(t);            // 0 → 1 …
-            double pos = fadeStart + (fadeWidth * t);
-            byte a     = (byte)Math.Round(peakAlpha * (1.0 - s)); // … inverted: peak → 0 (the FALL)
-            stops.Add(new GradientStop(Color.FromArgb(a, color.R, color.G, color.B), pos));
-        }
-        stops.Add(new GradientStop(clear, 1.0)); // fully transparent at the farthest corner
-        stops.Freeze();
-        return stops;
+        if (!ReferenceEquals(GridCanvas.OpacityMask, _gridWindowMaskBrush))
+            GridCanvas.OpacityMask = _gridWindowMaskBrush;
     }
 
     // ── Head pose → field center + radius + grid window (one clock) ──────────
@@ -742,23 +707,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             MarkPoseDirty();   // Fix 2: pose-only move ⇒ dirty-band recompute (not full buffer)
         }
 
-        // M5.1-A mirror (one clock): mirror the SAME center/radius onto the grid OpacityMask
-        // brush so the grid's transparency hole tracks the field's clear zone in the SAME
-        // frame. Same pose value, same call — the A1 one-clock property holds (no divergent
-        // clocks). The grid LINES stay world-locked at pixel origin; only the WINDOW follows.
-        // The center uses the raw doubles (no integer rounding in the hole-center mapping —
-        // item 4.3) so the hole rides the head with the same sub-pixel precision as the field.
-        var center = new Point(cx, cy);
-        if (_gridOpacityMaskBrush.Center != center)
-        {
-            _gridOpacityMaskBrush.Center         = center;
-            _gridOpacityMaskBrush.GradientOrigin = center;
-        }
-        if (_gridOpacityMaskBrush.RadiusX != radius)
-        {
-            _gridOpacityMaskBrush.RadiusX = radius;
-            _gridOpacityMaskBrush.RadiusY = radius;
-        }
+        // UVHS round-8 fix (2026-06-11): the M5.1-A brush mirror is GONE. There is no
+        // RadialGradientBrush to mirror — the grid's transparency hole is now the
+        // _gridWindowBmp written in the SAME RenderFieldIfDirty pass from the SAME (cx,cy).
+        // The hole rides the head via the bitmap (one clock, no divergent geometry); the grid
+        // LINES stay world-locked at pixel origin. The window buffer is updated in the field
+        // recompute — see ComputeFieldRows / RenderFieldIfDirty.
     }
 
     // ── Field math (PURE — unit-testable without WPF) ────────────────────────
@@ -836,8 +790,9 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// at shallow tiers. SAME endpoints (0 at featherStart, peak at featherEnd) and SAME peak
     /// output, so the protection envelope is unchanged; only the interior shaping is gentler. The
     /// plan (§A2) names smootherstep as the sanctioned optional banding mitigation. The grid's
-    /// inverse-feather OpacityMask (<see cref="BuildLevelFeather"/>) uses the SAME curve so the
-    /// field FOV dim and the grid window stay seam-aligned.</para></summary>
+    /// CANVAS-MODEL OpacityMask window (the <see cref="_gridWindowBmp"/> written from the SAME
+    /// <see cref="WindowLutLookup"/> in <see cref="ComputeFieldRows"/>) uses the SAME curve so the
+    /// field FOV dim and the grid window stay seam-aligned BYTE-FOR-BYTE.</para></summary>
     internal static double ResolveFieldAlpha(double r, double peakAlpha, double featherStart, double featherEnd)
     {
         if (r <= featherStart) return 0.0;
@@ -851,7 +806,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// derivative at both endpoints — the Mach-band killer). Endpoints identical to smoothstep
     /// (s(0)=0, s(1)=1, s(0.5)=0.5); the interior is flatter near the ends and steeper at the
     /// middle. Pure + internal so the falloff tests can pin the curve, monotonicity and
-    /// endpoint identity, and BuildLevelFeather can share the exact same shaping.</summary>
+    /// endpoint identity, and the grid-window bitmap shares the exact same shaping.</summary>
     internal static double Smootherstep(double t)
     {
         if (t <= 0.0) return 0.0;
@@ -1146,6 +1101,19 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         _fieldBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
         _fieldBuf = new byte[_fieldW * _fieldH * 4];
         FieldImage.Source = _fieldBmp;
+
+        // CANVAS-MODEL grid window bitmap (UVHS round-8 fix): same reduced-res dimensions,
+        // Pbgra32 grayscale-alpha. WPF's managed PixelFormats has no A8 (the spec's fallback),
+        // so each pixel is premultiplied black with the window in the ALPHA byte: (B,G,R,A) =
+        // (0,0,0,window). An OpacityMask consumes ONLY the alpha, so that byte IS the window
+        // value: 0 = the gaze hole (grid hidden), 255 = the canvas (grid present) — solid
+        // everywhere outside the hole, including every corner at every gaze. Written in the SAME
+        // ComputeFieldRows pass (the window value is already computed for the field). The mask
+        // brush is (re)bound to this fresh bitmap on the next EnsureGridOpacityMask.
+        _gridWindowBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
+        _gridWindowBuf = new byte[_fieldW * _fieldH * 4];
+        EnsureGridOpacityMask();   // (re)bind the ImageBrush mask to the new window bitmap
+
         MarkFieldDirty();
     }
 
@@ -1272,6 +1240,18 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             _fieldBmp.WritePixels(
                 new Int32Rect(0, y0, _fieldW, y1 - y0),
                 _fieldBuf, rowBytes, /*offset*/ y0 * rowBytes);
+
+            // CANVAS-MODEL grid window (UVHS round-8 fix): upload the SAME band rows of the
+            // Pbgra32 window buffer in lock-step (one clock — the band rows ComputeFieldRows wrote
+            // both buffers for). Same 4-byte stride/offset as the field. The dirty-band path
+            // updates exactly the window rows the field band updated, so the window buffer stays
+            // byte-equal to a full window recompute too (pinned by the band-equality test).
+            if (_writeGridWindowForPerfDelta && _gridWindowBmp is not null && _gridWindowBuf is not null)
+            {
+                _gridWindowBmp.WritePixels(
+                    new Int32Rect(0, y0, _fieldW, y1 - y0),
+                    _gridWindowBuf, rowBytes, /*offset*/ y0 * rowBytes);
+            }
         }
         _totalRecomputes++;   // Kirby round-3 (item 4.5): monotonic recompute/WritePixels count
 
@@ -1382,6 +1362,8 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double peak = _maskPeakAlpha;
         double cellStrength = _cellStrength;
         var buf = _fieldBuf!;
+        var winBuf = _gridWindowBuf!;   // Pbgra32 grid-window (4 bytes/px, window in the ALPHA byte;
+                                        // WPF WriteableBitmap has no managed A8) — written in the same pass
         var winLut = _windowLut;
         const int winSize = WindowLutSize;
 
@@ -1395,6 +1377,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double denom = EffectiveCornerDenom(cx, cy, aspect, SenseDefaults.OverlayFieldCornerGrowthDamping);
         double invDenomSq = denom > 1e-9 ? 1.0 / (denom * denom) : 1e18;
 
+        // Perf-DELTA seam ONLY (default true in production): when false, skip the grid-window
+        // byte write so the perf harness can isolate the second-buffer-write cost. Captured ONCE
+        // as a local here (hoisted out of the inner loop), so in production the JIT sees a loop-
+        // invariant `true` and the branch costs nothing per pixel — the window write is always on.
+        bool writeWindow = _writeGridWindowForPerfDelta;
+
         // The per-row work is identical regardless of dispatch; capture it once so the single-
         // threaded band path and the capped-parallel full path share one body (byte-identical
         // output — pinned by Fix2_DirtyBand_MatchesFullRecompute_ByteForByte).
@@ -1404,6 +1392,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             double dy = py - cy;
             double dy2 = dy * dy;
             int row = y * w * 4;
+            int winRow = y * w * 4;              // Pbgra32 grid-window: 4 bytes/px (alpha = window)
             for (int x = 0; x < w; x++)
             {
                 double px = (x + 0.5) / w;
@@ -1414,6 +1403,26 @@ public partial class OverlayWindow : Window, IOverlayRenderer
                 // The shared radial window (peak 1.0) by r² lookup: 0 in the clean centre,
                 // smoothstep to 1.0 by r=0.95, held at 1.0 to the corner. r² ≥ 1 saturates.
                 double window = WindowLutLookup(winLut, winSize, r2);
+
+                // CANVAS-MODEL grid-window pixel (UVHS round-8 fix): the SAME monotonic window,
+                // already saturated to 1.0 beyond the feather end by the LUT (r² ≥ 1 ⇒ last
+                // entry), encoded into a Pbgra32 premultiplied-black pixel whose ALPHA is the
+                // window. 0 = the gaze hole (grid hidden), 255 = the canvas (grid present) — solid
+                // everywhere outside the hole, including every corner at every gaze. The
+                // OpacityMask consumes only the alpha; B/G/R are 0 (premultiplied black, so the
+                // value is valid premultiplied data at every alpha). ResolveFieldAlpha/
+                // ComposeFieldPixel are NOT touched: the grid window is a SEPARATE consumer of the
+                // exact same per-pixel window value, so it shares the field's
+                // circle/damping/featherStart byte-for-byte.
+                if (writeWindow)
+                {
+                    byte winA = (byte)(window * 255.0 + 0.5); // round; window ∈ [0,1]
+                    int wi = winRow + x * 4;
+                    winBuf[wi + 0] = 0;    // B (premultiplied black)
+                    winBuf[wi + 1] = 0;    // G
+                    winBuf[wi + 2] = 0;    // R
+                    winBuf[wi + 3] = winA; // A — the window value (what the OpacityMask uses)
+                }
 
                 // Fold the cell-fill tint UNDER the mask dim (reference compositing order), both
                 // windowed by the shared falloff, gamma via LUT. Clean centre ⇒ window 0 ⇒ fully
@@ -1512,6 +1521,11 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         _fieldBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
         _fieldBuf = new byte[_fieldW * _fieldH * 4];
         FieldImage.Source = _fieldBmp;
+        // CANVAS-MODEL grid window bitmap/buffer (UVHS round-8 fix) at the same exact size, so
+        // ComputeFieldRows can write the window byte and the band-vs-full seam can compare it.
+        _gridWindowBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
+        _gridWindowBuf = new byte[_fieldW * _fieldH * 4];
+        EnsureGridOpacityMask();
         _lastScreenW = _fieldW; _lastScreenH = _fieldH;
 
         var (tr, tg, tb, alpha) = VimsLevels[Math.Clamp(tier, 1, 12) - 1];
@@ -1540,7 +1554,9 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// <summary>Fix 2 dirty-band correctness seam: compute the WHOLE field at the given center
     /// into a fresh buffer (the full-recompute reference), independent of the dirty-band path.
     /// Lets the band-vs-full correctness test prove a pose-only band render produces a buffer
-    /// byte-identical to a full render at the same pose.</summary>
+    /// byte-identical to a full render at the same pose. Also recomputes the grid-window buffer
+    /// in the same pass (ComputeFieldRows writes both), so a follow-up
+    /// <see cref="GridWindowBufferSnapshotForTests"/> reads the full-window reference too.</summary>
     internal byte[] ComputeFullFieldReferenceForTests(double cx, double cy)
     {
         double sCx = _fieldCx, sCy = _fieldCy;
@@ -1552,17 +1568,49 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         return copy;
     }
 
+    /// <summary>UVHS round-8 (2026-06-11) test seam: compute the WHOLE grid-window A8 buffer at
+    /// the given center (the full-window-recompute reference), independent of the dirty-band path.
+    /// Lets the dirty-band window byte-equality test (test (e)) prove a pose-only band render
+    /// produces a window buffer byte-identical to a full window recompute at the same pose.</summary>
+    internal byte[] ComputeFullGridWindowReferenceForTests(double cx, double cy)
+    {
+        double sCx = _fieldCx, sCy = _fieldCy;
+        _fieldCx = cx; _fieldCy = cy;
+        EnsureWindowLut();
+        ComputeFieldRows(0, _fieldH);
+        var copy = (byte[])_gridWindowBuf!.Clone();
+        _fieldCx = sCx; _fieldCy = sCy;
+        return copy;
+    }
+
     /// <summary>Kirby round-3 (item 4.5) test seam: monotonic count of field recomputes
     /// (== WriteableBitmap.WritePixels calls) since construction, never reset by the
     /// per-minute perf flush. Lets the anti-double-compute smoothness test assert that the
     /// recompute count over N pumped frames stays &lt;= N (one WritePixels per dirty frame).</summary>
     internal long TotalRecomputesForTests => _totalRecomputes;
 
-    /// <summary>UVHS round 2 (2026-06-11) test seam: the grid OpacityMask brush (the grid's
-    /// transparency-hole window — the full-res vector grid's visibility geometry) so the
-    /// one-clock tests can assert it mirrors the field center/radius in the SAME frame.
-    /// Internal, no public-surface widening.</summary>
-    internal RadialGradientBrush GridMaskBrushForTests => _gridOpacityMaskBrush;
+    /// <summary>UVHS round-8 (2026-06-11) perf-DELTA test seam: toggle the grid-window second
+    /// buffer write (the per-pixel encode + its WritePixels). Default true (production always
+    /// writes the window); the perf harness flips it false for a field-only timing leg to isolate
+    /// the added cost. NEVER set false at runtime.</summary>
+    internal bool WriteGridWindowForPerfTests
+    {
+        get => _writeGridWindowForPerfDelta;
+        set => _writeGridWindowForPerfDelta = value;
+    }
+
+    /// <summary>UVHS round-8 (2026-06-11) test seam: snapshot the rendered reduced-res A8
+    /// grid-window buffer (1 byte/px — the canvas-model OpacityMask alpha). 0 = the gaze hole
+    /// (grid hidden), 255 = the canvas (grid present). Lets the seam-equality / canvas-full /
+    /// hole / dirty-band-equality tests read exactly what WPF rasterizes as the OpacityMask.
+    /// Returns a copy (the live buffer is reused each frame). Null before the first render.</summary>
+    internal byte[]? GridWindowBufferSnapshotForTests
+        => _gridWindowBuf is null ? null : (byte[])_gridWindowBuf.Clone();
+
+    /// <summary>UVHS round-8 (2026-06-11) test seam: the GridCanvas.OpacityMask is the
+    /// canvas-model ImageBrush over the window bitmap (no RadialGradientBrush anymore). Lets a
+    /// test assert the mask is wired to the bitmap window, not a radial gradient.</summary>
+    internal ImageBrush? GridWindowMaskBrushForTests => _gridWindowMaskBrush;
 
     /// <summary>UVHS round 2 (2026-06-11) test seam: the count of grid Line shapes currently
     /// on GridCanvas (vertical + horizontal). Lets the STA grid tests assert DrawGrid produced
