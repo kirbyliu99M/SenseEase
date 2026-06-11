@@ -911,6 +911,80 @@ public class OverlayHeadPoseTests
         });
     }
 
+    /// <summary>A2 RESTING INVARIANT (Kirby's 2026-06-11 RUNTIME verification request):
+    /// at L1 REST the ENTIRE rendered field buffer must be fully transparent — alpha 0
+    /// EVERYWHERE, no permanent peripheral darkening / vignette. This is the end-to-end
+    /// runtime proof of the A2 hard-stop "resting 0.00 at L1": where the unit pin
+    /// ComposeFieldPixel_AtRest_TintContributesNothing_A2RestingInvariant proves the
+    /// per-pixel math, THIS pin proves the actual WriteableBitmap the renderer fills
+    /// (after the full ApplyState → field-write path, settled over 40 ticks) carries no
+    /// residual alpha anywhere: exact centre, all four edge midpoints, all four corners,
+    /// plus a full-buffer max-alpha scan. VimsTier=1, MaskActive=false, Pressure=0,
+    /// OpticalFlowIndex=0, default ShaderParams — the genuine resting state.</summary>
+    [Fact]
+    public void OverlayWindow_RenderedField_AtRest_FullyTransparent_NoPeripheralVignette()
+    {
+        RunOnSta(() =>
+        {
+            var w = new OverlayWindow();
+            w.ApplyTemplate();
+
+            // The genuine resting state: lowest tier, mask commanded OFF, zero pressure,
+            // zero optical flow, default shader knobs, head tracking inactive (centred).
+            var rest = new SenseState
+            {
+                VimsTier           = 1,
+                MaskActive         = false,
+                Pressure           = 0.0,
+                OpticalFlowIndex   = 0.0,
+                HeadTrackingActive = false,
+                Shader             = new ShaderParams(),
+            };
+            // Settle over many ticks so any EMA-driven contribution (tint/intensity) has
+            // fully relaxed to its resting target before we read the buffer.
+            for (int i = 0; i < 40; i++) w.ApplyState(rest);
+
+            byte[]? buf = w.FieldBufferSnapshotForTests;
+            Assert.NotNull(buf);
+            int fw = w.FieldWidthForTests, fh = w.FieldHeightForTests;
+            Assert.True(fw > 12 && fh > 12, $"field too small to sample: {fw}x{fh}");
+
+            // Pbgra32 — alpha is byte +3 of each 4-byte pixel.
+            int A(int col, int row) => buf![(row * fw + col) * 4 + 3];
+
+            // Exact centre.
+            Assert.Equal(0, A(fw / 2, fh / 2));
+
+            // Four edge midpoints.
+            Assert.Equal(0, A(fw / 2, 0));        // top edge
+            Assert.Equal(0, A(fw / 2, fh - 1));   // bottom edge
+            Assert.Equal(0, A(0, fh / 2));        // left edge
+            Assert.Equal(0, A(fw - 1, fh / 2));   // right edge
+
+            // Four corners — the deepest periphery, where any resting vignette would show.
+            Assert.Equal(0, A(0, 0));             // top-left
+            Assert.Equal(0, A(fw - 1, 0));        // top-right
+            Assert.Equal(0, A(0, fh - 1));        // bottom-left
+            Assert.Equal(0, A(fw - 1, fh - 1));   // bottom-right
+
+            // Full-buffer scan: the MAX alpha over every pixel must be exactly 0. Report the
+            // first offending pixel so a regression names the location of the residual darkening.
+            byte maxAlpha = 0;
+            int worstIdx = -1;
+            for (int idx = 3; idx < buf!.Length; idx += 4)
+            {
+                if (buf[idx] > maxAlpha) { maxAlpha = buf[idx]; worstIdx = idx; }
+            }
+            if (maxAlpha != 0)
+            {
+                int p = worstIdx / 4, py = p / fw, px = p % fw;
+                Assert.Fail($"A2 resting invariant VIOLATED: max field alpha was {maxAlpha} at " +
+                            $"pixel ({px},{py}) — the rest buffer must be fully transparent everywhere.");
+            }
+            Assert.Equal(0, maxAlpha);
+        });
+    }
+
     // ── 10) UVHS round 2 (2026-06-11): full-res VECTOR grid (restored 3762a42) ──────────
     //
     // The grid returned as full-resolution WPF Line shapes on GridCanvas (a 1.2 px world-locked
