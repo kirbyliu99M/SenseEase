@@ -1,8 +1,0 @@
-{
-  "events": [
-    { "timestamp": "2026-05-17T09:00:00", "category": "System",    "message": "SenseEase 啟動，mock inference loop 就緒。" },
-    { "timestamp": "2026-05-17T09:00:14", "category": "Inference", "message": "Pressure 112 ≥ 觸發門檻，FOV 遮罩啟動。" },
-    { "timestamp": "2026-05-17T09:00:31", "category": "Feedback",  "message": "\"覺得有點暈\" → ReportDiscomfort：已縮小視野範圍以降低光流刺激。" },
-    { "timestamp": "2026-05-17T09:01:05", "category": "Inference", "message": "Pressure 回落，FOV 遮罩解除。" }
-  ]
-}

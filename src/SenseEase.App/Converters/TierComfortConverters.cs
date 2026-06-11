@@ -99,26 +99,9 @@ public sealed class TierToHeadlineConverter : IValueConverter
         => Binding.DoNothing;
 }
 
-/// <summary>Alias of <see cref="TierToHeadlineConverter"/> retained for binding
-/// compatibility — same 5級 motion label.</summary>
-public sealed class TierToSublineConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => ComfortBands.FeelLabelLocalized(value is int t ? t : 0, LocalizationManager.Current.IsEnglish);
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => Binding.DoNothing;
-}
-
-/// <summary>Tier → the 5級 動態感 label for the comfort pill (single-value).</summary>
-public sealed class TierToComfortLabelConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => ComfortBands.FeelLabelLocalized(value is int t ? t : 0, LocalizationManager.Current.IsEnglish);
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => Binding.DoNothing;
-}
+// DEAD-08: TierToSublineConverter and TierToComfortLabelConverter removed — zero
+// consumers (MainWindow.xaml declared them as resources but never bound to them).
+// Use TierToHeadlineConverter or TierToFeelLabelConverter for new bindings.
 
 /// <summary>(tier, UILanguage) → 5級 動態感 label, live on BOTH tier and language so the
 /// hero / pill / pop-up re-pick the instant the user toggles language. MultiBinding

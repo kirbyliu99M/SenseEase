@@ -165,8 +165,9 @@ public class InferenceTests
         // high-pressure mask-active state composes a WIDER FOV (less tightness -> less
         // attenuation). Habituation pauses at startup, so the seeded offset is preserved
         // even under the high-pressure build-up below.
+        // DEAD-09: migrated from SenseDefaults.HabituationMaxOffset (removed) to the successor.
         var wide = new MockInferenceEngine(
-            habituationStore: new SeededHabituationStore(SenseDefaults.HabituationMaxOffset));
+            habituationStore: new SeededHabituationStore(HabituationProfileParams.Resilient.HabOffsetCapPp));
 
         DriveToMaskActive(tight);
         DriveToMaskActive(wide);

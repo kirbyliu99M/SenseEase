@@ -41,6 +41,8 @@ public class TierConverterParityTests
         }
     }
 
+    // DEAD-08: TierToSublineConverter and TierToComfortLabelConverter removed.
+    // Test updated to exercise the surviving converters only.
     [Theory]
     [InlineData(1)]
     [InlineData(6)]
@@ -48,14 +50,10 @@ public class TierConverterParityTests
     public void AllConverters_KeyOffTheSameBand(int tier)
     {
         var headline = new TierToHeadlineConverter();
-        var subline  = new TierToSublineConverter();
-        var label    = new TierToComfortLabelConverter();
         var band     = new TierToComfortBandConverter();
 
         Assert.Equal(ComfortBands.For(tier), (string)band.Convert(tier, typeof(string), null, Ci));
         Assert.False(string.IsNullOrWhiteSpace((string)headline.Convert(tier, typeof(string), null, Ci)));
-        Assert.False(string.IsNullOrWhiteSpace((string)subline.Convert(tier, typeof(string), null, Ci)));
-        Assert.False(string.IsNullOrWhiteSpace((string)label.Convert(tier, typeof(string), null, Ci)));
     }
 
     [Fact]

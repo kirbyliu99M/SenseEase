@@ -6,7 +6,9 @@ namespace SenseEase.Core.Models;
 /// </summary>
 public sealed class HabituationState
 {
-    /// <summary>Earned FOV-relaxation offset in percent points, [0, HabituationMaxOffset].</summary>
+    /// <summary>Earned FOV-relaxation offset in percent points, capped by the active
+    /// profile's <see cref="Inference.HabituationProfileParams"/> max-offset (the old
+    /// SenseDefaults.HabituationMaxOffset was retired with the DEAD-09 sweep).</summary>
     public double Offset { get; set; }
 
     /// <summary>When this snapshot was taken (UTC).</summary>

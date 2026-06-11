@@ -19,20 +19,7 @@
     <InternalsVisibleTo Include="SenseEase.App" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <!-- LLamaSharp managed API only — the actual inference runs in the side-loaded
-         llama-server.exe subprocess (Vulkan backend, see SenseEase.App.csproj), NOT
-         in-proc, so no native CUDA backend is needed at runtime.
-         ExcludeAssets="runtime" (2026-06-07): the Cuda12 backend NuGet ships a 148 MB
-         ggml-cuda.dll that was dead weight in the output — never loaded (Vulkan is the
-         active backend) yet re-scanned by AV on every launch, dominating startup time.
-         Excluding its runtime assets drops that 148 MB from the build output while keeping
-         the package referenced (zero restore/compile change). This matches the shipped
-         build, where stage-pre-alpha-assets.ps1 already trims cuda12 from the dist. The
-         "12.Windows" SKU naming is historical; the real binaries are the side-loaded set. -->
-    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" ExcludeAssets="native;runtime" />
-  </ItemGroup>
+  <!-- DEAD-01: LLamaSharp NuGet refs removed — inference is the side-loaded llama-server.exe subprocess (b9294, Vulkan). -->
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.275">

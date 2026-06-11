@@ -49,7 +49,10 @@
 
     <!-- Three comfort bands (base / weak fill / readable text-on-weak).
          These mirror TierColorPalette's three tier bands; TierColorPalette stays
-         the single source for the BAND→colour mapping (converters read it). -->
+         the single source for the BAND→colour mapping (converters read it).
+         DEAD-08: ComfortSteadyWeak and ComfortSteadyText KEPT — band-trio-symmetry:
+         each of the three bands (Steady/Rising/High) exposes a base+Weak+Text trio
+         so DataTrigger colour logic stays uniform across all band states. -->
     <SolidColorBrush x:Key="ComfortSteady"     Color="#2F7D6E"/>
     <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#E2F0EC"/>
     <SolidColorBrush x:Key="ComfortSteadyText" Color="#1F5249"/>
@@ -61,11 +64,9 @@
     <SolidColorBrush x:Key="ComfortHighText"   Color="#8A3A2E"/>
 
     <!-- ═══ Spacing / radius ═════════════════════════════════════════════════ -->
-    <sys:Double x:Key="Pad.Card">24</sys:Double>
-    <sys:Double x:Key="Gap.Stack">16</sys:Double>
-    <sys:Double x:Key="Gap.Tight">8</sys:Double>
+    <!-- DEAD-08: Pad.Card (Double), Gap.Stack, Gap.Tight, Gap.StackBottom removed — zero consumers. -->
+    <!-- DEAD-08: Font.Mono and Type.Display/Type.Mono removed below — zero consumers. -->
     <Thickness  x:Key="Pad.CardAll">24</Thickness>
-    <Thickness  x:Key="Gap.StackBottom">0,0,0,16</Thickness>
     <CornerRadius x:Key="Radius.md">16</CornerRadius>
     <CornerRadius x:Key="Radius.sm">10</CornerRadius>
     <CornerRadius x:Key="Radius.pill">999</CornerRadius>
@@ -82,15 +83,8 @@
          across the merged scope regardless of dictionary order. Floor: 14 body,
          12 caption — no 10/11px text anywhere. -->
     <FontFamily x:Key="Font.UI">Segoe UI Variable Text, Segoe UI, Microsoft JhengHei UI, Microsoft JhengHei, Noto Sans CJK TC, sans-serif</FontFamily>
-    <FontFamily x:Key="Font.Mono">Cascadia Mono, Cascadia Code, Consolas, monospace</FontFamily>
-    <Style x:Key="Type.Display" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
-        <Setter Property="FontSize" Value="28"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="LineHeight" Value="34"/>
-        <Setter Property="TextWrapping" Value="Wrap"/>
-        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
-    </Style>
+    <!-- DEAD-08: Font.Mono removed — zero consumers. -->
+    <!-- DEAD-08: Type.Display removed — zero consumers. -->
     <Style x:Key="Type.Title" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
         <Setter Property="FontSize" Value="20"/>
@@ -121,12 +115,7 @@
         <Setter Property="TextWrapping" Value="Wrap"/>
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
     </Style>
-    <Style x:Key="Type.Mono" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="Consolas, 'Cascadia Mono', monospace"/>
-        <Setter Property="FontSize" Value="13"/>
-        <Setter Property="LineHeight" Value="18"/>
-        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
-    </Style>
+    <!-- DEAD-08: Type.Mono removed — zero consumers. -->
 
     <!-- ═══ Focus ring (C2 a11y) ═════════════════════════════════════════════
          Shared keyboard-focus visual. WPF renders FocusVisualStyle ONLY after
