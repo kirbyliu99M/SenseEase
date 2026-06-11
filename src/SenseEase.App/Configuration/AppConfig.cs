@@ -7,8 +7,10 @@ namespace SenseEase.App.Configuration;
 
 public enum SensingMode
 {
-    Demo,   // Phase 1: MockSensingProvider driven by OFI slider
-    Cursor, // Phase 2.1: CursorVelocityProvider (Win32 GetCursorPos 30 Hz)
+    // D-9 (2026-06-11): the Demo (MockSensingProvider) and Cursor (CursorVelocityProvider)
+    // modes were retired (FEAT-11/DEAD-03). WGC is the sole sensing source. The enum keeps a
+    // single member; SensingMode is not persisted to disk (AppConfig.Mode is a runtime static
+    // pinned to Wgc), so no tolerant parse of legacy "Demo"/"Cursor" values is needed.
     Wgc,    // Phase 2.2: WgcSensingProvider (Windows.Graphics.Capture pixel-diff 15 Hz)
 }
 
@@ -59,16 +61,11 @@ public static class AppConfig
         DataRootOverride
         ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
-    // Path Z UX iter 3 (2026-05-27): default flipped from Cursor → Wgc. The
-    // Cycle Sensing Mode button is now hidden (Cursor mode unused, and explicit
-    // calibration was cancelled 2026-06-08 so Demo is no longer user-reachable),
-    // so the startup provider must be the real-measurement one. Without this flip,
-    // the app would silently boot on CursorVelocityProvider with no way for the
-    // user to switch — a ghost pipeline running with no UI surface to control it.
+    // D-9 (2026-06-11): WGC is the sole sensing source. The Cursor (CursorVelocityProvider)
+    // and Demo (MockSensingProvider) modes were retired (FEAT-11/DEAD-03), so SensingMode now
+    // has the single Wgc member and this stays pinned to it. Kept as a settable static for
+    // symmetry with the other runtime flags; nothing flips it at runtime any longer.
     public static SensingMode Mode { get; set; } = SensingMode.Wgc;
-
-    // Backward-compat: true only in Demo mode (used by idleTimer and slider Push guard).
-    public static bool UseMockSensing => Mode == SensingMode.Demo;
 
     // Phase 5: local Gemma 4 E4B (instruction-tuned, Q4_K_M GGUF).
     // The chatbot is optional — if no GGUF is found, the app falls back to the
@@ -236,11 +233,8 @@ public static class AppConfig
     // path is deleted once on app startup (App.OnStartup migration). See
     // CHANGELOG.md v0.11 "Removed".
 
-    // Phase 2.1 fix: reject OFI accumulated by user-driven cursor activity (window drags,
-    // selections, scrollbar drags). Self-generated motion does not induce vection — the
-    // user has proprioceptive awareness — so it should not raise VIMS pressure. Default
-    // ON because the previous behavior was a false-positive source.
-    public static bool RejectCursorDragOfi { get; set; } = true;
+    // D-9 (2026-06-11): RejectCursorDragOfi removed with the CursorVelocityProvider
+    // it configured (FEAT-11/DEAD-03). WGC OFI rejection lives in WindowsActivityFilter.
 
     // Pop-up revision (Kirby 2026-06-06): the persistent ambient BAR is disabled — the
     // tray icon is the sole access point (it already carries the 5級 ambient colour +
@@ -339,19 +333,16 @@ public static class AppConfig
     ///         to dim it). Most users want this.</item>
     ///   <item><c>FullFollow</c> — opt-in. cx/cy in [0, 1]. The mask can
     ///         follow gaze all the way to a screen corner. May feel less
-    ///         stable as the dark periphery shifts more dramatically.
-    ///         Use the escape-hatch hotkey if you only occasionally need
-    ///         to peek at a corner.</item>
+    ///         stable as the dark periphery shifts more dramatically.</item>
     /// </list></summary>
     public static HeadTrackingFollowModeKind HeadTrackingFollowMode { get; set; }
         = HeadTrackingFollowModeKind.Balanced;
 
-    /// <summary>M5.1-B: when true (default), double-tapping Ctrl
-    /// temporarily dims the FOV mask to 30 % opacity for 3 seconds with
-    /// a 250 ms fade-down + 500 ms fade-up. Lets a Balanced-mode user
-    /// see a screen corner without permanently switching to FullFollow.
-    /// Orthogonal to the follow-mode choice — works in any mode.</summary>
-    public static bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
+    // D-10 (2026-06-11): HeadTrackingEscapeHatchEnabled removed. The double-tap-Ctrl
+    // escape hatch (temporarily dimming the FOV mask to 30 % for 3 s) was retired
+    // entirely — the feature is gone, not deferred (FEAT-06 cancelled). See
+    // docs/design/HARD_CONSTRAINTS.md A3 for the conservative-direction rationale
+    // (the mask is never weakened; the vestibular force-disable is now vacuous).
 
     /// <summary>M8 head-tracking sprint (2026-05-30): debug-only telemetry
     /// flag gating the per-5-seconds <c>[HeadPoseRender]</c> log line in

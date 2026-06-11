@@ -92,10 +92,14 @@ public partial class PersistentBarWindow : Window
 
     private SolidColorBrush PickBrushForCurrentState(int tier)
     {
-        int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? tier : 1;
+        // D-10 (2026-06-11): the BarTrayColorEnabled suppressor was retired (it
+        // previously forced the calm/grey tier 1 when the toggle was OFF). The bar
+        // now always renders its live tier. Note the persistent bar itself is OFF
+        // by default (AppConfig.PersistentBarEnabled = false) — the tray is the
+        // sole ambient surface — but when re-enabled it tracks the live tier.
         return _isHovered
-            ? TierColorPalette.HoverBrushForTier(effectiveTier)
-            : TierColorPalette.BrushForTier(effectiveTier);
+            ? TierColorPalette.HoverBrushForTier(tier)
+            : TierColorPalette.BrushForTier(tier);
     }
 
     public PersistentBarWindow()
@@ -217,8 +221,9 @@ public partial class PersistentBarWindow : Window
 
     /// <summary>Sets the bar's fill brush for the given VIMS tier. Idempotent —
     /// same tier → same frozen brush assignment.
-    /// <para>Task 5: Toggle B = OFF forces the grey band regardless of tier
-    /// (per spec §1 "Bar 顏色變化" toggle off → "永遠維持灰色透明").</para></summary>
+    /// <para>D-10 (2026-06-11): the BarTrayColorEnabled "Toggle B" that once forced
+    /// the grey band regardless of tier was retired; the bar now always renders its
+    /// live tier (see <see cref="PickBrushForCurrentState"/>).</para></summary>
     public void SetTier(int tier)
     {
         _currentTier = tier;

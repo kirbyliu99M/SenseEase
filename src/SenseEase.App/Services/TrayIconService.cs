@@ -213,11 +213,13 @@ public sealed class TrayIconService : IDisposable
             // requirement — what the system shell actually needs.
             //
             // M12 (TrayDistinct): first paint uses the same shape-cued local
-            // builder ApplyState uses, honouring the BarTrayColorEnabled toggle
-            // so the initial icon matches what the first StateChanged tick would
-            // draw (no flat-then-shaped flicker on launch).
-            Icon        = BuildDistinctTrayIcon(TierColorPalette.BandForTier(
-                              UserPreferences.Current.BarTrayColorEnabled ? _vm.VimsTier : 1)),
+            // builder ApplyState uses, so the initial icon matches what the first
+            // StateChanged tick would draw (no flat-then-shaped flicker on launch).
+            // D-10 (2026-06-11): the BarTrayColorEnabled suppressor was retired —
+            // the tile is a constant indigo lens and only the small accent dot
+            // tracks the live tier (calm-safe by design), so the initial dot
+            // reflects the live VimsTier directly.
+            Icon        = BuildDistinctTrayIcon(TierColorPalette.BandForTier(_vm.VimsTier)),
         };
         // Single click → deferred LeftClicked (card); double click → cancel + DoubleClicked (console).
         _clickDebounce.Tick += (_, _) =>
@@ -395,24 +397,22 @@ public sealed class TrayIconService : IDisposable
 
     private void ApplyState(SenseState state)
     {
-        // Toggle B (user pref): when colour-on is OFF, force the calm/VeryHigh
-        // band regardless of tier (per spec §1 — bar/tray stays in its quiet
-        // resting state). With the Alpha-1 indigo-lens icon this only changes
-        // the small accent dot; the indigo tile + white lens are constant, so
-        // the toggle never blanks the icon's identity.
         // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT the
         // broken ImageSource path (TaskbarIcon.IconSource). See
         // BuildDistinctTrayIcon below for HICON lifecycle details.
         //
-        // Alpha-1 (TrayBrand): the icon is now a CONSISTENT brand mark — a fixed
+        // Alpha-1 (TrayBrand): the icon is a CONSISTENT brand mark — a fixed
         // indigo (#4B6EF5) tile + white lens — with the tier conveyed SUBTLY by
         // a small bottom-right accent dot (BuildDistinctTrayIcon → PaintBand).
         // The whole tile is never darkened/recoloured, so the 16 px tray slot
-        // always reads as "the SenseEase indigo lens". The contract of this
-        // method is unchanged: resolve the effective band, assign _tray.Icon,
-        // refresh the labels.
-        int effectiveTier = UserPreferences.Current.BarTrayColorEnabled ? state.VimsTier : 1;
-        _tray.Icon = BuildDistinctTrayIcon(TierColorPalette.BandForTier(effectiveTier));
+        // always reads as "the SenseEase indigo lens".
+        //
+        // D-10 (2026-06-11): the BarTrayColorEnabled suppressor was retired. It
+        // previously forced the calm/VeryHigh band (tier 1) when the toggle was
+        // OFF; with the Alpha-1 indigo-lens icon the tile is already constant and
+        // only the subtle, calm-safe accent dot varies by tier, so there is no
+        // alarm surface to suppress. The dot now always tracks the live VimsTier.
+        _tray.Icon = BuildDistinctTrayIcon(TierColorPalette.BandForTier(state.VimsTier));
         RefreshLabels(state);
     }
 

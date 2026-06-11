@@ -10,13 +10,18 @@
         ResizeMode="NoResize"
         WindowState="Maximized"
         IsHitTestVisible="False">
+    <!-- Beta A2 (single-pass field): the mask, cell-fill and anchor grid were three
+         independently-shaped translucent strata (a Gestalt common-fate / scission
+         "multilayer halo"). They are now ONE per-pixel field computed into a single
+         premultiplied-BGRA WriteableBitmap and presented through this one Image with
+         smooth (bilinear) upscale from reduced resolution. One alpha per pixel → no
+         stacked layers, no separate cell-fill rect, no scalar-radius "breathing".
+         Stretch=Fill so the reduced-res field covers the maximized window; the
+         RenderOptions hint keeps the low-frequency gradient smooth rather than blocky. -->
     <Grid>
-        <!-- Static anchor grid. NE30: Opacity starts at 0 so a DrawGrid fired by
-             a SizeChanged / DPI-monitor change before the first ApplyState can
-             never flash full-strength grid lines across the whole screen; the
-             intensity is ramped up only when the mask actually engages. -->
-        <Canvas x:Name="GridCanvas" Opacity="0" />
-        <!-- Chang-Hain three-zone radial FOV mask -->
-        <Rectangle x:Name="FovMask" IsHitTestVisible="False" />
+        <Image x:Name="FieldImage"
+               IsHitTestVisible="False"
+               Stretch="Fill"
+               RenderOptions.BitmapScalingMode="LowQuality" />
     </Grid>
 </Window>

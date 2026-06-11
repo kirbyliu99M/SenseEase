@@ -136,3 +136,45 @@ Artifacts:
 
 - `publish_out\SenseEase.App.exe` exists (151,552 bytes).
 - Publish folder total size: 167,539,164 bytes (~159.8 MiB).
+
+---
+
+## Developer hotkeys (DEAD-14, D-10 — 2026-06-11)
+
+The two developer/QA hotkeys below are **disabled by default**. They are armed only
+when the environment variable `SENSEEASE_DEV_HOTKEYS=1` is set in the process that
+launches `SenseEase.App.exe`. With the variable unset (the alpha-tester default) the
+`MainWindow.PreviewKeyDown` handler is never wired, so an alpha tester cannot trip a
+simulated fault or a mock head-pose sweep by fat-fingering a key chord.
+
+This mirrors the existing opt-in env-var pattern used by the WGC bar-validation
+harness (`SENSEEASE_WGC_BAR_VALIDATION` / `SENSEEASE_WGC_BAR_MASK`). Like those, the
+variable is read once and changes nothing about production behaviour when unset.
+
+### Arming the hotkeys
+
+PowerShell (current session only — the variable does not persist):
+
+```powershell
+$env:SENSEEASE_DEV_HOTKEYS = "1"
+& "$env:LOCALAPPDATA\Programs\SenseEase\SenseEase.App.exe"
+```
+
+> The variable must be set in the SAME shell/session that launches the EXE. A value of
+> exactly `1` arms the hotkeys; any other value (or unset) leaves them disabled.
+
+### Hotkey reference
+
+| Chord | Action | Notes |
+|---|---|---|
+| **Ctrl+Shift+H** | Start the developer **mock head-pose sweep** | 20-second deterministic pattern (horizontal → vertical → circular → centre hold). Independent of `AppConfig.HeadTrackingEnabled` — proves the head-tracking wiring end-to-end on machines without a working webcam. A second press while a sweep is in flight is a no-op. Logs `[DevHotkey] Ctrl+Shift+H …` to `wgc_diag.txt`. |
+| **Ctrl+Shift+F** | Toggle a **simulated** liveness fault | Lets the Faulted bar/tray treatment be eyeballed without crashing the GPU. The real sensing pipeline is untouched. Logs `[DevHotkey] Ctrl+Shift+F → SIMULATED liveness fault = <bool>` to `wgc_diag.txt`, **and** inserts an event-log row explicitly labelled **`[Simulated] / [模擬]`** so a field report can never mistake it for a real sensing fault. |
+
+### Removed: the M5.1-B escape hatch
+
+The former double-tap-Ctrl "escape hatch" (which briefly dimmed the FOV mask to 30 %
+opacity) was **removed entirely** per ruling D-10. It is not a dev hotkey and is not
+gated by `SENSEEASE_DEV_HOTKEYS`; the feature no longer exists in any build
+(`OverlayWindow.TriggerEscapeHatch` and `AppConfig.HeadTrackingEscapeHatchEnabled`
+were deleted). The FOV mask is never weakened. See `docs/design/HARD_CONSTRAINTS.md`
+A3 for the rationale.

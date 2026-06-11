@@ -401,11 +401,11 @@ public partial class App : Application
         // AppConfig static props BEFORE any MainViewModel / MainWindow
         // construction. AppConfig is the per-process source of truth read by
         // MainViewModel.CreateHeadPoseReader (factory), LightSensorProvider
-        // factory, and OverlayWindow.ApplyHeadPoseToBrush / TriggerEscapeHatch
-        // (per-frame). HeadTrackingEnabled is startup-bound (factory pattern);
-        // FollowMode + EscapeHatchEnabled are runtime-changeable (overlay
-        // reads them per frame) but we still hydrate from prefs here so the
-        // first frame after launch already reflects the user's choice.
+        // factory, and OverlayWindow.ApplyHeadPoseToBrush (per-frame).
+        // HeadTrackingEnabled is startup-bound (factory pattern); FollowMode
+        // is runtime-changeable (the overlay reads it per frame) but we still
+        // hydrate from prefs here so the first frame after launch already
+        // reflects the user's choice. (D-10: the escape-hatch flag was retired.)
         try
         {
             // H32: if the integrity gate failed above, the sidecar must stay
@@ -423,8 +423,10 @@ public partial class App : Application
                     StringComparison.OrdinalIgnoreCase)
                     ? Configuration.HeadTrackingFollowModeKind.FullFollow
                     : Configuration.HeadTrackingFollowModeKind.Balanced;
-            Configuration.AppConfig.HeadTrackingEscapeHatchEnabled =
-                Configuration.UserPreferences.Current.HeadTrackingEscapeHatchEnabled;
+            // D-10 (2026-06-11): the escape-hatch hydrate was removed with the
+            // feature. AppConfig.HeadTrackingEscapeHatchEnabled no longer exists
+            // (FEAT-06 cancelled — the FOV mask is never weakened), so there is
+            // nothing to mirror from prefs here.
 
             // Diagnostic: record the RESOLVED head-tracking state at startup so a field
             // report ("head-tracking isn't working") is self-explaining in the next diag —

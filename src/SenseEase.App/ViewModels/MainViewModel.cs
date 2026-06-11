@@ -31,14 +31,13 @@ public readonly record struct PendingSetMoveVm(int Band, int Shape, int TargetLe
 /// </summary>
 public sealed class MainViewModel : INotifyPropertyChanged
 {
-    // _mockSensing:   always available for the demo slider override.
-    // _cursorSensing: Phase 2.1 Win32 GetCursorPos provider.
-    // _wgcSensing:    Phase 2.2 Windows.Graphics.Capture pixel-diff provider (stub until Gemini implements).
-    // _sensing:       active provider, swapped at runtime by ToggleSensingMode.
-    private readonly MockSensingProvider _mockSensing = new();
-    private ISensingProvider _sensing;
-    private readonly CursorVelocityProvider _cursorSensing = new(AppConfig.RejectCursorDragOfi);
+    // D-9 (2026-06-11): the Demo (MockSensingProvider) and Cursor (CursorVelocityProvider)
+    // providers were retired (FEAT-11/DEAD-03). WGC is the sole sensing source.
+    // _wgcSensing: Phase 2.2 Windows.Graphics.Capture pixel-diff provider.
+    // _sensing:    the active provider — always _wgcSensing now (kept as ISensingProvider
+    //              so the Start/Stop/OpticalFlowSampled wiring stays provider-agnostic).
     private readonly WgcSensingProvider _wgcSensing = new();
+    private ISensingProvider _sensing;
     /// <summary>Pop-up sprint Task 1: pass-through for the WGC bar exclude rect.
     /// MainWindow's validation-mode startup uses this to feed the BarStub's
     /// monitor-coords rectangle into the OFI pipeline. Null = no mask (default).</summary>
@@ -585,8 +584,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
     // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
     // container — services are composed as `readonly` fields on the view-
-    // models that need them (see `_mockSensing`, `_cursorSensing`, `_log`
-    // above for the same pattern). M3 wired the DefaultHeadPoseReader stub
+    // models that need them (see `_wgcSensing`, `_log` above for the same
+    // pattern). M3 wired the DefaultHeadPoseReader stub
     // unconditionally; M4 switches the field to a flag-aware factory call
     // so SidecarHeadPoseReader is instantiated when HeadTrackingEnabled is
     // true and DefaultHeadPoseReader otherwise. The M4 invariant: with the
@@ -614,8 +613,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // when the sweep completes (its ReadLatest returns null past 20 s, but
     // we also schedule a hard-clear timer for the field swap so the next
     // sweep press can start fresh). Volatile via Interlocked so the
-    // OFI/cursor/demo timers can read it without locking; mutated only on
-    // the UI dispatcher thread (by the hotkey handler + timer Tick).
+    // OFI/idle timers can read it without locking; mutated only on the UI
+    // dispatcher thread (by the hotkey handler + timer Tick).
     private IHeadPoseReader? _overrideReader;
     internal IHeadPoseReader? OverrideHeadPoseReaderForTests
     {
@@ -653,10 +652,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         };
         _mockSweepClearTimer.Start();
     }
-
-    /// <summary>True while a mock sweep is active. Exposed for tray/diag
-    /// surfaces or future UI indicators.</summary>
-    public bool IsMockHeadPoseSweepActive => _overrideReader is not null;
 
     /// <summary>M4 factory: chooses the reader implementation based on
     /// <see cref="AppConfig.HeadTrackingEnabled"/>. Q5-locked DI pattern:
@@ -719,9 +714,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // exactly once on the app-exit path.
     private readonly MistralChatbotService _mistral;
 
-    private readonly DispatcherTimer _idleTimer; // keeps decay visible in Demo Mode when slider is idle
+    private readonly DispatcherTimer _idleTimer; // steps the engine with OFI=0 so pressure decays if WGC stalls
     private readonly DispatcherTimer _metricsTimer;
-    private DateTime _lastDemoInputAtUtc = DateTime.UtcNow;
     private DateTime _lastRealSampleAt   = DateTime.UtcNow;
     private DateTime _lastMetricsTickUtc = DateTime.UtcNow;
     private bool _prevMaskActiveForIntercept;
@@ -745,12 +739,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // Display Comfort (LuxController) removed at v0.11 (UI Consolidation
     // Sprint Phase 4) — feature decommissioned. See CHANGELOG.md.
 
-    private ISensingProvider ProviderFor(SensingMode mode) => mode switch
-    {
-        SensingMode.Demo => _mockSensing,
-        SensingMode.Wgc  => _wgcSensing,
-        _                => _cursorSensing,
-    };
+    // D-9 (2026-06-11): WGC is the sole sensing source. With Demo/Cursor retired the
+    // mode-keyed dispatch collapses to the one provider; kept as a method (rather than
+    // inlining _wgcSensing everywhere) so the SetSensingMode wiring reads unchanged.
+    private ISensingProvider ProviderFor(SensingMode mode) => _wgcSensing;
 
     public MainViewModel()
     {
@@ -919,23 +911,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
 
         // Fires every 300 ms to keep the LeakyIntegrator decaying when no real samples arrive.
-        // Demo mode: push 0 (idle) or current slider value (active).
-        // Real modes (Cursor/WGC): push OFI=0 so pressure decays if the provider stops unexpectedly.
+        // D-9: WGC is the sole source — if no sample has arrived in the last 600 ms the
+        // provider has stalled, so step the engine with OFI=0 to decay pressure rather than
+        // freezing.
         _idleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _idleTimer.Tick += (_, _) =>
         {
-            if (AppConfig.UseMockSensing)
-            {
-                bool idle = (DateTime.UtcNow - _lastDemoInputAtUtc).TotalMilliseconds >= 300;
-                _mockSensing.Push(idle ? 0.0 : _opticalFlowIndex);
-            }
-            else if (!AppConfig.UseMockSensing)
-            {
-                // If no sample has arrived in the last 600 ms the real provider has stalled;
-                // step the engine with OFI=0 so pressure decays rather than freezing.
-                if ((DateTime.UtcNow - _lastRealSampleAt).TotalMilliseconds > 600)
-                    UpdateFromState(_engine.Update(0, Mode, DateTime.UtcNow));
-            }
+            if ((DateTime.UtcNow - _lastRealSampleAt).TotalMilliseconds > 600)
+                UpdateFromState(_engine.Update(0, Mode, DateTime.UtcNow));
         };
         _idleTimer.Start();
 
@@ -1046,8 +1029,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Switch to the given sensing provider, unsubscribing the previous
     /// one and subscribing the new one. Idempotent: setting the current mode is
     /// a no-op. On failure, the previous provider is restored. Centralised so the
-    /// various sensing-mode callers share the same sub/unsub logic. (The demo
-    /// video flow that also used this was removed 2026-06-08.)</summary>
+    /// sensing-mode callers share the same sub/unsub logic. D-9: with Demo/Cursor
+    /// retired the only target is Wgc, but the sub/unsub plumbing is kept intact so
+    /// SetSensingModeToWgc's resume-protection path reads unchanged.</summary>
     private void SetSensingMode(SensingMode target, string logPrefix)
     {
         if (AppConfig.Mode == target) return;
@@ -1080,12 +1064,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private static string ModeLabel(SensingMode mode) => mode switch
-    {
-        SensingMode.Demo => "DEMO MODE",
-        SensingMode.Wgc  => "SCREEN CAPTURE",
-        _                => "CURSOR VELOCITY",
-    };
+    // D-9 (2026-06-11): WGC is the sole sensing source — the DEMO/CURSOR labels were
+    // retired with their providers. The badge that read this is already gone (removed
+    // per the 2026-06-09 UI audit); the property is retained but constant.
+    private static string ModeLabel(SensingMode mode) => "SCREEN CAPTURE";
 
     // ?? Bindable state ??????????????????????????????????????????????????????
 
@@ -1104,15 +1086,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private double _opticalFlowIndex;
     public double OpticalFlowIndex
     {
+        // D-9 (2026-06-11): the Demo slider that pushed into MockSensingProvider was retired.
+        // With WGC the sole source this is now a pure display mirror of the live OFI sample
+        // (written by OnOpticalFlowSampled); setting it no longer feeds the pipeline.
         get => _opticalFlowIndex;
-        set
-        {
-            if (Set(ref _opticalFlowIndex, value) && AppConfig.UseMockSensing)
-            {
-                _lastDemoInputAtUtc = DateTime.UtcNow;
-                _mockSensing.Push(value); // only push from slider when in mock/demo mode
-            }
-        }
+        set => Set(ref _opticalFlowIndex, value);
     }
 
     private double _pressure;
@@ -1121,14 +1099,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _mode = "Passenger";
     public string Mode
     {
+        // D-9 (2026-06-11): the Demo-mode forced re-push (into MockSensingProvider) was
+        // retired with that provider. Under WGC the next ~15 Hz capture tick carries the new
+        // Driver/Passenger mode into the engine, so no synthetic push is needed here.
         get => _mode;
-        set
-        {
-            if (!Set(ref _mode, value)) return;
-            // Force a fresh inference tick so mode impact is immediate in overlay/state.
-            if (AppConfig.UseMockSensing)
-                _mockSensing.Push(_opticalFlowIndex);
-        }
+        set => Set(ref _mode, value);
     }
 
     private int _fovRadiusPercent = SenseDefaults.OuterTransitionRadiusPercent;
@@ -1522,13 +1497,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void OnOpticalFlowSampled(object? sender, OpticalFlowSample sample)
     {
-        // Sync OFI display from real provider (bypasses Push to avoid loop).
-        if (!AppConfig.UseMockSensing)
-        {
-            _lastRealSampleAt = DateTime.UtcNow;
-            _opticalFlowIndex = sample.OpticalFlowIndex;
-            OnPropertyChanged(nameof(OpticalFlowIndex));
-        }
+        // D-9: WGC is the sole source — mirror its OFI straight onto the display field
+        // (assign the backing field directly, not the setter, so this never re-enters the
+        // pipeline) and stamp the freshness clock the idle-timer stall check reads.
+        _lastRealSampleAt = DateTime.UtcNow;
+        _opticalFlowIndex = sample.OpticalFlowIndex;
+        OnPropertyChanged(nameof(OpticalFlowIndex));
 
         SenseState state = _engine.Update(sample.OpticalFlowIndex, Mode, sample.SampledAt);
         UpdateFromState(state);

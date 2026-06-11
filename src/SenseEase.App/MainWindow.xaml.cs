@@ -411,86 +411,60 @@ public partial class MainWindow : Window
             if (!_viewModel.OverlayVisible) _viewModel.OverlayVisible = true;
         };
 
-        // M5 head-tracking sprint: Ctrl+Shift+H triggers the developer
-        // mock head-pose sweep. 20-second deterministic pattern (horizontal
-        // → vertical → circular → center hold). Intentionally independent
-        // of AppConfig.HeadTrackingEnabled — the hotkey is a developer/QA
-        // surface used during G4 UVHS to prove the wiring end-to-end on
-        // machines without a working webcam. Second press while a sweep
-        // is in flight is a no-op (ViewModel.StartMockHeadPoseSweep returns
-        // immediately if _overrideReader is already non-null).
-        PreviewKeyDown += (_, e) =>
+        // DEAD-14 (D-10, 2026-06-11): developer/QA hotkeys are now gated behind
+        // the SENSEEASE_DEV_HOTKEYS env var (same opt-in pattern as
+        // SENSEEASE_WGC_BAR_VALIDATION). Unset (the alpha-tester default) ⇒ the
+        // whole PreviewKeyDown handler is a no-op, so a tester can no longer trip
+        // a fake/simulated fault by fat-fingering Ctrl+Shift+F. Set =1 at launch
+        // to arm the two dev hotkeys below. See docs/DEBUGGING.md for the full
+        // dev-hotkey list + the env var.
+        //
+        // The M5.1-B double-tap-Ctrl escape hatch that used to live here is GONE
+        // — the feature was removed entirely per D-10 (OverlayWindow.TriggerEscapeHatch
+        // deleted, AppConfig.HeadTrackingEscapeHatchEnabled retired). The mask is
+        // never weakened; nothing here lowers FOV opacity any more.
+        if (DevHotkeysEnabled)
         {
-            if (e.Key == Key.H &&
-                (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
-                (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
+            // Ctrl+Shift+H: developer mock head-pose sweep. 20-second deterministic
+            // pattern (horizontal → vertical → circular → center hold). Independent
+            // of AppConfig.HeadTrackingEnabled — used during QA to prove the wiring
+            // end-to-end on machines without a working webcam. Second press while a
+            // sweep is in flight is a no-op (StartMockHeadPoseSweep returns early if
+            // _overrideReader is already non-null).
+            PreviewKeyDown += (_, e) =>
             {
-                _viewModel.StartMockHeadPoseSweep();
-                e.Handled = true;
-                return;
-            }
-
-            // D3 dev/QA visual-verification surface: Ctrl+Shift+F toggles a
-            // FORCED liveness fault so the Faulted bar/tray treatment can be
-            // eyeballed without crashing the GPU. Mirrors the Ctrl+Shift+H mock
-            // sweep — dev-only, independent of the real pipeline (the provider
-            // only raises health on its OWN transitions, so a healthy live
-            // provider won't override this forced state until it's toggled back).
-            if (e.Key == Key.F &&
-                (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
-                (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
-            {
-                _devFaultForced = !_devFaultForced;
-                _viewModel.TestHook_RaiseSensingHealth(!_devFaultForced);
-                SafeLog($"[DevHotkey] Ctrl+Shift+F → forced liveness fault = {_devFaultForced}");
-                e.Handled = true;
-                return;
-            }
-
-            // M5.1-B escape hatch: double-tap Ctrl (no other keys) within
-            // 400 ms triggers OverlayWindow.TriggerEscapeHatch(). Detection
-            // strategy: track Ctrl KeyDown events that arrive cleanly (no
-            // other key being held). On the second clean Ctrl KeyDown
-            // within the window, fire. Reset on any non-Ctrl KeyDown so
-            // chord typing (Ctrl+C, Ctrl+S, etc.) doesn't poison the state.
-            //
-            // M8 escape × vestibular guard (defensive layer): even before
-            // we look at AppConfig.HeadTrackingEscapeHatchEnabled, no-op
-            // entirely for vestibular-diagnosed users. The OverlayWindow
-            // also checks via HasVestibularDiagnosis (set on construction)
-            // — this site is a belt-and-braces second check so a forced-on
-            // AppConfig + JSON edit can't bypass the protection.
-            if (_viewModel.HasVestibularDiagnosis())
-            {
-                _lastCtrlTapUtc = default;
-                return;
-            }
-            bool isCtrl = e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl;
-            if (isCtrl)
-            {
-                // Ignore auto-repeat (held Ctrl spams KeyDown).
-                if (e.IsRepeat) return;
-
-                var now = DateTime.UtcNow;
-                var sinceLast = now - _lastCtrlTapUtc;
-                if (sinceLast.TotalMilliseconds <= 400)
+                if (e.Key == Key.H &&
+                    (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
+                    (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
                 {
-                    // Double-tap. Trigger and reset.
-                    _lastCtrlTapUtc = default;
-                    _overlay?.TriggerEscapeHatch();
+                    _viewModel.StartMockHeadPoseSweep();
+                    SafeLog("[DevHotkey] Ctrl+Shift+H → mock head-pose sweep started");
+                    e.Handled = true;
+                    return;
                 }
-                else
+
+                // Ctrl+Shift+F: dev/QA visual-verification of the Faulted bar/tray
+                // treatment. Toggles a SIMULATED liveness fault so the Faulted
+                // treatment can be eyeballed without crashing the GPU. The
+                // underlying pipeline is untouched (the provider only raises health
+                // on its OWN transitions, so a healthy live provider won't override
+                // this forced state until it's toggled back). Because this is a
+                // SIMULATED fault, the event-log entry below is explicitly labeled
+                // "simulated" so it can never be mistaken for a real sensing fault
+                // in a field report.
+                if (e.Key == Key.F &&
+                    (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
+                    (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift)
                 {
-                    _lastCtrlTapUtc = now;
+                    _devFaultForced = !_devFaultForced;
+                    _viewModel.TestHook_RaiseSensingHealth(!_devFaultForced);
+                    SafeLog($"[DevHotkey] Ctrl+Shift+F → SIMULATED liveness fault = {_devFaultForced}");
+                    LogSimulatedFaultEvent(_devFaultForced);
+                    e.Handled = true;
+                    return;
                 }
-            }
-            else
-            {
-                // Any other key resets the double-tap window so Ctrl+X
-                // doesn't accidentally fire the escape hatch.
-                _lastCtrlTapUtc = default;
-            }
-        };
+            };
+        }
 
         // M4 head-tracking sprint: spawn the Python sidecar if
         // HeadTrackingEnabled is true. Idempotent + flag-off invariant
@@ -610,7 +584,37 @@ public partial class MainWindow : Window
     }
 
     private bool _renderingSubscribed;
-    private DateTime _lastCtrlTapUtc;   // M5.1-B escape-hatch double-tap timestamp
+
+    // DEAD-14 (D-10, 2026-06-11): the dev/QA hotkeys (Ctrl+Shift+H mock head
+    // sweep, Ctrl+Shift+F simulated fault) are armed ONLY when the launch env var
+    // SENSEEASE_DEV_HOTKEYS=1 is set — the same opt-in pattern as the WGC bar
+    // validation harness. Unset (the alpha-tester default) ⇒ neither hotkey is
+    // wired, so a tester can't trip a simulated fault. Read once at construction.
+    private static bool DevHotkeysEnabled =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("SENSEEASE_DEV_HOTKEYS"),
+            "1",
+            StringComparison.Ordinal);
+
+    /// <summary>DEAD-14: surface the Ctrl+Shift+F SIMULATED fault in the dashboard
+    /// event log, explicitly labeled "simulated" so it can never be mistaken for a
+    /// real sensing fault in a field report. Dev-hotkey-only (gated upstream by
+    /// <see cref="DevHotkeysEnabled"/>); inserts straight into the bound EventLog
+    /// collection on the UI thread (PreviewKeyDown is already UI-thread).</summary>
+    private void LogSimulatedFaultEvent(bool faultOn)
+    {
+        _viewModel.EventLog.Insert(0, new SenseEase.Core.Models.EventLogEntry
+        {
+            Category = "DevHotkey",
+            Message  = faultOn
+                ? SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                      "[模擬] 開發者快捷鍵觸發模擬感測中斷（非真實故障）。",
+                      "[Simulated] Dev hotkey raised a simulated sensing fault (not a real fault).")
+                : SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                      "[模擬] 開發者快捷鍵已清除模擬感測中斷。",
+                      "[Simulated] Dev hotkey cleared the simulated sensing fault."),
+        });
+    }
 
     // ── Beta A1 (one-clock motion model) ─────────────────────────────────────
     // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A1.) This pump is the SINGLE clock
@@ -1743,14 +1747,14 @@ public partial class MainWindow : Window
             {
                 _overlay = new OverlayWindow
                 {
-                    // M8 escape × vestibular guard: read-only consumer of
-                    // MainViewModel.HasVestibularDiagnosis. When the user's
-                    // calibration recorded a vestibular diagnosis,
-                    // OverlayWindow.TriggerEscapeHatch no-ops even if the
-                    // AppConfig flag is true. Settings UI also greys out
-                    // the toggle; this is the defensive second layer.
-                    // HabituationEngine + HabituationProfileSnapshot are
-                    // NOT modified — we only consume the existing API.
+                    // Read-only consumer of MainViewModel.HasVestibularDiagnosis.
+                    // D-10 (2026-06-11): the escape hatch this once guarded was
+                    // removed entirely (OverlayWindow.TriggerEscapeHatch deleted),
+                    // so the vestibular force-disable is now vacuous. The lookup is
+                    // still wired as the overlay's read-only vestibular-status seam
+                    // for any future vestibular-sensitive surface. HabituationEngine
+                    // + HabituationProfileSnapshot are NOT modified — we only consume
+                    // the existing API.
                     HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis,
                 };
                 _overlay.Closed += OnOverlayClosed;   // B4: keep VM in sync
