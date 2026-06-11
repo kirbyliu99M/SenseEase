@@ -486,6 +486,103 @@ public class SidecarHeadPoseReaderTests
         reader.Dispose();
     }
 
+    // ── SIDE-06: required-field validation + clamping ───────────────────────
+
+    [Fact]
+    public void TryParseSampleLine_EmptyJsonObject_ReturnsFalse()
+    {
+        // SIDE-06: before this fix, {} deserialized to corner-pinned (0,0) because
+        // the DTO's non-nullable primitives default-initialized. After the fix,
+        // the nullable t_ms/cx/cy fields are null and TryParseSampleLine must
+        // return false.
+        bool ok = SidecarHeadPoseReader.TryParseSampleLine("{}", out HeadPoseSample? s);
+        Assert.False(ok);
+        Assert.Null(s);
+    }
+
+    [Fact]
+    public void TryParseSampleLine_MissingCx_ReturnsFalse()
+    {
+        // SIDE-06: cx is a required field. A document that omits it must be
+        // rejected, not silently treated as cx=0.
+        const string line =
+            "{\"t_ms\":100,\"cy\":0.5,\"luma\":0.2," +
+            "\"face_detected\":true,\"face_present\":1.0}";
+        bool ok = SidecarHeadPoseReader.TryParseSampleLine(line, out HeadPoseSample? s);
+        Assert.False(ok);
+        Assert.Null(s);
+    }
+
+    [Fact]
+    public void TryParseSampleLine_MissingCy_ReturnsFalse()
+    {
+        // SIDE-06: cy is a required field.
+        const string line =
+            "{\"t_ms\":100,\"cx\":0.5,\"luma\":0.2," +
+            "\"face_detected\":true,\"face_present\":1.0}";
+        bool ok = SidecarHeadPoseReader.TryParseSampleLine(line, out HeadPoseSample? s);
+        Assert.False(ok);
+        Assert.Null(s);
+    }
+
+    [Fact]
+    public void TryParseSampleLine_MissingTMs_ReturnsFalse()
+    {
+        // SIDE-06: t_ms is a required field.
+        const string line =
+            "{\"cx\":0.5,\"cy\":0.5,\"luma\":0.2," +
+            "\"face_detected\":true,\"face_present\":1.0}";
+        bool ok = SidecarHeadPoseReader.TryParseSampleLine(line, out HeadPoseSample? s);
+        Assert.False(ok);
+        Assert.Null(s);
+    }
+
+    [Theory]
+    [InlineData(1.5, 0.5, 0.3, 1.0, 0.5, 0.3)]  // cx > 1.0 → clamped to 1.0
+    [InlineData(-0.5, 0.5, 0.3, 0.0, 0.5, 0.3)]  // cx < 0.0 → clamped to 0.0
+    [InlineData(0.5, 2.0, 0.3, 0.5, 1.0, 0.3)]   // cy > 1.0 → clamped to 1.0
+    [InlineData(0.5, -0.1, 0.3, 0.5, 0.0, 0.3)]  // cy < 0.0 → clamped to 0.0
+    [InlineData(0.5, 0.5, 1.8, 0.5, 0.5, 1.0)]   // luma > 1.0 → clamped to 1.0
+    [InlineData(0.5, 0.5, -0.3, 0.5, 0.5, 0.0)]  // luma < 0.0 → clamped to 0.0
+    public void TryParseSampleLine_OutOfRangeValues_AreClamped(
+        double rawCx, double rawCy, double rawLuma,
+        double expectedCx, double expectedCy, double expectedLuma)
+    {
+        // SIDE-06: cx/cy/luma must be clamped to [0,1] so an out-of-range
+        // sidecar cannot drive the FOV mask outside the screen.
+        string line =
+            $"{{\"t_ms\":1,\"cx\":{rawCx.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+            $"\"cy\":{rawCy.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+            $"\"luma\":{rawLuma.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+            $"\"face_detected\":true,\"face_present\":1.0}}";
+
+        bool ok = SidecarHeadPoseReader.TryParseSampleLine(line, out HeadPoseSample? s);
+
+        Assert.True(ok);
+        Assert.NotNull(s);
+        Assert.Equal(expectedCx,   s!.Cx,   5);
+        Assert.Equal(expectedCy,   s.Cy,    5);
+        Assert.Equal(expectedLuma, s.Luma,  5);
+    }
+
+    [Fact]
+    public void TryParseSampleLine_InRangeValues_PassThroughUnchanged()
+    {
+        // SIDE-06: values already in [0,1] must not be perturbed by the clamp.
+        const string line =
+            "{\"t_ms\":500,\"cx\":0.72,\"cy\":0.41,\"luma\":0.55," +
+            "\"face_detected\":true,\"face_present\":1.0}";
+
+        bool ok = SidecarHeadPoseReader.TryParseSampleLine(line, out HeadPoseSample? s);
+
+        Assert.True(ok);
+        Assert.NotNull(s);
+        Assert.Equal(0.72, s!.Cx,   4);
+        Assert.Equal(0.41, s.Cy,    4);
+        Assert.Equal(0.55, s.Luma,  4);
+        Assert.Equal(500L, s.TimestampMs);
+    }
+
     // ── 5) M4 invariant: flag off → DefaultHeadPoseReader, no sidecar ───────
 
     [Fact]

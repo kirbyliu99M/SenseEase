@@ -394,7 +394,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             // Reap the sidecar via the existing Windows JobObject infra so it
             // dies with us even on a hard host crash. Same pattern used for
             // llama-server. Best-effort — failure here is non-fatal.
+            // SIDE-05: log any Win32/ctor failure captured in LastError.
             try { ChildProcessReaper.Adopt(proc); } catch { }
+            if (ChildProcessReaper.LastError is { } reaperErr)
+                _log?.Invoke(reaperErr);
 
             _cts = new CancellationTokenSource();
             CancellationToken ct = _cts.Token;
@@ -984,17 +987,25 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// <summary>Internal DTO mirroring the sidecar's JSON schema with explicit
     /// snake_case attribute mapping. Kept private — consumers use the
     /// derived <see cref="HeadPoseSample"/> record from
-    /// <see cref="SenseEase.Core.Abstractions"/>.</summary>
+    /// <see cref="SenseEase.Core.Abstractions"/>.
+    ///
+    /// <para>SIDE-06: <c>t_ms</c>, <c>cx</c>, and <c>cy</c> are nullable so
+    /// an empty JSON object (<c>{}</c> or any document missing these required
+    /// fields) is detected at parse time rather than silently corner-pinning to
+    /// the (0, 0) default. <see cref="TryParseSampleLine"/> returns false when
+    /// any of these three nulls is observed.</para></summary>
     internal sealed class SidecarFrameDto
     {
+        // SIDE-06: required fields are nullable so missing-field detection
+        // happens in TryParseSampleLine rather than defaulting to 0.
         [JsonPropertyName("t_ms")]
-        public long TMs { get; set; }
+        public long? TMs { get; set; }
 
         [JsonPropertyName("cx")]
-        public double Cx { get; set; }
+        public double? Cx { get; set; }
 
         [JsonPropertyName("cy")]
-        public double Cy { get; set; }
+        public double? Cy { get; set; }
 
         [JsonPropertyName("luma")]
         public double Luma { get; set; }
@@ -1022,7 +1033,13 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// any JSON exception, an empty line, or a line that successfully
     /// deserializes but is missing required fields. This is the unit-testable
     /// seam — tests feed synthetic JSON lines through here without spawning
-    /// a real process.</summary>
+    /// a real process.
+    ///
+    /// <para>SIDE-06: <c>t_ms</c>, <c>cx</c>, and <c>cy</c> are required. An
+    /// empty JSON object (<c>{}</c>) or any document missing any of these three
+    /// fields returns false rather than silently corner-pinning to (0, 0).
+    /// <c>cx</c>, <c>cy</c>, and <c>luma</c> are clamped to [0, 1] so an
+    /// out-of-range sidecar cannot drive the mask outside the screen.</para></summary>
     internal static bool TryParseSampleLine(string line, out HeadPoseSample? sample)
     {
         sample = null;
@@ -1031,11 +1048,21 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         {
             var dto = JsonSerializer.Deserialize<SidecarFrameDto>(line, s_jsonOptions);
             if (dto is null) return false;
+
+            // SIDE-06: reject when any required field is absent.
+            if (dto.TMs is not { } tMs) return false;
+            if (dto.Cx  is not { } cx)  return false;
+            if (dto.Cy  is not { } cy)  return false;
+
+            // SIDE-06: clamp cx/cy/luma to [0, 1] so an out-of-range sidecar
+            // cannot drive the FOV mask outside the screen.
+            static double Clamp01(double v) => v < 0.0 ? 0.0 : v > 1.0 ? 1.0 : v;
+
             sample = new HeadPoseSample(
-                TimestampMs:  dto.TMs,
-                Cx:           dto.Cx,
-                Cy:           dto.Cy,
-                Luma:         dto.Luma,
+                TimestampMs:  tMs,
+                Cx:           Clamp01(cx),
+                Cy:           Clamp01(cy),
+                Luma:         Clamp01(dto.Luma),
                 FaceDetected: dto.FaceDetected,
                 FacePresent:  dto.FacePresent);
             return true;

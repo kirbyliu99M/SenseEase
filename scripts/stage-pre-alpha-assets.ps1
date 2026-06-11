@@ -172,6 +172,24 @@ Write-Host "  copied: Q4_K_M.gguf ($modelSize MB)"
 # samples/ is no longer staged into the dist. (The repo's samples/ holds only
 # dev-fixture JSON with zero src/ references.)
 
+# PKG-08: defensive removal of an empty (or stale) samples/ directory from the
+# staged dist. dotnet publish may emit an empty samples/ placeholder on some SDK
+# versions; the installer's [InstallDelete] covers it on the target machine, but
+# removing it here keeps the dist tree clean and shaves the install size.
+Write-Section "Remove stale/empty samples/ from dist (PKG-08)"
+$samplesDir = Join-Path $Dist "samples"
+if (Test-Path $samplesDir) {
+    $sampleFiles = Get-ChildItem -Path $samplesDir -Recurse -File -ErrorAction SilentlyContinue
+    if ($null -eq $sampleFiles -or @($sampleFiles).Count -eq 0) {
+        Remove-Item $samplesDir -Recurse -Force
+        Write-Host "  removed: samples/ (was empty)"
+    } else {
+        Write-Warning "  samples/ contains $(@($sampleFiles).Count) file(s) — not removing (review contents)"
+    }
+} else {
+    Write-Host "  (samples/ not present — nothing to do)"
+}
+
 # -----------------------------------------------------------------------------
 # 4. Bundle head-tracker PyInstaller sidecar
 # -----------------------------------------------------------------------------

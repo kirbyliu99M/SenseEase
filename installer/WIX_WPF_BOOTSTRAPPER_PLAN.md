@@ -139,9 +139,13 @@ Test matrix: fresh install, upgrade-over-Inno, upgrade-over-WiX, uninstall (keep
 
 ## 9. Phased rollout (de-risk the unknowns first)
 
-- **Phase 0 — Spike (½–1 day):** WiX v5 Burn bundle + a *minimal* WPF BA that installs a 1-file
-  per-user MSi un-elevated, shows a progress bar + Finish. Proves the managed-BA hosting + per-user
-  + no-elevation path before investing in UI. **Highest-risk-first.**
+### Phase 0 — locked decisions (must be resolved before any Burn work begins)
+
+| # | Decision | Options | Recommendation / Notes |
+|---|----------|---------|------------------------|
+| P0-A | **Managed-BA .NET runtime delivery** | (a) **Self-contained BA** — `dotnet publish --self-contained` bundles the .NET runtime inside the BA dll/folder; no runtime prerequisite needed on the target machine. (b) **ExePackage prerequisite** — chain a .NET Desktop Runtime installer before the MSI; BA dll is framework-dependent and expects the runtime to already be present. | **Self-contained (a) is strongly recommended.** The BA must run BEFORE any package in the chain is installed — including any ExePackage that would install the runtime. A framework-dependent BA that tries to load before its runtime ExePackage has run will fail to host. WiX v5 managed-BA hosting supports self-contained publish; validate against v5 docs before coding. |
+| P0-B | **zh-Hant installer language** *(Tier-1 parity item)* | The shipping Inno installer uses a bilingual Chinese/English MsgBox (H25 prompt is already zh-Hant + English). The WPF BA must match the app's zh-Hant toggle. Community reference: the Inno Setup zh-Traditional isl (`ChineseTraditional.isl`, available in the community language pack at https://jrsoftware.org/files/istrans/) gives the correct Inno baseline; the BA's XAML resources must carry a matching `zh-Hant` `ResourceDictionary`. This is Tier-1 — not an afterthought — because test users are zh-Hant speakers and an English-only installer at cutover is a regression. | Must ship before any public alpha that replaces the Inno installer. |
+
 - **Phase 1 — MSI parity:** author the real MSI (harvest the dist tree, shortcuts, registry, data
   preservation, opt-in delete, conditions). Validate against §6 with the Inno build as the oracle.
 - **Phase 2 — WPF UI:** the themed pages (§5), zh/en, light/dark, silent modes.

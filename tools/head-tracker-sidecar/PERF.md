@@ -127,13 +127,15 @@ Decision rule (locked in M2 brief):
 
 **Verdict (2026-05-29): X = 14.988 Hz ≈ 15 Hz target with full latency headroom (p99 = 17.9 % of frame budget). Pure-CPU prototype is USABLE on AMD Ryzen AI 9 HX 370. NPU acceleration in v1.0 becomes a bonus, not a prerequisite. Path B is the right architectural choice. M3/M4 may proceed with confidence.**
 
+**SIDE-08 deviation note (2026-06-11):** Achieved Hz (14.988) is marginally below the 15.000 Hz locked target. The shortfall is entirely explained by 3 dropped frames out of 4501 processed (0.07 %) — the scheduler's resync-to-now guard (SIDE-03) dropped three ticks when the loop stalled for more than 2×TARGET_DT_S. This is expected behaviour, not an inference regression. The drop count is within the statistical noise of a 5-minute webcam soak and the latency headroom (p99 at 17.9 % of frame budget) confirms the hardware is not the bottleneck. Deviation recorded here so it is not silent.
+
 ---
 
 ## Layer 3 — v1.0 NPU inference outlook
 
 Not tested this sprint. The M2 brief explicitly excludes any NPU /
 OpenVINO work — that's Phase 2.5 of the broader project roadmap, which
-the project's hard constraints (`HANDOVER.md`) say is opt-in only.
+the project's hard constraints (`docs/ALPHA_HANDOVER.md`) say is opt-in only.
 
 ### Reasoning, given the available signal
 

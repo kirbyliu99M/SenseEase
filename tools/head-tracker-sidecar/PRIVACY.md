@@ -70,6 +70,24 @@ in shipped builds.
 - Adding any HTTP / socket / IPC channel that transmits face-derived data
   outside the sidecar's stdout JSON schema above.
 
+## Diagnostic mode (--diag) — SEC-12
+
+The sidecar accepts a `--diag` flag intended for developer debugging only.
+When enabled, the sidecar writes **derived pose scalars only** (the same
+`(cx, cy, yaw_deg, pitch_deg, luma, face_detected)` values already present
+in the stdout JSON schema) to a local diagnostic file. It **never** writes
+raw frames, raw landmark coordinates, or any other data not already in the
+allowlist above.
+
+**`--diag` is never passed by the C# host.** The enforcement point is
+`BuildSidecarArgs` in `SidecarHeadPoseReader.cs`, which constructs the
+sidecar's command-line arguments. That method does not include `--diag`
+under any code path. A user or an attacker who manually launches
+`head_tracker.exe --diag` cannot cause the C# host to produce frame or
+landmark data through the IPC channel; the C# side only consumes the
+stdout JSON schema, which is already the allowlist above regardless of any
+sidecar flags.
+
 ## Process-lifecycle guarantee
 
 When the sidecar exits, all face data is gone:

@@ -32,12 +32,16 @@ def _load_module():
 
 
 _HT = _load_module()
-AdaptiveEma2D     = _HT.AdaptiveEma2D
-JumpFilter        = _HT.JumpFilter
-CaptureManager    = _HT.CaptureManager
-WebcamOpenError   = _HT.WebcamOpenError
-resync_next_tick  = _HT.resync_next_tick
-TARGET_DT_S       = _HT.TARGET_DT_S
+AdaptiveEma2D          = _HT.AdaptiveEma2D
+JumpFilter             = _HT.JumpFilter
+CaptureManager         = _HT.CaptureManager
+WebcamOpenError        = _HT.WebcamOpenError
+resync_next_tick       = _HT.resync_next_tick
+TARGET_DT_S            = _HT.TARGET_DT_S
+decompose_yaw_pitch_roll = _HT.decompose_yaw_pitch_roll
+yaw_pitch_to_cxcy      = _HT.yaw_pitch_to_cxcy
+YAW_TO_CX_GAIN         = _HT.YAW_TO_CX_GAIN
+PITCH_TO_CY_GAIN       = _HT.PITCH_TO_CY_GAIN
 
 
 class AdaptiveEma2DAlphaCurveTests(unittest.TestCase):
@@ -646,6 +650,185 @@ class ResyncNextTickSide03Tests(unittest.TestCase):
         next_tick = 100.0
         now = next_tick + 30.0  # 30 s stall (sleep / AV) — way past 2 ticks
         self.assertEqual(resync_next_tick(now, next_tick), now)
+
+
+class SignConventionSide09Tests(unittest.TestCase):
+    """SIDE-09: end-to-end sign-convention tests through decompose_yaw_pitch_roll
+    and yaw_pitch_to_cxcy.
+
+    These signs shipped wrong TWICE historically (M5.1-A UX-iter-1 and -2):
+      - The pitch negation in run() compensates for the raw decomposition
+        returning positive pitch for chin-DOWN (contrary to the docstring's
+        original intent of chin-UP).
+      - The yaw negation was incorrectly added and then removed in M5.1-A v2.
+
+    Tests build synthetic rotation matrices via Rx (pure pitch) and Ry (pure yaw)
+    and assert end-to-end behaviour through the two math functions.
+
+    NOTE: The run() loop applies ``pitch = -pitch`` after decompose_yaw_pitch_roll
+    to convert the raw convention (positive pitch = chin-down) to the downstream
+    convention (positive pitch = chin-up).  These tests assert the POST-NEGATION
+    behaviour that yaw_pitch_to_cxcy receives, i.e. the contract that must hold
+    for the FOV mask to move in the expected direction.
+    """
+
+    @staticmethod
+    def _make_mat4_ry(theta_deg: float) -> "np.ndarray":
+        """Pure Y-axis rotation matrix (yaw) embedded in a 4x4.
+
+        Ry(θ):  [[cos θ,  0, sin θ],
+                 [0,      1, 0    ],
+                 [-sin θ, 0, cos θ]]
+
+        Positive θ → R[0,2] = sin θ > 0 → decompose gives positive yaw.
+        Under --mirror=on (default) positive raw yaw → cx > 0.5 → mask right.
+        """
+        t = math.radians(theta_deg)
+        c, s = math.cos(t), math.sin(t)
+        m = np.eye(4, dtype=np.float64)
+        m[0, 0] = c;  m[0, 2] = s
+        m[2, 0] = -s; m[2, 2] = c
+        return m
+
+    @staticmethod
+    def _make_mat4_rx(phi_deg: float) -> "np.ndarray":
+        """Pure X-axis rotation matrix (pitch) embedded in a 4x4.
+
+        Rx(φ):  [[1,  0,     0    ],
+                 [0,  cos φ, -sin φ],
+                 [0,  sin φ,  cos φ]]
+
+        decompose formula: pitch = atan2(-R[1,2], R[2,2])
+          = atan2(-(-sin φ), cos φ) = atan2(sin φ, cos φ) = φ.
+
+        So raw pitch > 0 when φ > 0.  The run() loop negates pitch, so
+        downstream pitch = -raw.  φ > 0 (chin-down) → downstream pitch < 0.
+        φ < 0 (chin-up) → raw pitch < 0 → downstream pitch > 0.
+        yaw_pitch_to_cxcy: cy = 0.5 - GAIN * downstream_pitch.
+          Chin-up (downstream pitch > 0) → cy decreases. ✓
+        """
+        t = math.radians(phi_deg)
+        c, s = math.cos(t), math.sin(t)
+        m = np.eye(4, dtype=np.float64)
+        m[1, 1] = c;  m[1, 2] = -s
+        m[2, 1] = s;  m[2, 2] = c
+        return m
+
+    # ── Yaw sign: head-right → cx increases ────────────────────────────────
+
+    def test_head_right_yaw_cx_increases(self):
+        """Positive Ry rotation → positive yaw → cx > 0.5 (mask moves right).
+
+        This is the 'head-right => cx increases under the mirror default'
+        contract from SIDE-09.  The mirror flag in run() does NOT negate yaw
+        (M5.1-A v2 removed the negation) so the raw convention is already
+        correct for the mirrored selfie view.
+        """
+        mat = self._make_mat4_ry(15.0)  # 15° yaw-right
+        yaw, raw_pitch, _roll = decompose_yaw_pitch_roll(mat)
+
+        # Decomposition must give positive yaw for a positive Ry rotation.
+        self.assertGreater(yaw, 0.0, "Positive Ry rotation must yield positive yaw")
+        self.assertAlmostEqual(yaw, 15.0, places=6)
+
+        # run() does NOT negate yaw (M5.1-A v2 fix), so yaw_pitch_to_cxcy
+        # receives the raw positive yaw.  cx must exceed 0.5.
+        cx, _cy = yaw_pitch_to_cxcy(yaw, 0.0)
+        self.assertGreater(cx, 0.5,
+            "head-right (positive yaw) must increase cx above 0.5")
+
+    def test_head_left_yaw_cx_decreases(self):
+        """Negative Ry rotation → negative yaw → cx < 0.5 (mask moves left)."""
+        mat = self._make_mat4_ry(-15.0)
+        yaw, _raw_pitch, _roll = decompose_yaw_pitch_roll(mat)
+
+        self.assertLess(yaw, 0.0, "Negative Ry rotation must yield negative yaw")
+
+        cx, _cy = yaw_pitch_to_cxcy(yaw, 0.0)
+        self.assertLess(cx, 0.5,
+            "head-left (negative yaw) must decrease cx below 0.5")
+
+    def test_yaw_zero_cx_is_center(self):
+        """Zero yaw → cx == 0.5 exactly."""
+        mat = self._make_mat4_ry(0.0)
+        yaw, _raw_pitch, _roll = decompose_yaw_pitch_roll(mat)
+        cx, _cy = yaw_pitch_to_cxcy(yaw, 0.0)
+        self.assertAlmostEqual(cx, 0.5, places=9)
+
+    # ── Pitch sign (post-negation): chin-up → cy decreases ─────────────────
+
+    def test_chin_up_cy_decreases(self):
+        """Chin-up corresponds to a negative Rx rotation (φ < 0).
+
+        decompose gives raw_pitch < 0.  run() negates: downstream_pitch > 0.
+        yaw_pitch_to_cxcy: cy = 0.5 - GAIN * positive → cy < 0.5. ✓
+        """
+        # φ = -20° → chin up
+        mat = self._make_mat4_rx(-20.0)
+        _yaw, raw_pitch, _roll = decompose_yaw_pitch_roll(mat)
+
+        # Raw decomposition: pitch ≈ -20°.
+        self.assertAlmostEqual(raw_pitch, -20.0, places=6,
+            msg="Rx(-20°) must decompose to raw_pitch ≈ -20°")
+        self.assertLess(raw_pitch, 0.0,
+            "chin-up (negative Rx) must produce negative raw pitch")
+
+        # Simulate the run() loop negation.
+        downstream_pitch = -raw_pitch  # as in run(): pitch = -pitch
+        self.assertGreater(downstream_pitch, 0.0)
+
+        _cx, cy = yaw_pitch_to_cxcy(0.0, downstream_pitch)
+        self.assertLess(cy, 0.5,
+            "chin-up => cy must decrease below 0.5")
+
+    def test_chin_down_cy_increases(self):
+        """Chin-down corresponds to a positive Rx rotation (φ > 0).
+
+        decompose gives raw_pitch > 0.  run() negates: downstream_pitch < 0.
+        yaw_pitch_to_cxcy: cy = 0.5 - GAIN * negative → cy > 0.5.
+        (Chin-down pushes the FOV mask downward, cy increases toward 1.)
+        """
+        mat = self._make_mat4_rx(20.0)
+        _yaw, raw_pitch, _roll = decompose_yaw_pitch_roll(mat)
+
+        self.assertAlmostEqual(raw_pitch, 20.0, places=6,
+            msg="Rx(+20°) must decompose to raw_pitch ≈ +20°")
+        self.assertGreater(raw_pitch, 0.0,
+            "chin-down (positive Rx) must produce positive raw pitch")
+
+        downstream_pitch = -raw_pitch
+        self.assertLess(downstream_pitch, 0.0)
+
+        _cx, cy = yaw_pitch_to_cxcy(0.0, downstream_pitch)
+        self.assertGreater(cy, 0.5,
+            "chin-down => cy must increase above 0.5")
+
+    def test_pitch_zero_cy_is_center(self):
+        """Zero pitch → cy == 0.5 exactly."""
+        mat = self._make_mat4_rx(0.0)
+        _yaw, raw_pitch, _roll = decompose_yaw_pitch_roll(mat)
+        downstream_pitch = -raw_pitch
+        _cx, cy = yaw_pitch_to_cxcy(0.0, downstream_pitch)
+        self.assertAlmostEqual(cy, 0.5, places=9)
+
+    # ── Cross-check: independent yaw+pitch combined ─────────────────────────
+
+    def test_combined_head_right_chin_up(self):
+        """Simultaneous head-right + chin-up: cx > 0.5 AND cy < 0.5."""
+        # Build a combined Ry * Rx rotation (small angles to avoid gimbal).
+        mat_yaw   = self._make_mat4_ry(10.0)
+        mat_pitch = self._make_mat4_rx(-10.0)
+        mat_combined = mat_yaw @ mat_pitch
+
+        yaw, raw_pitch, _roll = decompose_yaw_pitch_roll(mat_combined)
+        downstream_pitch = -raw_pitch
+
+        cx, cy = yaw_pitch_to_cxcy(yaw, downstream_pitch)
+
+        self.assertGreater(cx, 0.5,
+            "head-right component: cx must be above 0.5")
+        self.assertLess(cy, 0.5,
+            "chin-up component: cy must be below 0.5")
 
 
 if __name__ == "__main__":

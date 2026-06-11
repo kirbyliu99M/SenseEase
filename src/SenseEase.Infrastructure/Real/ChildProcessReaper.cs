@@ -18,12 +18,25 @@ internal static class ChildProcessReaper
 {
     private static readonly IntPtr _job;
 
+    /// <summary>SIDE-05: populated when the static constructor or
+    /// <see cref="Adopt"/> encounters a Win32 / exception failure. Null when
+    /// everything succeeded. Callers (currently SidecarHeadPoseReader and
+    /// MistralChatbotService) read this once after their first Adopt call and
+    /// route it to their own diag sinks so the failure is surfaced without
+    /// making the reaper fatal.</summary>
+    internal static string? LastError { get; private set; }
+
     static ChildProcessReaper()
     {
         try
         {
             _job = CreateJobObject(IntPtr.Zero, null);
-            if (_job == IntPtr.Zero) return;
+            if (_job == IntPtr.Zero)
+            {
+                int err = Marshal.GetLastWin32Error();
+                LastError = $"[ChildProcessReaper] CreateJobObject failed (Win32 error {err}). Job-object reaping disabled.";
+                return;
+            }
 
             var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
             {
@@ -37,20 +50,46 @@ internal static class ChildProcessReaper
             try
             {
                 Marshal.StructureToPtr(info, p, false);
-                SetInformationJobObject(_job, JobObjectExtendedLimitInformation, p, (uint)len);
+                bool ok = SetInformationJobObject(_job, JobObjectExtendedLimitInformation, p, (uint)len);
+                if (!ok)
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    LastError = $"[ChildProcessReaper] SetInformationJobObject failed (Win32 error {err}). KILL_ON_JOB_CLOSE limit may not be set.";
+                }
             }
             finally { Marshal.FreeHGlobal(p); }
         }
-        catch { _job = IntPtr.Zero; }
+        catch (Exception ex)
+        {
+            _job = IntPtr.Zero;
+            LastError = $"[ChildProcessReaper] Static constructor threw {ex.GetType().Name}: {ex.Message}. Job-object reaping disabled.";
+        }
     }
 
     /// <summary>Attach the given process to the reaper job. Best-effort: on
     /// failure (older Windows, security context, etc.) the child just isn't
-    /// reaped and we fall back to normal Dispose-time Kill.</summary>
+    /// reaped and we fall back to normal Dispose-time Kill.
+    ///
+    /// <para>SIDE-05: on Win32 failure, appends a diagnostic to
+    /// <see cref="LastError"/> (overwriting any prior ctor message). The caller
+    /// should check <see cref="LastError"/> once after this call and log it via
+    /// its own diag sink — the reaper itself has no log sink.</para></summary>
     public static void Adopt(System.Diagnostics.Process child)
     {
         if (_job == IntPtr.Zero || child is null) return;
-        try { AssignProcessToJobObject(_job, child.Handle); } catch { }
+        try
+        {
+            bool ok = AssignProcessToJobObject(_job, child.Handle);
+            if (!ok)
+            {
+                int err = Marshal.GetLastWin32Error();
+                LastError = $"[ChildProcessReaper] AssignProcessToJobObject failed for pid={child.Id} (Win32 error {err}). Child will not be auto-reaped.";
+            }
+        }
+        catch (Exception ex)
+        {
+            LastError = $"[ChildProcessReaper] AssignProcessToJobObject threw {ex.GetType().Name}: {ex.Message}. Child will not be auto-reaped.";
+        }
     }
 
     // ── Win32 P/Invoke ──────────────────────────────────────────────────────

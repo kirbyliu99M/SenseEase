@@ -116,6 +116,36 @@ Name: "{autoprograms}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 ; skipifsilent -- don't auto-launch during /SILENT or /VERYSILENT installs (CI / scripted)
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
+[InstallDelete]
+; PKG-05: forward hygiene — converge historical payload shapes on uninstall/upgrade.
+; These entries are APPEND-ONLY across releases; never remove a row that existed in
+; a prior release (we cannot know what shape an older install left on disk).
+;
+; All entries use Type: filesandordirs so the directive is a safe no-op when the
+; path is absent (either this release never wrote it, or a prior release already
+; cleaned it up). Inno Setup silently skips missing paths.
+;
+; --- ISA / GPU backend variant directories (shipped in older builds; Vulkan-only
+;     from v0.10 onward — avx/avx2/avx512/noavx/cuda12 are pure dead weight) ---
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\cuda12"
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\avx"
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\avx2"
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\avx512"
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\noavx"
+;
+; --- Dropped llama-cli tool executables (never launched at runtime; stage script
+;     already trims them from the dist tree, but older installs may still have them) ---
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\vulkan\llama-cli.exe"
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\vulkan\llama-bench.exe"
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\vulkan\llama-quantize.exe"
+;
+; --- RPC backend DLL (distributed/remote ggml only; never used in the local server) ---
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\vulkan\ggml-rpc.dll"
+;
+; --- Samples directory (demo-video staging removed 2026-06-08; older installs may
+;     have a stale samples\ tree from pre-v0.10 builds) ---
+Type: filesandordirs; Name: "{app}\samples"
+
 [UninstallDelete]
 ; INTENTIONALLY EMPTY.
 ; The uninstaller removes only files/folders that Setup itself created under {app}.

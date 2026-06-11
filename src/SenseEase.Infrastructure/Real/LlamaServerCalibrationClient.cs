@@ -36,8 +36,12 @@ internal static class LlamaSessionKey
 // ─────────────────────────────────────────────────────────────────────────────
 // Production ICalibrationLlmClient — posts to the running llama-server's
 // OpenAI-compatible /v1/chat/completions on http://127.0.0.1:8181. Mirrors
-// MistralChatbotService's HTTP pattern (private HttpClient with a long
-// timeout, JSON deserialization, choices[0].message.content extraction).
+// MistralChatbotService's HTTP pattern exactly (SEC-07 / H34 hardening):
+//   - Timeout 60 s (down from 5 min) so a wedged server can't hang UM4 analysis.
+//   - MaxResponseContentBufferSize 512 KiB — chat completions are <<256 tokens;
+//     a response that large indicates a misbehaving server, not a real reply.
+//   - JsonDocumentOptions MaxDepth 16 — bounds JSON parse recursion so a
+//     malformed deeply-nested 200 body can't blow the stack.
 //
 // Does NOT spawn a server — only talks to one MistralChatbotService already
 // brought up. When the server isn't running, calls return null and the
@@ -50,7 +54,17 @@ internal static class LlamaSessionKey
 
 public sealed class LlamaServerCalibrationClient : ICalibrationLlmClient, IDisposable
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
+    // H34 (SEC-07): cap the response buffer (512 KiB — chat completions are
+    // <<256 tokens) and drop the timeout to 60 s so a wedged server can't
+    // stall the UM4 retrospective analyzer. Mirrors MistralChatbotService exactly.
+    private readonly HttpClient _http = new()
+    {
+        Timeout = TimeSpan.FromSeconds(60),
+        MaxResponseContentBufferSize = 512 * 1024,
+    };
+    // H34 (SEC-07): bound JSON parse recursion — the OpenAI envelope is only a
+    // few levels deep; MaxDepth 16 matches MistralChatbotService._jsonDocOpts.
+    private static readonly JsonDocumentOptions _jsonDocOpts = new() { MaxDepth = 16 };
     private const int ServerPort = 8181;
     private string ServerUrl => $"http://127.0.0.1:{ServerPort}";
 
@@ -125,7 +139,7 @@ public sealed class LlamaServerCalibrationClient : ICalibrationLlmClient, IDispo
             if (!resp.IsSuccessStatusCode) return null;
 
             string respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(respBody);
+            using var doc = JsonDocument.Parse(respBody, _jsonDocOpts);
             if (doc.RootElement.TryGetProperty("choices", out var choices)
                 && choices.GetArrayLength() > 0
                 && choices[0].TryGetProperty("message", out var msg)

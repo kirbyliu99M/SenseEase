@@ -5,11 +5,15 @@
 # Build:
 #   .\.venv\Scripts\pyinstaller.exe head_tracker.spec --noconfirm --clean
 #
-# Output:
+# Output (PyInstaller 6 --onedir layout):
 #   tools/head-tracker-sidecar/dist/head_tracker/
 #     head_tracker.exe              (~1 MB bootstrap)
-#     face_landmarker.task          (~4 MB — sibling of the exe so resolve_model_path() finds it)
-#     _internal/                    (~220 MB — Python runtime + mediapipe + cv2 + numpy)
+#     face_landmarker.task          (~4 MB — bundled by this spec via B1a PKG-06;
+#                                    also accepted exe-adjacent for user-replaceable
+#                                    model swaps via _pyi_rthook_face_model.py)
+#     _internal/                    (~220 MB — Python runtime + mediapipe + cv2 + numpy;
+#                                    NOTE: PyInstaller 6 places all runtime data here,
+#                                    NOT exe-adjacent as in older versions)
 
 import os
 from PyInstaller.utils.hooks import collect_all
