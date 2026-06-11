@@ -573,6 +573,66 @@ public partial class SettingsContent : UserControl
     /// host-wired action; no-op if unwired (the card is hidden in that case).</summary>
     private void OnOpenEventLogClicked(object sender, RoutedEventArgs e) => OpenEventLog?.Invoke();
 
+    /// <summary>D-15 (2026-06-11): wires the existing
+    /// <see cref="UserPreferences.ResetToDefaults"/> to a Settings action behind a
+    /// ThemedDialog confirm that plainly enumerates everything that resets — theme,
+    /// language, the notification / background toggles, and the saved HUD-card position
+    /// — and nothing else. (D-14 deleted the old VestibularWarningShown flag, so the
+    /// copy must NOT mention it; the live vestibular state is unaffected.)
+    /// <para>This is DISTINCT from <see cref="OnClearAllDataClicked"/>: that clears
+    /// DATA, this resets PREFERENCES. Q4.5-safe — <c>ResetToDefaults</c> rewrites only
+    /// the preferences file and never opens the habituation store, so the earned offset
+    /// and graded-exposure progress survive.</para>
+    /// <para>After the reset, the theme and language are re-applied to the live session
+    /// immediately (ResetToDefaults fires <see cref="UserPreferences.Changed"/> which
+    /// re-hydrates the visible toggles via <see cref="OnPreferencesChangedExternally"/>,
+    /// but window chrome theme + the {loc:T} language bindings are driven by their own
+    /// managers, so those two are nudged explicitly here).</para></summary>
+    private void OnResetPreferencesClicked(object sender, RoutedEventArgs e)
+    {
+        if (!ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "確定要重設偏好設定嗎？\n\n" +
+                    "將還原成預設值：外觀（自動）、語言（繁體中文）、通知與背景開關，以及通知卡片的位置。\n" +
+                    "不會刪除你的資料，也不會影響漸進適應進度。\n\n此動作無法復原。",
+                    "Reset preferences?\n\n" +
+                    "Will restore to defaults: appearance (Auto), language (Traditional Chinese), " +
+                    "the notification & background toggles, and the notification-card position.\n" +
+                    "This does not delete your data and does not affect graded-exposure progress.\n\n" +
+                    "This cannot be undone.")))
+            return;
+
+        // Rewrite the preferences file back to defaults (public + static; fires
+        // UserPreferences.Changed → our OnPreferencesChangedExternally re-hydrates
+        // the visible toggles/radios). Q4.5-safe: touches only the prefs file.
+        UserPreferences.ResetToDefaults();
+
+        // Theme + language are applied by their own managers, not by the toggle
+        // re-hydration (which runs under _wiring and so does NOT call SetMode /
+        // set LocalizationManager.Language). Apply the reset values explicitly so
+        // the live window chrome + every {loc:T} binding reflect the reset at once.
+        ThemeManager.SetMode((ThemeManager.ThemeMode)UserPreferences.Current.ThemeMode);
+        LocalizationManager.Current.Language =
+            LocalizationManager.Parse(UserPreferences.Current.LanguageModeRaw);
+
+        // Belt-and-braces re-hydration of THIS surface's controls (the Changed
+        // event already did this for every subscribed surface; calling it here too
+        // is idempotent under _wiring and keeps the reset deterministic even if a
+        // future change reorders the event plumbing).
+        RefreshFromPreferences();
+
+        // Let the host repaint dependent surfaces (bar / tray) for the reset toggles.
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+
+        ThemedDialog.Notify(
+            Window.GetWindow(this),
+            LocalizationManager.Current.Pick(
+                "偏好設定已重設為預設值。",
+                "Preferences have been reset to defaults."),
+            DialogKind.Info);
+    }
+
     private void OnClearAllDataClicked(object sender, RoutedEventArgs e)
     {
         // UX-09 + FEAT-13 (H24 intent = a COMPLETE clear): the confirm dialog now

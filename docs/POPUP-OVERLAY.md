@@ -67,7 +67,7 @@ PersistentBarWindow  TrayIconService           NotificationCardWindow
                                        ▲
                                        │
                             UserPreferences.Current
-                            (toggles A/B, vestibular flag,
+                            (toggles A/B,
                              use_new_bar_overlay)
 ```
 
@@ -134,21 +134,16 @@ Notes:
 
 ---
 
-## 5 · Vestibular safety warning
+## 5 · Vestibular safety (live flow)
 
-Single-warning dialog that fires once when the user attempts to turn
-Toggle B (colour-on) OFF AND their calibration profile records a
-vestibular diagnosis (Q5 `VestibularDiagnosed` risk factor).
-
-- Dialog wording is bilingual-ready (currently zh-only — see Section 9
-  for i18n TODO list)
-- **Whichever the user picks**, `VestibularWarningShown` is persisted
-  TRUE so the second OFF attempt doesn't re-nag (no-nagging principle)
-- **Cancel reverts the checkbox** but still persists the warning-shown
-  flag (warning was visually shown; the rule fires regardless of choice)
-- `UserPreferences.ResetToDefaults()` ALSO clears
-  `VestibularWarningShown` — a reset user is functionally a new install
-  and should be re-warned
+> **D-14 (2026-06-11):** the original "Toggle-B single-warning dialog" text
+> here described a flow that never existed in code — the `VestibularWarningShown`
+> flag it referenced was a dead persisted field (no production reader/writer) and
+> has been deleted. The live vestibular path is `VestibularPromptAnswered`
+> (the one-time first-use prompt that replaced the cancelled calibration Q5)
+> plus the profile-store fields `VestibularProtectionEnabled` / `MedicalAdvisoryShown`.
+> See the Settings vestibular "regret" toggle (auto-profiling world) in
+> `SettingsContent.xaml.cs`.
 
 ---
 
@@ -243,7 +238,6 @@ env-var-gated `MaybeStartWgcValidation`) is removable.
   - `TrayIconService.cs` (status / show-bar-toggle / settings / quit)
   - `SettingsWindow.xaml` (toggle labels + descriptions)
   - `NotificationCardWindow.cs` `SetContent` (title/body per tier)
-  - `SettingsWindow.xaml.cs` vestibular warning text
 - **Win11 taskbar overflow**: tray icon may land in the overflow flyout
   by default (shell policy). We do NOT auto-promote (would be a shell-
   policy violation). Onboarding documentation should suggest users

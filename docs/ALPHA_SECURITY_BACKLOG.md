@@ -588,6 +588,12 @@
 
 ### H45 — VestibularWarningShown in user-preferences.json allows single-edit safety-prompt bypass
 
+> **CLOSED AS MOOT (2026-06-11, D-14):** `VestibularWarningShown` was a dead persisted
+> field — the Toggle-B warning dialog it gated never existed in code; the live vestibular
+> flow is `VestibularPromptAnswered` + the profile-store `VestibularProtectionEnabled` /
+> `MedicalAdvisoryShown` fields. The field was deleted (D-14) and the escape hatch it
+> related to was removed entirely (D-10), so there is nothing left to migrate or bypass.
+
 **Threat:** Investigator's "no settings.json" claim was wrong — `UserPreferences.cs` reads/writes `%LocalAppData%\SenseEase\user-preferences.json`. Field `VestibularWarningShown` (line 82) is a single-warning flag: once true, subsequent Toggle B → OFF never re-prompts. Attacker writes `"vestibular_warning_shown": true` to suppress the warning without it ever firing.
 **Where:** `src/SenseEase.App/Configuration/UserPreferences.cs:82,134,153,209-214`
 **Likelihood × blast radius:** moderate × clinical-safety (vestibular user loses warning gate) = **medium**

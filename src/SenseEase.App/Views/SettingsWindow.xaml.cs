@@ -1,6 +1,8 @@
 using System;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
+using SenseEase.App.Localization;
 using SenseEase.App.Theme;
 using SenseEase.Infrastructure.Real;
 
@@ -36,6 +38,20 @@ public partial class SettingsWindow : Window
     public SettingsWindow(Func<bool> hasVestibularDiagnosis)
     {
         InitializeComponent();
+
+        // UX-16 (2026-06-11): the window title was the zh-only literal
+        // "SenseEase 設定". Bind it live to the language singleton — the same
+        // {loc:T} markup-extension contract used everywhere in XAML — so it
+        // shows the matching half and re-picks the instant the user flips
+        // language, no restart. (Done in code-behind because the title lives
+        // on this Window's chrome, which the host owns.)
+        SetBinding(TitleProperty, new Binding(nameof(LocalizationManager.Language))
+        {
+            Source = LocalizationManager.Current,
+            Mode = BindingMode.OneWay,
+            Converter = new SettingsTitleConverter(),
+        });
+
         ContentHost.HasVestibularDiagnosis  = hasVestibularDiagnosis ?? (() => false);
         ContentHost.PreferencesChanged     += (s, e) => PreferencesChanged?.Invoke(this, e);
 
@@ -116,5 +132,22 @@ public partial class SettingsWindow : Window
             return;
         }
         base.OnKeyDown(e);
+    }
+
+    /// <summary>UX-16: picks the localized window-title half for the bound
+    /// <see cref="UILanguage"/>. Mirrors the private PickConverter inside the
+    /// <c>{loc:T}</c> markup extension; declared here because the Title binding
+    /// is set in code-behind (the title is host-owned Window chrome).</summary>
+    private sealed class SettingsTitleConverter : System.Windows.Data.IValueConverter
+    {
+        public object Convert(object? value, Type targetType, object? parameter,
+            System.Globalization.CultureInfo culture)
+            => value is UILanguage lang && lang == UILanguage.English
+                ? "SenseEase Settings"
+                : "SenseEase 設定";
+
+        public object ConvertBack(object? value, Type targetType, object? parameter,
+            System.Globalization.CultureInfo culture)
+            => Binding.DoNothing;
     }
 }

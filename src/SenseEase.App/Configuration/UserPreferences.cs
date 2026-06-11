@@ -54,13 +54,9 @@ public enum AppThemeMode
 ///   <item><see cref="AutoExpandNotifications"/> = <c>false</c> — Toggle A.
 ///         Active intervention (auto-expand cards) requires explicit user
 ///         opt-in. Passive signal (bar/tray colour) is the default.</item>
-///   <item><see cref="BarTrayColorEnabled"/> = <c>false</c> — Toggle B.
-///         Default OFF as of the v0.8 hotfix (the colour-changing bar read as
-///         disruptive ambient noise); the bar/tray stay grey until the user
-///         opts in. See the property doc on <see cref="BarTrayColorEnabled"/>.</item>
-///   <item><see cref="VestibularWarningShown"/> = <c>false</c> — set once
-///         when the user accepts the vestibular safety dialog (single-warning
-///         rule per spec §4 safety floor).</item>
+///   <item>Toggle B (bar/tray tier colour) was RETIRED per D-10 (2026-06-11)
+///         along with its <c>bar_tray_color_enabled</c> field — the bar/tray
+///         band signal is now always the calm non-colour treatment.</item>
 /// </list>
 /// </summary>
 public sealed class UserPreferences
@@ -95,23 +91,18 @@ public sealed class UserPreferences
     [JsonPropertyName("auto_expand_notifications")]
     public bool AutoExpandNotifications { get; set; } = false;
 
-    /// <summary>Toggle B — bar + tray icon reflect tier with 3-band colour.
-    /// Default <c>false</c> as of v0.8 hotfix: user feedback was that the
-    /// colour-changing bar reads as disruptive ambient noise. Stays grey
-    /// out-of-the-box; user can opt in via Settings → Toggle B if they
-    /// want the tier signal. Existing UserPreferences.json files keep
-    /// their stored value (no migration); only first-launch / wiped
-    /// installs see the new default.</summary>
-    [JsonPropertyName("bar_tray_color_enabled")]
-    public bool BarTrayColorEnabled { get; set; } = false;
+    // D-10 (2026-06-11): BarTrayColorEnabled (Toggle B) deleted — the flag's
+    // consumers (TrayIconService accent path, PersistentBarWindow colour path)
+    // were retired with it. Old prefs files carrying "bar_tray_color_enabled"
+    // load cleanly (unmapped members are ignored) and the key drops on next Save.
 
-    /// <summary>Single-warning flag for the vestibular safety dialog. Set
-    /// to <c>true</c> after the user has been shown the "you have a
-    /// vestibular diagnosis, are you sure you want to silence colour
-    /// signal?" dialog at least once. Subsequent Toggle B → OFF transitions
-    /// do NOT re-prompt (no-nagging principle per spec §4).</summary>
-    [JsonPropertyName("vestibular_warning_shown")]
-    public bool VestibularWarningShown { get; set; } = false;
+    // D-14 (2026-06-11): VestibularWarningShown deleted — it was a dead persisted
+    // field (the Toggle-B vestibular warning dialog it gated never existed in code;
+    // the live vestibular flow is VestibularPromptAnswered below + the profile-store
+    // VestibularProtectionEnabled / MedicalAdvisoryShown fields). Old prefs files that
+    // still carry "vestibular_warning_shown" load cleanly — System.Text.Json ignores
+    // unmapped members by default — and the key drops off on the next Save. Backlog
+    // H45 closes as moot for this field.
 
     /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
     /// "asked once" flag for the one-time vestibular first-use prompt that REPLACES the
@@ -161,9 +152,8 @@ public sealed class UserPreferences
     // truth read by MainViewModel / OverlayWindow at runtime). The
     // HeadTrackingEnabled flag is "startup-bound" because the sidecar reader
     // factory + LightSensorProvider bind once at MainViewModel construction;
-    // the FollowMode + EscapeHatchEnabled flags are runtime-changeable
-    // because OverlayWindow reads them per frame in ApplyHeadPoseToBrush /
-    // TriggerEscapeHatch.
+    // the FollowMode flag is runtime-changeable because OverlayWindow reads
+    // it per frame in ApplyHeadPoseToBrush.
 
     /// <summary>M8: master opt-in for head-tracking. Default <c>false</c>
     /// (privacy + stability — see docs/HEAD-TRACKING-PRIVACY.md §1). When
@@ -185,15 +175,11 @@ public sealed class UserPreferences
     [JsonPropertyName("head_tracking_follow_mode")]
     public string HeadTrackingFollowMode { get; set; } = "Balanced";
 
-    /// <summary>M8: double-tap-Ctrl temporary-transparency escape hatch.
-    /// Default <c>true</c> matches AppConfig default. Runtime-changeable.
-    /// NOTE: even with this flag <c>true</c>, the escape hatch no-ops for
-    /// users whose habituation profile records a vestibular diagnosis (the
-    /// FOV mask is their VIMS protection; opening a 3-second window of 30 %
-    /// opacity could surface VIMS in high-motion content). See
-    /// OverlayWindow.TriggerEscapeHatch + docs/HEAD-TRACKING-PRIVACY.md §3.4.</summary>
-    [JsonPropertyName("head_tracking_escape_hatch_enabled")]
-    public bool HeadTrackingEscapeHatchEnabled { get; set; } = true;
+    // D-10 (2026-06-11): HeadTrackingEscapeHatchEnabled deleted — the double-tap-
+    // Ctrl escape-hatch feature was removed entirely (OverlayWindow.TriggerEscapeHatch
+    // and the MainWindow chord detection are gone; the mask is never weakened).
+    // Old prefs files carrying "head_tracking_escape_hatch_enabled" load cleanly
+    // (unmapped members are ignored) and the key drops on next Save.
 
     // ── Graded-exposure (habituation) opt-in (D-1, 2026-06-11) ──────────────
 
@@ -371,11 +357,19 @@ public sealed class UserPreferences
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>Resets all preferences back to defaults and persists. The
-    /// <see cref="VestibularWarningShown"/> flag is INTENTIONALLY also
-    /// cleared so a fresh "reset" leaves the user in the same state as a
-    /// new install (subsequent Toggle B → OFF will re-prompt the warning,
-    /// which is the right behaviour: reset means "start over").
+    /// <summary>Resets all preferences back to defaults and persists. A fresh
+    /// instance replaces the cached one, so every persisted preference returns
+    /// to its property-initialiser default — theme (Auto), language
+    /// (ChineseTraditional), the notification / background toggles, and the
+    /// saved HUD-card position — leaving the user in the same state as a clean
+    /// install. (D-14, 2026-06-11: the old contract clause about also clearing
+    /// VestibularWarningShown is now vacuous — that field was deleted — so the
+    /// D-15 confirm copy enumerates only the surviving preferences.)
+    ///
+    /// <para>Q4.5-safe by construction: this touches ONLY the preferences file.
+    /// The earned habituation offset lives in habituation.json / the profile
+    /// store, which this method never opens — a preferences reset is distinct
+    /// from the "Clear all my data" path.</para>
     ///
     /// <para>Public + static so the chatbot can call this from intent
     /// handlers without reaching past a service layer (user requirement
