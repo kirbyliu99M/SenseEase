@@ -388,6 +388,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         Current.HabituationLevel  = _habituation.HabituationLevel;
         Current.HabituationPaused = _habituation.IsPaused;
         Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+        Current.UserFovOffsetPp  = _userFovOffset; // honest display signal — mirror beside the compose
 
         // Seed the persistence trackers to "no change since now". If the
         // snapshot file was absent at startup, MaybePersistProfileSnapshot will
@@ -474,6 +475,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
             // Pressure-driven clear-zone radius + chatbot feedback offset + habituation relaxation.
             Current.FovRadiusPercent  = ComposeFovRadius(pressure);
+            Current.UserFovOffsetPp   = _userFovOffset; // honest display signal — mirror beside the compose
             Current.HabituationLevel  = _habituation.HabituationLevel;
             Current.HabituationPaused = _habituation.IsPaused;
 
@@ -575,6 +577,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // Refresh immediately so the dashboard/overlay reflect the change even
             // when the sensing loop is stopped (no Update() tick will arrive).
             Current.FovRadiusPercent  = ComposeFovRadius(Current.Pressure);
+            Current.UserFovOffsetPp   = _userFovOffset; // honest display signal — mirror beside the compose
             Current.HabituationLevel  = _habituation.HabituationLevel;
             Current.HabituationPaused = _habituation.IsPaused;
             PersistHabituation();
@@ -641,6 +644,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // overlay re-renders without waiting for the next Update() tick.
             Current.Shader           = _shader;
             Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+            Current.UserFovOffsetPp  = _userFovOffset; // honest display signal — mirror beside the compose
         }
     }
 
@@ -661,6 +665,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // Q4.5: deliberately NO _habituation.Reset / ResetTransientState / _offset
             // zeroing here — the earned habituation offset (weeks of progress) survives.
             Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+            Current.UserFovOffsetPp  = _userFovOffset; // honest display signal — mirror beside the compose (back to 0 here)
         }
     }
 
@@ -685,6 +690,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
             _vimsTier = 1;
             _pendingTierCandidate = 1;
             _pendingTierSinceUtc  = DateTime.MinValue;
+            // Refresh the composed radius + mirror the (now-zeroed) offset so the dashboard
+            // reflects the reset immediately, without waiting for the next Update() tick —
+            // mirror beside the compose (single source = _userFovOffset, now 0).
+            Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+            Current.UserFovOffsetPp  = _userFovOffset;
         }
     }
 
@@ -934,6 +944,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             _pendingTierSinceUtc  = DateTime.MinValue;
             Current.VimsTier      = _vimsTier;
             Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+            Current.UserFovOffsetPp  = _userFovOffset; // honest display signal — mirror beside the compose
 
             // Apply the active set's FOV floor (set0 ⇒ 15, a no-op vs today).
             LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
@@ -1120,6 +1131,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // radius.
         Current.VimsTier = _vimsTier;
         Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+        Current.UserFovOffsetPp  = _userFovOffset; // honest display signal — mirror beside the compose
         LevelParams lp = SetGrid.Curve(_activeSet).ForLevel(_vimsTier);
         Current.FovRadiusPercent = Math.Max(Current.FovRadiusPercent, lp.FovFloorPercent);
         // Alpha-2 (selector→renderer): the NEW set's mask depth reaches the overlay
@@ -1573,6 +1585,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 _profileSnapshotDirty = true;
                 Current.HabituationLevel = _habituation.HabituationLevel;
                 Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+                Current.UserFovOffsetPp  = _userFovOffset; // honest display signal — mirror beside the compose
                 MaybePersistProfileSnapshot();
             }
             return applied;

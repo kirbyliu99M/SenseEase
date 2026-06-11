@@ -38,6 +38,18 @@ public class SenseState
     /// <summary>Inner clear-zone radius of the Chang-Hain FOV mask, in percent.</summary>
     public int FovRadiusPercent { get; set; }
 
+    /// <summary>Forward-only DISPLAY signal: the engine's accumulated chatbot FOV
+    /// personalization in percentage-points, replayed from the user's adjustment log
+    /// (<c>_userFovOffset</c> in <c>MockInferenceEngine</c>). Always &lt;= 0 — a tighten-only
+    /// knob (the user asking for "more clarity / smaller clear zone" via chatbot feedback).
+    /// It is ONE of the three contributors the engine sums into <see cref="FovRadiusPercent"/>
+    /// (natural pressure + this user offset + habituation relaxation), and is mirrored here so
+    /// the dashboard can HONESTLY explain why the resting clear-zone reads lower than the
+    /// natural baseline. Display-only; the engine NEVER reads it as input. Default 0 (no
+    /// personalization) ⇒ byte-identical to pre-existing behaviour; populated beside every
+    /// <see cref="FovRadiusPercent"/> assignment.</summary>
+    public int UserFovOffsetPp { get; set; }
+
     /// <summary>True once pressure has crossed the trigger threshold.</summary>
     public bool MaskActive { get; set; }
 

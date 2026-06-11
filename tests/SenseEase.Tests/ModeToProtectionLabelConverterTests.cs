@@ -90,4 +90,66 @@ public class ModeToProtectionLabelConverterTests
         var c = new OverlayVisibilityLabelConverter();
         Assert.Equal(expected, (string)Convert(c, visible, lang));
     }
+
+    // ── Honest FOV-card hint: 清晰區 caption gains （含個人化 −N） on personalization ──────
+
+    [Theory]
+    // offset == 0 ⇒ the plain caption, byte-identical to today, in BOTH languages.
+    [InlineData(0,   UILanguage.English,            "Clear zone")]
+    [InlineData(0,   UILanguage.ChineseTraditional, "清晰區")]
+    // offset < 0 ⇒ the hint with the offset MAGNITUDE and the approved U+2212 minus sign.
+    [InlineData(-28, UILanguage.English,            "Clear zone (personalized −28)")]
+    [InlineData(-28, UILanguage.ChineseTraditional, "清晰區（含個人化 −28）")]
+    [InlineData(-5,  UILanguage.English,            "Clear zone (personalized −5)")]
+    [InlineData(-5,  UILanguage.ChineseTraditional, "清晰區（含個人化 −5）")]
+    public void FovClearZoneCaption_MapsToLocalizedHint(int offset, UILanguage lang, string expected)
+    {
+        var c = new FovClearZoneCaptionConverter();
+        Assert.Equal(expected, (string)Convert(c, offset, lang));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FovClearZoneCaption_Zero_IsExactlyThePlainCaption(bool english)
+    {
+        // The zero case MUST be the bare caption — no parenthetical, no number — so a user
+        // with no personalization sees today's card unchanged.
+        string caption = FovClearZoneCaptionConverter.Localize(0, english);
+        Assert.Equal(english ? "Clear zone" : "清晰區", caption);
+        Assert.DoesNotContain("28", caption);
+        Assert.DoesNotContain("−", caption); // U+2212; no minus sign at all when offset is 0
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FovClearZoneCaption_Negative_ShowsMagnitudeWithMinusSign(bool english)
+    {
+        // Kirby-approved verbatim: 清晰區（含個人化 −28） / Clear zone (personalized −28). The
+        // number is the offset MAGNITUDE (positive 28) with a single approved minus glyph.
+        string caption = FovClearZoneCaptionConverter.Localize(-28, english);
+        Assert.Contains("−28", caption);          // magnitude + U+2212 minus
+        Assert.DoesNotContain("−-28", caption);   // never a doubled sign
+        Assert.DoesNotContain("28%", caption);    // a caption, not a percentage value
+        if (english)
+        {
+            Assert.Equal("Clear zone (personalized −28)", caption);
+            Assert.Contains("personalized", caption);
+        }
+        else
+        {
+            Assert.Equal("清晰區（含個人化 −28）", caption);
+            Assert.Contains("個人化", caption);
+        }
+    }
+
+    [Fact]
+    public void FovClearZoneCaption_PositiveOffset_DefensivelyFallsBackToPlain()
+    {
+        // FOV personalization only tightens (offset <= 0); a positive value should never occur,
+        // but must never produce a "+N" caption — fall back to the plain caption defensively.
+        Assert.Equal("Clear zone", FovClearZoneCaptionConverter.Localize(5, english: true));
+        Assert.Equal("清晰區",      FovClearZoneCaptionConverter.Localize(5, english: false));
+    }
 }

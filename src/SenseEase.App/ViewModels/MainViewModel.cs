@@ -1126,6 +1126,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _displayStressPercent;
     public int DisplayStressPercent { get => _displayStressPercent; private set => Set(ref _displayStressPercent, value); }
 
+    // Honest FOV hint: the engine's accumulated chatbot FOV personalization (pp, <= 0),
+    // mirrored from SenseState so the Advanced FOV card's 清晰區 caption can explain WHY the
+    // resting clear-zone reads below the natural baseline. 0 ⇒ plain caption; < 0 ⇒ caption
+    // gains "（含個人化 −N）" via a MultiBinding converter. Display-only; the engine never reads it.
+    private int _userFovOffsetPp;
+    public int UserFovOffsetPp { get => _userFovOffsetPp; private set => Set(ref _userFovOffsetPp, value); }
+
     // ── D3 liveness / trust contract ─────────────────────────────────────────
     // One liveness scalar, derived in ONE place from existing signals and fanned
     // out to bar/tray/card exactly as VimsTier is. Default Steady-watching keeps
@@ -1532,6 +1539,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HabituationPaused = state.HabituationPaused;
         VimsTier          = state.VimsTier;
         DisplayStressPercent = state.DisplayStressPercent; // P1
+        UserFovOffsetPp      = state.UserFovOffsetPp;       // honest FOV-card hint
         OnPropertyChanged(nameof(CurrentProfile)); // profile-pill active highlight
 
         // D3: MaskActive just updated above — refresh the liveness scalar so

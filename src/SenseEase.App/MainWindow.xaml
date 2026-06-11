@@ -43,6 +43,11 @@
              localized text from the bound bool + language). -->
         <conv:MaskStateLabelConverter          x:Key="MaskStateLabel"/>
         <conv:OverlayVisibilityLabelConverter  x:Key="OverlayVisibilityLabel"/>
+        <!-- Honest FOV-card hint: the 清晰區 caption gains （含個人化 −N） when the user's
+             persisted chatbot FOV personalization (UserFovOffsetPp < 0) is why the resting
+             clear-zone reads below the natural baseline. Offset + Language inputs ⇒ live-flips
+             on language toggle, same MultiBinding pattern as the labels above. -->
+        <conv:FovClearZoneCaptionConverter     x:Key="FovClearZoneCaption"/>
 
         <!-- ── Card ──
              Clean rounded surface (myHP / HP Smart look): Radius.md corner,
@@ -460,7 +465,17 @@
                             <ProgressBar Value="{Binding FovRadiusPercent, Mode=OneWay}" Maximum="100"
                                          Height="4" Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource Accent}"
                                          BorderThickness="0" Margin="0,4,0,0"/>
-                            <TextBlock Text="{loc:T Zh='清晰區', En='Clear zone'}" Style="{StaticResource CardLabel}" Margin="0,2,0,0"/>
+                            <!-- Honest hint: offset == 0 ⇒ plain 清晰區 / Clear zone; offset < 0 ⇒
+                                 清晰區（含個人化 −N） / Clear zone (personalized −N). MultiBinding so
+                                 both languages live-flip (Setter.Value can't hold a {loc:T} binding). -->
+                            <TextBlock Style="{StaticResource CardLabel}" Margin="0,2,0,0">
+                                <TextBlock.Text>
+                                    <MultiBinding Converter="{StaticResource FovClearZoneCaption}">
+                                        <Binding Path="UserFovOffsetPp"/>
+                                        <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
                         </StackPanel>
                     </Border>
 
