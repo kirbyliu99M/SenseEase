@@ -169,6 +169,27 @@ public static class SenseDefaults
     /// 165 Hz perf gate. One line a minute — negligible log volume.</summary>
     public const double OverlayFieldPerfLogIntervalSeconds = 60.0;
 
+    /// <summary>Kirby round-4 ruling (2026-06-11): HALVE the corner-approach field growth
+    /// (放大的範圍砍半). The A2 field normalizes each pixel's radial coordinate by the distance
+    /// to the farthest screen corner FROM THE CURRENT CENTER (the CornerNormR denominator). As
+    /// the One-Euro center approaches an edge/corner that live denominator grows (~2× a full
+    /// linear corner excursion vs. rest), so the clear hole + feather band visibly ENLARGE as
+    /// the head moves out — the "corner-approach zoom" Kirby flagged. (The grid-window radius is
+    /// already frozen at 84d6fd3; this is the FIELD's remaining growth.) The renderer blends the
+    /// live denominator toward the REST denominator by this factor:
+    /// <c>effectiveDenom = restDenom + (liveDenom − restDenom) · damping</c>, where restDenom is
+    /// the farthest-corner distance from the REST center (0.5, 0.5) under the SAME aspect
+    /// correction (a pure function of aspect, computed once per field-size change — never per
+    /// pixel), and liveDenom is today's value from the current center. damping = 0.5 halves the
+    /// growth: at the rest center liveDenom == restDenom so the result is BYTE-IDENTICAL to today
+    /// (no effect when not moving — a STATIC geometry change, never an animated value); at a full
+    /// corner the hole/feather grows by HALF the old amount. This NEVER weakens protection: with
+    /// the center at an extreme, smaller denom ⇒ the farthest screen corner's normalized r is
+    /// LARGER (≥ 1), so that corner saturates the feather to full dim even harder. ROUND-4
+    /// TUNABLE / UVHS-adjustable (1.0 ⇒ today's full growth; 0.0 ⇒ a fully frozen rest-size
+    /// field that ignores the center entirely).</summary>
+    public const double OverlayFieldCornerGrowthDamping = 0.5;
+
     // ── Kirby round-3 overlay-rendering tunables (2026-06-11) ─────────────────
     // ADDITIVE constants for the UVHS round-3 feedback (items 1, 2, 4). They do NOT
     // touch any locked rendered value: VimsLevels and the GridCeiling CURVE stay

@@ -122,6 +122,12 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     // Recompute gate: only redraw when an input moved beyond epsilon (a static
     // screen must cost ~zero). Packs the inputs that change the rendered field.
     private bool   _fieldDirty = true;
+    // Fix 2 (dirty-band): TRUE when a NON-pose input changed (color / peak / feather /
+    // cell-strength / active / size) — those touch EVERY pixel, so the next render must
+    // recompute the WHOLE buffer. A pose-only move (cx/cy/radius) leaves this false and the
+    // renderer recomputes only the union band of the old+new feather annuli (the rows where
+    // the window value actually changed). Set by MarkFieldDirty(); cleared after a full render.
+    private bool   _fieldFullDirty = true;
     private double _lastCx = double.NaN, _lastCy = double.NaN, _lastRadius = double.NaN;
     private double _lastPeak = double.NaN, _lastFeatherStart = double.NaN;
     private int    _lastColorKey = -1;
@@ -650,7 +656,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             || Math.Abs(radius - _fieldRadius) > motionEps)
         {
             _fieldCx = cx; _fieldCy = cy; _fieldRadius = radius;
-            MarkFieldDirty();
+            MarkPoseDirty();   // Fix 2: pose-only move ⇒ dirty-band recompute (not full buffer)
         }
 
         // M5.1-A mirror (one clock): mirror the SAME center/radius onto the grid OpacityMask
@@ -687,11 +693,51 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         double dy = (py - cy);
         double dist = Math.Sqrt(dx * dx + dy * dy);
 
-        double farX = Math.Max(cx, 1.0 - cx) * aspect;
-        double farY = Math.Max(cy, 1.0 - cy);
-        double farDist = Math.Sqrt(farX * farX + farY * farY);
+        double farDist = LiveCornerDenom(cx, cy, aspect);
         if (farDist <= 1e-9) return 0.0;
         return dist / farDist;
+    }
+
+    /// <summary>The raw CornerNormR denominator from the LIVE center: the aspect-corrected
+    /// distance from <paramref name="cx"/>/<paramref name="cy"/> to its farthest corner of the
+    /// [0,1]² screen. This is the value that GROWS as the center approaches an edge/corner
+    /// (≈2× at a full corner vs. rest), enlarging the field's clear hole + feather band — the
+    /// "corner-approach zoom" Kirby's round-4 ruling halves. Depends ONLY on (cx,cy,aspect),
+    /// NOT on the pixel, so the field loop hoists it out (today's per-pixel CornerNormR
+    /// recomputed it 324k×/frame — a hidden per-pixel sqrt). Pure + internal for unit cover.</summary>
+    internal static double LiveCornerDenom(double cx, double cy, double aspect)
+    {
+        double farX = Math.Max(cx, 1.0 - cx) * aspect;
+        double farY = Math.Max(cy, 1.0 - cy);
+        return Math.Sqrt(farX * farX + farY * farY);
+    }
+
+    /// <summary>The CornerNormR denominator from the REST center (0.5, 0.5) under the SAME
+    /// aspect correction — the field size at rest. Pure function of aspect; the renderer
+    /// computes it once per field-size change (NOT per pixel). At a 16:9 screen this is the
+    /// half-diagonal of the aspect-corrected unit square.</summary>
+    internal static double RestCornerDenom(double aspect)
+        => LiveCornerDenom(0.5, 0.5, aspect);
+
+    /// <summary>Kirby round-4 ruling (2026-06-11): the corner-growth-DAMPED CornerNormR
+    /// denominator. Blends the live denominator toward the rest denominator so the field's
+    /// clear hole + feather band grow by only <paramref name="damping"/>× the old amount as the
+    /// center approaches an edge/corner:
+    /// <c>effectiveDenom = restDenom + (liveDenom − restDenom) · damping</c>.
+    /// <list type="bullet">
+    ///   <item>damping = 1.0 ⇒ effectiveDenom == liveDenom (today's full growth, unchanged);</item>
+    ///   <item>damping = 0.5 ⇒ HALF the growth (the round-4 default);</item>
+    ///   <item>at the rest center liveDenom == restDenom ⇒ effectiveDenom == restDenom for
+    ///         ANY damping ⇒ BYTE-IDENTICAL to today (the damping is inert when not moving).</item>
+    /// </list>
+    /// A SMALLER effective denom ⇒ a LARGER normalized r for every pixel ⇒ the farthest screen
+    /// corner saturates the feather to full dim even harder, so protection is never weakened.
+    /// Pure + internal for unit cover.</summary>
+    internal static double EffectiveCornerDenom(double cx, double cy, double aspect, double damping)
+    {
+        double restDenom = RestCornerDenom(aspect);
+        double liveDenom = LiveCornerDenom(cx, cy, aspect);
+        return restDenom + (liveDenom - restDenom) * damping;
     }
 
     /// <summary>Continuous smoothstep falloff, 0 inside <paramref name="featherStart"/>,
@@ -775,6 +821,92 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         return Math.Pow(a01, gamma);
     }
 
+    // ── Fix 2: per-pixel transcendental elimination (Kirby round-4: kill the lag) ─
+    //
+    // ComputeField ran ~324k px/frame at up to 165 Hz single-threaded, calling Math.Pow
+    // TWICE per pixel (GammaShape on the mask term AND the cell-tint term) and Math.Sqrt
+    // once per pixel (inside CornerNormR). At 720×450 that profiled as the dominant cost.
+    // Replace the per-pixel transcendentals with table lookups built ONCE (or rebuilt only
+    // when their parameter changes) + linear interpolation, validated to < 1/512 (half an
+    // 8-bit step) max abs error against the exact math so the rendered field cannot drift
+    // visibly — pinned by GammaLut_MatchesExactMath_WithinHalfAStep / Window LUT tests.
+
+    /// <summary>Gamma LUT resolution. 2048 entries + linear interp over [0,1] keeps the worst
+    /// interpolation error of x^2.2 well under 1/512 across the whole domain (the curvature is
+    /// gentle for gamma=2.2; the near-zero region — where the eye is most sensitive — is the
+    /// steepest and still resolves to &lt; 1/512 at this density).</summary>
+    private const int GammaLutSize = 2048;
+    private static readonly double _gammaLutGamma = SenseDefaults.OverlayFieldGamma;
+    private static readonly float[] _gammaLut = BuildGammaLut(GammaLutSize, _gammaLutGamma);
+
+    /// <summary>Build a <paramref name="size"/>+1-entry gamma LUT: <c>lut[i] = (i/size)^gamma</c>
+    /// over [0,1]. The extra last entry (index == size) lets <see cref="GammaLutLookup"/> index
+    /// the upper bracket without a bounds branch. Built once at class load (gamma is fixed).</summary>
+    internal static float[] BuildGammaLut(int size, double gamma)
+    {
+        var lut = new float[size + 1];
+        for (int i = 0; i <= size; i++)
+            lut[i] = (float)Math.Pow((double)i / size, gamma);
+        return lut;
+    }
+
+    /// <summary>Linear-interpolated gamma LUT lookup, the per-pixel replacement for
+    /// <see cref="GammaShape"/> (Math.Pow). <paramref name="a01"/> is clamped to [0,1]; the
+    /// fractional table position is split into an index + lerp weight. Pure + internal so the
+    /// accuracy test can sweep it against the exact Math.Pow curve.</summary>
+    internal static double GammaLutLookup(double a01)
+    {
+        if (a01 <= 0.0) return 0.0;
+        if (a01 >= 1.0) return 1.0;
+        double pos = a01 * GammaLutSize;
+        int idx = (int)pos;
+        double frac = pos - idx;
+        float lo = _gammaLut[idx];
+        float hi = _gammaLut[idx + 1];
+        return lo + (hi - lo) * frac;
+    }
+
+    /// <summary>Window LUT resolution (indexed by r-SQUARED). The window only changes shape
+    /// across the feather band [featherStart, 0.95]; outside it the value is flat (0 below,
+    /// 1.0 at/above 0.95). Indexing by r² removes the per-pixel sqrt entirely:
+    /// <c>r² = d2 · invDenom²</c>. 2048 entries over r² ∈ [0, 1] resolves the smoothstep ramp
+    /// to &lt; 1/512; r² beyond 1 clamps to the saturated last entry (window == 1.0).</summary>
+    private const int WindowLutSize = 2048;
+    private float[] _windowLut = new float[WindowLutSize + 1];
+    private double _windowLutFeatherStart = double.NaN;   // the featherStart the LUT was built for
+
+    /// <summary>(Re)build the window LUT for the current <paramref name="featherStart"/> (the
+    /// ramp END is pinned at 0.95). Indexed by r² ∈ [0,1]: <c>lut[i] = ResolveFieldAlpha(
+    /// sqrt(i/size), 1.0, featherStart, 0.95)</c> — the shared inverse-feather window at peak 1.0
+    /// (0 in the clean centre, smoothstep up to 1.0 by r=0.95, held at 1.0 to the corner). Only
+    /// rebuilt when featherStart changes (FeatherWidth knob) — NOT per pose move, NOT per pixel.
+    /// Internal so the accuracy test can rebuild + sweep it.</summary>
+    internal static void BuildWindowLut(float[] lut, int size, double featherStart, double featherEnd)
+    {
+        for (int i = 0; i <= size; i++)
+        {
+            double r2 = (double)i / size;
+            double r  = Math.Sqrt(r2);
+            lut[i] = (float)ResolveFieldAlpha(r, 1.0, featherStart, featherEnd);
+        }
+    }
+
+    /// <summary>Linear-interpolated window LUT lookup by r-SQUARED (no per-pixel sqrt).
+    /// r² ≥ 1 clamps to the saturated last entry (the window holds at 1.0 past r=0.95, so the
+    /// far corner — including the post-damping r &gt; 1 corner — reads full window). Pure +
+    /// internal for the accuracy sweep.</summary>
+    internal static double WindowLutLookup(float[] lut, int size, double r2)
+    {
+        if (r2 <= 0.0) return lut[0];
+        if (r2 >= 1.0) return lut[size];
+        double pos = r2 * size;
+        int idx = (int)pos;
+        double frac = pos - idx;
+        float lo = lut[idx];
+        float hi = lut[idx + 1];
+        return lo + (hi - lo) * frac;
+    }
+
     /// <summary>Fold the legacy cell-fill tint UNDER the tier mask dim, both windowed by the
     /// SAME shared radial falloff, and return the composited premultiplied output for ONE
     /// field pixel. <paramref name="window"/> is the shared smoothstep falloff at peak 1.0
@@ -825,6 +957,35 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         return (B, G, R, A);
     }
 
+    /// <summary>Fix 2: the LUT-backed twin of <see cref="ComposeFieldPixel"/> — identical math
+    /// with both <see cref="GammaShape"/> (Math.Pow) calls replaced by the linear-interpolated
+    /// <see cref="GammaLutLookup"/>. This is exactly what the per-pixel hot loop computes (the
+    /// loop inlines these terms). The accuracy test sweeps it against ComposeFieldPixel and pins
+    /// max abs byte error ≤ 1 (the &lt; 1/512 LUT error cannot flip a rounded byte by more than
+    /// one code), so the LUT can never drift the rendered field visibly.</summary>
+    internal static (byte B, byte G, byte R, byte A) ComposeFieldPixelLut(
+        double window, byte maskR, byte maskG, byte maskB, double maskPeak, double cellStrength)
+    {
+        double cellA = GammaLutLookup(Math.Clamp(CellFillAlpha * cellStrength * window, 0.0, 1.0));
+        double maskA = GammaLutLookup(Math.Clamp(window * maskPeak, 0.0, 1.0));
+
+        double inv  = 1.0 - maskA;
+        double outA = maskA + cellA * inv;
+
+        double mR = maskR / 255.0, mG = maskG / 255.0, mB = maskB / 255.0;
+        double cR = CellFillR / 255.0, cG = CellFillG / 255.0, cB = CellFillB / 255.0;
+
+        double pmR = mR * maskA + cR * cellA * inv;
+        double pmG = mG * maskA + cG * cellA * inv;
+        double pmB = mB * maskA + cB * cellA * inv;
+
+        byte B = (byte)Math.Round(Math.Clamp(pmB, 0.0, 1.0) * 255.0);
+        byte G = (byte)Math.Round(Math.Clamp(pmG, 0.0, 1.0) * 255.0);
+        byte R = (byte)Math.Round(Math.Clamp(pmR, 0.0, 1.0) * 255.0);
+        byte A = (byte)Math.Round(Math.Clamp(outA, 0.0, 1.0) * 255.0);
+        return (B, G, R, A);
+    }
+
     // ── WriteableBitmap field renderer ───────────────────────────────────────
 
     /// <summary>(Re)allocate the reduced-res field bitmap when the screen size changes.
@@ -855,29 +1016,67 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         MarkFieldDirty();
     }
 
-    private void MarkFieldDirty() => _fieldDirty = true;
+    /// <summary>Mark the WHOLE field for recompute (a non-pose input changed: color / peak /
+    /// feather / cell-strength / active / size — these touch every pixel). The next render
+    /// recomputes the entire buffer.</summary>
+    private void MarkFieldDirty() { _fieldDirty = true; _fieldFullDirty = true; }
+
+    /// <summary>Fix 2 (dirty-band): mark ONLY the pose as moved (cx/cy/radius). The next render
+    /// may recompute just the union band of the old+new feather annuli instead of the whole
+    /// buffer. If a full recompute is already pending (_fieldFullDirty) this is a no-op upgrade.</summary>
+    private void MarkPoseDirty() => _fieldDirty = true;
 
     /// <summary>Recompute + present the field ONLY when an input moved beyond epsilon (a
     /// static screen costs ~zero). Times the recompute for the live perf gate and flushes
-    /// rolling avg/p99 stats to wgc_diag once a minute while the overlay is active.</summary>
+    /// rolling avg/p99 stats to wgc_diag once a minute while the overlay is active.
+    ///
+    /// <para>Fix 2 (Kirby round-4, kill the lag): when ONLY the pose moved (no color / peak /
+    /// feather / cell-strength / active / size change), only the union band of rows touched by
+    /// the old AND new feather discs is recomputed (the rest of the buffer is identical — inside
+    /// the clean centre window=0 and deep in the saturated periphery window=1.0, neither of which
+    /// depends on the exact pose). Any non-pose change forces a full recompute (_fieldFullDirty).</para></summary>
     private void RenderFieldIfDirty()
     {
         if (_fieldBmp is null || _fieldBuf is null) return;
 
-        bool inputsMoved = _fieldDirty
-            || double.IsNaN(_lastCx)
+        bool poseMoved = double.IsNaN(_lastCx)
             || Math.Abs(_fieldCx - _lastCx) > FieldEpsilon
             || Math.Abs(_fieldCy - _lastCy) > FieldEpsilon
-            || Math.Abs(_fieldRadius - _lastRadius) > FieldEpsilon
-            || _lastFieldActive != _maskActive;
+            || Math.Abs(_fieldRadius - _lastRadius) > FieldEpsilon;
+        bool inputsMoved = _fieldDirty || poseMoved || _lastFieldActive != _maskActive;
 
         if (!inputsMoved) return;
 
+        EnsureWindowLut();   // rebuild the r²-indexed window LUT iff featherStart changed
+
         long startTicks = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        ComputeField();
-        _fieldBmp.WritePixels(
-            new Int32Rect(0, 0, _fieldW, _fieldH), _fieldBuf, _fieldW * 4, 0);
+        // Full recompute when a non-pose input changed (touches every pixel), the mask
+        // active-state flipped, or on the very first render; otherwise a pose-only move
+        // recomputes just the dirty band. (The active flip already implies _fieldFullDirty via
+        // ResolveMaskParams; included here explicitly so the band path can NEVER miss it.)
+        bool full = _fieldFullDirty || double.IsNaN(_lastCx) || _lastFieldActive != _maskActive;
+        int y0, y1;
+        if (full)
+        {
+            y0 = 0; y1 = _fieldH;
+            ComputeFieldRows(0, _fieldH);
+        }
+        else
+        {
+            (y0, y1) = DirtyBandRows(_lastCx, _lastCy, _fieldCx, _fieldCy);
+            if (y1 > y0) ComputeFieldRows(y0, y1);
+        }
+
+        // Upload only the rows that changed. WritePixels takes the source buffer + a source
+        // rect; pointing it at the band sub-rect skips re-uploading the static rows.
+        if (y1 > y0)
+        {
+            int rowBytes = _fieldW * 4;
+            _fieldBmp.WritePixels(
+                new Int32Rect(0, y0, _fieldW, y1 - y0),
+                _fieldBuf, rowBytes, /*offset*/ y0 * rowBytes);
+        }
         _totalRecomputes++;   // Kirby round-3 (item 4.5): monotonic recompute/WritePixels count
 
         long endTicks = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -887,6 +1086,48 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         _lastCx = _fieldCx; _lastCy = _fieldCy; _lastRadius = _fieldRadius;
         _lastFieldActive = _maskActive;
         _fieldDirty = false;
+        _fieldFullDirty = false;
+    }
+
+    /// <summary>(Re)build the r²-indexed window LUT iff <see cref="_featherStart"/> changed since
+    /// the last build (the window shape depends ONLY on featherStart + the pinned 0.95 end — not
+    /// on pose, color, peak or cell-strength). So this is a no-op on every pose-driven frame.</summary>
+    private void EnsureWindowLut()
+    {
+        if (_windowLutFeatherStart == _featherStart) return;
+        BuildWindowLut(_windowLut, WindowLutSize, _featherStart, 0.95);
+        _windowLutFeatherStart = _featherStart;
+    }
+
+    /// <summary>Fix 2 (dirty-band): the union row range [y0, y1) of the feather discs at the OLD
+    /// and NEW pose — a conservative superset of every row whose pixel could have changed. Rows
+    /// outside it are entirely inside the clean centre (window 0) or entirely in the saturated
+    /// periphery (window 1.0) for BOTH poses, so their pixels are pose-invariant. The vertical
+    /// half-extent of the <c>r ≤ featherEnd</c> disc is <c>featherEnd · effectiveDenom</c> in
+    /// normalized-py units (py / dy are NOT aspect-scaled), padded by one row for the half-texel
+    /// sample offset + interpolation slack.</summary>
+    private (int y0, int y1) DirtyBandRows(double oldCx, double oldCy, double newCx, double newCy)
+    {
+        int h = _fieldH;
+        double aspect = (double)_fieldW / h;
+        double damping = SenseDefaults.OverlayFieldCornerGrowthDamping;
+        const double featherEnd = 0.95;
+
+        double oldDenom = EffectiveCornerDenom(oldCx, oldCy, aspect, damping);
+        double newDenom = EffectiveCornerDenom(newCx, newCy, aspect, damping);
+        double oldReach = featherEnd * oldDenom;   // vertical half-extent at old pose (py units)
+        double newReach = featherEnd * newDenom;
+
+        double topN    = Math.Min(oldCy - oldReach, newCy - newReach);
+        double bottomN = Math.Max(oldCy + oldReach, newCy + newReach);
+
+        // Normalized [0,1] → pixel rows; pad 1 row each side for the half-texel sample centre.
+        int y0 = (int)Math.Floor(topN * h) - 1;
+        int y1 = (int)Math.Ceiling(bottomN * h) + 1;
+        if (y0 < 0) y0 = 0;
+        if (y1 > h) y1 = h;
+        if (y1 < y0) y1 = y0;
+        return (y0, y1);
     }
 
     /// <summary>Fill <see cref="_fieldBuf"/> with the single per-pixel LOW-FREQUENCY field:
@@ -905,39 +1146,64 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// feather window); the centre is CLEAN (window ≈ 0 ⇒ fully transparent). The window
     /// geometry is identical to the grid's OpacityMask so the field dim and the grid reveal
     /// align with no seam.</para></summary>
-    private void ComputeField()
+    /// <summary>Fix 2 (Kirby round-4): fill rows [<paramref name="yStart"/>, <paramref name="yEnd"/>)
+    /// of <see cref="_fieldBuf"/>. The full render passes [0, h); the dirty-band path passes only
+    /// the changed rows. Every per-pixel transcendental is gone:
+    /// <list type="bullet">
+    ///   <item>the per-pixel <c>Math.Sqrt</c> inside CornerNormR is removed — the damped
+    ///         denominator is computed ONCE for the frame and the window is looked up by
+    ///         <c>r² = d2 · invDenom²</c> (the r²-indexed window LUT);</item>
+    ///   <item>both per-pixel <c>Math.Pow</c> gamma calls are replaced by the gamma LUT
+    ///         (linear-interpolated, &lt; 1/512 error — see ComposeFieldPixelLut);</item>
+    ///   <item>the row loop is a <c>Parallel.For</c> — rows write disjoint buffer slices, no
+    ///         synchronization. Loop-invariant locals are captured once outside.</item>
+    /// </list>
+    /// Fix 1 (corner-growth damping) is applied via <see cref="EffectiveCornerDenom"/>: the
+    /// denominator is blended toward the rest-center denominator so the hole/feather grows by
+    /// only OverlayFieldCornerGrowthDamping× the old amount. At rest the live and rest denoms are
+    /// equal ⇒ byte-identical to today.</summary>
+    private void ComputeFieldRows(int yStart, int yEnd)
     {
         int w = _fieldW, h = _fieldH;
         double aspect = (double)w / h;
         double cx = _fieldCx, cy = _fieldCy;
         double peak = _maskPeakAlpha;
-        double featherStart = _featherStart;
-        const double featherEnd = 0.95;
-        double gamma = SenseDefaults.OverlayFieldGamma;
         double cellStrength = _cellStrength;
         var buf = _fieldBuf!;
+        var winLut = _windowLut;
+        const int winSize = WindowLutSize;
 
         byte mr = _maskR, mg = _maskG, mb = _maskB;
 
-        for (int y = 0; y < h; y++)
+        // Fix 1: the corner-growth-damped denominator — computed ONCE per frame (depends only on
+        // center + aspect, never on the pixel). 1/denom² lets the inner loop turn d2 into r²
+        // with a single multiply (no per-pixel sqrt). A degenerate denom (≈0 only at a 1×1
+        // field) falls back to a large FINITE multiplier ⇒ window saturates everywhere without a
+        // 0×∞ NaN (safe: full dim in the periphery, never weaker — and a 1×1 field never ships).
+        double denom = EffectiveCornerDenom(cx, cy, aspect, SenseDefaults.OverlayFieldCornerGrowthDamping);
+        double invDenomSq = denom > 1e-9 ? 1.0 / (denom * denom) : 1e18;
+
+        System.Threading.Tasks.Parallel.For(yStart, yEnd, y =>
         {
             double py = (y + 0.5) / h;
+            double dy = py - cy;
+            double dy2 = dy * dy;
             int row = y * w * 4;
             for (int x = 0; x < w; x++)
             {
                 double px = (x + 0.5) / w;
-                double r = CornerNormR(px, py, cx, cy, aspect);
+                double dx = (px - cx) * aspect;       // aspect-corrected so the falloff is round
+                double d2 = dx * dx + dy2;            // squared aspect-corrected distance
+                double r2 = d2 * invDenomSq;          // == (dist/denom)² — no per-pixel sqrt
 
-                // The shared radial window (peak 1.0): 0 in the clean centre, ramping to 1.0
-                // in the periphery. The FOV dim is this window scaled by the tier peak; the
-                // cell-fill tint is this same window scaled by its own alpha. Both share
-                // center/radius/feather with the grid's OpacityMask (no seam).
-                double window = ResolveFieldAlpha(r, 1.0, featherStart, featherEnd);
+                // The shared radial window (peak 1.0) by r² lookup: 0 in the clean centre,
+                // smoothstep to 1.0 by r=0.95, held at 1.0 to the corner. r² ≥ 1 saturates.
+                double window = WindowLutLookup(winLut, winSize, r2);
 
-                // Fold the cell-fill tint UNDER the mask dim (reference compositing order),
-                // both windowed by the shared falloff. One output pixel, one alpha. In the
-                // clean centre window≈0 ⇒ both terms 0 ⇒ fully transparent (centre clean).
-                var (oB, oG, oR, oA) = ComposeFieldPixel(window, mr, mg, mb, peak, gamma, cellStrength);
+                // Fold the cell-fill tint UNDER the mask dim (reference compositing order), both
+                // windowed by the shared falloff, gamma via LUT. Clean centre ⇒ window 0 ⇒ fully
+                // transparent. This is exactly ComposeFieldPixelLut, inlined for the hot loop.
+                var (oB, oG, oR, oA) = ComposeFieldPixelLut(window, mr, mg, mb, peak, cellStrength);
 
                 int i = row + x * 4;
                 buf[i + 0] = oB; // B
@@ -945,7 +1211,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
                 buf[i + 2] = oR; // R
                 buf[i + 3] = oA; // A
             }
-        }
+        });
     }
 
     private void RecordRecompute(double ms)
@@ -1002,6 +1268,57 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
     internal int FieldWidthForTests  => _fieldW;
     internal int FieldHeightForTests => _fieldH;
+
+    /// <summary>Fix 2 perf-harness test seam: allocate the field buffer + bitmap at an EXACT
+    /// size (bypassing the screen-derived EnsureFieldBitmap) and seed a renderable mask, so the
+    /// perf harness can time ComputeField at exactly 720×450 regardless of the test machine's
+    /// screen. Also primes the window LUT. Must run on an STA thread (creates a WriteableBitmap).</summary>
+    internal void ConfigureFieldForTests(int w, int h, int tier = 8, double featherWidth = 0.5)
+    {
+        _fieldW = Math.Max(1, w);
+        _fieldH = Math.Max(1, h);
+        _fieldBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
+        _fieldBuf = new byte[_fieldW * _fieldH * 4];
+        FieldImage.Source = _fieldBmp;
+        _lastScreenW = _fieldW; _lastScreenH = _fieldH;
+
+        var (tr, tg, tb, alpha) = VimsLevels[Math.Clamp(tier, 1, 12) - 1];
+        _maskR = tr; _maskG = tg; _maskB = tb;
+        _maskPeakAlpha = alpha;
+        _featherStart = ResolveFeatherStart(featherWidth);
+        _maskActive = true;
+        _cellStrength = 0.5;
+        EnsureWindowLut();
+    }
+
+    /// <summary>Fix 2 perf-harness test seam: drive ONE render at the given center via the real
+    /// RenderFieldIfDirty path (full or dirty-band, exactly as production), returning the elapsed
+    /// milliseconds for the recompute+upload. <paramref name="forceFull"/> marks the whole field
+    /// dirty (a non-pose change); otherwise a pose-only move uses the dirty band.</summary>
+    internal double RenderOnceForTests(double cx, double cy, bool forceFull)
+    {
+        _fieldCx = cx; _fieldCy = cy; _fieldRadius = BrushRadius;
+        if (forceFull) MarkFieldDirty(); else MarkPoseDirty();
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        RenderFieldIfDirty();
+        long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+        return (t1 - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+    }
+
+    /// <summary>Fix 2 dirty-band correctness seam: compute the WHOLE field at the given center
+    /// into a fresh buffer (the full-recompute reference), independent of the dirty-band path.
+    /// Lets the band-vs-full correctness test prove a pose-only band render produces a buffer
+    /// byte-identical to a full render at the same pose.</summary>
+    internal byte[] ComputeFullFieldReferenceForTests(double cx, double cy)
+    {
+        double sCx = _fieldCx, sCy = _fieldCy;
+        _fieldCx = cx; _fieldCy = cy;
+        EnsureWindowLut();
+        ComputeFieldRows(0, _fieldH);
+        var copy = (byte[])_fieldBuf!.Clone();
+        _fieldCx = sCx; _fieldCy = sCy;
+        return copy;
+    }
 
     /// <summary>Kirby round-3 (item 4.5) test seam: monotonic count of field recomputes
     /// (== WriteableBitmap.WritePixels calls) since construction, never reset by the

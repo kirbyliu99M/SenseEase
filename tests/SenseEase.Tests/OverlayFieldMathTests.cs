@@ -347,4 +347,209 @@ public class OverlayFieldMathTests
         for (double a = 0.0; a <= 1.0; a += 0.1)
             Assert.Equal(a, OverlayWindow.GammaShape(a, 1.0), 9);
     }
+
+    // ── FIX 1 (Kirby round-4, 2026-06-11): HALVE the corner-approach growth ─────────
+    //
+    // The field normalizes each pixel's radial coordinate by the distance to the farthest
+    // screen corner FROM THE CURRENT CENTER (the CornerNormR denominator). As the One-Euro
+    // center approaches an edge/corner that denominator GROWS, enlarging the clear hole +
+    // feather band (the "corner-approach zoom"). The renderer now blends the live denominator
+    // toward the REST denominator: effectiveDenom = restDenom + (liveDenom − restDenom)·damping.
+    // These pin: (a) byte-identity at rest (damping inert when liveDenom == restDenom); (b) HALF
+    // the growth at a full corner; (c) protection never weakens (the farthest screen corner's
+    // normalized r still saturates the feather to full dim — r ≥ 1).
+
+    private const double Damp = SenseDefaults.OverlayFieldCornerGrowthDamping;
+
+    [Fact]
+    public void EffectiveCornerDenom_AtRestCenter_EqualsRestDenom_ForAnyDamping()
+    {
+        // INVARIANT (a): at the rest center the live denom IS the rest denom, so the blend is a
+        // no-op for ANY damping — the field is byte-identical to today when not moving.
+        foreach (double aspect in new[] { 16.0 / 9.0, 1.0, 21.0 / 9.0 })
+        {
+            double rest = OverlayWindow.RestCornerDenom(aspect);
+            foreach (double d in new[] { 0.0, 0.5, 1.0 })
+                Assert.Equal(rest, OverlayWindow.EffectiveCornerDenom(0.5, 0.5, aspect, d), 12);
+        }
+    }
+
+    [Fact]
+    public void EffectiveCornerDenom_AtRest_FieldIsByteIdenticalToUndampedCornerNormR()
+    {
+        // At rest the damped r equals the original CornerNormR exactly (the field byte-identity
+        // hinges on this): for every sampled pixel, dist/effectiveDenom == dist/liveDenom.
+        double aspect = 16.0 / 9.0;
+        double denom = OverlayWindow.EffectiveCornerDenom(0.5, 0.5, aspect, Damp);
+        for (double px = 0.0; px <= 1.0; px += 0.13)
+            for (double py = 0.0; py <= 1.0; py += 0.13)
+            {
+                double dx = (px - 0.5) * aspect, dy = py - 0.5;
+                double rDamped = Math.Sqrt(dx * dx + dy * dy) / denom;
+                double rOrig   = OverlayWindow.CornerNormR(px, py, 0.5, 0.5, aspect);
+                Assert.Equal(rOrig, rDamped, 12);
+            }
+    }
+
+    [Fact]
+    public void EffectiveCornerDenom_AtFullCorner_GrowsByHalfTheOldGrowth()
+    {
+        // INVARIANT (b): the denominator GROWTH (over rest) at a full-corner center is halved.
+        // FullFollow lets the center reach (1,1). Old growth = liveDenom − restDenom; the
+        // damped effective denom must sit exactly half-way: restDenom + 0.5·(liveDenom−restDenom).
+        double aspect = 16.0 / 9.0;
+        double rest = OverlayWindow.RestCornerDenom(aspect);
+        double live = OverlayWindow.LiveCornerDenom(1.0, 1.0, aspect);
+        double oldGrowth = live - rest;
+        Assert.True(oldGrowth > 0, "the live denom must grow at a full corner");
+
+        double eff = OverlayWindow.EffectiveCornerDenom(1.0, 1.0, aspect, Damp);
+        double newGrowth = eff - rest;
+        // Exactly half the old growth at damping 0.5 (assert the arithmetic directly).
+        Assert.Equal(oldGrowth * Damp, newGrowth, 12);
+        Assert.Equal(oldGrowth * 0.5, newGrowth, 12);
+    }
+
+    [Fact]
+    public void EffectiveCornerDenom_HoleRadius_GrowsByHalf_InScreenUnits()
+    {
+        // The clear-hole edge sits at r == featherStart, i.e. screen radius = featherStart·denom.
+        // Halving the denominator growth halves the hole-radius growth — pin it in screen units.
+        double aspect = 16.0 / 9.0;
+        const double featherStart = 0.35;
+        double restHole = featherStart * OverlayWindow.RestCornerDenom(aspect);
+        double liveHole = featherStart * OverlayWindow.LiveCornerDenom(1.0, 1.0, aspect);
+        double dampHole = featherStart * OverlayWindow.EffectiveCornerDenom(1.0, 1.0, aspect, Damp);
+
+        double oldHoleGrowth  = liveHole - restHole;
+        double dampHoleGrowth = dampHole - restHole;
+        Assert.Equal(oldHoleGrowth * 0.5, dampHoleGrowth, 12);
+    }
+
+    [Fact]
+    public void EffectiveCornerDenom_ProtectionNeverWeakens_FarthestCornerStaysFullyDimmed()
+    {
+        // INVARIANT (c): with the center at an extreme, the FARTHEST screen corner pixel must
+        // still render FULLY dimmed. A smaller (damped) denominator makes that corner's
+        // normalized r LARGER, not smaller — so r ≥ 1 (≥ featherEnd 0.95) and ResolveFieldAlpha
+        // SATURATES to the peak. Damping can only deepen protection, never weaken it.
+        double aspect = 16.0 / 9.0;
+        double cx = 0.9, cy = 0.9;                  // center near a corner
+        double denom = OverlayWindow.EffectiveCornerDenom(cx, cy, aspect, Damp);
+
+        // The farthest screen corner from (0.9,0.9) is (0,0).
+        double dx = (0.0 - cx) * aspect, dy = 0.0 - cy;
+        double rCorner = Math.Sqrt(dx * dx + dy * dy) / denom;
+        Assert.True(rCorner >= 1.0,
+            $"the damped denom must push the farthest corner to r >= 1 (saturated), was {rCorner}");
+
+        // ResolveFieldAlpha saturates for r >= featherEnd: the corner alpha == the peak mask value.
+        const double peak = 0.92, featherStart = 0.35, featherEnd = 0.95;
+        double cornerAlpha = OverlayWindow.ResolveFieldAlpha(rCorner, peak, featherStart, featherEnd);
+        Assert.Equal(peak, cornerAlpha, 12);
+
+        // And the damped corner alpha is >= the UNDAMPED corner alpha (protection only deepens).
+        double liveDenom = OverlayWindow.LiveCornerDenom(cx, cy, aspect);
+        double rCornerUndamped = Math.Sqrt(dx * dx + dy * dy) / liveDenom;
+        double undampedAlpha = OverlayWindow.ResolveFieldAlpha(rCornerUndamped, peak, featherStart, featherEnd);
+        Assert.True(cornerAlpha >= undampedAlpha - 1e-12,
+            $"damping must not weaken corner protection: damped={cornerAlpha}, undamped={undampedAlpha}");
+    }
+
+    [Fact]
+    public void ResolveFieldAlpha_SaturatesForRAboveOne()
+    {
+        // Explicit pin that the feather SATURATES (clamps) for r > 1 — the post-damping
+        // far-corner regime. Anything past featherEnd holds at exactly the peak.
+        const double peak = 0.92;
+        Assert.Equal(peak, OverlayWindow.ResolveFieldAlpha(1.0, peak, 0.35, 0.95), 12);
+        Assert.Equal(peak, OverlayWindow.ResolveFieldAlpha(1.5, peak, 0.35, 0.95), 12);
+        Assert.Equal(peak, OverlayWindow.ResolveFieldAlpha(3.0, peak, 0.35, 0.95), 12);
+    }
+
+    // ── FIX 2 (Kirby round-4): LUT accuracy — < 1/512 (half an 8-bit step) ─────────
+    //
+    // The per-pixel Math.Pow (gamma, ×2/px) and Math.Sqrt (CornerNormR, ×1/px) are replaced by
+    // linear-interpolated table lookups. The LUT must reproduce the exact math within half an
+    // 8-bit step (1/512) across the whole domain so it can NEVER drift the rendered field
+    // visibly. These sweep the LUTs against the exact curves and pin the bound.
+
+    private const double HalfByteStep = 1.0 / 512.0;
+
+    [Fact]
+    public void GammaLut_MatchesExactMath_WithinHalfAStep()
+    {
+        // Sweep the gamma LUT against Math.Pow(a, 2.2) across [0,1] at fine density; the max abs
+        // error must stay under half an 8-bit step (so a rounded byte can differ by at most 1).
+        double maxErr = 0;
+        double worstAt = -1;
+        for (double a = 0.0; a <= 1.0; a += 1.0 / 4096.0)
+        {
+            double exact = OverlayWindow.GammaShape(a, SenseDefaults.OverlayFieldGamma);
+            double lut   = OverlayWindow.GammaLutLookup(a);
+            double err   = Math.Abs(exact - lut);
+            if (err > maxErr) { maxErr = err; worstAt = a; }
+        }
+        Assert.True(maxErr < HalfByteStep,
+            $"gamma LUT max abs error {maxErr:E4} (at a={worstAt:F4}) must be < 1/512 ({HalfByteStep:E4})");
+    }
+
+    [Fact]
+    public void WindowLut_MatchesExactMath_WithinHalfAStep()
+    {
+        // Build the window LUT at the default feather start (0.35→0.95) and sweep it against the
+        // exact ResolveFieldAlpha(sqrt(r²),1,0.35,0.95) across r² ∈ [0,1].
+        const int size = 2048;
+        var lut = new float[size + 1];
+        OverlayWindow.BuildWindowLut(lut, size, 0.35, 0.95);
+
+        double maxErr = 0;
+        double worstAt = -1;
+        for (double r2 = 0.0; r2 <= 1.0; r2 += 1.0 / 4096.0)
+        {
+            double r = Math.Sqrt(r2);
+            double exact = OverlayWindow.ResolveFieldAlpha(r, 1.0, 0.35, 0.95);
+            double lut2  = OverlayWindow.WindowLutLookup(lut, size, r2);
+            double err   = Math.Abs(exact - lut2);
+            if (err > maxErr) { maxErr = err; worstAt = r2; }
+        }
+        Assert.True(maxErr < HalfByteStep,
+            $"window LUT max abs error {maxErr:E4} (at r²={worstAt:F4}) must be < 1/512 ({HalfByteStep:E4})");
+    }
+
+    [Fact]
+    public void WindowLut_SaturatesPastFeatherEnd_ForRSquaredAboveOne()
+    {
+        // r² ≥ 1 (the post-damping far-corner regime) clamps to the saturated last entry (1.0).
+        const int size = 2048;
+        var lut = new float[size + 1];
+        OverlayWindow.BuildWindowLut(lut, size, 0.35, 0.95);
+        Assert.Equal(1.0, OverlayWindow.WindowLutLookup(lut, size, 1.0), 9);
+        Assert.Equal(1.0, OverlayWindow.WindowLutLookup(lut, size, 2.5), 9);
+    }
+
+    [Fact]
+    public void ComposeFieldPixelLut_MatchesExactCompose_WithinOneByte()
+    {
+        // The LUT-backed compose (what the hot loop runs) must reproduce the exact-math
+        // ComposeFieldPixel within ONE byte per channel across a representative grid of
+        // (window, peak, cellStrength, color). The < 1/512 LUT error cannot flip a rounded byte
+        // by more than 1, so the rendered field is visually indistinguishable.
+        double gamma = SenseDefaults.OverlayFieldGamma;
+        (byte, byte, byte)[] colors = { (0, 0, 4), (51, 51, 51), (102, 102, 102), (20, 20, 24) };
+        int maxDiff = 0;
+        foreach (var (mr, mg, mb) in colors)
+            foreach (double window in new[] { 0.0, 0.05, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0 })
+                foreach (double peak in new[] { 0.0, 0.14, 0.5, 0.8, 0.92 })
+                    foreach (double cs in new[] { 0.0, 0.4, 1.0 })
+                    {
+                        var exact = OverlayWindow.ComposeFieldPixel(window, mr, mg, mb, peak, gamma, cs);
+                        var lut   = OverlayWindow.ComposeFieldPixelLut(window, mr, mg, mb, peak, cs);
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.B - lut.B));
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.G - lut.G));
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.R - lut.R));
+                        maxDiff = Math.Max(maxDiff, Math.Abs(exact.A - lut.A));
+                    }
+        Assert.True(maxDiff <= 1, $"LUT compose must be within 1 byte of exact math, max diff was {maxDiff}");
+    }
 }
