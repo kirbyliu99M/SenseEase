@@ -1,3 +1,6 @@
+using SenseEase.Core.Configuration;
+using SenseEase.Core.Models;
+
 namespace SenseEase.Core.AdaptiveFit;
 
 /// <summary>
@@ -33,11 +36,21 @@ namespace SenseEase.Core.AdaptiveFit;
 ///   envelope: higher Band ⇒ deeper mask + tighter FOV floor. PeakMaskAlpha is clamped to
 ///   <c>[0.20 floor .. 0.92 peak]</c>, and <b>L1 is always kept at 0.00</b> (the D6 day-1
 ///   floor — never scaled up).</item>
-///   <item><b>Shape</b> is a provisional response-shape <i>tag</i> only. Per resolved Q4 it
-///   is shader / overlay-render-only and does NOT touch the LeakyIntegrator. In this
-///   foundation it carries NO numeric effect on the curve (it is the grid axis the selector
-///   moves along); a later phase wires the shader mapping.</item>
+///   <item><b>Shape</b> is the RENDER-CHARACTER axis (Kirby ruling 2026-06-11). Per resolved
+///   Q4 it is shader / overlay-render-only and does NOT touch the LeakyIntegrator, Scale,
+///   PeakMaskAlpha or FovFloorPercent (those stay Band-only). It drives TWO render outputs per
+///   set: <c>GridVisibility</c> (the grid baseline strength) AND <c>FeatherWidth</c> (the edge
+///   feather character) — see <see cref="SenseEase.Core.Configuration.SenseDefaults.ShapeGridVisibilityTable"/>
+///   / <c>ShapeFeatherOffsetTable</c>. Shape 2 (the Set0 column) maps to the byte-identical
+///   defaults (gv 0.75, feather 0.50). Both are per-SET baselines: constant across a set's 12
+///   levels and re-seeded only on a set move (nothing jumps mid-set).</item>
 /// </list></para>
+///
+/// <para><b>The 10×5 grid is now genuinely 2D:</b> <b>Band</b> = protection DEPTH (mask alpha /
+/// FOV floor), <b>Shape</b> = render CHARACTER (grid baseline + feather), and within a set
+/// <b>Tier</b> (the 1..12 level) is the within-session ramp. Band and Shape are orthogonal:
+/// two sets differing only in Band share gv/feather; two differing only in Shape share the
+/// mask-alpha/FOV envelope.</para>
 ///
 /// <para>Pure Core — no engine / WPF dependency, fully deterministic, built once at static init.</para>
 /// </summary>
@@ -75,7 +88,10 @@ public static class SetGrid
     /// <summary>set0 FOV floor = tightest-natural floor (SenseDefaults.TightestNaturalFovRadiusPercent).</summary>
     internal const int Set0FovFloorPercent = 15;
 
-    /// <summary>set0 grid visibility = engine default (ShaderParams.DefaultGridVisibility).</summary>
+    /// <summary>set0 grid visibility = engine default (ShaderParams.DefaultGridVisibility).
+    /// This is the Shape-2 (Set0 column) anchor only; the live per-set gv now comes from
+    /// <see cref="SenseEase.Core.Configuration.SenseDefaults.ShapeGridVisibilityTable"/>
+    /// (whose index 2 equals this 0.75). Kept as the documented Set0 invariant.</summary>
     internal const double Set0GridVisibility = 0.75;
 
     /// <summary>Discretizer gain (levelF = 1.0 + 11.0·t), MockInferenceEngine.UpdateVimsTier.
@@ -157,6 +173,22 @@ public static class SetGrid
         // NOTE: bandDelta < 0 (weaker bands) keeps the 15% floor — we never RELAX below
         // the natural floor; weaker bands express via reduced mask alpha, not a wider floor.
 
+        // ── Shape axis = render character (Kirby ruling 2026-06-11) — the FIRST read of
+        // coord.Shape on the curve. Shape drives TWO render-only (Q4) per-SET baselines that
+        // are CONSTANT across all 12 levels of this set (Band still drives alpha / fovFloor
+        // exactly as above; Scale is untouched). Both are re-seeded only on a set move, so
+        // nothing jumps mid-set. The GridCeiling render saturates at gv>=0.75, so the
+        // strongest shapes differentiate via the softer FEATHER edge instead of grid
+        // brightness (see SenseDefaults.Shape* tables). Shape 2 (the Set0 column) maps to
+        // gv 0.75 + feather offset 0.0 ⇒ the byte-identical Set0 anchor (0.75 / 0.50).
+        double gridVisibility = SenseDefaults.ShapeGridVisibilityTable[coord.Shape];
+        // Feather = profile default + the per-Shape offset, CLAMPED into the ShaderParams
+        // [0,1] valid range (mirrors ShaderParams.Clamp); Shape 2's 0.0 offset resolves to
+        // exactly the default (0.50) so Set0 stays parity-exact.
+        double featherWidth = Math.Clamp(
+            ShaderParams.DefaultFeatherWidth + SenseDefaults.ShapeFeatherOffsetTable[coord.Shape],
+            0.0, 1.0);
+
         var levels = new LevelParams[SetCurve.LevelCount];
         for (int i = 0; i < SetCurve.LevelCount; i++)
         {
@@ -187,7 +219,8 @@ public static class SetGrid
                 PeakMaskAlpha: alpha,
                 FovFloorPercent: fovFloor,
                 Scale: DiscretizerScale,        // 12-rung span locked across all sets
-                GridVisibility: Set0GridVisibility);
+                GridVisibility: gridVisibility, // Shape-driven render character (Band-independent)
+                FeatherWidth: featherWidth);    // Shape-driven feather character (Q4 render-only)
         }
 
         return levels;

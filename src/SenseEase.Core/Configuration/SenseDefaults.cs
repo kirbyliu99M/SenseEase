@@ -387,4 +387,43 @@ public static class SenseDefaults
     /// the pop-up; if they never do within this window it decays and the selector is free to
     /// re-evaluate. 24h. In-memory only (never persisted).</summary>
     public const double SetMoveProposalTtlSeconds = 86400; // 24h; unconfirmed system suggestion decays
+
+    // ── Shape-axis render-character wiring (Kirby ruling 2026-06-11) ──────────────
+    // The 50-set grid is now genuinely 2D: Band = protection depth (mask alpha / FOV
+    // floor — UNCHANGED), Tier = the within-session 12-rung ramp (UNCHANGED), and Shape
+    // (0..4) is the RENDER CHARACTER axis — it drives the per-set grid baseline strength
+    // (GridVisibility) AND the per-set feather character (FeatherWidth). Q4 lock: Shape
+    // touches SHADER / render params ONLY — never the LeakyIntegrator decay, never Scale,
+    // never PeakMaskAlpha / FovFloorPercent (those stay Band-only). These are per-SET
+    // baselines (constant across a set's 12 levels, re-seeded on a set move), NOT animated
+    // values — nothing jumps mid-set (Kirby's standing motion principle).
+    //
+    // RATIONALE (baked-in): the GridCeiling formula saturates the rendered grid at
+    // gv >= 0.75, so the three strongest shapes (2,3,4) cannot differentiate via grid
+    // brightness alone — they instead differentiate via the FEATHER edge (D-2 made
+    // FeatherWidth a REAL renderer input: it slides the smoothstep ramp start). So the
+    // five shapes read as: 0/1 = progressively brighter grid at the SAME default edge;
+    // 2 = the Set0 column (gv 0.75, default edge); 3/4 = the saturated grid with a
+    // progressively SOFTER edge. All five are visually distinct. Render-only (Q4).
+    //
+    // ROUND-4 TUNABLE: the five mapped values per axis are round-4 design constants.
+    // Set0 (Shape index 2) is LOCKED byte-identical to today: gv 0.75, feather offset 0.0
+    // ⇒ FeatherWidth resolves to exactly the profile default (0.50). The feather RESULT is
+    // clamped into the ShaderParams [0,1] valid range by the consumer.
+
+    /// <summary>Shape-axis (Kirby 2026-06-11) per-Shape GridVisibility baseline, indexed by
+    /// <c>GridCoord.Shape</c> (0..4). Shape 2 (the Set0 column) is exactly
+    /// <see cref="Models.ShaderParams.DefaultGridVisibility"/> (0.75) so Set0 stays byte-identical.
+    /// Shapes 2..4 share 0.75 because the GridCeiling render saturates at gv>=0.75 — they
+    /// differentiate via <see cref="ShapeFeatherOffsetTable"/> instead. ROUND-4 TUNABLE.</summary>
+    public static readonly double[] ShapeGridVisibilityTable = { 0.35, 0.55, 0.75, 0.75, 0.75 };
+
+    /// <summary>Shape-axis (Kirby 2026-06-11) per-Shape FeatherWidth OFFSET added to the
+    /// profile-default feather, indexed by <c>GridCoord.Shape</c> (0..4). Shape 2 (the Set0
+    /// column) is 0.0 so the resolved feather equals the profile default
+    /// (<see cref="Models.ShaderParams.DefaultFeatherWidth"/> = 0.50) byte-identically. The two
+    /// strongest shapes soften the edge progressively (+0.15, +0.30) since the grid is already
+    /// gv-saturated. The consumer adds the offset to the default and CLAMPS into the
+    /// ShaderParams [0,1] range. ROUND-4 TUNABLE.</summary>
+    public static readonly double[] ShapeFeatherOffsetTable = { 0.00, 0.00, 0.00, 0.15, 0.30 };
 }

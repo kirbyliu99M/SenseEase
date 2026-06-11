@@ -909,6 +909,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // — whitepaper §7.4 / SAFETY-PROVISIONS §8). It still preserves the
             // earned habituation _offset (Q4.5 / C5) and does NOT touch _vimsTier
             // here so the snap below is the single writer of the level.
+
+            // A7 user-authority guard (Shape-axis wiring, Kirby 2026-06-11): capture the
+            // user-owned gv/feather BEFORE the Q5 ResetToDefault wipes them, so an explicit
+            // /grid or /feather choice survives a silent set-change snap (mirrors ApplySetMove).
+            bool   userOwnsShader      = _shaderUserModified;
+            double userGridVisibility  = _shader.GridVisibility;
+            double userFeatherWidth    = _shader.FeatherWidth;
+
             if (cause is LevelChangeCause.SetChangeSnap or LevelChangeCause.FeltIntensitySnap)
             {
                 _userFovOffset = 0;
@@ -934,13 +942,27 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // re-renders the active set's alpha immediately (out-of-tick path). Gated on the
             // flag — OFF ⇒ -1 ⇒ overlay falls back to its static tier alpha (byte-identical).
             Current.MaskPeakAlphaOverride = _adaptiveFitSelectorEnabled ? lp.PeakMaskAlpha : -1.0;
-            // Alpha-2 (selector→renderer): on a snap that reset the shader to default (above),
-            // re-seed the grid baseline from the active set (mirrors ApplySetMove). Gated on the
-            // snap cause so a non-snap SetLevel never overwrites a live chatbot grid adjustment.
-            // The flag is already guaranteed ON here (early-return at the top). set0 ⇒ 0.75
-            // (a no-op today); a future per-set GridVisibility would re-baseline here.
+            // Shape-axis render character (Kirby 2026-06-11): on a snap that reset the shader to
+            // default (above), re-seed BOTH the grid baseline AND the feather character from the
+            // active set (mirrors ApplySetMove — Shape drives both). Gated on the snap cause so a
+            // non-snap SetLevel never overwrites a live chatbot grid/feather adjustment. The flag
+            // is already guaranteed ON here (early-return at the top). Set0 ⇒ gv 0.75 / feather
+            // 0.50 (a no-op today); off-Set0 shapes re-baseline both here. A7 guard: if the user
+            // OWNS the shader, RESTORE their gv/feather instead of the per-set baseline.
             if (cause is LevelChangeCause.SetChangeSnap or LevelChangeCause.FeltIntensitySnap)
-                _shader.GridVisibility = lp.GridVisibility;
+            {
+                if (userOwnsShader)
+                {
+                    _shader.GridVisibility = userGridVisibility;
+                    _shader.FeatherWidth   = userFeatherWidth;
+                    _shaderUserModified    = true;
+                }
+                else
+                {
+                    _shader.GridVisibility = lp.GridVisibility;
+                    _shader.FeatherWidth   = lp.FeatherWidth;
+                }
+            }
         }
     }
 
@@ -1061,6 +1083,18 @@ public sealed class MockInferenceEngine : IInferenceEngine
     {
         _activeSet = target;
 
+        // A7 user-authority guard (Shape-axis wiring, Kirby 2026-06-11): if the user has
+        // EXPLICITLY adjusted the shader knobs (/grid, /feather — _shaderUserModified set by
+        // ApplyShaderAdjustment / SetShaderParam), their gv + feather must SURVIVE this set
+        // move — a silent background move must never clobber a user's render choice (the SAME
+        // contract SetHabituationProfile honours for a profile change). The Q5 ResetToDefault
+        // below wipes ALL knobs, so capture the user-owned gv/feather here and restore them
+        // after the reset INSTEAD of re-seeding the per-set baseline. (MaskDepth is NOT a
+        // Shape-axis output, so it keeps the existing Q5 transient-reset behaviour either way.)
+        bool userOwnsShader      = _shaderUserModified;
+        double userGridVisibility = _shader.GridVisibility;
+        double userFeatherWidth   = _shader.FeatherWidth;
+
         // Q5 first: clear the transient chatbot delta, preserving _offset + pause.
         _userFovOffset = 0;
         _shader.ResetToDefault();
@@ -1091,16 +1125,29 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // Alpha-2 (selector→renderer): the NEW set's mask depth reaches the overlay
         // immediately on a silent move (this runs inside the flag-on selector tick).
         Current.MaskPeakAlphaOverride = lp.PeakMaskAlpha;
-        // Alpha-2 (selector→renderer): re-seed the peripheral-grid baseline from the NEW set's
-        // curve. The Q5 _shader.ResetToDefault() above already reset GridVisibility to the
-        // hardcoded 0.75 default; replacing it with lp.GridVisibility makes the per-set value
-        // the live baseline the chatbot then modulates. GridVisibility is a SHADER param, so it
-        // flows to the overlay via Current.Shader (== _shader) — no separate override field is
-        // needed, unlike mask depth (a tier-table value the overlay reads directly). set0 ⇒
-        // 0.75 == ShaderParams.DefaultGridVisibility (a no-op today); a future per-set
-        // GridVisibility re-baselines the grid on a set move — previously lp.GridVisibility was
-        // resolved into every curve but read nowhere (the second latent drift the audit flagged).
-        _shader.GridVisibility = lp.GridVisibility;
+        // Shape-axis render character (Kirby 2026-06-11): re-seed the peripheral-grid baseline
+        // AND the feather character from the NEW set's curve — Shape drives BOTH per-set render
+        // outputs. The Q5 _shader.ResetToDefault() above reset gv/feather to the hardcoded
+        // defaults; replacing them with lp.GridVisibility / lp.FeatherWidth makes the per-set
+        // values the live baselines the chatbot then modulates. Both are SHADER params, so they
+        // flow to the overlay via Current.Shader (== _shader) — no separate override field is
+        // needed (unlike mask depth, a tier-table value the overlay reads directly). Set0 ⇒
+        // gv 0.75 / feather 0.50 == the ShaderParams defaults (a byte-identical no-op today);
+        // off-Set0 shapes now genuinely re-baseline the grid + feather on a set move.
+        //
+        // A7 guard: if the user OWNS the shader, RESTORE their gv/feather instead of the per-set
+        // baseline (a silent set move must not clobber an explicit /grid or /feather choice).
+        if (userOwnsShader)
+        {
+            _shader.GridVisibility = userGridVisibility;
+            _shader.FeatherWidth   = userFeatherWidth;
+            _shaderUserModified    = true; // ResetToDefault did not clear the flag, but keep the invariant explicit
+        }
+        else
+        {
+            _shader.GridVisibility = lp.GridVisibility;
+            _shader.FeatherWidth   = lp.FeatherWidth;
+        }
     }
 
     /// <summary>Vestibular guard (SPEC item 4): for a user carrying vestibular

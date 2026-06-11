@@ -236,12 +236,13 @@ public class AdaptiveFitWiringTests
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 1c. PER-SET Scale + GridVisibility — the two params the conformance audit found
-    //     "computed but ignored." Now CONSUMED (2026-06-08): the discretizer GAIN reads
-    //     the active set's Scale; the peripheral-grid baseline re-seeds from the active
-    //     set's GridVisibility on a set move (via _shader → Current.Shader). Both are a
-    //     no-op at Set0 (Scale 11.0, GridVisibility 0.75 == the engine defaults), which
-    //     is what these tests pin — the wiring exists and is byte-identical at Set0.
+    // 1c. PER-SET Scale + render character (GridVisibility + FeatherWidth). Scale feeds the
+    //     discretizer GAIN; gv + feather are the Shape-axis render character (Kirby 2026-06-11),
+    //     re-seeded from the active set's curve on a set move (via _shader → Current.Shader).
+    //     All three are a no-op at Set0 (Scale 11.0, gv 0.75, feather 0.50 == the engine
+    //     defaults) — what these tests pin: the wiring exists and is byte-identical at Set0.
+    //     Cross-Shape divergence (gv/feather actually CHANGING on a move) is pinned by
+    //     ShapeAxisWiringTests; here (4,2) is the Set0-column Shape so it stays default.
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -280,7 +281,7 @@ public class AdaptiveFitWiringTests
     }
 
     [Fact]
-    public void FlagOn_AfterSilentSetMove_GridVisibilityBaselineEqualsActiveSetCurve()
+    public void FlagOn_AfterSilentSetMove_GridVisibilityAndFeatherBaselineEqualActiveSetCurve()
     {
         bool original = AppConfig.AdaptiveFitSelectorEnabled;
         try
@@ -303,15 +304,20 @@ public class AdaptiveFitWiringTests
             // One more calm tick to read the post-move state the overlay would see.
             SenseState s = engine.Update(0.0, "Passenger", ClockBase.AddSeconds(DriveTicks * TickSeconds));
 
-            // CONTRACT: after a set move the peripheral-grid baseline equals the NEW set's
-            // GridVisibility (re-seeded from lp.GridVisibility, flowing via Current.Shader).
-            // Today every set carries 0.75, so this also equals the shader default — but if a
-            // future per-set GridVisibility diverged AND the re-seed were dropped, _shader would
-            // hold the hardcoded 0.75 from ResetToDefault and this would fail. That pairing with
-            // EverySet_SharesTheDefaultGridVisibility is the latent-drift guard.
-            double expected = SetGrid.Curve(moved).ForLevel(s.VimsTier).GridVisibility;
-            Assert.Equal(expected, s.Shader.GridVisibility, 6);
-            Assert.Equal(ShaderParams.DefaultGridVisibility, s.Shader.GridVisibility, 6);
+            // CONTRACT: after a set move the peripheral-grid baseline AND the feather character
+            // equal the NEW set's curve (re-seeded from lp.GridVisibility / lp.FeatherWidth,
+            // flowing via Current.Shader). Shape is now the render-character axis (Kirby
+            // 2026-06-11): (4,2) is the Set0-column Shape (2), so the re-seeded values happen to
+            // equal the byte-identical defaults (gv 0.75 / feather 0.50) — but the live assertion
+            // reads them from SetGrid.Curve(moved) so it tracks the actual per-set mapping, not a
+            // hardcoded default. (A cross-Shape move would re-seed DIFFERENT gv/feather; covered
+            // by ShapeAxisWiringTests.)
+            LevelParams movedLp = SetGrid.Curve(moved).ForLevel(s.VimsTier);
+            Assert.Equal(movedLp.GridVisibility, s.Shader.GridVisibility, 6);
+            Assert.Equal(movedLp.FeatherWidth, s.Shader.FeatherWidth, 6);
+            // (4,2) is the Set0-column Shape ⇒ the re-seeded values are the byte-identical defaults.
+            Assert.Equal(ShaderParams.DefaultGridVisibility, s.Shader.GridVisibility, 6); // 0.75
+            Assert.Equal(ShaderParams.DefaultFeatherWidth, s.Shader.FeatherWidth, 6);     // 0.50
         }
         finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
     }

@@ -241,7 +241,8 @@ public class AdaptiveFitGridTests
         {
             Assert.Equal(15, lp.FovFloorPercent);      // tightest-natural FOV floor
             Assert.Equal(11.0, lp.Scale, 6);           // discretizer gain: levelF = 1 + 11·t
-            Assert.Equal(0.75, lp.GridVisibility, 6);  // engine default grid visibility
+            Assert.Equal(0.75, lp.GridVisibility, 6);  // engine default grid visibility (Shape 2)
+            Assert.Equal(0.50, lp.FeatherWidth, 6);    // profile default feather (Shape 2 — Set0 column)
         }
     }
 
@@ -269,16 +270,108 @@ public class AdaptiveFitGridTests
         }
     }
 
+    // SHAPE AXIS = RENDER CHARACTER (Kirby ruling 2026-06-11). Shape drives the per-set
+    // GridVisibility baseline AND the per-set FeatherWidth character. These pins REPLACE the
+    // old EverySet_SharesTheDefaultGridVisibility no-op: gv/feather are no longer uniform —
+    // they vary by Shape ONLY (Band-independent), are CONSTANT across the 12 levels of a set,
+    // and Shape 2 (the Set0 column) is byte-identical to today (gv 0.75 / feather 0.50).
+
+    /// <summary>The Kirby-approved Shape→(gv, feather) mapping, mirrored from
+    /// SenseDefaults.Shape* tables. Index = Shape (0..4).</summary>
+    public static readonly double[] ExpectedShapeGridVisibility = { 0.35, 0.55, 0.75, 0.75, 0.75 };
+    public static readonly double[] ExpectedShapeFeatherWidth =
+    {
+        ShaderParams.DefaultFeatherWidth + 0.00, // Shape 0
+        ShaderParams.DefaultFeatherWidth + 0.00, // Shape 1
+        ShaderParams.DefaultFeatherWidth + 0.00, // Shape 2 — Set0 column == default 0.50
+        ShaderParams.DefaultFeatherWidth + 0.15, // Shape 3 — softer
+        ShaderParams.DefaultFeatherWidth + 0.30, // Shape 4 — softest
+    };
+
     [Fact]
-    public void EverySet_SharesTheDefaultGridVisibility_SoTheReSeedIsANoOpToday()
+    public void EverySet_GridVisibilityAndFeather_MatchTheShapeMapping_ConstantAcrossLevels()
     {
         for (int band = GridCoord.MinBand; band <= GridCoord.MaxBand; band++)
         for (int shape = GridCoord.MinShape; shape <= GridCoord.MaxShape; shape++)
         {
             SetCurve curve = SetGrid.Curve(new GridCoord(band, shape));
             foreach (var lp in curve.Levels)
-                // 0.75 — equals what _shader.ResetToDefault() sets, so seeding it is a no-op.
-                Assert.Equal(ShaderParams.DefaultGridVisibility, lp.GridVisibility, 6);
+            {
+                // gv + feather are the Shape-mapped values, identical for every level (a
+                // per-SET baseline — nothing animates within a set).
+                Assert.Equal(ExpectedShapeGridVisibility[shape], lp.GridVisibility, 6);
+                Assert.Equal(ExpectedShapeFeatherWidth[shape], lp.FeatherWidth, 6);
+            }
+        }
+    }
+
+    [Fact]
+    public void GridVisibilityAndFeather_DependOnShapeOnly_NotBand()
+    {
+        // Two sets differing ONLY in Band (same Shape) share gv + feather exactly — Shape is
+        // the render-character axis; Band is protection depth and must not perturb gv/feather.
+        for (int shape = GridCoord.MinShape; shape <= GridCoord.MaxShape; shape++)
+        {
+            LevelParams a = SetGrid.Curve(new GridCoord(GridCoord.MinBand, shape)).ForLevel(6);
+            LevelParams b = SetGrid.Curve(new GridCoord(GridCoord.MaxBand, shape)).ForLevel(6);
+            Assert.Equal(a.GridVisibility, b.GridVisibility, 6);
+            Assert.Equal(a.FeatherWidth, b.FeatherWidth, 6);
+        }
+
+        // Conversely two sets differing ONLY in Shape (same Band) DIFFER in render character
+        // somewhere across the five shapes (the axis is genuinely live, not inert).
+        var gvs = new System.Collections.Generic.HashSet<double>();
+        var fws = new System.Collections.Generic.HashSet<double>();
+        for (int shape = GridCoord.MinShape; shape <= GridCoord.MaxShape; shape++)
+        {
+            LevelParams lp = SetGrid.Curve(new GridCoord(5, shape)).ForLevel(6);
+            gvs.Add(lp.GridVisibility);
+            fws.Add(lp.FeatherWidth);
+        }
+        Assert.True(gvs.Count > 1, "GridVisibility must vary across the five shapes");
+        Assert.True(fws.Count > 1, "FeatherWidth must vary across the five shapes");
+    }
+
+    [Fact]
+    public void Set0Column_Shape2_IsByteIdenticalDefaults_GvPointSevenFive_FeatherPointFive()
+    {
+        // The Set0 column (Shape 2, every Band) keeps the byte-identical render defaults so the
+        // Set0/flag-off parity tests stay meaningful: gv exactly 0.75, feather exactly 0.50.
+        for (int band = GridCoord.MinBand; band <= GridCoord.MaxBand; band++)
+        {
+            SetCurve curve = SetGrid.Curve(new GridCoord(band, 2));
+            foreach (var lp in curve.Levels)
+            {
+                Assert.Equal(ShaderParams.DefaultGridVisibility, lp.GridVisibility, 6); // 0.75
+                Assert.Equal(ShaderParams.DefaultFeatherWidth, lp.FeatherWidth, 6);     // 0.50
+            }
+        }
+
+        // Set0 itself (Band 5, Shape 2) — the pinned median.
+        LevelParams set0 = SetGrid.Curve(GridCoord.Set0).ForLevel(5);
+        Assert.Equal(0.75, set0.GridVisibility, 6);
+        Assert.Equal(0.50, set0.FeatherWidth, 6);
+    }
+
+    [Fact]
+    public void ShapeAxis_NeverChanges_BandOnlyParams_PeakMaskAlpha_FovFloor_Scale()
+    {
+        // Q4 lock: Shape drives SHADER/render params ONLY. Across all five shapes at a FIXED
+        // band the protection-depth envelope (PeakMaskAlpha, FovFloorPercent, Scale) is
+        // identical level-for-level — Shape must never leak into a Band-only param.
+        const int FixedBand = 7;
+        SetCurve reference = SetGrid.Curve(new GridCoord(FixedBand, 0));
+        for (int shape = GridCoord.MinShape + 1; shape <= GridCoord.MaxShape; shape++)
+        {
+            SetCurve other = SetGrid.Curve(new GridCoord(FixedBand, shape));
+            for (int level = 1; level <= SetCurve.LevelCount; level++)
+            {
+                LevelParams r = reference.ForLevel(level);
+                LevelParams o = other.ForLevel(level);
+                Assert.Equal(r.PeakMaskAlpha, o.PeakMaskAlpha, 6);
+                Assert.Equal(r.FovFloorPercent, o.FovFloorPercent);
+                Assert.Equal(r.Scale, o.Scale, 6);
+            }
         }
     }
 

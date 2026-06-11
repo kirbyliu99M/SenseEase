@@ -1,3 +1,5 @@
+using SenseEase.Core.Models;
+
 namespace SenseEase.Core.AdaptiveFit;
 
 /// <summary>
@@ -24,10 +26,20 @@ namespace SenseEase.Core.AdaptiveFit;
 /// </param>
 /// <param name="GridVisibility">
 /// Peripheral-grid visibility knob in [0,1]. set0 uses the engine default
-/// <b>0.75</b> (<c>ShaderParams.DefaultGridVisibility</c>).
+/// <b>0.75</b> (<c>ShaderParams.DefaultGridVisibility</c>). Driven by the Shape axis
+/// (Kirby 2026-06-11): the per-set grid baseline strength (Band-independent, Q4 render-only).
+/// </param>
+/// <param name="FeatherWidth">
+/// Edge-feather knob in [0,1] — the per-set feather CHARACTER (the second render-character
+/// output of the Shape axis, Kirby 2026-06-11). set0 (Shape 2) uses the profile default
+/// <b>0.50</b> (<c>ShaderParams.DefaultFeatherWidth</c>); the softest shapes raise it. Optional
+/// positional parameter defaulting to the profile default so any pre-existing default-valued
+/// construction stays parity-safe (the only live constructor — <see cref="SetGrid"/> — always
+/// passes it explicitly). Q4 render-only.
 /// </param>
 public readonly record struct LevelParams(
     double PeakMaskAlpha,
     int FovFloorPercent,
     double Scale,
-    double GridVisibility);
+    double GridVisibility,
+    double FeatherWidth = ShaderParams.DefaultFeatherWidth);
