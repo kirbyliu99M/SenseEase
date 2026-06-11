@@ -21,9 +21,9 @@
        Bump these alongside the AppVersion / OutputBaseFilename in
        installer/SenseEase-v0.11.iss every release. -->
   <PropertyGroup>
-    <Version>0.11.3</Version>
-    <FileVersion>0.11.3.0</FileVersion>
-    <InformationalVersion>0.11.3</InformationalVersion>
+    <Version>0.11.4</Version>
+    <FileVersion>0.11.4.0</FileVersion>
+    <InformationalVersion>0.11.4</InformationalVersion>
   </PropertyGroup>
 
 </Project>

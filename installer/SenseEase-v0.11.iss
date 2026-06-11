@@ -27,11 +27,11 @@
 ; =============================================================================
 
 #define MyAppName        "SenseEase"
-#define MyAppVersion     "0.11.3"
-#define MyAppVerName     "SenseEase 0.11.3"
+#define MyAppVersion     "0.11.4"
+#define MyAppVerName     "SenseEase 0.11.4"
 #define MyAppPublisher   "ATCC A02_SenseEase"
 #define MyAppExeName     "SenseEase.App.exe"
-#define MyOutputName     "SenseEase_Setup-Alpha_Test.0609"
+#define MyOutputName     "SenseEase_Setup-Alpha_Test.0611"
 
 ; Repo-relative paths -- the .iss file lives in <repo>\installer\, so go up one.
 #define RepoRoot         SourcePath + ".."
