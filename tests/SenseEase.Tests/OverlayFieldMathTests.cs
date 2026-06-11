@@ -87,15 +87,74 @@ public class OverlayFieldMathTests
     }
 
     [Fact]
-    public void ResolveFieldAlpha_MidBand_MatchesSmoothstep()
+    public void ResolveFieldAlpha_MidBand_MatchesSmootherstep()
     {
-        // Midpoint of the 0.35→0.95 band: t=0.5, s = 0.5²(3-2·0.5) = 0.25·2 = 0.5 ⇒ peak·0.5.
+        // BANDING ROUND-5 (2026-06-11, PLAN-SANCTIONED): the falloff was upgraded from Hermite
+        // smoothstep s(t)=t²(3−2t) to Perlin SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³ (continuous 2nd
+        // derivative ⇒ no Mach-band edge salience — the faint crawling contour lines Kirby
+        // reported at shallow tiers). The plan (BETA_FEATHERING_COHERENCE_PLAN.md §A2) names
+        // smootherstep as the sanctioned optional banding mitigation. These re-pin the band
+        // values to smootherstep; the endpoints + peak output are unchanged.
+
+        // Midpoint of the 0.35→0.95 band: t=0.5, smootherstep(0.5) = 6·0.03125 − 15·0.0625 +
+        // 10·0.125 = 0.1875 − 0.9375 + 1.25 = 0.5 ⇒ peak·0.5 (UNCHANGED at the midpoint — both
+        // curves pass through 0.5 there, so the band centre is byte-identical to smoothstep).
         double mid = 0.35 + (0.95 - 0.35) * 0.5;
         Assert.Equal(0.5 * 0.80, OverlayWindow.ResolveFieldAlpha(mid, 0.80, 0.35, 0.95), 9);
 
-        // The classic smoothstep value at t=0.25: s = 0.0625·(3-0.5)=0.0625·2.5=0.15625.
+        // The smootherstep value at t=0.25: 6·(0.25)⁵ − 15·(0.25)⁴ + 10·(0.25)³ =
+        // 0.005859375 − 0.05859375 + 0.15625 = 0.103515625 (smoothstep gave 0.15625 here —
+        // smootherstep is flatter near the start, the gentler near-clear ramp that softens the
+        // shallow-tier edge).
         double q = 0.35 + (0.95 - 0.35) * 0.25;
-        Assert.Equal(0.15625 * 0.80, OverlayWindow.ResolveFieldAlpha(q, 0.80, 0.35, 0.95), 9);
+        Assert.Equal(0.103515625 * 0.80, OverlayWindow.ResolveFieldAlpha(q, 0.80, 0.35, 0.95), 9);
+    }
+
+    [Fact]
+    public void Smootherstep_EndpointsAndMidpoint_AndMonotonic()
+    {
+        // Endpoint identity (same as smoothstep — the protection envelope endpoints are preserved).
+        Assert.Equal(0.0, OverlayWindow.Smootherstep(0.0), 12);
+        Assert.Equal(1.0, OverlayWindow.Smootherstep(1.0), 12);
+        Assert.Equal(0.0, OverlayWindow.Smootherstep(-0.3), 12); // clamps below 0
+        Assert.Equal(1.0, OverlayWindow.Smootherstep(1.4), 12);  // clamps above 1
+        // Midpoint is exactly 0.5 (the curve is symmetric — same as smoothstep at t=0.5).
+        Assert.Equal(0.5, OverlayWindow.Smootherstep(0.5), 12);
+        // The pinned t=0.25 value the falloff test relies on.
+        Assert.Equal(0.103515625, OverlayWindow.Smootherstep(0.25), 12);
+
+        // Strictly monotonic increasing across [0,1].
+        double prev = -1;
+        for (double t = 0.0; t <= 1.0 + 1e-9; t += 0.01)
+        {
+            double s = OverlayWindow.Smootherstep(t);
+            Assert.True(s >= prev - 1e-12, $"smootherstep must be monotonic, t={t}: {prev} -> {s}");
+            Assert.InRange(s, 0.0, 1.0 + 1e-12);
+            prev = s;
+        }
+    }
+
+    [Fact]
+    public void Smootherstep_IsFlatterNearEndpoints_ThanSmoothstep()
+    {
+        // The Mach-band-killing property: near the endpoints smootherstep rises MORE SLOWLY than
+        // smoothstep (its 2nd derivative vanishes at 0 and 1), so the feather edge has no abrupt
+        // slope change for the eye to latch onto as a contour. Below the midpoint smootherstep <
+        // smoothstep; above it smootherstep > smoothstep (steeper middle compensates).
+        foreach (double t in new[] { 0.1, 0.2, 0.25, 0.4 })
+        {
+            double smoother = OverlayWindow.Smootherstep(t);
+            double smooth   = t * t * (3.0 - 2.0 * t);
+            Assert.True(smoother < smooth,
+                $"smootherstep must be flatter than smoothstep below midpoint, t={t}: {smoother} vs {smooth}");
+        }
+        foreach (double t in new[] { 0.6, 0.75, 0.8, 0.9 })
+        {
+            double smoother = OverlayWindow.Smootherstep(t);
+            double smooth   = t * t * (3.0 - 2.0 * t);
+            Assert.True(smoother > smooth,
+                $"smootherstep must be steeper than smoothstep above midpoint, t={t}: {smoother} vs {smooth}");
+        }
     }
 
     [Fact]
@@ -590,6 +649,68 @@ public class OverlayFieldMathTests
     /// case the storm gate exploits (the EMA wobbling WITHIN one code is dropped, no re-dirt). For
     /// each code, jitter the strength by ±0.49 quantum (staying in the same bucket) and confirm the
     /// composed pixels are bit-for-bit equal.</summary>
+    // ── BANDING ROUND-5 (2026-06-11): DEVICE-PIXEL field resolution ─────────────────
+    //
+    // EnsureFieldBitmap now sizes the field from PHYSICAL device pixels (DIP extent ×
+    // CompositionTarget.TransformToDevice.M11/M22 — the SAME DPI dance DrawGrid does) divided by
+    // OverlayFieldDownscale, instead of from WPF DIPs. At 200% scaling that quadruples the field
+    // pixel count (360×225 → 720×450), halving every banding band's on-screen width and doubling
+    // the gradient sample density. These pin the sizing arithmetic + the adaptive-downscale step
+    // for very large screens. (The live EnsureFieldBitmap reads a real PresentationSource; an
+    // unshown STA test window has none, so it falls back to DPI 1.0 — that fallback is exactly why
+    // every existing STA test keeps its prior dimensions. Here we pin the pure derived math.)
+
+    /// <summary>The device-pixel field dimension is the DIP extent × DPI scale ÷ downscale
+    /// (ceil). At 200% scaling a 1440×900-DIP window (2880×1800 physical) /4 ⇒ 720×450 — 4× the
+    /// DIP-sized 360×225 the pre-round-5 code produced. At 100% (DPI 1.0) the result is the
+    /// UNCHANGED DIP sizing (byte-identical to before — no regression on non-scaled machines).</summary>
+    [Fact]
+    public void DevicePixelFieldDims_AreDipExtentTimesDpiOverDownscale()
+    {
+        // Mirror EnsureFieldBitmap's per-axis sizing: ds is resolved from the FULL physical
+        // extent (both axes), then each axis dim is ceil(physAxis / ds).
+        (int w, int h) Dims(double dipW, double dipH, double dpi)
+        {
+            double physW = dipW * dpi, physH = dipH * dpi;
+            int ds = OverlayWindow.ResolveFieldDownscale(physW, physH);
+            return (Math.Max(1, (int)Math.Ceiling(physW / ds)),
+                    Math.Max(1, (int)Math.Ceiling(physH / ds)));
+        }
+
+        // 200% scaling: a 1440×900-DIP window → 2880×1800 physical /4 = 720×450 (4× the DIP-sized
+        // pixel count). 720×450 = 324k field px ≤ the 480k cap ⇒ the base /4 holds.
+        Assert.Equal((720, 450), Dims(1440, 900, 2.0));
+        // The DIP-sized baseline the OLD code produced at the same window (÷4 of the DIP extent).
+        Assert.Equal(360, (int)Math.Ceiling(1440 / 4.0));
+        Assert.Equal(225, (int)Math.Ceiling(900 / 4.0));
+
+        // 100% scaling (DPI 1.0): device-pixel sizing == the old DIP sizing, unchanged.
+        Assert.Equal((360, 270), Dims(1440, 1080, 1.0));
+    }
+
+    /// <summary>ResolveFieldDownscale keeps the base factor (4) for every common panel up to true
+    /// 4K-at-200%, and steps the downscale UP only when the field would otherwise exceed the
+    /// device-pixel cap — so the band-path recompute stays bounded on a very large screen while a
+    /// normal screen keeps the finest (÷4) field. Never returns below the base.</summary>
+    [Fact]
+    public void ResolveFieldDownscale_StepsUpOnlyForVeryLargeScreens()
+    {
+        int baseDs = SenseDefaults.OverlayFieldDownscale;
+
+        // 2880×1800 physical (1440×900 DIP @200%) — 324k px @ /4, under the cap ⇒ base downscale.
+        Assert.Equal(baseDs, OverlayWindow.ResolveFieldDownscale(2880, 1800));
+        // 1920×1080 physical @100% — well under the cap ⇒ base downscale.
+        Assert.Equal(baseDs, OverlayWindow.ResolveFieldDownscale(1920, 1080));
+        // 3840×2160 physical @100% — 518k px @ /4 exceeds the 480k cap ⇒ steps to /5 (768×432).
+        int big = OverlayWindow.ResolveFieldDownscale(3840, 2160);
+        Assert.True(big > baseDs, $"a true-4K physical field must step the downscale up, was {big}");
+        Assert.True((3840.0 / big) * (2160.0 / big) <= SenseDefaults.OverlayFieldMaxFieldPixels,
+            "the stepped-up field must fit under the device-pixel cap");
+
+        // The result is never below the base no matter how tiny the screen.
+        Assert.True(OverlayWindow.ResolveFieldDownscale(640, 480) >= baseDs);
+    }
+
     [Fact]
     public void Quantize8Bit_SameBucket_ComposesByteIdentical()
     {

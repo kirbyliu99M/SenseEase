@@ -600,11 +600,19 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// <summary>
     /// Builds the FIXED feather gradient mandated by the VIMS comfort spec:
     ///   r ∈ [0.00, 0.35]  fully transparent (clear centre)
-    ///   r ∈ [0.35, 0.95]  smoothstep ramp 0 → peakAlpha
+    ///   r ∈ [0.35, 0.95]  smootherstep ramp 0 → peakAlpha
     ///   r ∈ [0.95, 1.00]  hold at peakAlpha
-    /// Smoothstep s(t)=t²(3−2t). Used for the grid OpacityMask (peakAlpha 255, white) — the
-    /// inverse-feather window (clear centre, revealed periphery) — sharing the SAME falloff
-    /// geometry as the field's ResolveFieldAlpha so the grid and FOV mask align with no seam.
+    /// Used for the grid OpacityMask (peakAlpha 255, white) — the inverse-feather window
+    /// (clear centre, revealed periphery) — sharing the SAME falloff geometry as the field's
+    /// <see cref="ResolveFieldAlpha"/> so the grid and FOV mask align with no seam.
+    ///
+    /// <para><b>Banding round-5 (2026-06-11, plan-sanctioned):</b> the stop-interpolated curve was
+    /// upgraded to SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³ to MATCH the field's new falloff (the grid window
+    /// MUST track the same curve or the grid reveal would seam against the FOV dim). The sub-stop
+    /// count was raised 8 → 16: WPF linearly interpolates BETWEEN gradient stops, so doubling the
+    /// stops halves the residual linear-segment error and lets the brush faithfully track the
+    /// gentler smootherstep shape (which curves more in the interior than smoothstep did). Same
+    /// 0.35→0.95 endpoints, same peak output.</para>
     /// </summary>
     private static GradientStopCollection BuildLevelFeather(byte peakAlpha, Color color)
     {
@@ -615,14 +623,14 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         const double rampStart = 0.35;
         const double rampEnd   = 0.95;
         const double rampWidth = rampEnd - rampStart;
-        const int    n         = 8;
+        const int    n         = 16; // doubled (was 8) — finer tracking of the smootherstep curve
 
         stops.Add(new GradientStop(clear, 0.0));
         stops.Add(new GradientStop(clear, rampStart));
         for (int k = 1; k < n; k++)
         {
             double t   = (double)k / n;
-            double s   = t * t * (3.0 - (2.0 * t)); // smoothstep
+            double s   = Smootherstep(t); // smootherstep — MATCHES ResolveFieldAlpha (seam-aligned)
             double pos = rampStart + (rampWidth * t);
             byte a     = (byte)Math.Round(peakAlpha * s);
             stops.Add(new GradientStop(Color.FromArgb(a, color.R, color.G, color.B), pos));
@@ -777,20 +785,40 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         return restDenom + (liveDenom - restDenom) * damping;
     }
 
-    /// <summary>Continuous smoothstep falloff, 0 inside <paramref name="featherStart"/>,
+    /// <summary>Continuous SMOOTHERSTEP falloff, 0 inside <paramref name="featherStart"/>,
     /// ramping to <paramref name="peakAlpha"/> by <paramref name="featherEnd"/> (0.95),
-    /// then held. Preserves the prior 0.35→0.95 envelope SHAPE; the band START is the D-2
-    /// FeatherWidth wiring. Output is the field alpha at corner-normalized coordinate r.
-    /// At the default ramp (0.35→0.95) and a tier peak this reproduces the prior
-    /// BuildLevelFeather output at the same r — so the field FOV dim and the grid's
-    /// inverse-feather OpacityMask share identical falloff geometry (no seam).</summary>
+    /// then held. Preserves the prior 0.35→0.95 envelope endpoints + peak output exactly;
+    /// the band START is the D-2 FeatherWidth wiring. Output is the field alpha at
+    /// corner-normalized coordinate r.
+    ///
+    /// <para><b>Banding round-5 (2026-06-11, plan-sanctioned):</b> the falloff was upgraded from
+    /// Hermite smoothstep s(t)=t²(3−2t) to Perlin SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³. Smootherstep
+    /// has a continuous SECOND derivative at both endpoints (smoothstep's 2nd derivative jumps),
+    /// which removes the Mach-band edge salience — the faint crawling contour lines Kirby reported
+    /// at shallow tiers. SAME endpoints (0 at featherStart, peak at featherEnd) and SAME peak
+    /// output, so the protection envelope is unchanged; only the interior shaping is gentler. The
+    /// plan (§A2) names smootherstep as the sanctioned optional banding mitigation. The grid's
+    /// inverse-feather OpacityMask (<see cref="BuildLevelFeather"/>) uses the SAME curve so the
+    /// field FOV dim and the grid window stay seam-aligned.</para></summary>
     internal static double ResolveFieldAlpha(double r, double peakAlpha, double featherStart, double featherEnd)
     {
         if (r <= featherStart) return 0.0;
         if (r >= featherEnd)   return peakAlpha;
         double t = (r - featherStart) / (featherEnd - featherStart);
-        double s = t * t * (3.0 - (2.0 * t)); // smoothstep s(t)=t²(3-2t)
+        double s = Smootherstep(t); // smootherstep s(t)=6t⁵−15t⁴+10t³ (continuous 2nd derivative)
         return peakAlpha * s;
+    }
+
+    /// <summary>Perlin SMOOTHERSTEP s(t)=6t⁵−15t⁴+10t³ on [0,1] (continuous 1st AND 2nd
+    /// derivative at both endpoints — the Mach-band killer). Endpoints identical to smoothstep
+    /// (s(0)=0, s(1)=1, s(0.5)=0.5); the interior is flatter near the ends and steeper at the
+    /// middle. Pure + internal so the falloff tests can pin the curve, monotonicity and
+    /// endpoint identity, and BuildLevelFeather can share the exact same shaping.</summary>
+    internal static double Smootherstep(double t)
+    {
+        if (t <= 0.0) return 0.0;
+        if (t >= 1.0) return 1.0;
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
     }
 
     /// <summary>D-2: map MaskDepth [0,1] → EFFECTIVE peak alpha. Bounded multiplier on the
@@ -1027,30 +1055,78 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
     /// <summary>(Re)allocate the reduced-res field bitmap when the screen size changes.
     /// The field is computed at 1/<see cref="SenseDefaults.OverlayFieldDownscale"/> per
-    /// axis and the one Image bilinear-upscales it (Stretch=Fill). Idempotent.</summary>
+    /// axis and the one Image bilinear-upscales it (Stretch=Fill). Idempotent.
+    ///
+    /// <para><b>Banding round-5 (2026-06-11): DEVICE-PIXEL field resolution.</b> The field is
+    /// now sized from PHYSICAL device pixels (ActualWidth/Height × CompositionTarget
+    /// .TransformToDevice.M11/M22 — the SAME DPI dance DrawGrid does), NOT from WPF DIPs.
+    /// At Kirby's 200% scaling DIP sizing gave 360×225 (1/8 PHYSICAL resolution); device-pixel
+    /// sizing gives 720×450 — 4× the pixels, so every banding contour's on-screen width HALVES
+    /// and the gradient sample density DOUBLES. On a 100%-scaling machine M11==M22==1.0 so this
+    /// is BYTE-IDENTICAL to the prior DIP sizing (unchanged). The WriteableBitmap is still
+    /// authored at 96 DPI and the Image rect stays in DIPs (Stretch=Fill); WPF's bilinear maps
+    /// the device-pixel bitmap onto the DIP rect 1:1-ish — the bitmap now resolves to ~1 device
+    /// texel per OverlayFieldDownscale device pixels (no double-scaling blur: the field's own
+    /// upscale is exactly OverlayFieldDownscale, the prior extra ×DPI stretch is gone).</para></summary>
     private void EnsureFieldBitmap()
     {
         double sw = ActualWidth, sh = ActualHeight;
+        // DPI scale (device pixels per DIP). Mirrors DrawGrid's TransformToDevice dance so the
+        // field and the grid share one notion of physical resolution. Before a PresentationSource
+        // exists (pre-layout / unshown STA test window) M11/M22 fall back to 1.0.
+        var ct = PresentationSource.FromVisual(this)?.CompositionTarget;
+        double dpiX = ct?.TransformToDevice.M11 ?? 1.0;
+        double dpiY = ct?.TransformToDevice.M22 ?? 1.0;
+        if (dpiX <= 0) dpiX = 1.0;
+        if (dpiY <= 0) dpiY = 1.0;
+
         if (sw <= 0 || sh <= 0)
         {
             // Before layout: fall back to the primary screen so a pre-layout ApplyState
-            // (engine tick can beat Loaded) still produces a valid field.
+            // (engine tick can beat Loaded) still produces a valid field. PrimaryScreenWidth is
+            // in DIPs; the same DPI multiply below maps it to physical pixels (mirrors DrawGrid's
+            // physicalWidth = PrimaryScreenWidth × dpiX pre-layout fallback).
             sw = SystemParameters.PrimaryScreenWidth;
             sh = SystemParameters.PrimaryScreenHeight;
             if (sw <= 0 || sh <= 0) return;
         }
-        if (Math.Abs(sw - _lastScreenW) < 0.5 && Math.Abs(sh - _lastScreenH) < 0.5 && _fieldBmp is not null)
+
+        // PHYSICAL device pixels: DIP extent × DPI scale.
+        double physW = sw * dpiX;
+        double physH = sh * dpiY;
+
+        // The size-change gate keys on the PHYSICAL extent (so a DPI change alone, with ActualWidth
+        // unchanged in DIPs, still re-allocates at the new device resolution).
+        if (Math.Abs(physW - _lastScreenW) < 0.5 && Math.Abs(physH - _lastScreenH) < 0.5 && _fieldBmp is not null)
             return;
 
-        _lastScreenW = sw; _lastScreenH = sh;
-        int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
-        _fieldW = Math.Max(1, (int)Math.Ceiling(sw / ds));
-        _fieldH = Math.Max(1, (int)Math.Ceiling(sh / ds));
+        _lastScreenW = physW; _lastScreenH = physH;
+        int ds = Math.Max(1, ResolveFieldDownscale(physW, physH));
+        _fieldW = Math.Max(1, (int)Math.Ceiling(physW / ds));
+        _fieldH = Math.Max(1, (int)Math.Ceiling(physH / ds));
 
         _fieldBmp = new WriteableBitmap(_fieldW, _fieldH, 96, 96, PixelFormats.Pbgra32, null);
         _fieldBuf = new byte[_fieldW * _fieldH * 4];
         FieldImage.Source = _fieldBmp;
         MarkFieldDirty();
+    }
+
+    /// <summary>Banding round-5 (2026-06-11): resolve the field downscale for a PHYSICAL screen
+    /// extent. The base factor is <see cref="SenseDefaults.OverlayFieldDownscale"/> (4 ⇒ 720×450
+    /// at 2880×1800 physical — 4× the pre-fix DIP-sized 360×225). For VERY LARGE physical screens
+    /// the band-path recompute would grow past the live-perf budget, so the factor steps UP once
+    /// the field would otherwise exceed <see cref="SenseDefaults.OverlayFieldMaxFieldPixels"/>
+    /// device pixels — keeping the recompute bounded while every common 1080p–4K panel keeps the
+    /// full base downscale (finer gradient, narrower bands). Pure given the extent + the two
+    /// SenseDefaults knobs; internal so a unit test can pin the adaptive step.</summary>
+    internal static int ResolveFieldDownscale(double physW, double physH)
+    {
+        int ds = Math.Max(1, SenseDefaults.OverlayFieldDownscale);
+        double cap = SenseDefaults.OverlayFieldMaxFieldPixels;
+        // Step the downscale up until the field fits under the pixel cap (never below the base).
+        while (((physW / ds) * (physH / ds)) > cap)
+            ds++;
+        return ds;
     }
 
     /// <summary>Mark the WHOLE field for recompute (a non-pose input changed: color / peak /

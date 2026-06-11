@@ -119,6 +119,20 @@ public static class SenseDefaults
     /// faint grid carries no visible loss at this factor; raise if banding shows.</summary>
     public const int OverlayFieldDownscale = 4;
 
+    /// <summary>Banding round-5 (2026-06-11): the DEVICE-PIXEL field-resolution adaptive cap.
+    /// <c>EnsureFieldBitmap</c> now sizes the field from PHYSICAL device pixels (DIP extent ×
+    /// CompositionTarget.TransformToDevice) divided by <see cref="OverlayFieldDownscale"/>, so at
+    /// 200% scaling the field is 720×450 instead of the DIP-sized 360×225 — 4× the pixels, which
+    /// HALVES every banding band's on-screen width and DOUBLES the gradient sample density. For a
+    /// VERY LARGE physical screen the band-path recompute would grow past the ~165 Hz live budget,
+    /// so <see cref="OverlayWindow.ResolveFieldDownscale"/> steps the downscale UP (never below the
+    /// base 4) whenever the field would otherwise exceed THIS many device pixels. 480_000 admits
+    /// the full base downscale for every common panel up to true-4K at 200% (2880×1800/4 = 324_000;
+    /// a 4K 3840×2160 physical /4 = 518_400 steps to /5 ⇒ 768×432 = 331_776), keeping the recompute
+    /// band bounded (measured well under the ~3.5 ms band ceiling at ≤ this size). Raise only if a
+    /// larger field profiles safely on the lowest-spec target. ROUND-5 TUNABLE.</summary>
+    public const double OverlayFieldMaxFieldPixels = 480_000.0;
+
     /// <summary>Beta A2: gamma applied to the falloff parameter before 8-bit encode
     /// (banding mitigation, best-effort, no dithering — dithering is locked out). The
     /// dark-ramp interpolation is shaped in gamma-space so the limited 8-bit codes are
