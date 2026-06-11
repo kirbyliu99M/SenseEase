@@ -361,6 +361,84 @@ public class NotificationCardWindowTests
         }
     }
 
+    // ── UX-21 — blocked-apply reason renders FULLY localized (no half-translation) ──
+
+    /// <summary>UX-21 Test A: a BlockedBySafety <see cref="ApplyResult"/> carrying a reason
+    /// CODE renders calm, FULLY-localized copy on the safety note — never the English
+    /// forensic Reason behind the localized "系統介入：" prefix. zh mode shows zh copy with
+    /// no English words; en mode shows English copy with no leftover Chinese.</summary>
+    [Fact]
+    public void NotificationCardWindow_BlockedApplyResult_LocalizesReasonFromCode()
+    {
+        var original = LocalizationManager.Current.Language;
+        try
+        {
+            RunOnStaCard(w =>
+            {
+                var proposal = new ProfileOverrideProposal(
+                    Intent:        OverrideIntent.AdjustSensitivity,
+                    TargetField:   "sensitivity",
+                    ProposedValue: 0.8,
+                    Rationale:     "test",
+                    ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+
+                // A coded block result — the same shape the applicator returns. The English
+                // Reason is the forensic string the event log keeps; the Card must NOT show it.
+                var blocked = ApplyResult.Blocked(
+                    "vestibular advisory active; relaxation proposals require manual Settings change",
+                    HabituationInterceptCode.VestibularRelaxation);
+
+                // zh: fully Chinese, no English forensic words leak through.
+                LocalizationManager.Current.Language = UILanguage.ChineseTraditional;
+                w.ActiveProposal = proposal;
+                w.ShowProposalApplyResult(blocked);
+                string zh = w.ProposalSafetyNoteText.Text;
+                Assert.Equal(Visibility.Visible, w.ProposalSafetyNoteText.Visibility);
+                Assert.Contains("前庭", zh);
+                Assert.DoesNotContain("vestibular", zh, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("manual Settings change", zh);
+                Assert.False(w.ProposalAcceptBtn.IsEnabled);
+
+                // en: localizes to English plain copy (was stuck on the raw Reason before).
+                LocalizationManager.Current.Language = UILanguage.English;
+                w.ActiveProposal = proposal;
+                w.ShowProposalApplyResult(blocked);
+                string en = w.ProposalSafetyNoteText.Text;
+                Assert.Contains("Vestibular protection is on", en);
+                Assert.DoesNotContain("前庭", en); // no leftover Chinese
+            });
+        }
+        finally
+        {
+            LocalizationManager.Current.Language = original;
+        }
+    }
+
+    /// <summary>UX-21 Test B: a BlockedBySafety result with NO recognized code
+    /// (<see cref="HabituationInterceptCode.None"/>) falls back to the literal Reason so
+    /// nothing is ever dropped. Pins the back-compat path the older Card test relied on.</summary>
+    [Fact]
+    public void NotificationCardWindow_BlockedApplyResult_NoCode_FallsBackToLiteralReason()
+    {
+        RunOnStaCard(w =>
+        {
+            var proposal = new ProfileOverrideProposal(
+                Intent:        OverrideIntent.AdjustSensitivity,
+                TargetField:   "sensitivity",
+                ProposedValue: 0.8,
+                Rationale:     "test",
+                ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
+            w.ActiveProposal = proposal;
+
+            // Reason-only overload → Code is None → the literal Reason is surfaced verbatim.
+            w.ShowProposalApplyResult(ApplyResult.Blocked("custom non-coded reason"));
+
+            Assert.Equal(Visibility.Visible, w.ProposalSafetyNoteText.Visibility);
+            Assert.Contains("custom non-coded reason", w.ProposalSafetyNoteText.Text);
+            Assert.False(w.ProposalAcceptBtn.IsEnabled);
+        });
+    }
+
     // ── UX-10 — typography floor: no 10/11px text in the card XAML ───────────
 
     /// <summary>UX-10 Test: the card XAML carries NO FontSize="10|11" — the locked

@@ -4,7 +4,7 @@
         xmlns:views="clr-namespace:SenseEase.App.Views"
         xmlns:conv="clr-namespace:SenseEase.App.Converters"
         xmlns:loc="clr-namespace:SenseEase.App.Localization"
-        Title="SenseEase — Visual Comfort Dashboard"
+        Title="{loc:T Zh='SenseEase — 視覺舒適儀表板', En='SenseEase — Visual Comfort Dashboard'}"
         Icon="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
         Height="820" Width="1160"
         MinHeight="700" MinWidth="980"
@@ -27,10 +27,10 @@
              StaticResource lookup would fail. -->
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- D1 comfort converters (view-local; read-only tier→copy/band). -->
+        <!-- D1 comfort converters (view-local; read-only tier→copy/band).
+             DEAD-08: TierToSubline/TierToComfortLabel resource keys removed —
+             their backing converters were deleted (zero consumers; never bound). -->
         <conv:TierToHeadlineConverter     x:Key="TierToHeadline"/>
-        <conv:TierToSublineConverter      x:Key="TierToSubline"/>
-        <conv:TierToComfortLabelConverter x:Key="TierToComfortLabel"/>
         <conv:TierToComfortBandConverter  x:Key="TierToComfortBand"/>
         <conv:TierToFeelLabelConverter    x:Key="TierToFeelLabel"/>
         <conv:TierToFillPercentConverter  x:Key="TierToFillPercent"/>
@@ -89,9 +89,10 @@
             <Setter Property="Template" Value="{StaticResource RoundBtn}"/>
         </Style>
 
-        <Style x:Key="AlertBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
-            <Setter Property="Background" Value="{DynamicResource ComfortHigh}"/>
-        </Style>
+        <!-- UX-21/B2 (2026-06-11): the orphaned AlertBtn style was deleted here (zero
+             usages — grep over *.cs/*.xaml found only its own declaration; B1b removed
+             its last consumer). The DesignLint ratchet counts inline hex only, not named
+             styles, so no ratchet change is needed. -->
 
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
             <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
@@ -125,13 +126,12 @@
             <Setter Property="Margin" Value="0,0,0,12"/>
         </Style>
 
-        <!-- ── ListView ── -->
-        <Style x:Key="LogListView" TargetType="ListView">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
-        </Style>
+        <!-- ── ListView ──
+             UX-21/B2 (2026-06-11): the orphaned LogListView style was deleted here (zero
+             usages — the Event Log moved to its own EventLogWindow, which styles its list
+             inline; grep found only this declaration + a stale comment reference in
+             EventLogWindow.xaml). The DesignLint ratchet counts inline hex only, so no
+             ratchet change is needed. -->
 
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
@@ -966,6 +966,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.sm}"
                                 Padding="2" Margin="0,0,8,0"
@@ -997,10 +998,22 @@
                                 </TextBox.InputBindings>
                             </TextBox>
                         </Border>
+                        <!-- NE6: Cancel affordance for an in-flight LLM turn. Collapsed
+                             unless IsGenerating, so it sits beside the typing indicator only
+                             while a reply is actually being generated. Cancelling renders the
+                             existing localized cancelled-state copy in the transcript. >=44px
+                             hit area; localized label (取消 / Cancel); status text (not colour)
+                             carries the action. -->
                         <Button Grid.Column="1"
+                                Content="{loc:T Zh='取消', En='Cancel'}" Style="{StaticResource GhostBtn}"
+                                Command="{Binding CancelGenerationCommand}"
+                                Visibility="{Binding IsGenerating, Converter={StaticResource BoolToVis}}"
+                                Margin="0,0,8,0" MinHeight="44" MinWidth="44"
+                                AutomationProperties.Name="{loc:T Zh='取消產生回應', En='Cancel generating reply'}"/>
+                        <Button Grid.Column="2"
                                 Content="{loc:T Zh='傳送', En='Send'}" Style="{StaticResource PrimaryBtn}"
                                 Command="{Binding SendCommand}" Margin="0,0,8,0" MinHeight="44"/>
-                        <Button Grid.Column="2"
+                        <Button Grid.Column="3"
                                 Content="{loc:T Zh='清除', En='Clear'}" Style="{StaticResource GhostBtn}"
                                 Click="OnChatClearClicked" MinHeight="44"/>
                     </Grid>

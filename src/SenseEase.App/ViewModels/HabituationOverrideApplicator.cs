@@ -78,7 +78,9 @@ public sealed class HabituationOverrideApplicator
                 Message  = $"chatbot proposal blocked: {intercept.Reason}",
             });
             _actionLog.Record(ChatbotActionKind.Intercepted, proposal, intercept.Reason);
-            return ApplyResult.Blocked(intercept.Reason!);
+            // UX-21: carry the stable reason CODE through to the Card so it can render a
+            // fully-localized message; the English Reason stays the forensic/audit string.
+            return ApplyResult.Blocked(intercept.Reason!, intercept.Code);
         }
 
         bool applied = _engine.ApplyChatbotOverride(proposal.Intent, proposal.ProposedValue);
@@ -94,7 +96,8 @@ public sealed class HabituationOverrideApplicator
                 Message  = $"chatbot proposal could not be applied: {proposal.Intent} = {proposal.ProposedValue}",
             });
             _actionLog.Record(ChatbotActionKind.Intercepted, proposal, "engine rejected value");
-            return ApplyResult.Blocked("engine could not apply the proposed value");
+            return ApplyResult.Blocked("engine could not apply the proposed value",
+                                       HabituationInterceptCode.EngineRejected);
         }
 
         _eventLog.Append(new EventLogEntry
@@ -150,8 +153,15 @@ public sealed class HabituationOverrideApplicator
         // vestibular user with a corrupted file could one-click a relaxation. Block
         // instead — the engine is never mutated when safety state can't be verified;
         // ApplyAccepted surfaces this reason to the Card so the user can reload.
+        // UX-21: every Block carries a stable reason CODE alongside the English
+        // forensic Reason. The Reason strings here are PERSISTED (event log /
+        // action log) and asserted on by tests — they MUST stay byte-stable. The
+        // CODE is the localization key the Card maps to calm zh/en copy so the
+        // user never sees a half-translated English reason behind a localized prefix.
         if (snapshot is null)
-            return SafetyInterceptResult.Block("snapshot unavailable; cannot verify safety state — please reload");
+            return SafetyInterceptResult.Block(
+                "snapshot unavailable; cannot verify safety state — please reload",
+                HabituationInterceptCode.SnapshotUnavailable);
 
         // Rule 1 (most specific first): strike limit was hard-set to 1 by
         // vestibular calibration → chatbot cannot override (vestibular hard
@@ -162,7 +172,8 @@ public sealed class HabituationOverrideApplicator
             && snapshot.MedicalAdvisoryShown == MedicalAdvisory.Vestibular)
         {
             return SafetyInterceptResult.Block(
-                "strike limit was hard-set by vestibular calibration; chatbot cannot override");
+                "strike limit was hard-set by vestibular calibration; chatbot cannot override",
+                HabituationInterceptCode.VestibularHardSetStrikeLimit);
         }
 
         // Rule 2: Vestibular user + ANY relaxation proposal → block.
@@ -170,7 +181,8 @@ public sealed class HabituationOverrideApplicator
             && HabituationOverrideProcessor.IsRelaxationProposal(proposal, snapshot))
         {
             return SafetyInterceptResult.Block(
-                "vestibular advisory active; relaxation proposals require manual Settings change");
+                "vestibular advisory active; relaxation proposals require manual Settings change",
+                HabituationInterceptCode.VestibularRelaxation);
         }
 
         // Rule 3: High-risk-combo + SIGNIFICANT relaxation → block.
@@ -179,7 +191,8 @@ public sealed class HabituationOverrideApplicator
             && IsSignificantRelaxation(proposal, snapshot, threshold: 0.15))
         {
             return SafetyInterceptResult.Block(
-                "high-risk-combo advisory; small adjustments only via this channel");
+                "high-risk-combo advisory; small adjustments only via this channel",
+                HabituationInterceptCode.HighRiskComboSignificant);
         }
 
         return SafetyInterceptResult.Passed;
@@ -230,26 +243,57 @@ public sealed class HabituationOverrideApplicator
     }
 }
 
+/// <summary>UX-21: stable, language-neutral reason CODE for every safety-intercept /
+/// apply-block path. The Card maps this code → localized zh/en copy
+/// (<see cref="SenseEase.App.Views.NotificationCardWindow"/>) so the user never sees a
+/// half-translated English <c>Reason</c> string behind a localized prefix. The English
+/// <c>Reason</c> stays the durable forensic string for the event log / action log (which
+/// must not drift); the code is purely the display-localization key. <c>None</c> is the
+/// default for results that carry no recognized code (e.g. a raw string passed straight
+/// to <see cref="ApplyResult.Blocked(string)"/> in a test), in which case the Card falls
+/// back to rendering the literal <c>Reason</c>.</summary>
+public enum HabituationInterceptCode
+{
+    None = 0,
+    SnapshotUnavailable,
+    VestibularHardSetStrikeLimit,
+    VestibularRelaxation,
+    HighRiskComboSignificant,
+    EngineRejected,
+}
+
 /// <summary>Outcome of <see cref="HabituationOverrideApplicator.ApplyAccepted"/>.
-/// <c>BlockedBySafety</c> is the Phase 7f intercept path; the Card UI
-/// surfaces <c>Reason</c> to the user so they understand why their Accept
-/// was overridden.</summary>
-public sealed record ApplyResult(bool IsSuccess, bool BlockedBySafety, string? Reason)
+/// <c>BlockedBySafety</c> is the Phase 7f intercept path; the Card UI surfaces a
+/// localized message (mapped from <c>Code</c>, falling back to <c>Reason</c>) to the
+/// user so they understand why their Accept was overridden.</summary>
+public sealed record ApplyResult(
+    bool IsSuccess, bool BlockedBySafety, string? Reason,
+    HabituationInterceptCode Code = HabituationInterceptCode.None)
 {
     public static ApplyResult Success()
         => new(IsSuccess: true,  BlockedBySafety: false, Reason: null);
+    // Two Blocked overloads: the code-carrying one used by the applicator, and a
+    // reason-only legacy overload kept for callers/tests that pass a literal string
+    // (the Card falls back to that literal when Code is None).
     public static ApplyResult Blocked(string reason)
         => new(IsSuccess: false, BlockedBySafety: true,  Reason: reason);
+    public static ApplyResult Blocked(string reason, HabituationInterceptCode code)
+        => new(IsSuccess: false, BlockedBySafety: true,  Reason: reason, Code: code);
 }
 
 /// <summary>Result of the defensive intercept check. Exposed publicly so
 /// the Card UI can call <see cref="HabituationOverrideApplicator.CheckSafetyIntercepts"/>
 /// at propose-display-time too, to colour the Accept button differently
 /// when the action would be intercepted (a courtesy preview, not a
-/// gate).</summary>
-public sealed record SafetyInterceptResult(bool Blocked, string? Reason)
+/// gate). <c>Code</c> (UX-21) is the localization key for the Card; <c>Reason</c>
+/// stays the English forensic string.</summary>
+public sealed record SafetyInterceptResult(
+    bool Blocked, string? Reason,
+    HabituationInterceptCode Code = HabituationInterceptCode.None)
 {
     public static readonly SafetyInterceptResult Passed = new(Blocked: false, Reason: null);
     public static SafetyInterceptResult Block(string reason)
         => new(Blocked: true, Reason: reason);
+    public static SafetyInterceptResult Block(string reason, HabituationInterceptCode code)
+        => new(Blocked: true, Reason: reason, Code: code);
 }

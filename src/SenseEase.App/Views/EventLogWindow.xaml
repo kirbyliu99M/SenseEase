@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:SenseEase.App.Localization"
-        Title="SenseEase — 事件記錄"
+        Title="{loc:T Zh='SenseEase — 事件記錄', En='SenseEase — Event Log'}"
         Width="900" Height="640"
         MinWidth="560" MinHeight="360"
         WindowStartupLocation="CenterOwner"
@@ -14,8 +14,8 @@
          opened from a button in Settings. This keeps the full-page list the tab
          had (it can fill the window) without crowding the Settings scroll.
 
-         Styled with theme TOKENS rather than the MainWindow-local Card /
-         SectionTitle / LogListView styles (those aren't in scope here). The theme
+         Styled with theme TOKENS rather than any MainWindow-local Card /
+         SectionTitle styles (those aren't in scope here). The theme
          dictionary is merged view-locally and ThemeManager.TrackElement(this) in
          the code-behind keeps light/dark correct (incl. a live OS flip in Auto).
          DataContext is the MainViewModel so the {Binding EventLog} markup is the

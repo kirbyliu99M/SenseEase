@@ -296,13 +296,46 @@ public partial class NotificationCardWindow : Window
         // safety-note callout (the M8 Border supplies the ⚠ glyph + chip).
         if (result.BlockedBySafety && _activeProposal is not null)
         {
-            ProposalSafetyNoteText.Text = Loc("系統介入：", "System intervention: ") + result.Reason;
+            // UX-21: render a FULLY-localized reason. The applicator's English Reason is
+            // the durable forensic string (event log / action log) — it must not be shown
+            // raw behind the localized "系統介入：" prefix or the user reads a half-
+            // translated line. Map the stable reason CODE to calm zh/en copy; fall back to
+            // the literal Reason only when no recognized code is present.
+            ProposalSafetyNoteText.Text =
+                Loc("系統介入：", "System intervention: ") + LocalizeInterceptReason(result);
             ProposalSafetyNoteText.Visibility = Visibility.Visible;
             // Disable Accept so the user has to Decline or Later (clicking Accept
             // again would just re-block).
             ProposalAcceptBtn.IsEnabled = false;
         }
     }
+
+    /// <summary>UX-21: map a blocked <see cref="ApplyResult"/>'s reason CODE to calm,
+    /// fully-localized zh/en copy (≥12px on the safety-note TextBlock). Forensic English
+    /// stays in <see cref="ApplyResult.Reason"/> for the durable logs; this is the
+    /// user-facing surface only. <see cref="HabituationInterceptCode.None"/> (e.g. a raw
+    /// reason string passed straight to <c>ApplyResult.Blocked(string)</c>) falls back to
+    /// the literal Reason so nothing is ever lost.</summary>
+    private static string LocalizeInterceptReason(ApplyResult result) => result.Code switch
+    {
+        HabituationInterceptCode.SnapshotUnavailable => Loc(
+            "目前無法確認您的安全設定，請稍後再試或重新整理。",
+            "Can't confirm your safety settings right now — please reload and try again."),
+        HabituationInterceptCode.VestibularHardSetStrikeLimit => Loc(
+            "此上限已由前庭設定鎖定，需在 設定 中手動調整。",
+            "This limit is locked by your vestibular setup — change it manually in Settings."),
+        HabituationInterceptCode.VestibularRelaxation => Loc(
+            "您已啟用前庭防護，放寬設定需在 設定 中手動調整。",
+            "Vestibular protection is on — relaxing settings must be done manually in Settings."),
+        HabituationInterceptCode.HighRiskComboSignificant => Loc(
+            "依您的防護設定，這個調整幅度較大，此處僅能做小幅調整。",
+            "That's a large change for your protection level — only small adjustments are allowed here."),
+        HabituationInterceptCode.EngineRejected => Loc(
+            "目前無法套用這個設定，請稍後再試。",
+            "That setting couldn't be applied right now — please try again later."),
+        // None / unrecognized: fall back to the literal forensic reason so nothing is lost.
+        _ => result.Reason ?? string.Empty,
+    };
 
     private void ApplyProposalToUi(ProfileOverrideProposal proposal)
     {
