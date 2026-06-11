@@ -44,7 +44,9 @@ namespace SenseEase.App.Views;
 public partial class OverlayWindow : Window, IOverlayRenderer
 {
     private const double BrushRadius = SenseDefaults.OverlayBrushRadius; // F2: single-source
-    private const double BrushRadiusCornerMargin = SenseDefaults.OverlayBrushRadiusCornerMargin; // F2: single-source
+    // BrushRadiusCornerMargin alias removed — the corner-coverage radius rescaling was
+    // retired per Kirby's round-3 ruling (no jump/zoom; the grid window radius is frozen).
+    // SenseDefaults.OverlayBrushRadiusCornerMargin stays declared for the historical record.
 
     /// <summary>
     /// VIMS 12-level table (native scale, Adaptive Fit Q2=B). Each row is
@@ -621,18 +623,16 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // center the opposite corner sits inside the falloff. v0.9 baseline (active=false)
         // keeps 0.85. ONE-CLOCK: (cx,cy) is the already-smoothed pose, so radius inherits
         // the center's exact time-constant (no separate envelope, dtMs unused).
-        double radius;
-        if (active)
-        {
-            double farX = Math.Max(cx, 1.0 - cx);
-            double farY = Math.Max(cy, 1.0 - cy);
-            double farthestCorner = Math.Sqrt(farX * farX + farY * farY);
-            radius = Math.Max(BrushRadius, farthestCorner * BrushRadiusCornerMargin);
-        }
-        else
-        {
-            radius = BrushRadius;
-        }
+        // Kirby round-3 live ruling (2026-06-11, option A): the grid window radius is
+        // FROZEN at BrushRadius — no corner-coverage rescaling. The old formula
+        // (max(BrushRadius, farthestCorner × 1.10)) grew the window as the center
+        // approached an edge/corner, which read as the grid "snapping/zooming" (吸附放大).
+        // Design principle: NOTHING may jump or breathe — following the user's head is
+        // the maximum allowed motion (the hole's CENTER still tracks the One-Euro pose).
+        // Accepted trade-off: with the center at an extreme, the grid REVEAL may not
+        // reach the farthest corner — the user is looking away from it, and the mask
+        // dim (per-pixel corner-normalized in the field) still covers it fully.
+        const double radius = BrushRadius;
 
         // Kirby round-3 (item 4.1): the dirty-mark / mutation threshold. The legacy
         // FieldEpsilon (0.0005) was sized for the STATIC-screen "cost ~zero" gate, but while

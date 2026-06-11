@@ -357,19 +357,17 @@ public class OverlayHeadPoseTests
     }
 
     /// <summary>M5 UX-iter 3 Fix B: BrushRadius dynamically scales to keep
-    /// the farthest screen corner inside the gradient. At center=(0.5, 0.5)
-    /// the farthest corner is at distance sqrt(0.5) ≈ 0.707; radius needed
-    /// is 0.707 × 1.10 = 0.78, but capped at v0.9 baseline 0.85.
-    /// At full corner center=(1, 1), opposite (0, 0) is at distance sqrt(2);
-    /// radius = sqrt(2) × 1.10 = 1.556. v0.9 baseline (active=false) keeps
-    /// the static 0.85.</summary>
+    /// Kirby round-3 live ruling (2026-06-11, option A): the window radius is FROZEN
+    /// at the 0.85 baseline — the old corner-coverage rescaling
+    /// (max(0.85, farthestCorner × 1.10)) read as the grid "snapping/zooming" near
+    /// edges (吸附放大). Design principle: NOTHING jumps or breathes; following the
+    /// head (the hole's CENTER) is the maximum allowed motion. This pins the frozen
+    /// radius at center, corner, edge, and flag-off alike.</summary>
     [Fact]
-    public void OverlayWindow_BrushRadius_ScalesToFarthestCornerWhenActive()
+    public void OverlayWindow_BrushRadius_FrozenAtBaseline_RegardlessOfCenter()
     {
-        // Exercise this in FullFollow so we can drive the brush.Center all
-        // the way to (1, 1) and observe radius scaling against the farthest
-        // corner. The dynamic-radius math itself is identical in Balanced
-        // mode; just the cx/cy values would clamp before reaching it.
+        // FullFollow so the center can reach (1, 1) unclamped — the radius must
+        // STILL stay frozen there (the old formula would have given 1.556).
         RunOnSta(() =>
         {
             var prior = AppConfig.HeadTrackingFollowMode;
@@ -379,54 +377,36 @@ public class OverlayHeadPoseTests
             var w = new OverlayWindow();
             w.ApplyTemplate();
 
-            // Center: radius pinned to baseline 0.85 (computed need is below).
-            var stateCenter = new SenseState
+            // Center.
+            w.ApplyState(new SenseState
             {
-                VimsTier            = 3,
-                HeadGazeX           = 0.5,
-                HeadGazeY           = 0.5,
-                HeadTrackingActive  = true,
-                MaskActive          = true,
-            };
-            w.ApplyState(stateCenter);
+                VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5,
+                HeadTrackingActive = true, MaskActive = true,
+            });
             Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
-            // Corner: radius = sqrt(2) * 1.10 ≈ 1.556.
-            var stateCorner = new SenseState
+            // Full corner (old formula: sqrt(2)×1.10 ≈ 1.556 — now frozen).
+            w.ApplyState(new SenseState
             {
-                VimsTier            = 3,
-                HeadGazeX           = 1.0,
-                HeadGazeY           = 1.0,
-                HeadTrackingActive  = true,
-                MaskActive          = true,
-            };
-            w.ApplyState(stateCorner);
-            double expected = Math.Sqrt(2.0) * 1.10;
-            Assert.Equal(expected, w.FieldRadiusForTests, 3);
+                VimsTier = 3, HeadGazeX = 1.0, HeadGazeY = 1.0,
+                HeadTrackingActive = true, MaskActive = true,
+            });
+            Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
-            // Edge (1, 0.5): radius = sqrt(1 + 0.25) * 1.10 ≈ 1.230.
-            var stateEdge = new SenseState
+            // Edge (old formula: ≈1.230 — now frozen).
+            w.ApplyState(new SenseState
             {
-                VimsTier            = 3,
-                HeadGazeX           = 1.0,
-                HeadGazeY           = 0.5,
-                HeadTrackingActive  = true,
-                MaskActive          = true,
-            };
-            w.ApplyState(stateEdge);
-            double expectedEdge = Math.Sqrt(1.0 + 0.25) * 1.10;
-            Assert.Equal(expectedEdge, w.FieldRadiusForTests, 3);
+                VimsTier = 3, HeadGazeX = 1.0, HeadGazeY = 0.5,
+                HeadTrackingActive = true, MaskActive = true,
+            });
+            Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
-            // Flag-off: radius snaps back to v0.9 baseline 0.85.
-            var stateOff = new SenseState
+            // Flag-off: same frozen baseline.
+            w.ApplyState(new SenseState
             {
-                VimsTier            = 3,
-                HeadGazeX           = 0.5,
-                HeadGazeY           = 0.5,
-                HeadTrackingActive  = false,
-                MaskActive          = true,
-            };
-            w.ApplyState(stateOff);
+                VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5,
+                HeadTrackingActive = false, MaskActive = true,
+            });
             Assert.Equal(0.85, w.FieldRadiusForTests, 3);
             }
             finally
@@ -465,9 +445,9 @@ public class OverlayHeadPoseTests
             w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: true);
             Assert.Equal(0.7, w.FieldCenterXForTests, 3);
             Assert.Equal(0.3, w.FieldCenterYForTests, 3);
-            // Radius math: farX = 0.7, farY = 0.7, farthest = sqrt(0.98) ≈ 0.99, × 1.10 ≈ 1.089.
-            double expected = Math.Sqrt(0.49 + 0.49) * 1.10;
-            Assert.Equal(expected, w.FieldRadiusForTests, 3);
+            // Kirby round-3 ruling: radius is FROZEN at baseline regardless of center
+            // (the old corner formula would have given ≈1.089 here).
+            Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
             // Snap back via active=false.
             w.UpdateHeadGazeCenter(headGazeX: 0.7, headGazeY: 0.3, active: false);
@@ -500,12 +480,12 @@ public class OverlayHeadPoseTests
     // field), so the old "grid hole tracks the brush" test is replaced by a field-level
     // assertion that center+radius derive from the same pose in the same frame.
 
-    /// <summary>One-clock: radius reaches the head-coupled corner-reach target in a
-    /// single frame regardless of dtMs (because radius is now a pure function of the
-    /// already-smoothed center, not a separately-eased value). Corner reach — the M5
-    /// UX-iter 3 behaviour the dynamic radius was built for — is intact.</summary>
+    /// <summary>Kirby round-3 ruling (option A): the radius is a FROZEN constant — it
+    /// no longer derives from the center at all. A full corner excursion moves the
+    /// CENTER in the same frame while the radius stays at the 0.85 baseline (the old
+    /// corner-reach formula would have produced 1.556). One clock, one moving value.</summary>
     [Fact]
-    public void OverlayWindow_OneClock_Radius_DerivesFromCenter_InSameFrame()
+    public void OverlayWindow_Radius_FrozenWhileCenterTracks_InSameFrame()
     {
         RunOnSta(() =>
         {
@@ -519,25 +499,24 @@ public class OverlayHeadPoseTests
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
                 Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
-                // A realistic ~6 ms frame (NOT a giant dt) toward the corner: with the
-                // separate envelope removed, radius lands on target the SAME frame the
-                // center does — no 600 ms lag.
+                // A realistic ~6 ms frame toward the corner: the center lands the SAME
+                // frame; the radius does not move (frozen — no corner rescale).
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 6.0);
-                double target = Math.Sqrt(2.0) * 1.10;
                 Assert.Equal(1.0, w.FieldCenterXForTests, 3);
                 Assert.Equal(1.0, w.FieldCenterYForTests, 3);
-                Assert.Equal(target, w.FieldRadiusForTests, 3);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    /// <summary>One-clock: returning the head toward center COLLAPSES the radius in
-    /// the SAME frame the center moves — there is no separate slow-release clock left
-    /// (the old 600 ms radius envelope is gone). Smoothing now lives entirely in the
-    /// upstream One-Euro center; within the overlay, center and edge move together.</summary>
+    /// <summary>Kirby round-3 ruling (option A): out-and-back excursion — the radius
+    /// stays frozen at the baseline the WHOLE way (out to the corner AND back), while
+    /// the center tracks each frame. There is no radius motion of any kind left: not
+    /// the old 600 ms envelope, not the corner rescale. Nothing jumps or breathes;
+    /// following the head is the maximum allowed motion.</summary>
     [Fact]
-    public void OverlayWindow_OneClock_Radius_TracksCenter_NoSeparateReleaseLag()
+    public void OverlayWindow_Radius_FrozenThroughOutAndBackExcursion()
     {
         RunOnSta(() =>
         {
@@ -549,13 +528,12 @@ public class OverlayHeadPoseTests
                 w.ApplyTemplate();
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
 
-                // Reach the corner (center 1,1 → radius sqrt(2)*1.10).
+                // Out to the corner: center moves, radius frozen.
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 6.0);
-                Assert.True(w.FieldRadiusForTests > 1.5, $"precondition: radius at corner, was {w.FieldRadiusForTests}");
+                Assert.Equal(1.0, w.FieldCenterXForTests, 3);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3);
 
-                // Centre handed back (the upstream filter would have already eased it):
-                // a single small-dt frame collapses the radius to the floor in lockstep
-                // with the center — proving the old 600 ms release clock is gone.
+                // Back to center: center moves, radius STILL frozen.
                 w.UpdateHeadGazeCenter(headGazeX: 0.5, headGazeY: 0.5, active: true, dtMs: 6.0);
                 Assert.Equal(0.5, w.FieldCenterXForTests, 3);
                 Assert.Equal(0.85, w.FieldRadiusForTests, 3);
@@ -584,24 +562,23 @@ public class OverlayHeadPoseTests
 
                 w.UpdateHeadGazeCenter(headGazeX: 0.8, headGazeY: 0.2, active: true, dtMs: 6.0);
 
-                // Center is the clamped pose; radius is the pure corner-reach function of
-                // that SAME center — both resolved in the one call, no second clock.
+                // Center is the clamped pose, resolved in the one call; the radius is
+                // FROZEN at baseline (Kirby round-3 ruling — no corner rescale, no
+                // second clock, no radius motion at all).
                 Assert.Equal(0.8, w.FieldCenterXForTests, 6);
                 Assert.Equal(0.2, w.FieldCenterYForTests, 6);
-                double farX = Math.Max(0.8, 0.2);
-                double farY = Math.Max(0.2, 0.8);
-                double expected = Math.Sqrt(farX * farX + farY * farY) * 1.10;
-                Assert.Equal(expected, w.FieldRadiusForTests, 6);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 6);
             }
             finally { AppConfig.HeadTrackingFollowMode = prior; }
         });
     }
 
-    /// <summary>Disabling tracking SNAPS the radius back to the v0.9 baseline
-    /// (0.85) immediately — no slow-release on disable — even after the radius
-    /// had grown to a corner. Preserves the byte-identical flag-off baseline.</summary>
+    /// <summary>Tracking dropout with the center parked at a corner: the radius was
+    /// frozen at the baseline the whole time (Kirby round-3 ruling), and deactivation
+    /// recenters the hole while the radius stays exactly where it always was — the
+    /// flag-off baseline is byte-identical because nothing ever left it.</summary>
     [Fact]
-    public void OverlayWindow_RadiusEnvelope_InactiveSnapsToBaseline()
+    public void OverlayWindow_Radius_FrozenAcrossTrackingDropout()
     {
         RunOnSta(() =>
         {
@@ -614,9 +591,9 @@ public class OverlayHeadPoseTests
                 w.ApplyState(new SenseState { VimsTier = 3, HeadGazeX = 0.5, HeadGazeY = 0.5, HeadTrackingActive = false, MaskActive = true });
 
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: true, dtMs: 10000);
-                Assert.True(w.FieldRadiusForTests > 1.5);
+                Assert.Equal(0.85, w.FieldRadiusForTests, 3); // frozen even at the corner
 
-                // Tracking drops out → immediate baseline (no 600 ms decay).
+                // Tracking drops out → hole recenters; radius unchanged (it never moved).
                 w.UpdateHeadGazeCenter(headGazeX: 1.0, headGazeY: 1.0, active: false, dtMs: 16);
                 Assert.Equal(0.85, w.FieldRadiusForTests, 3);
                 Assert.Equal(0.5, w.FieldCenterXForTests, 3);
