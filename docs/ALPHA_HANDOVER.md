@@ -451,7 +451,7 @@ When you start a wave:
 ## 9. What is explicitly NOT in scope for this dispatch
 
 - v1.0 items (OFI per-region spatial decomposition; L+F Phase 2; A8 multi-monitor; full FlaUI E2E rig).
-- Anything in the deprecated `Habituation plan.md` post-execution audit's "future items" that didn't land in A-G.
+- Anything in the deprecated `Habituation plan.md` (now archived at `docs/archive/Habituation plan.md`) post-execution audit's "future items" that didn't land in A-G.
 - The Beta 1 / Beta 2 phase planning (those come AFTER Alpha cut and depend on POC + Alpha test outcomes).
 - Auto-update channel beyond H53's notification-only banner (full Velopack integration is Beta material).
 

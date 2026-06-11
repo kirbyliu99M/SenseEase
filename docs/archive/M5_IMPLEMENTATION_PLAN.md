@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-06-11 — superseded by the v0.10 head-tracking tag; kept for historical
+> reference; statements below may be factually wrong about the current code.**
+> (Alpha-1 M5 design-adoption implementation plan for D0 tokens through D2 card; the
+> executed work is recorded in the git log from the v0.10..v0.11 range.)
+
 # SenseEase Alpha-1 — M5 Design-Adoption Implementation Plan
 
 > Synthesized 2026-06-06 by the `scope-m5-visual` workflow (6 agents over the locked

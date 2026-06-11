@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-06-11 — superseded by `docs/ALPHA_HANDOVER.md` and `Improvement_plan_BETA.md`;
+> kept for historical reference; statements below may be factually wrong about the current code.**
+> (Dated 2026-05-21; ambient-light/DDC-CI items were decommissioned at v0.11; in-process Mistral
+> was replaced by llama-server; many open items here were resolved in subsequent sprints.)
+
 # SenseEase APP — Handover
 
 **Date:** 2026-05-21
@@ -87,11 +92,11 @@ The user was working through a 4-check verification when this session paused. St
 
 | # | Check | Status | Notes |
 |---|---|---|---|
-| 1 | **Mistral chatbot roundtrip** | ✅ Confirmed working | User typed Chinese discomfort message, got reply + applied adjustment bubble + actual mask change. They also asked if we can add follow-up questions — that's open item #2 above. |
-| 2 | **Webcam-lux fallback** | ⏸ Blocked on master toggle | Webcam never opens because `AmbientLightComfortEnabled=false` and there's no UI. Resolves when open item #1 ships. |
-| 3 | **Auto Driver/Passenger** | 🔄 Re-test pending | User pressed the manual toggle button, which (until just now) permanently disabled auto. Just fixed (see "Recent fixes" table). User has not re-verified yet. App is currently running with the fix; ask them to confirm. |
-| 4 | **DDC/CI restore guarantee** | ⏸ Blocked on master toggle | Same root cause as #2. Hardware-mutating; the 6 exit paths in `App.xaml.cs` are wired but never exercised under fault conditions. |
-| 5 | (Bonus) **Demo Mode "does nothing"** | ℹ Explained | Demo mode swaps to `MockSensingProvider` driven by the OFI slider. User clicked the button without moving the slider, so OFI stayed 0. Not a bug. Consider adding a UX hint on Demo activation? |
+| 1 | **Mistral chatbot roundtrip** | Confirmed working | User typed Chinese discomfort message, got reply + applied adjustment bubble + actual mask change. They also asked if we can add follow-up questions — that's open item #2 above. |
+| 2 | **Webcam-lux fallback** | Blocked on master toggle | Webcam never opens because `AmbientLightComfortEnabled=false` and there's no UI. Resolves when open item #1 ships. |
+| 3 | **Auto Driver/Passenger** | Re-test pending | User pressed the manual toggle button, which (until just now) permanently disabled auto. Just fixed (see "Recent fixes" table). User has not re-verified yet. App is currently running with the fix; ask them to confirm. |
+| 4 | **DDC/CI restore guarantee** | Blocked on master toggle | Same root cause as #2. Hardware-mutating; the 6 exit paths in `App.xaml.cs` are wired but never exercised under fault conditions. |
+| 5 | (Bonus) **Demo Mode "does nothing"** | Explained | Demo mode swaps to `MockSensingProvider` driven by the OFI slider. User clicked the button without moving the slider, so OFI stayed 0. Not a bug. Consider adding a UX hint on Demo activation? |
 
 When you pick this up: if the user wants to push on #2/#4, start with open item #1 (the master toggle). #3 just needs a yes/no from the user. #5 may be worth a one-line hint in the UI but is low priority.
 

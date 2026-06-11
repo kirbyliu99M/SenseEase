@@ -1,3 +1,9 @@
+> **ARCHIVED 2026-06-11 — superseded by `docs/HABITUATION-PROFILE.md` and `docs/TECHNICAL_WHITEPAPER.md` §7;
+> kept for historical reference; statements below may be factually wrong about the current code.**
+> (128 KB sprint planning document for Habituation phases 6/7/8; the implemented outcome is
+> recorded in `docs/HABITUATION-PROFILE.md`, `docs/HABITUATION-CHATBOT-INTEGRATION.md`,
+> and whitepaper §7. Q4.1–Q4.7 decisions are locked; open sub-items were resolved in the v0.9 sprint.)
+
 # Section 1: User Need Restatement — Habituation Phase 6/7/8
 
 下面是用 user 語言重述的「為什麼這個 sprint 存在」。**請 user 讀完後 raise 任何「我意思不是這樣」的歧義**——這個 section 是後續所有 section 的地基。

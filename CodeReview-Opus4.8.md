@@ -3,7 +3,7 @@
 **Date:** 2026-06-05
 **Reviewer:** Claude Opus 4.8 (Claude Code)
 **Scope:** Full `src/` tree — Core / Infrastructure / App / Views (~20K LOC, 95 C# files)
-**Baseline read for "intended behaviour":** `docs/TECHNICAL_WHITEPAPER.md`, `Habituation plan.md` (locked decisions Q4.1–Q4.7), `docs/HABITUATION-PROFILE.md`, `docs/CALIBRATION.md`, `docs/SAFETY-PROVISIONS.md`, `docs/HABITUATION-CHATBOT-INTEGRATION.md`, `docs/HEAD-TRACKING-PRIVACY.md`, `docs/POPUP-OVERLAY.md`, `docs/LOG-PATHS.md`.
+**Baseline read for "intended behaviour":** `docs/TECHNICAL_WHITEPAPER.md`, `docs/archive/Habituation plan.md` (archived; locked decisions Q4.1–Q4.7 — see `docs/HABITUATION-PROFILE.md` and whitepaper §7 for current state), `docs/HABITUATION-PROFILE.md`, `docs/CALIBRATION.md`, `docs/SAFETY-PROVISIONS.md`, `docs/HABITUATION-CHATBOT-INTEGRATION.md`, `docs/HEAD-TRACKING-PRIVACY.md`, `docs/POPUP-OVERLAY.md`, `docs/LOG-PATHS.md`.
 **Method:** 1 reviewer on the inference-core math + 4 parallel deep-review agents (sensing/IPC, storage/persistence, chatbot/NLU, UI/ViewModels). Every EMERGENCY finding below was re-read and verified by hand against the source. Findings already catalogued in `docs/ALPHA_BACKLOG.md` (A1–A8, B1–B7, C1–C7, D1–D3, E1–E4, F1–F2, G1) were deliberately **excluded** — everything here is new.
 
 ---
@@ -260,7 +260,7 @@ When a `[PROFILE_OVERRIDE]` block trails, the last `}` is the override object's,
 
 ### NE7 — `MockNluService` and the `ChatbotNluService` catch-path bypass the crisis safety floor
 - **Category:** bug (defense-in-depth) · **Location:** `Mock/MockNluService.cs:12-21`; `Real/ChatbotNluService.cs:33-42` (catch fallback) · **Confidence:** medium
-- `SAFETY-PROVISIONS.md §1` requires the crisis short-circuit to sit *before* the lexicon/NLU. `MockNluService.InterpretAsync` calls `FeedbackLexicon.Classify` directly with **no** `TripsSafetyFloor` check, and `ChatbotNluService`'s exception fallback does the same. Not currently exploited (live wiring routes through `ChatbotNluService(mistral)` whose `SendAsync` floors first, and `MockNluService` isn't constructed in the app), but `docs/ARCHITECTURE.md:59` lists `MockNluService` as *the* `INluService` impl — if it's ever swapped in, crisis phrases reach the lexicon. **Fix:** add a `TripsSafetyFloor` short-circuit to both entry points, ideally via a shared `SafetyFloorVocabulary` (dovetails with backlog C3).
+- `SAFETY-PROVISIONS.md §1` requires the crisis short-circuit to sit *before* the lexicon/NLU. `MockNluService.InterpretAsync` calls `FeedbackLexicon.Classify` directly with **no** `TripsSafetyFloor` check, and `ChatbotNluService`'s exception fallback does the same. Not currently exploited (live wiring routes through `ChatbotNluService(mistral)` whose `SendAsync` floors first, and `MockNluService` isn't constructed in the app), but `docs/archive/ARCHITECTURE.md:59` lists `MockNluService` as *the* `INluService` impl — if it's ever swapped in, crisis phrases reach the lexicon. **Fix:** add a `TripsSafetyFloor` short-circuit to both entry points, ideally via a shared `SafetyFloorVocabulary` (dovetails with backlog C3).
 
 ### NE8 — Calibration convergence reminder is sent to the LLM but never written to the transcript
 - **Category:** bug (fidelity) · **Location:** `CalibrationChatbotService.cs:156-162` · **Confidence:** high

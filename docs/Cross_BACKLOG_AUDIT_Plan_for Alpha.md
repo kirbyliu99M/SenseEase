@@ -246,9 +246,9 @@ A7(per-profile shader defaults)目前 Alpha-2。但「網格依體質預設」(W
 
 #### G-DOC — 修正文件互相矛盾與權責歸屬不一
 
-**問題**:`CALIBRATION.md §4.3`(措辭暗示 `EffectiveTrigger` 全域生效)與 `WHITEPAPER §6.5`(範圍限定)矛盾;`QA-AND-TIERING §2.1`(Tier 由 HabituationEngine 維護)與白皮書(Tier 由 `MockInferenceEngine.UpdateVimsTier` 算後傳入)不一;`ARCHITECTURE.md` 仍寫 `TriggerPressure=100`(實為 85)、仍列「HP Look to Move SDK」(實為 MediaPipe)。
+**問題**:`CALIBRATION.md §4.3`(措辭暗示 `EffectiveTrigger` 全域生效)與 `WHITEPAPER §6.5`(範圍限定)矛盾;`QA-AND-TIERING §2.1`(Tier 由 HabituationEngine 維護)與白皮書(Tier 由 `MockInferenceEngine.UpdateVimsTier` 算後傳入)不一;`ARCHITECTURE.md`(已封存至 `docs/archive/ARCHITECTURE.md`,DEAD-13)仍寫 `TriggerPressure=100`(實為 85)、仍列「HP Look to Move SDK」(實為 MediaPipe);以 `docs/TECHNICAL_WHITEPAPER.md` 為準。
 **根因**:R4。
-**檔案/路徑**:`docs/CALIBRATION.md §4.3`、`docs/QA-AND-TIERING.md §2.1`、`docs/ARCHITECTURE.md`。
+**檔案/路徑**:`docs/CALIBRATION.md §4.3`、`docs/QA-AND-TIERING.md §2.1`、`docs/archive/ARCHITECTURE.md`(已封存)。
 **步驟**:統一 `EffectiveTrigger` 範圍敘述(以 §6.5 為準);統一 Tier 權責(以白皮書為準);更新 ARCHITECTURE 的過時數值與 SDK 名稱。
 **優先序**:**Alpha-2**。
 **驗證**:三份文件交叉一致;`CalibrationConfidence` 順帶依 C4 決議(接消費者或標為診斷用)。

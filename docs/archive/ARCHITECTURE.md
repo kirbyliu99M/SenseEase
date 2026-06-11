@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-06-11 — superseded by `docs/TECHNICAL_WHITEPAPER.md`; kept for historical
+> reference; statements below may be factually wrong about the current code.**
+> (TriggerPressure shown as 100 — locked value is 85; MockNluService listed as active — production
+> NLU is ChatbotNluService; HP Look to Move SDK listed — actual sensing is MediaPipe FaceLandmarker.)
+
 # SenseEase Windows App — Architecture (Phase 1)
 
 ## 目標
