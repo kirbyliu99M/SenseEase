@@ -130,8 +130,11 @@ internal static class FeedbackLexicon
     private static readonly string[] GridMoreKeywords =
     { "看不到格", "需要參考", "錨點", "more grid", "show grid", "need reference" };
 
-    private static readonly string[] SofterEdgeKeywords =
-    { "邊界", "邊緣太硬", "過渡", "太銳利", "太突兀", "edge", "sharp edge", "too sharp", "harsh", "abrupt" };
+    // Round-3 (Kirby item 5): the chatbot's edge-feather vocabulary is REMOVED — edge
+    // feathering is user-meaningless, so the chatbot neither proposes nor applies it.
+    // The SofterEdgeKeywords table and its feather_width_delta mapping are gone; the
+    // /feather power-user slash command, the engine knob and the A2 renderer wiring are
+    // unaffected (those live in ShaderCommandLexicon / the engine, not here).
 
     private static readonly string[] ResetKeywords =
     { "重設", "重置", "恢復", "回到原本", "回復預設", "復原", "reset", "undo", "back to normal", "default", "original", "restore" };
@@ -148,7 +151,7 @@ internal static class FeedbackLexicon
 
         if (ContainsAny(t, ResetKeywords)) return (0, 0, 0, true);
 
-        double md = 0, gv = 0, fw = 0;
+        double md = 0, gv = 0;
         // NE4: "darker / too bright" must DEEPEN the mask (positive md); "lighter
         // / too dark" must LIGHTEN it (negative md). Both were -= 0.15, so "darker"
         // actually lightened the screen and the two opposite intents were
@@ -157,8 +160,9 @@ internal static class FeedbackLexicon
         if (ContainsAny(t, LighterKeywords)) md -= 0.15;
         if (ContainsAny(t, GridLessKeywords)) gv -= 0.15;
         if (ContainsAny(t, GridMoreKeywords)) gv += 0.15;
-        if (ContainsAny(t, SofterEdgeKeywords)) fw += 0.15;
-        return (Math.Clamp(md, -0.3, 0.3), Math.Clamp(gv, -0.3, 0.3), Math.Clamp(fw, -0.3, 0.3), false);
+        // Round-3: feather_width_delta is always 0 — the chatbot edge-feather
+        // vocabulary was removed (edge feathering is user-meaningless per Kirby).
+        return (Math.Clamp(md, -0.3, 0.3), Math.Clamp(gv, -0.3, 0.3), 0.0, false);
     }
 
     public static (string intent, int fovDelta) Classify(string? text)
@@ -198,14 +202,18 @@ internal static class FeedbackLexicon
 
     /// <summary>
     /// Map a classified intent + severity (1-5) to concrete overlay deltas, with directional
-    /// overrides from explicit brightness/grid/edge cues. Shared by the model path and the
-    /// keyword fallback so both behave identically.
+    /// overrides from explicit brightness/grid cues. Shared by the model path and the
+    /// keyword fallback so both behave identically. The feather_width_delta component is
+    /// always 0 — the chatbot's edge-feather vocabulary was removed in round-3 (edge
+    /// feathering is user-meaningless per Kirby); the tuple shape is kept so the many
+    /// call sites compile unchanged.
     /// </summary>
     public static (int fovDelta, double maskDepthDelta, double gridVisibilityDelta, double featherWidthDelta)
         DeriveAdjustments(string intent, int severity, string? text)
     {
         severity = Math.Clamp(severity, 1, 5);
-        int fov = 0; double md = 0, gv = 0, fw = 0;
+        int fov = 0; double md = 0, gv = 0;
+        const double fw = 0.0; // Round-3: chatbot never derives a feather delta.
 
         if (intent == "ReportDiscomfort")
         {
@@ -217,10 +225,9 @@ internal static class FeedbackLexicon
         // ReportComfort / ResetRequest / Unknown -> all zero.
 
         // Directional overrides: explicit cues beat the severity-derived defaults.
-        var (hintMd, hintGv, hintFw, _) = ClassifyShaderHints(text);
+        var (hintMd, hintGv, _, _) = ClassifyShaderHints(text);
         if (hintMd != 0) md = hintMd;
         if (hintGv != 0) gv = hintGv;
-        if (hintFw != 0) fw = hintFw;
 
         // C7: clamps reference the single-source per-call bounds in SenseDefaults.
         return (Math.Clamp(fov, SenseDefaults.MaxFovDeltaPerCall, 0),

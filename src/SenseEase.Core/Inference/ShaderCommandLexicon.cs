@@ -93,7 +93,20 @@ public static class ShaderCommandLexicon
         if (trimmed.StartsWith('/'))
             return ParseSlash(trimmed, isEnglish);
 
-        // ── Layer 2: strict-NL whole-utterance whitelist ─────────────────────
+        // ── Layer 2: grid on/off INTENT (verb + noun, either order) ──────────
+        // Round-3 (Kirby item 5): the live failure was 「關閉網格」 → the bot routed
+        // to the LLM (which applied a wrong-target/wrong-sign DELTA). The strict-NL
+        // whitelist below is whole-utterance exact-match, so it missed the 關閉 verb
+        // and the 網格 noun. This layer catches an explicit grid show/hide REQUEST by
+        // co-occurrence of a hide/show VERB with a grid NOUN in EITHER order — and
+        // resolves to the SAME absolute-set ShaderCommand /grid off|on uses. It is
+        // negation-guarded (see DetectGridOnOff) so "I don't want the grid off" /
+        // "why is the grid off" still fall through to the LLM (locked-spec #6).
+        var gridIntent = DetectGridOnOff(trimmed, isEnglish);
+        if (gridIntent.Kind != ShaderCommandKind.None)
+            return gridIntent;
+
+        // ── Layer 3: strict-NL whole-utterance whitelist ─────────────────────
         return ParseStrictNl(trimmed, isEnglish);
     }
 
@@ -228,7 +241,76 @@ public static class ShaderCommandLexicon
             "slash.fov_pct");
     }
 
-    // ── Layer 2 implementation: strict-NL whole-utterance whitelist ───────────
+    // ── Layer 2 implementation: grid on/off intent (verb + noun co-occurrence) ─
+
+    /// <summary>Hide-the-grid verbs. zh covers the full vocabulary Kirby named in
+    /// round-3 (關閉 / 關掉 / 不要 / 移除 / 拿掉 / 隱藏); en covers the explicit phrasal
+    /// verbs (turn off / disable / remove / hide). A bare "off" is deliberately NOT an
+    /// en hide-verb — "why is the grid off" must NOT match (locked-spec #6).</summary>
+    private static readonly string[] GridHideVerbsZh =
+        { "關閉", "關掉", "不要", "移除", "拿掉", "隱藏" };
+    private static readonly string[] GridHideVerbsEn =
+        { "turn off", "disable", "remove", "hide" };
+
+    /// <summary>Show-the-grid verbs (the on equivalent). zh: 開啟 / 打開 / 顯示.</summary>
+    private static readonly string[] GridShowVerbsZh =
+        { "開啟", "打開", "顯示" };
+    private static readonly string[] GridShowVerbsEn =
+        { "turn on", "enable", "show", "bring back" };
+
+    /// <summary>Grid NOUNS in either language (網格 / 格線 / grid).</summary>
+    private static readonly string[] GridNounsZh = { "網格", "格線" };
+
+    /// <summary>en negation tokens that veto a loose grid-intent match so a
+    /// rhetorical / negated utterance ("I don't want the grid off") still falls
+    /// through to the LLM. zh negation 不 is handled by NOT treating it as a hide-verb
+    /// stem outside the explicit 不要 token (which IS a remove request).</summary>
+    private static readonly string[] EnNegationGuards =
+        { "don't", "do not", "doesn't", "didn't", "why is", "why's", "tell me about", "what is", "what's" };
+
+    /// <summary>Round-3: detect an explicit grid SHOW/HIDE request by co-occurrence of
+    /// a verb with a grid noun, in EITHER order, in either language. Resolves to the
+    /// SAME ShaderCommand the slash / strict-NL grid paths produce (gv=0 for hide,
+    /// profile default for show) so the ChatbotViewModel reuses one absolute-set path.
+    /// Returns <see cref="ShaderCommandKind.None"/> when no grid intent is present OR
+    /// when an en negation/question guard vetoes a loose match.</summary>
+    private static ShaderCommand DetectGridOnOff(string trimmed, bool isEnglish)
+    {
+        string lower = trimmed.ToLowerInvariant();
+
+        // Must mention the grid at all (en noun "grid" lower-cased; zh nouns are
+        // case-free). No grid noun → not a grid command; fall through.
+        bool mentionsGrid = lower.Contains("grid", StringComparison.Ordinal)
+            || ContainsAny(trimmed, GridNounsZh);
+        if (!mentionsGrid) return None();
+
+        // en negation / question guard: a negated or rhetorical grid sentence is NOT a
+        // command (locked-spec #6). zh 不要 is an explicit remove request, so it is in
+        // the hide-verb list and intentionally NOT guarded here.
+        if (ContainsAny(lower, EnNegationGuards)) return None();
+
+        bool hide = ContainsAny(trimmed, GridHideVerbsZh) || ContainsAny(lower, GridHideVerbsEn);
+        bool show = ContainsAny(trimmed, GridShowVerbsZh) || ContainsAny(lower, GridShowVerbsEn);
+
+        // Need an unambiguous direction: a verb on exactly one side. If both a hide and
+        // a show verb appear (rare / contradictory), fall through to the LLM rather than
+        // guess. If neither appears, it's a grid mention without an action → LLM.
+        if (hide && !show)
+            return GridOffCmd(isEnglish);
+        if (show && !hide)
+            return GridOnCmd(isEnglish);
+
+        return None();
+    }
+
+    private static bool ContainsAny(string text, string[] needles)
+    {
+        foreach (var n in needles)
+            if (text.Contains(n, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    // ── Layer 3 implementation: strict-NL whole-utterance whitelist ───────────
 
     private static ShaderCommand ParseStrictNl(string trimmed, bool isEnglish)
     {

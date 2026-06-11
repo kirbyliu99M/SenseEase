@@ -72,6 +72,29 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private const int FakeStreamMaxMs = 1500;
     private const int FakeStreamStepMs = 30;
 
+    /// <summary>Round-3 (Kirby item 5, follow-up context): which shader target the
+    /// chatbot last ACTED on (grid / mask / fov), so a bare object-less follow-up like
+    /// 「直接關閉」/「關掉」/「off」 can apply OFF to the remembered target instead of
+    /// being routed to the LLM (where the live failure produced a wrong-target,
+    /// wrong-sign delta). Set by BOTH the lexicon short-circuit (HandleShaderCommand)
+    /// and any LLM-applied adjustment (ApplyNluResult). Null = no remembered target.</summary>
+    private FollowUpTarget? _lastAdjustTarget;
+
+    /// <summary>How many user turns ago <see cref="_lastAdjustTarget"/> was set,
+    /// counted forward each SendAsync. A bare follow-up only inherits the remembered
+    /// target within <see cref="FollowUpTargetWindow"/> turns; after that the context
+    /// is stale and a bare 「關掉」 goes to the honest-clarify path instead.</summary>
+    private int _turnsSinceLastAdjust = int.MaxValue;
+
+    /// <summary>Round-3: a bare object-less off/on follow-up inherits the last target
+    /// only within this many user turns (per Kirby: "within the next 2 user turns").</summary>
+    private const int FollowUpTargetWindow = 2;
+
+    /// <summary>The shader target a follow-up off/on can refer back to. Mirrors the
+    /// subset of <see cref="ShaderParam"/> the chatbot adjusts; kept VM-local so the
+    /// follow-up bookkeeping doesn't leak into the Core selector enum.</summary>
+    private enum FollowUpTarget { Grid, Mask, Fov }
+
     /// <summary>UX-19: welcome shown when the transcript is empty — on first launch
     /// (constructor, when prior.Count == 0) and after Clear() so the chat surface doesn't
     /// go blank mid-session. Previously a single stacked zh+en const (both languages on
@@ -452,6 +475,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             return;
         }
 
+        // Round-3 follow-up context: count this real (non-crisis, non-empty) user turn
+        // forward so the bare off/on follow-up window can expire. Saturating add so a
+        // very long session never overflows. Set/reset of _lastAdjustTarget itself
+        // happens where an adjustment is actually applied (HandleShaderCommand /
+        // ApplyNluResult), which zeroes the counter for the NEXT turn.
+        if (_turnsSinceLastAdjust < int.MaxValue) _turnsSinceLastAdjust++;
+
         // M3 7e+ / Alpha-2 audit fix: the user typed something like "我想換 profile" /
         // "show me profiles". The chatbot can NO LONGER live-switch the habituation profile
         // (Reading A, 2026-06-06: the SwitchProfile override path is deliberately severed —
@@ -496,6 +526,43 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             InputText = string.Empty;
             HandleShaderCommand(shaderCmd, text);
             return; // local reply only — no LLM
+        }
+
+        // ── Round-3 (Kirby item 5): bare object-less off/on FOLLOW-UP ─────────
+        // A bare 「直接關閉」/「關掉」/「off」/「turn it off」 with NO target noun is
+        // ambiguous on its own (which is why the live failure let the LLM pick a wrong
+        // target + wrong sign). Resolve it DETERMINISTICALLY against the last target we
+        // acted on, within a 2-turn window. Grid → gv=0 (the /grid off path). Mask/Fov
+        // have no off — reply honestly that protection can't be turned off from chat and
+        // point at Settings. Bare 「更低/lower」-type follow-ups are NOT object-less off/on
+        // requests (IsBareOffFollowup is false for them) so they still reach the LLM.
+        bool bareOff = IsBareOffFollowup(text);
+        if (bareOff
+            && _lastAdjustTarget is FollowUpTarget target
+            && _turnsSinceLastAdjust <= FollowUpTargetWindow)
+        {
+            InputText = string.Empty;
+            HandleBareOffFollowup(target, text);
+            return; // deterministic — no LLM
+        }
+        if (bareOff)
+        {
+            // Bare off/on with NO remembered target (or the context is stale): we don't
+            // know what to turn off. Ask honestly rather than guess — guessing is exactly
+            // the wrong-target failure this change removes.
+            InputText = string.Empty;
+            bool en = LocalizationManager.Current.IsEnglish;
+            string reply = en
+                ? "Which setting would you like to turn off? You can say \"turn off the grid\", or use Settings for sensitivity protection."
+                : "您想關閉哪一項設定？可以說「關閉網格」，或在 設定 裡調整敏感度保護。";
+            _dispatcher.Invoke(() =>
+            {
+                Messages.Add(new ChatMessageViewModel(text, ChatRole.User));
+                PersistMessage(ChatRole.User, text);
+                Messages.Add(new ChatMessageViewModel(reply, ChatRole.Assistant));
+                PersistMessage(ChatRole.Assistant, reply);
+            });
+            return; // honest clarify — no LLM, no adjustment
         }
 
         // Cancel any in-flight fake-stream animation from the prior turn so its
@@ -999,6 +1066,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // deltas so the resulting pseudo-table never contains "no change" rows.
         var rows = new System.Collections.Generic.List<(string Label, string Change)>();
 
+        // Round-3 follow-up context: the target THIS turn actually moved, decided once
+        // at the end so a stale prior-turn target can't bleed through. Grid is preferred
+        // (only target with a real OFF), then mask, then fov.
+        FollowUpTarget? appliedTarget = null;
+
         if (result.FovDelta != 0)
         {
             int oldOffset = _engine.UserFovOffset;
@@ -1016,6 +1088,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                     Source = "user", Utterance = utterance,
                 });
                 rows.Add(("FOV", $"{(appliedFov > 0 ? "+" : "")}{appliedFov}%"));
+                appliedTarget = FollowUpTarget.Fov;
             }
         }
 
@@ -1048,6 +1121,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // CW-2 CLOSED (D-2, Beta A2): MaskDepth + FeatherWidth now render live via the
             // single-pass field — every row above is a truthful, applied change. No interim
             // "recorded only" caveat.
+
+            // Round-3 follow-up context: grid wins (only target with a real OFF), then
+            // mask. (Feather is no longer in the chatbot's vocabulary, so it never sets
+            // a follow-up target.)
+            if (appliedGridVisibility != 0)      appliedTarget = FollowUpTarget.Grid;
+            else if (appliedMaskDepth != 0)      appliedTarget = FollowUpTarget.Mask;
+        }
+
+        // Round-3: commit the target THIS turn moved so a bare 「直接關閉」/「off」 next
+        // turn resolves against it deterministically instead of asking the model again.
+        if (appliedTarget is FollowUpTarget t)
+        {
+            _lastAdjustTarget = t;
+            _turnsSinceLastAdjust = 0;
         }
 
         AdjustmentApplied?.Invoke(this, EventArgs.Empty);
@@ -1138,6 +1225,89 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         });
     }
 
+    /// <summary>Round-3 follow-up context: record the shader target an absolute-set
+    /// command just acted on, and zero the staleness counter, so a bare object-less
+    /// off/on follow-up next turn resolves against it. FeatherWidth is intentionally
+    /// dropped — it is no longer part of the chatbot's adjustment vocabulary (it can
+    /// still be set via the /feather power-user slash command, but that is not a
+    /// follow-up target a bare 「關掉」 should ever land on).</summary>
+    private void RememberAdjustTarget(ShaderParam param)
+    {
+        FollowUpTarget? t = param switch
+        {
+            ShaderParam.GridVisibility => FollowUpTarget.Grid,
+            ShaderParam.MaskDepth      => FollowUpTarget.Mask,
+            ShaderParam.FovRadius      => FollowUpTarget.Fov,
+            _                          => null,   // FeatherWidth → no follow-up target
+        };
+        if (t is FollowUpTarget target)
+        {
+            _lastAdjustTarget = target;
+            _turnsSinceLastAdjust = 0;
+        }
+    }
+
+    /// <summary>Round-3: true when the utterance is a BARE OFF follow-up with NO
+    /// target noun — 「直接關閉」/「關掉」/「off」/「turn it off」 and close variants.
+    /// Object-bearing utterances (those naming grid / mask / fov / a noun) are NOT bare
+    /// and are handled by <see cref="ShaderCommandLexicon"/> upstream; magnitude
+    /// follow-ups (「更低」/「lower」) are NOT off requests and keep going to the LLM.
+    /// Whole-utterance (trim + lowercase + strip trailing punctuation), so a longer
+    /// sentence that merely contains "off" does not match. Internal for unit coverage.</summary>
+    internal static bool IsBareOffFollowup(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        string norm = text.Trim().ToLowerInvariant()
+            .TrimEnd('.', '。', '!', '！', '?', '？', ' ', '\t');
+        return norm switch
+        {
+            // zh bare-off
+            "關閉" or "關掉" or "直接關閉" or "直接關掉" or "把它關掉" or "幫我關掉" or
+            "關閉它" or "關掉它" or
+            // en bare-off
+            "off" or "turn off" or "turn it off" or "turn that off" or "disable it" or
+            "hide it" or "remove it"
+                => true,
+            _ => false,
+        };
+    }
+
+    /// <summary>Round-3: apply a bare off/on follow-up to the REMEMBERED target. Grid
+    /// has a real OFF (gv=0, the same absolute-set path /grid off uses). Mask and FOV
+    /// have NO off — protection cannot be turned off from chat, so reply honestly and
+    /// point at Settings (mirrors the existing "mask off" rejection voice). No LLM.</summary>
+    private void HandleBareOffFollowup(FollowUpTarget target, string userText)
+    {
+        bool en = LocalizationManager.Current.IsEnglish;
+
+        if (target == FollowUpTarget.Grid)
+        {
+            // Reuse the exact /grid off path: absolute gv=0 + the honest confirmation
+            // the slash path already ships. Build the command via the lexicon so the
+            // reply copy and the audit pattern id stay in one place.
+            var cmd = ShaderCommandLexicon.Parse("/grid off", en);
+            HandleShaderCommand(cmd, userText);
+            return;
+        }
+
+        // Mask / FOV: no off from chat. Honest decline, pointed at Settings.
+        string reply = target == FollowUpTarget.Mask
+            ? (en
+                ? "The peripheral mask is core protection and can't be turned off from chat. You can adjust sensitivity protection in Settings."
+                : "周邊遮罩是核心保護，無法從對話關閉。您可以在 設定 裡調整敏感度保護。")
+            : (en
+                ? "The field-of-view protection can't be turned off from chat. You can adjust it in Settings."
+                : "視野保護無法從對話關閉。您可以在 設定 裡調整。");
+
+        _dispatcher.Invoke(() =>
+        {
+            Messages.Add(new ChatMessageViewModel(userText, ChatRole.User));
+            PersistMessage(ChatRole.User, userText);
+            Messages.Add(new ChatMessageViewModel(reply, ChatRole.Assistant));
+            PersistMessage(ChatRole.Assistant, reply);
+        });
+    }
+
     /// <summary>G1: execute a parsed shader slash-command / strict-language command
     /// LOCALLY (no LLM). Echoes the user turn, applies the engine action, pushes the
     /// command's local reply, and logs an audit entry with the pattern id + resolved
@@ -1165,10 +1335,17 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 };
                 newValue = cmd.Value;
                 _engine.SetShaderParam(p, cmd.Value);
+                // Round-3 follow-up context: remember the target we just acted on so a
+                // bare 「直接關閉」/「off」 next turn resolves against it (no LLM guess).
+                RememberAdjustTarget(p);
                 break;
 
             case ShaderCommandKind.ResetShader:
                 _engine.ResetShaderToProfileDefault();
+                // A reset clears the transient shader state — there is no single
+                // "last target" to turn off afterward, so drop any remembered context.
+                _lastAdjustTarget = null;
+                _turnsSinceLastAdjust = int.MaxValue;
                 break;
 
             case ShaderCommandKind.Show:

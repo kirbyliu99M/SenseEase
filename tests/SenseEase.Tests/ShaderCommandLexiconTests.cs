@@ -284,13 +284,66 @@ public class ShaderCommandLexiconTests
         Assert.Equal(ShaderCommandKind.Show, cmd.Kind);
     }
 
-    // ── Negation / false-positive guard (locked #6: whole-utterance only) ─────
+    // ── Round-3: grid OFF/ON INTENT (verb + noun, either order) ───────────────
+    // The strict-NL whitelist above is whole-utterance exact-match, so it missed the
+    // screenshot failure 「關閉網格」 (verb 關閉 + noun 網格). This layer catches the
+    // verb+noun co-occurrence in either language / either order and resolves to the
+    // SAME absolute-set ShaderCommand as /grid off|on.
+
+    [Theory]
+    [InlineData("關閉網格")]   // the screenshot utterance
+    [InlineData("關掉網格")]
+    [InlineData("不要網格")]
+    [InlineData("移除格線")]
+    [InlineData("拿掉格線")]
+    [InlineData("隱藏網格")]
+    [InlineData("網格關閉")]   // noun-first order
+    [InlineData("disable grid")]
+    [InlineData("hide the grid")]
+    [InlineData("remove the grid")]
+    public void GridIntent_HideVerbPlusNoun_ResolvesToGridOff(string input)
+    {
+        var cmd = ShaderCommandLexicon.Parse(input, isEnglish: false);
+        Assert.Equal(ShaderCommandKind.SetParam, cmd.Kind);
+        Assert.Equal(ShaderParam.GridVisibility, cmd.Param);
+        Assert.Equal(0.0, cmd.Value, 6);
+    }
+
+    [Theory]
+    [InlineData("開啟網格")]
+    [InlineData("打開網格")]
+    [InlineData("顯示網格")]
+    [InlineData("enable grid")]
+    [InlineData("show the grid")]
+    public void GridIntent_ShowVerbPlusNoun_ResolvesToGridOn(string input)
+    {
+        var cmd = ShaderCommandLexicon.Parse(input, isEnglish: false);
+        Assert.Equal(ShaderCommandKind.SetParam, cmd.Kind);
+        Assert.Equal(ShaderParam.GridVisibility, cmd.Param);
+        Assert.Equal(ShaderParams.DefaultGridVisibility, cmd.Value, 6);
+    }
+
+    [Theory]
+    [InlineData("I feel dizzy today")]   // no grid noun at all
+    [InlineData("關掉")]                  // bare off, no noun → handled by VM follow-up, not here
+    [InlineData("the grid looks nice")]  // grid noun but no hide/show verb
+    public void GridIntent_NoVerbNounPair_FallsThrough(string input)
+    {
+        var cmd = ShaderCommandLexicon.Parse(input, isEnglish: true);
+        Assert.Equal(ShaderCommandKind.None, cmd.Kind);
+    }
+
+    // ── Negation / false-positive guard (locked #6) ───────────────────────────
+    // The new verb+noun layer must NOT fire on negated / rhetorical grid sentences —
+    // these still fall through to the LLM exactly as the whole-utterance whitelist did.
 
     [Theory]
     [InlineData("I don't want the grid off")]
     [InlineData("I don't want the grid off, why is it gone?")]
     [InlineData("why is the grid off")]
     [InlineData("can you tell me about grid off")]
+    [InlineData("don't hide the grid")]   // explicit negation of a hide-verb
+    [InlineData("why is the grid hidden")]
     public void StrictNl_Negation_DoesNotMatch_FallsThroughToLlm(string input)
     {
         var cmd = ShaderCommandLexicon.Parse(input, isEnglish: true);

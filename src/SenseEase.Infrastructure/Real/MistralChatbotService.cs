@@ -151,8 +151,7 @@ public sealed class MistralChatbotService : IChatbotService
         "ACTUATOR PARAMETERS (your deltas modify the user's screen — be cautious):\n" +
         "  fov_delta (int -30..0, percent): tightens the radius of the clear central viewport. More negative = smaller clear zone, larger peripheral mask, less peripheral motion, less vection. The baseline is 100 % (full clear); your delta subtracts from that. Bottom clamp at 15 % so the user always has some clear viewport.\n" +
         "  mask_depth_delta (float -0.3..0.3): opacity of the peripheral mask. Default mask depth is 0.74. Positive deepens (more occlusion of peripheral motion), negative lightens. This actuates the screen LIVE (the single-pass field renders it) — within safe limits: depth can never drop the mask below its always-on protection floor, and can never exceed the level the engine has commanded for the current tier.\n" +
-        "  grid_visibility_delta (float -0.3..0.3): visibility of the static Chang-Hain anchor grid. Default 0.75. The grid gives the user a fixed visual reference and is particularly useful when they report dizziness / spinning / vertigo — it suppresses vection. Less helpful for pure eye strain.\n" +
-        "  feather_width_delta (float -0.3..0.3): softness of the mask edge. Default 0.50. Positive softens the transition (a wider, gentler feather band), negative tightens it. This actuates the screen LIVE. Adjust it rarely — only when the user specifically complains the mask edge is too hard / too soft.\n\n" +
+        "  grid_visibility_delta (float -0.3..0.3): visibility of the static Chang-Hain anchor grid. Default 0.75. The grid gives the user a fixed visual reference and is particularly useful when they report dizziness / spinning / vertigo — it suppresses vection. Less helpful for pure eye strain. POSITIVE makes the grid MORE visible; NEGATIVE makes it LESS visible. If the user asks to REDUCE / fade / hide the grid, grid_visibility_delta MUST be NEGATIVE. (A request to TURN the grid fully OFF is handled deterministically by the app BEFORE you ever see it — you will never receive a 'turn off the grid' message, so never emit a delta for one.)\n\n" +
 
         // ── PERSONALIZATION FREEDOM + CAUTION ──
         "PERSONALIZATION POLICY:\n" +
@@ -199,7 +198,7 @@ public sealed class MistralChatbotService : IChatbotService
         "  • advisory=vestibular → if user asks to reduce protection, surface this history before complying\n" +
         "  • advisory=high_risk_combo → be slightly more cautious with relaxation reply wording\n" +
         "  • recent_observations → reference if user explicitly asks about past experiences\n" +
-        "Continue emitting the JSON envelope (intent/severity/reply/fov_delta/mask_depth_delta/grid_visibility_delta/feather_width_delta) " +
+        "Continue emitting the JSON envelope (intent/severity/reply/fov_delta/mask_depth_delta/grid_visibility_delta) " +
         "exactly as documented above. Habituation context does not change ANY field value rule.\n\n" +
 
         // ── WRITE-SIDE STRUCTURED TOKENS (M3 Phase 7e) ──
@@ -214,7 +213,7 @@ public sealed class MistralChatbotService : IChatbotService
         "     NEVER use 'adjust_sensitivity' / 'adjust_strike_limit' as the envelope intent. Those\n" +
         "     are PROFILE_OVERRIDE intents and go INSIDE the override block — never in the outer envelope.\n" +
         "  2. The override block (if any) goes AFTER the envelope's closing } on a NEW LINE. Never embed it inside\n" +
-        "     the envelope between fields. Wrong: `..,'feather_width_delta':0.0,[PROFILE_OVERRIDE]`. Right: envelope\n" +
+        "     the envelope between fields. Wrong: `..,'grid_visibility_delta':0.0,[PROFILE_OVERRIDE]`. Right: envelope\n" +
         "     ends with `}` newline, THEN `[PROFILE_OVERRIDE]` newline JSON newline `[/PROFILE_OVERRIDE]`.\n" +
         "  3. The TAG NAME is EXACTLY `[PROFILE_OVERRIDE]` and `[/PROFILE_OVERRIDE]`. NEVER use synonyms or near-words:\n" +
         "     not `[PROFILE_OVERSIGHT]`, not `[PROFILE_PROPOSAL]`, not `[PROFILE_ADJUST]`, not `[OVERRIDE]`. Same for the\n" +
@@ -264,21 +263,21 @@ public sealed class MistralChatbotService : IChatbotService
         "\n" +
         "EXAMPLE 1 (user asks to relax sensitivity based on stable history):\n" +
         "  User: 我最近 5 天 tier 一直在 6-7 穩定，可以把 sensitivity 調鬆一點嗎?\n" +
-        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"看到您過去 5 天 tier 維持在 6-7 穩定，我建議把 sensitivity 從 1.0 調至 0.9 — 卡片上會出現詳細選項。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"看到您過去 5 天 tier 維持在 6-7 穩定，我建議把 sensitivity 從 1.0 調至 0.9 — 卡片上會出現詳細選項。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "  [PROFILE_OVERRIDE]\n" +
         "  {\"intent\":\"adjust_sensitivity\",\"target_field\":\"personal_pressure_scale\",\"proposed_value\":0.9,\"rationale\":\"用戶最近 5 天 tier 穩定在 6-7，可以小幅放鬆\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
         "  [/PROFILE_OVERRIDE]\n" +
         "\n" +
         "EXAMPLE 2 (user wants higher strike limit):\n" +
         "  User: 把 strike limit 提高到 3，最近 1 件事件就被暫停太敏感了\n" +
-        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"了解，從 2 提高到 3 可減少誤觸；請在卡片上確認。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  {\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"了解，從 2 提高到 3 可減少誤觸；請在卡片上確認。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "  [PROFILE_OVERRIDE]\n" +
         "  {\"intent\":\"adjust_strike_limit\",\"target_field\":\"severe_strike_limit\",\"proposed_value\":3,\"rationale\":\"用戶反映現有 limit 過敏感\",\"expires_at_iso\":\"2026-05-30T17:00:00Z\"}\n" +
         "  [/PROFILE_OVERRIDE]\n" +
         "\n" +
         "EXAMPLE 3 (user comment is just a longitudinal observation, no proposal):\n" +
         "  User: I've noticed my symptoms always get worse around 3pm\n" +
-        "  {\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Thanks for sharing — I'll keep an eye on the afternoon pattern in your data.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "  {\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Thanks for sharing — I'll keep an eye on the afternoon pattern in your data.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "  [OBSERVATION_ADD]\n" +
         "  user reports symptoms reliably worsen around 3 pm\n" +
         "  [/OBSERVATION_ADD]\n\n" +
@@ -297,34 +296,43 @@ public sealed class MistralChatbotService : IChatbotService
         "  reply            REQUIRED  non-empty string\n" +
         "  fov_delta        OPTIONAL  int -30..0          (omit or 0 for non-actuating intents)\n" +
         "  mask_depth_delta OPTIONAL  float -0.3..0.3\n" +
-        "  grid_visibility_delta OPTIONAL float -0.3..0.3\n" +
-        "  feather_width_delta   OPTIONAL float -0.3..0.3\n" +
+        "  grid_visibility_delta OPTIONAL float -0.3..0.3 (NEGATIVE to reduce/fade the grid)\n" +
         "  followup_question REQUIRED IFF intent=FollowupRequest\n" +
         "  followup_options  REQUIRED IFF intent=FollowupRequest, 2-4 strings ≤ 30 chars\n\n" +
 
         // ── EXAMPLES ──
         "EXAMPLES (compact JSON, one line each):\n" +
         "User: I have a mild headache\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view to ease the visual load and deepened the peripheral mask a touch.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02,\"feather_width_delta\":0.03}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"Got it — I've slightly tightened the field of view to ease the visual load and deepened the peripheral mask a touch.\",\"fov_delta\":-7,\"mask_depth_delta\":0.05,\"grid_visibility_delta\":0.02}\n" +
         "User: I have a REALLY bad migraine, the screen is killing me\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV, deepened the mask and raised the anchor grid to cut visual stimulation.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07,\"feather_width_delta\":0.04}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":5,\"reply\":\"That sounds awful — I've sharply tightened the FOV, deepened the mask and raised the anchor grid to cut visual stimulation.\",\"fov_delta\":-26,\"mask_depth_delta\":0.20,\"grid_visibility_delta\":0.07}\n" +
         "User: 我覺得有點頭暈\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV、加深周邊遮罩並提升錨點網格能見度以穩定視覺。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"了解，我已稍微收緊 FOV、加深周邊遮罩並提升錨點網格能見度以穩定視覺。\",\"fov_delta\":-8,\"mask_depth_delta\":0.06,\"grid_visibility_delta\":0.04}\n" +
         "User: still a bit dizzy after the last adjustment\n" +
         "(state shows [RecentAdjustments] FovRadius -20% already applied 2 min ago)\n" +
-        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — raising the anchor grid a touch and nudging the mask slightly rather than another big FOV cut.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":2,\"reply\":\"I see we already tightened things recently — raising the anchor grid a touch and nudging the mask slightly rather than another big FOV cut.\",\"fov_delta\":-3,\"mask_depth_delta\":0.04,\"grid_visibility_delta\":0.05}\n" +
+        "User: the grid is a bit distracting, can you fade it down?\n" +
+        "(NEGATIVE grid delta to make it less visible; plain-language reply, no jargon)\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":1,\"reply\":\"Sure — I've faded the anchor grid down a little so it's less distracting.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":-0.15}\n" +
+        "User: 網格有點干擾，幫我調淡一點\n" +
+        "{\"intent\":\"ReportDiscomfort\",\"severity\":1,\"reply\":\"好的，我已把錨點網格調淡一些，減少干擾。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":-0.15}\n" +
         "User: 好多了，謝謝\n" +
-        "{\"intent\":\"ReportComfort\",\"severity\":1,\"reply\":\"很好，系統會持續監測；如果再次出現不適隨時告訴我。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ReportComfort\",\"severity\":1,\"reply\":\"很好，系統會持續監測；如果再次出現不適隨時告訴我。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: reset everything to default\n" +
-        "{\"intent\":\"ResetRequest\",\"severity\":1,\"reply\":\"Done — overlay settings restored to default.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"ResetRequest\",\"severity\":1,\"reply\":\"Done — overlay settings restored to default.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: I felt dizzy during last session, do you know what causes it?\n" +
-        "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Looking at recent events, pressure spiked above 220 around 21:10 and the FOV mask activated; the dizziness most likely came from high peripheral optical flow during that window.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Looking at recent events, pressure spiked above 220 around 21:10 and the FOV mask activated; the dizziness most likely came from high peripheral optical flow during that window.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: I feel off\n" +
-        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: 怪怪的\n" +
-        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"請問您現在感受到哪一種不適？\",\"followup_question\":\"請問您現在感受到哪一種不適？\",\"followup_options\":[\"暈眩\",\"噁心\",\"頭痛\",\"眼睛疲勞\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}\n" +
+        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"請問您現在感受到哪一種不適？\",\"followup_question\":\"請問您現在感受到哪一種不適？\",\"followup_options\":[\"暈眩\",\"噁心\",\"頭痛\",\"眼睛疲勞\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: Hi, how are you\n" +
-        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Hi! I'm running and watching for any visual discomfort — just tell me how you're feeling and I'll adjust the overlay.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0,\"feather_width_delta\":0.0}";
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Hi! I'm running and watching for any visual discomfort — just tell me how you're feeling and I'll adjust the overlay.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}";
+
+    /// <summary>Test hook (InternalsVisibleTo SenseEase.Tests): exposes the immutable
+    /// system prompt so a chatbot-layer test can string-scan it — e.g. to assert the
+    /// feather knob is absent from the NLU contract (round-3, Kirby item 5).</summary>
+    internal static string SystemPromptForTests => SystemPrompt;
 
     public MistralChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null)
     {
@@ -910,24 +918,31 @@ public sealed class MistralChatbotService : IChatbotService
                 d.FollowupOptions = null;
             }
 
+            // Round-3 (Kirby item 5): feather is NOT part of the chatbot's adjustment
+            // vocabulary anymore. The chatbot LLM path NEVER applies a feather delta —
+            // any stray feather_width_delta the model emits is ignored (fw stays 0). The
+            // /feather slash command, the engine knob and the A2 renderer wiring are
+            // unaffected (those don't go through this NLU path).
+            const double fw = 0.0;
+
             // AnalyzeRequest / FollowupRequest are non-actuating — never derive deltas.
-            int fov; double md, gv, fw;
+            int fov; double md, gv;
             if (intent == "AnalyzeRequest" || intent == "FollowupRequest")
             {
-                fov = 0; md = 0; gv = 0; fw = 0;
+                fov = 0; md = 0; gv = 0;
             }
             else
             {
                 // Personalized path: when the model emitted explicit deltas, trust
                 // them (clamped to safe ranges); otherwise fall back to the lexicon's
-                // severity-bucket defaults. Any one field being non-null counts as
-                // "model engaged", at which point we apply ALL four model values
-                // (missing ones implicitly 0) — mixing model+lexicon per-field would
-                // produce incoherent combinations.
+                // severity-bucket defaults. Any one ACTUATING field being non-null counts
+                // as "model engaged", at which point we apply ALL model values (missing
+                // ones implicitly 0) — mixing model+lexicon per-field would produce
+                // incoherent combinations. (feather_width_delta is intentionally NOT a
+                // "model engaged" signal — it is ignored entirely.)
                 bool modelProvidedDeltas = d.FovDelta.HasValue
                     || d.MaskDepthDelta.HasValue
-                    || d.GridVisibilityDelta.HasValue
-                    || d.FeatherWidthDelta.HasValue;
+                    || d.GridVisibilityDelta.HasValue;
 
                 // v0.9.1 hotfix: belt-and-suspenders for the Phase 6d prompt
                 // regression. Mistral 3B, when the [habituation_state] block
@@ -946,19 +961,20 @@ public sealed class MistralChatbotService : IChatbotService
                     && modelProvidedDeltas
                     && (d.FovDelta            ?? 0) == 0
                     && (d.MaskDepthDelta      ?? 0) == 0.0
-                    && (d.GridVisibilityDelta ?? 0) == 0.0
-                    && (d.FeatherWidthDelta   ?? 0) == 0.0;
+                    && (d.GridVisibilityDelta ?? 0) == 0.0;
 
                 if (modelProvidedDeltas && !reportedDiscomfortWithAllZeros)
                 {
                     fov = Math.Clamp(d.FovDelta ?? 0,            -30, 0);
                     md  = Math.Clamp(d.MaskDepthDelta ?? 0,      -0.3, 0.3);
                     gv  = Math.Clamp(d.GridVisibilityDelta ?? 0, -0.3, 0.3);
-                    fw  = Math.Clamp(d.FeatherWidthDelta ?? 0,   -0.3, 0.3);
+                    // fw intentionally NOT set from the model — feather is dropped.
                 }
                 else
                 {
-                    (fov, md, gv, fw) = FeedbackLexicon.DeriveAdjustments(intent, severity, userText);
+                    // DeriveAdjustments already returns feather=0 (chatbot vocabulary
+                    // dropped it), so discard its 4th component.
+                    (fov, md, gv, _) = FeedbackLexicon.DeriveAdjustments(intent, severity, userText);
                 }
             }
 
