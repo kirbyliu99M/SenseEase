@@ -1,54 +1,48 @@
 using System;
-using SenseEase.Core.Configuration;
 
 namespace SenseEase.App;
 
 /// <summary>
-/// Beta-1 theme-4: velocity-gated NEUTRAL RECENTER for the head-pose pump.
+/// Beta-1: ONE-TIME NEUTRAL RECENTER for the head-pose pump.
 ///
-/// <para>The sidecar maps ABSOLUTE head yaw to the clear-hole centre
-/// (<c>cx = 0.5 + gain·yaw</c>) with no per-user baseline, so an off-axis camera or a habitual
-/// seating posture biases the hole by a constant offset — the hole "shifts and locks" the instant
-/// a face is detected. This filter cancels that: it learns the user's RESTING head position and
-/// feeds the pump the DEVIATION from it, so a habitual/centred head maps to a centred hole and
-/// the hole follows movements away from rest.</para>
+/// <para>The sidecar maps ABSOLUTE head yaw to the clear-hole centre (<c>cx = 0.5 + gain·yaw</c>)
+/// with no per-user baseline, so an off-axis camera or a habitual seating posture biases the hole
+/// by a constant offset — the hole "shifts and locks" the instant a face is detected. This filter
+/// cancels that: it captures the user's resting head position ONCE (at the first valid pose) and
+/// feeds the pump the DEVIATION from it, so a habitual/centred head maps to a centred hole and the
+/// hole follows movements away from rest 1:1.</para>
 ///
-/// <para><b>Velocity-gated (option B):</b> the neutral baseline is nudged toward the current pose
-/// ONLY while the head is nearly still (a head-speed EMA below
-/// <see cref="SenseDefaults.OverlayNeutralStillSpeed"/>). So a sustained off-centre GAZE — which
-/// keeps the head moving/held away from rest — is never cancelled; only genuine resting posture
-/// is absorbed. Stateful: call <see cref="Recenter"/> once per pump frame. Pure (no WPF), so it
-/// is unit-testable off the UI thread.</para>
+/// <para><b>Why one-time, not continuous (2026-06-15 regression fix):</b> the previous version
+/// nudged the neutral toward the current pose while a head-speed EMA said the head was "still". That
+/// gate was unit-broken — it averaged per-frame |Δraw| at the ~165 Hz pump rate against a ~15 Hz
+/// sidecar, diluting head-speed ~11×, so the gate never closed and the baseline "learned" a held
+/// gaze back toward centre on a ~4 s tau (the hole followed then drifted off and never reached the
+/// target). A fixed one-time neutral does the legitimate job — cancel the constant offset — without
+/// any drift. Stateful: call <see cref="Recenter"/> once per pump frame. Pure (no WPF), so it is
+/// unit-testable off the UI thread.</para>
 /// </summary>
 public sealed class NeutralRecenterFilter
 {
     private double _neutralCx = 0.5;
     private double _neutralCy = 0.5;
-    private double _lastRawCx = double.NaN;
-    private double _lastRawCy = double.NaN;
-    private double _motionEma; // EMA of per-frame |Δraw| — a head-speed proxy (low ⇒ still)
     private bool _seeded;
 
-    /// <summary>Current learned resting baseline (test/diagnostic seam).</summary>
+    /// <summary>The captured resting baseline (test/diagnostic seam).</summary>
     public double NeutralCx => _neutralCx;
     public double NeutralCy => _neutralCy;
 
     /// <summary>Map a raw pose to a recentred pose. <paramref name="valid"/>=false (face lost)
-    /// passes the input through unchanged and freezes the baseline (the pump already targets
-    /// centre on loss); it also resets motion tracking so a re-acquire is not read as a spike.
-    /// The output is clamped to [0,1]; the downstream follow-mode clamp still applies.</summary>
+    /// passes the input through unchanged (the pump already targets centre on loss). The neutral is
+    /// captured once, at the first valid pose, and never moves again. The output is clamped to
+    /// [0,1]; the downstream follow-mode clamp still applies. <paramref name="dtSeconds"/> is kept
+    /// for signature stability with the per-frame pump (no longer used).</summary>
     public (double cx, double cy) Recenter(double rawCx, double rawCy, double dtSeconds, bool valid)
     {
         if (!valid)
-        {
-            _lastRawCx = double.NaN;
-            _lastRawCy = double.NaN;
             return (rawCx, rawCy);
-        }
-        if (dtSeconds <= 0 || dtSeconds > 1.0) dtSeconds = 0.006;
 
-        // Seed the baseline to the FIRST valid pose so there is no initial offset jump — the
-        // hole starts centred and the still-gated learning keeps it honest from there.
+        // Capture the user's neutral ONCE so the hole starts centred and a constant posture/
+        // camera-yaw offset is cancelled (no "shift and lock" on detection).
         if (!_seeded)
         {
             _neutralCx = rawCx;
@@ -56,25 +50,8 @@ public sealed class NeutralRecenterFilter
             _seeded = true;
         }
 
-        // Head-speed proxy: EMA of the per-frame absolute raw delta. Repeated samples (the pump
-        // runs ~165 Hz over a ~15 Hz sidecar) contribute 0; a new sample contributes its change.
-        // A still head ⇒ near-zero EMA; a moving head ⇒ a sustained higher EMA.
-        double delta = (double.IsNaN(_lastRawCx) || double.IsNaN(_lastRawCy))
-            ? 0.0
-            : Math.Abs(rawCx - _lastRawCx) + Math.Abs(rawCy - _lastRawCy);
-        _lastRawCx = rawCx;
-        _lastRawCy = rawCy;
-        double motionAlpha = Math.Exp(-dtSeconds / SenseDefaults.OverlayNeutralMotionTauSeconds);
-        _motionEma = motionAlpha * _motionEma + (1.0 - motionAlpha) * delta;
-
-        // Learn the resting posture ONLY while still (the velocity gate), slowly.
-        if (_motionEma < SenseDefaults.OverlayNeutralStillSpeed)
-        {
-            double learn = 1.0 - Math.Exp(-dtSeconds / SenseDefaults.OverlayNeutralLearnTauSeconds);
-            _neutralCx += (rawCx - _neutralCx) * learn;
-            _neutralCy += (rawCy - _neutralCy) * learn;
-        }
-
+        // Feed the DEVIATION from neutral, 1:1 — no continuous learning, so a held off-centre gaze
+        // stays put (it never drifts back toward centre).
         return (Clamp01(0.5 + (rawCx - _neutralCx)), Clamp01(0.5 + (rawCy - _neutralCy)));
     }
 

@@ -4,10 +4,11 @@ using Xunit;
 namespace SenseEase.Tests;
 
 /// <summary>
-/// Beta-1 theme-4: the velocity-gated neutral recenter (option B). Pins that a constant
-/// posture/camera offset is cancelled (a centred head ⇒ a centred hole), while a sustained
-/// off-centre GAZE — kept alive by continuous movement — is NOT cancelled, and that face-loss
-/// passes through untouched. Fixes Kirby's "hole shifts left and locks when my head is detected."
+/// Beta-1: the ONE-TIME neutral recenter. Pins that a constant posture/camera offset is cancelled
+/// (a centred head ⇒ a centred hole), a head turn moves the hole 1:1, a HELD off-centre gaze stays
+/// deviated (NEVER drifts back — the 2026-06-15 regression guard), and face-loss passes through
+/// untouched. Fixes Kirby's "hole shifts left and locks when my head is detected" without the
+/// continuous-learning drift that made the hole "follow then drift off, never reaching the point".
 /// </summary>
 public sealed class NeutralRecenterFilterTests
 {
@@ -16,11 +17,11 @@ public sealed class NeutralRecenterFilterTests
     [Fact]
     public void ConstantOffCentrePose_RecentresToCentre()
     {
-        // A user sitting still but off-axis: raw cx is a constant 0.35 (the "shifts left" bug).
-        // The recenter must map that resting posture to ~screen-centre.
+        // A user sitting off-axis: raw cx is a constant 0.35 (the "shifts left" bug). The one-time
+        // neutral is captured on the first frame, so every frame maps that resting posture to centre.
         var f = new NeutralRecenterFilter();
         (double cx, double cy) outp = (0, 0);
-        for (int i = 0; i < 2000; i++) // ~12 s of stillness
+        for (int i = 0; i < 200; i++)
             outp = f.Recenter(0.35, 0.62, Dt, valid: true);
 
         Assert.Equal(0.5, outp.cx, 2); // left offset cancelled
@@ -38,38 +39,43 @@ public sealed class NeutralRecenterFilterTests
     }
 
     [Fact]
-    public void HeadMovement_ProducesFollowingDeviation_NotCancelled()
+    public void HeadMovement_ProducesFollowingDeviation_OneToOne()
     {
-        // Settle the resting baseline at centre (0.5) first.
+        // Neutral captured at centre (0.5) on the first frame.
         var f = new NeutralRecenterFilter();
-        for (int i = 0; i < 2000; i++) f.Recenter(0.5, 0.5, Dt, valid: true);
+        f.Recenter(0.5, 0.5, Dt, valid: true);
 
-        // A head turn to the right: the baseline (learned slowly, ~4 s) can't follow a move that
-        // completes in a fraction of a second, so the hole FOLLOWS the turn — the clear zone goes
-        // where the user looks, it is not cancelled. (A head that then SETTLES there eventually
-        // becomes the new rest — that is option B by design, and is its own UVHS feel item.)
-        (double cx, double cy) outp = (0, 0);
-        double x = 0.5;
-        for (int i = 0; i < 10; i++) // ~60 ms turn to 0.80
-        {
-            x = System.Math.Min(0.80, x + 0.03);
-            outp = f.Recenter(x, 0.5, Dt, valid: true);
-        }
-
-        Assert.True(outp.cx > 0.70,
-            $"a head turn must move the hole with the gaze (deviation preserved): cx={outp.cx}");
+        // A head turn to the right: the hole follows the gaze 1:1 (deviation = raw − neutral), the
+        // clear zone goes where the user looks — never attenuated.
+        var outp = f.Recenter(0.80, 0.5, Dt, valid: true);
+        Assert.Equal(0.80, outp.cx, 6);
     }
 
     [Fact]
-    public void FaceLost_PassesThroughUnchanged_AndDoesNotLearn()
+    public void HeldOffCentreGaze_StaysDeviated_NeverDriftsBackToCentre()
+    {
+        // THE regression guard. With the old velocity-gated continuous learning the baseline crept
+        // toward a held pose (~4 s tau) and the hole drifted back to centre — "follows then drifts
+        // off, never reaches the point". Seed-only must hold the full deviation indefinitely.
+        var f = new NeutralRecenterFilter();
+        f.Recenter(0.5, 0.5, Dt, valid: true);          // neutral = 0.5
+        (double cx, double cy) outp = (0, 0);
+        for (int i = 0; i < 3000; i++)                  // ~18 s held at 0.80
+            outp = f.Recenter(0.80, 0.5, Dt, valid: true);
+
+        Assert.Equal(0.80, outp.cx, 4);                 // still fully deviated — no drift back
+    }
+
+    [Fact]
+    public void FaceLost_PassesThroughUnchanged_AndDoesNotMoveNeutral()
     {
         var f = new NeutralRecenterFilter();
-        for (int i = 0; i < 500; i++) f.Recenter(0.5, 0.5, Dt, valid: true); // baseline at centre
+        f.Recenter(0.5, 0.5, Dt, valid: true);          // neutral captured at centre
         double neutralBefore = f.NeutralCx;
 
         var outp = f.Recenter(0.42, 0.58, Dt, valid: false); // face lost: pass through, freeze
         Assert.Equal(0.42, outp.cx, 6);
         Assert.Equal(0.58, outp.cy, 6);
-        Assert.Equal(neutralBefore, f.NeutralCx, 9); // baseline frozen during loss
+        Assert.Equal(neutralBefore, f.NeutralCx, 9);    // baseline frozen during loss
     }
 }

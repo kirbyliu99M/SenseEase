@@ -457,11 +457,12 @@ def make_face_landmarker(model_path: str) -> mp_vision.FaceLandmarker:
     MediaPipe happened to order at index 0 that frame (D-20).
 
     Confidence tuning (now that VIDEO mode makes tracking live):
-      min_face_detection_confidence = 0.4   (was 0.5; lower so a re-acquire
-                                             under poor lighting is easier)
-      min_tracking_confidence       = 0.6   (was 0.5; higher so the carried
-                                             track is trusted before forcing a
-                                             full re-detect)
+      min_face_detection_confidence = 0.4   (lower so a re-acquire under poor
+                                             lighting is easier)
+      min_tracking_confidence       = 0.5   (baseline; 2026-06-15 reverted from
+                                             a 0.6 trial that dropped the carried
+                                             track too readily under marginal
+                                             light → fewer tracking dropouts)
       min_face_presence_confidence  = 0.5   (unchanged)
     The LOCKED downstream params (gains, jump filter, AdaptiveEma2D) are NOT
     touched — the running-mode + face-selection fix is validated in isolation.
@@ -479,7 +480,7 @@ def make_face_landmarker(model_path: str) -> mp_vision.FaceLandmarker:
         output_facial_transformation_matrixes=True,
         min_face_detection_confidence=0.4,
         min_face_presence_confidence=0.5,
-        min_tracking_confidence=0.6,
+        min_tracking_confidence=0.5,
     )
     return mp_vision.FaceLandmarker.create_from_options(options)
 
@@ -647,28 +648,6 @@ class WebcamOpenError(RuntimeError):
     file branch."""
 
 
-def _harden_exposure(cap: cv2.VideoCapture) -> None:
-    """THEME-4 (Beta-1, 2026-06-14): best-effort exposure hardening.
-
-    Lighting-driven dropout is partly a camera-auto-exposure problem that no
-    running-mode change can fully cure: as the auto-exposure hunts (bright
-    background, backlit user) the face under-/over-exposes and MediaPipe loses
-    it. Request a FIXED exposure (auto-exposure OFF) on DSHOW where supported.
-
-    This is best-effort only and fully guarded — many UVC drivers ignore or
-    reject the property, and some only honour it in manual mode. We never fail
-    capture over it. The DSHOW convention for CAP_PROP_AUTO_EXPOSURE is
-    0.25 = manual / 0.75 = auto (a quirk inherited from the legacy 1/4..1
-    encoding); we set 0.25 to pin manual. Non-Windows backends are left alone.
-    """
-    if os.name != "nt":
-        return
-    try:
-        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 0.25 = manual on DSHOW
-    except Exception:
-        pass
-
-
 def open_capture(spec: str) -> cv2.VideoCapture:
     """Open a webcam index or a video file.
 
@@ -692,7 +671,12 @@ def open_capture(spec: str) -> cv2.VideoCapture:
         if cap.isOpened():
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_W)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_H)
-            _harden_exposure(cap)
+            # Exposure is left on AUTO (the reliable baseline). A previous "exposure hardening"
+            # pinned CAP_PROP_AUTO_EXPOSURE=0.25 (manual) WITHOUT ever setting CAP_PROP_EXPOSURE,
+            # so the frame ran at the camera's cold manual default — markedly underexposed in normal
+            # indoor light — and MediaPipe found no face ("幾乎偵測不到頭", 2026-06-15 regression).
+            # If lighting-driven dropout needs addressing later, set BOTH manual auto-exposure AND a
+            # real CAP_PROP_EXPOSURE value; never pin manual without a value.
             return cap
         cap.release()
         raise WebcamOpenError(
