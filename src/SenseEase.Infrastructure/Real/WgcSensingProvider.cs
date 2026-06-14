@@ -131,6 +131,17 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     // (stalled + heal-window ≤ faulted, cadence) is PINNED in LivenessContractTests.
     internal const int SensingFaultedThresholdMs = 5000; // surface Faulted if still stale
     internal const int LivenessWatchdogIntervalMs = 1000;
+
+    // Beta-1 Phase-0 BLOCKER fix (review finding #1): a resolution / DPI / orientation /
+    // dock change that does NOT fully disconnect the display keeps WGC delivering frames,
+    // but at a new ContentSize that fails the CopyResource size guard EVERY tick — so no
+    // real frame is ever processed, OFI decays to 0 and STAYS there (protection silently
+    // off), while the _lastPollAt watchdog stays happy (the loop is still polling) and
+    // GraphicsCaptureItem.Closed never fires. When the size mismatch PERSISTS beyond this
+    // window we treat it as a fault and Stop()+Start() (which re-reads _contentWidth/Height
+    // at the new size). Guarded by persistence so a single transient mode-change frame
+    // does not churn the pipeline.
+    internal const int SizeMismatchRecoveryMs = 700;
     private byte[]? _prevFrame;
     private double  _smoothedOfi;
     private readonly double[] _ofiHistory = new double[SenseDefaults.VimsMedianTaps];
@@ -220,6 +231,10 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
 
     private int _contentWidth;
     private int _contentHeight;
+    // Beta-1 Phase-0 #1: first time the live frame size diverged from _contentWidth/Height
+    // (default = no current divergence). Cleared on every matching frame; when the gap
+    // outlives SizeMismatchRecoveryMs the capture is re-initialised at the new size.
+    private DateTime _sizeMismatchSinceUtc;
 
     public event EventHandler<OpticalFlowSample>? OpticalFlowSampled;
 
@@ -740,9 +755,17 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                 MarkHealthy(); // D3: a fresh real frame clears any prior fault (edge-triggered)
             }
 
+            // Beta-1 #8: only a REAL captured frame may become the next baseline. The
+            // null-frame / size-mismatch fallbacks return EmptyFrameSentinel (all-zero) or
+            // the existing _prevFrame; assigning the sentinel as a baseline made the FIRST
+            // real frame read as |real − 0| = full-screen motion (rawOfi clamps to 150) — a
+            // false max spike at warm-up end / after any dry spell. Guarding on realFrame
+            // keeps the no-op (current == _prevFrame on the prevFrame-return path) while
+            // never letting the sentinel poison the baseline (prevFrame stays null until a
+            // genuine frame arrives, so haveMad is false and OFI is 0 — correct).
             double rawMad = 0;
             double rawOfi = 0;
-            bool haveMad = _prevFrame != null && current.Length == _prevFrame.Length;
+            bool haveMad = realFrame && _prevFrame != null && current.Length == _prevFrame.Length;
             if (haveMad)
             {
                 rawMad = ComputeMad(current, _prevFrame!);
@@ -761,7 +784,12 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                 catch { /* calibration trace is best-effort */ }
             }
 
-            _prevFrame   = current;
+            // Beta-1 #8: advance the baseline ONLY on a real frame. On the fallback paths
+            // current is either _prevFrame (a harmless no-op) or the all-zero sentinel — and
+            // letting the sentinel become _prevFrame is exactly what produced the false
+            // post-warmup max-OFI spike. realFrame is false for every early-return path.
+            if (realFrame)
+                _prevFrame = current;
 
             // OS-CHROME MOTION EXCLUSION (Phase 2.2.1):
             // Attenuate raw MAD-derived OFI whenever Windows itself is generating the on-screen
@@ -867,9 +895,29 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
             var frameSize = frame.ContentSize;
             if (frameSize.Width != _contentWidth || frameSize.Height != _contentHeight)
             {
-                WgcLog($"Frame size mismatch: {frameSize.Width}x{frameSize.Height} vs {_contentWidth}x{_contentHeight}");
+                // Beta-1 #1: frames ARE arriving (the screen is changing) but at a new size —
+                // the silent-freeze condition. Start the persistence clock on the first such
+                // frame; once the divergence outlives SizeMismatchRecoveryMs, re-init the
+                // capture at the new size. ScheduleFaultRecovery is coalesced by _faulted, so
+                // this cannot storm; clearing the clock after scheduling avoids re-arming it
+                // every tick while recovery is in flight.
+                var nowMm = DateTime.UtcNow;
+                if (_sizeMismatchSinceUtc == default)
+                    _sizeMismatchSinceUtc = nowMm;
+                else if ((nowMm - _sizeMismatchSinceUtc).TotalMilliseconds > SizeMismatchRecoveryMs)
+                {
+                    WgcLog($"Frame size mismatch sustained ({frameSize.Width}x{frameSize.Height} vs {_contentWidth}x{_contentHeight}) > {SizeMismatchRecoveryMs} ms → re-init at new size.");
+                    _sizeMismatchSinceUtc = default;
+                    ScheduleFaultRecovery();
+                }
+                else
+                {
+                    WgcLog($"Frame size mismatch: {frameSize.Width}x{frameSize.Height} vs {_contentWidth}x{_contentHeight}");
+                }
                 return _prevFrame ?? EmptyFrameSentinel;
             }
+            // A matching frame clears any pending size-mismatch recovery clock.
+            _sizeMismatchSinceUtc = default;
 
             unsafe
             {
