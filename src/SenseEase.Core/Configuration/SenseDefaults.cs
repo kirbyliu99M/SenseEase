@@ -97,6 +97,23 @@ public static class SenseDefaults
     /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
     public const double OverlayOneEuroDCutoff = 1.0;
 
+    // ── Beta-1 theme-4: velocity-gated NEUTRAL RECENTER (head-pose pump) ──────
+    // The sidecar maps ABSOLUTE head yaw to cx (cx = 0.5 + gain·yaw) with no neutral baseline,
+    // so an off-axis camera / seating posture biases the clear hole by a constant offset that it
+    // "locks" onto the instant a face is detected (Kirby's "hole shifts left and locks" report).
+    // The recenter learns the user's RESTING head position — but only while the head is nearly
+    // still (velocity-gated, option B), so a sustained off-centre GAZE is never cancelled — and
+    // feeds DEVIATIONS from it, so a habitual/centred head ⇒ a centred hole. All three are
+    // UVHS-tunable.
+    /// <summary>Time constant (s) of the head-speed EMA (per-frame |Δraw| proxy). ~1 s window.</summary>
+    public const double OverlayNeutralMotionTauSeconds = 1.0;
+    /// <summary>Head-speed EMA below which the head counts as STILL (so the neutral baseline may
+    /// learn). Units: smoothed per-frame (|Δcx|+|Δcy|). Higher ⇒ learns during more motion.</summary>
+    public const double OverlayNeutralStillSpeed = 0.010;
+    /// <summary>Time constant (s) the neutral baseline tracks the resting posture WHILE still.
+    /// Long enough (seconds) that it captures posture, not active gaze.</summary>
+    public const double OverlayNeutralLearnTauSeconds = 4.0;
+
     // ── Beta A2: single-pass field renderer (mask + grid as ONE per-pixel field) ─
     // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A2.) The mask, the cell-fill and the
     // grid are no longer three independently-shaped translucent strata composited on

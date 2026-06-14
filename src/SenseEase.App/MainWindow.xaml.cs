@@ -645,6 +645,10 @@ public partial class MainWindow : Window
         SenseDefaults.OverlayOneEuroFcMin,
         SenseDefaults.OverlayOneEuroBeta,
         SenseDefaults.OverlayOneEuroDCutoff);
+    // Beta-1 theme-4 (option B): learns the user's resting head position (velocity-gated) and
+    // feeds the pump deviations from it, so an off-axis camera/posture no longer locks the hole
+    // off-centre. Runs BEFORE _poseFilter in OnCompositionRendering.
+    private readonly NeutralRecenterFilter _neutralRecenter = new();
     private double _displayedCx = 0.5;
     private double _displayedCy = 0.5;
     private DateTime _lastRenderUtc;
@@ -751,6 +755,15 @@ public partial class MainWindow : Window
             double dtMs = (now - _lastRenderUtc).TotalMilliseconds;
             _lastRenderUtc = now;
             if (dtMs <= 0 || dtMs > 100) dtMs = 6.0; // first frame / overflow fallback
+
+            // Beta-1 theme-4 (option B): cancel the constant posture/camera yaw offset BEFORE
+            // the One-Euro filter. The sidecar emits absolute-yaw cx with no neutral baseline,
+            // so an off-axis camera/seating made the hole "shift and lock" off-centre the moment
+            // a face was detected. The recenter learns the resting head position (only while the
+            // head is still — so a held off-centre gaze is preserved) and feeds the DEVIATION, so
+            // a centred head ⇒ a centred hole. Passes through unchanged while the gaze is lost
+            // (target is already 0.5 there).
+            (targetCx, targetCy) = _neutralRecenter.Recenter(targetCx, targetCy, dtMs / 1000.0, gazeValid);
 
             (_displayedCx, _displayedCy) =
                 _poseFilter.Filter(targetCx, targetCy, dtMs / 1000.0);
