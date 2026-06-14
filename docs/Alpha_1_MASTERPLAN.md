@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — Alpha-1 Master Plan
 
 **Version:** v1.1 — 2026-06-05 (cross-check audit applied)

@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — Rebrand Completeness Punch-list
 
 <!-- Generated 2026-06-05 by the senseease-rebrand-design workflow (31 agents). Companion to docs/UIUX_UPGRADE_PLAN.md. Draft for review — no code changed. -->

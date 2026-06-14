@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # Alpha-2 Core Reconstruction — Implementation Architecture (2026-06-06)
 
 Adaptive Fit Layer Stage 2 (P3 + P4). Built on the landed native 12-level scale. **Selector ACTIVATED 2026-06-07** (`AppConfig.AdaptiveFitSelectorEnabled = true`): the *core* is built from the 12-level SSOT and is now live, acting on the same provisional OFI/pressure norm-factors the live overlay already uses; M1 capture (real WGC data) VALIDATES/refines those factors as a follow-up, not a prerequisite gate. **No code fabricates calibration data.** Source spec: `SenseEase-Adaptive-Fit-Layer-v1.md` §1–§12; plan: `Alpha_1_MASTERPLAN.md` §13.2 (P3/P4).

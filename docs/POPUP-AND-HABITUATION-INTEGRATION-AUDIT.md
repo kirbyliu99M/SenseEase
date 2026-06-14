@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # Pop-up Sprint × Habituation Sprint Integration Audit
 
 > **Audited at**: `v0.9-phase7` (Habituation Phase 7 sealed) on top of

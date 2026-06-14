@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase Alpha‑2 "Core" — Execution Plan (W3–W9)
 
 > Generated 2026‑06‑07 from a parallel survey of the backlog docs (`ALPHA_BACKLOG`,

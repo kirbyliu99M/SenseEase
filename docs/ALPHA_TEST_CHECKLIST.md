@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — Alpha-1 Test Checklist
 
 **For:** Kirby · **Generated:** 2026-06-06 (overnight UI-upgrade + backlog run)

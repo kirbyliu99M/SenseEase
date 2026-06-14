@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — UI/UX Audit & Upgrade Plan
 
 > **Author's framing:** Written as if by an Apple Human Interface designer doing a first pass on the product. SenseEase is a **clinical-grade calm tool for sensory-sensitive people** (VIMS / cybersickness / migraine / vestibular sensitivity). That single fact governs every recommendation below. The work is structured as a **design track (D0–D6)** that runs *alongside* the engineering waves in [ALPHA_HANDOVER.md](ALPHA_HANDOVER.md), honours every hard constraint in its §3, and never breaks prior works.

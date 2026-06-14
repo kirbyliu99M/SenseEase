@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — 實作改善計畫(Synthesis + Backlog 稽核整合)
 
 **版本:** v1 — 2026-06-05

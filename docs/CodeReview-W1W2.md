@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # Code Review — W1 + W2 (recall, extra-high effort)
 
 > Generated 2026-06-05 by code-review-w1w2 workflow (81 agents, 67 candidates -> 52 verified -> 15 ranked). Scope: git diff main...HEAD (25 files, +1137/-181). No code changed by this review.

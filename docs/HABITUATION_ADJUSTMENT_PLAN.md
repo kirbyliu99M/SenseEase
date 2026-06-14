@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 > **Advisor‑audit document** — generated 2026‑06‑07 from a 6‑agent read‑only map of the
 > current habituation engine (offset earning, adjustment inputs, spike/strike, chatbot/
 > profile coupling, persistence/safety, locked decisions). Every claim is grounded in

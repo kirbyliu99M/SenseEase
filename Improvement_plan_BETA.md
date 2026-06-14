@@ -1,3 +1,5 @@
+> **[LEGACY - immediate predecessor of Beta-1]** Superseded by [Beta-1.md](Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — Improvement Plan (Beta)
 
 **Date:** 2026-06-10

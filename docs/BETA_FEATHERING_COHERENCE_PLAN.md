@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # Beta Plan — Overlay Motion Coherence (multilayer-halo → single coherent field)
 
 **Status:** PLANNED for Beta. No code changes in Alpha (POC time constraint).

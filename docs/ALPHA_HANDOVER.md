@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase Alpha — Handover & Sequential Timeline
 
 > **For the dispatched agent:** this is your briefing. The work is large (≈111 distinct items across three source documents). Read this whole file first; do not start work until you have read sections 1-5. The implementation order in section 6 is non-trivial because items have dependencies that, if violated, will cause you to regress fixes you have just landed.

@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # Alpha-1 — Running Audit Findings
 
 > Findings surfaced during build that the product owner deferred to the

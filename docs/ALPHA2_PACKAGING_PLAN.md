@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase — .NET Packaging & Release Plan (Alpha-2 end)
 
 **Status:** DRAFT for Kirby review · 2026-06-08 · branch `alpha1-w2-engine-integrity`

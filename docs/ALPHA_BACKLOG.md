@@ -1,4 +1,6 @@
-﻿# Audit Summary (30/30 items)
+﻿> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
+# Audit Summary (30/30 items)
 
 Source: 2-phase workflow `wiiwdwgld` against TECHNICAL_WHITEPAPER.md, 2026-06-04.
 

@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # SenseEase - Apple-grade UI/UX Audit (ui-ux-pro-max plugin)
 
 > Generated 2026-06-06 by the audit-uiux-apple workflow (7 surface agents + synthesis, plugin-grounded + Apple HIG). 80 findings across 7 surfaces. This is the synthesized master report; per-surface raw findings are appended below.

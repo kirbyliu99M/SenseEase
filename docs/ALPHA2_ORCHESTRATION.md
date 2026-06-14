@@ -1,3 +1,5 @@
+> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
 # Alpha‑2 — Parallel Ship Orchestration (execution blueprint)
 
 > Generated 2026‑06‑07 from a 10‑agent code‑grounded audit of the full plan. This is the

@@ -1,4 +1,6 @@
-﻿# SenseEase Alpha Security Backlog
+﻿> **[LEGACY]** Superseded by [Beta-1.md](../Beta-1.md) (2026-06-14). Retained for historical reference / back-trace; not the current plan.
+
+# SenseEase Alpha Security Backlog
 
 > **Provenance:** 10-domain cybersecurity audit completed 2026-06-05 (workflow `w5ga7nd83`,
 > 21 agents, 2.54M tokens, 1042 tool uses, 23m wall-clock). Methodology: 10 parallel domain
