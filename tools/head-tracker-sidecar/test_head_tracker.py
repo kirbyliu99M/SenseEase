@@ -838,6 +838,45 @@ class SignConventionSide09Tests(unittest.TestCase):
             "chin-up component: cy must be below 0.5")
 
 
+class OrthonormalizeScaleRobustnessTests(unittest.TestCase):
+    """Beta-1 angle fix (B, 2026-06-14): decompose_yaw_pitch_roll must divide out the Procrustes
+    SCALE in MediaPipe's matrix block via SVD, so the recovered angle is correct even when the
+    3x3 carries scale. The old asin(R[0,2]) on the raw block + [-1,1] clamp gave a wrong/saturated
+    yaw — Kirby symptom #1 ('facing often incorrect')."""
+
+    @staticmethod
+    def _ry(deg: float) -> "np.ndarray":
+        t = math.radians(deg)
+        c, s = math.cos(t), math.sin(t)
+        return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]], dtype=np.float64)
+
+    def _mat4(self, r3: "np.ndarray") -> "np.ndarray":
+        m = np.eye(4, dtype=np.float64)
+        m[:3, :3] = r3
+        return m
+
+    def test_pure_rotation_recovers_angles(self):
+        yaw, pitch, roll = decompose_yaw_pitch_roll(self._mat4(self._ry(20.0)))
+        self.assertAlmostEqual(yaw, 20.0, places=3)
+        self.assertAlmostEqual(pitch, 0.0, places=3)
+        self.assertAlmostEqual(roll, 0.0, places=3)
+
+    def test_scaled_rotation_still_recovers_true_yaw(self):
+        # A Procrustes similarity scale (1.3x) folded into the rotation block: SVD must remove it.
+        yaw, _p, _r = decompose_yaw_pitch_roll(self._mat4(1.3 * self._ry(20.0)))
+        self.assertAlmostEqual(yaw, 20.0, places=2)
+
+    def test_small_scale_recovers_true_yaw(self):
+        yaw, _p, _r = decompose_yaw_pitch_roll(self._mat4(0.7 * self._ry(-15.0)))
+        self.assertAlmostEqual(yaw, -15.0, places=2)
+
+    def test_naive_asin_on_scaled_block_would_be_wrong(self):
+        # Proves the bug the SVD fix removes: raw asin(R[0,2]) on a 1.3x-scaled 20deg yaw is
+        # distorted/saturated, > 5deg off (and would clamp/NaN for larger angles).
+        naive = math.degrees(math.asin(min(1.0, 1.3 * math.sin(math.radians(20.0)))))
+        self.assertGreater(abs(naive - 20.0), 5.0)
+
+
 # ===========================================================================
 # THEME-4 (Beta-1, 2026-06-14): VIDEO-mode timestamp guard + multi-face
 # primary-face selection (D-20). Pure-function tests only — no live camera and

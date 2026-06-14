@@ -141,12 +141,25 @@ def decompose_yaw_pitch_roll(mat4: np.ndarray) -> tuple[float, float, float]:
         roll  > 0 -> head tilts toward user's RIGHT shoulder (raw; not used
                      by the (cx, cy) mapping).
     """
-    R = mat4[:3, :3]
-    # Clamp R[0,2] into [-1, 1] for numerical safety before asin.
-    sy = float(R[0, 2])
-    sy = max(-1.0, min(1.0, sy))
+    R = np.asarray(mat4[:3, :3], dtype=float)
+    # Beta-1 angle fix (B, 2026-06-14): MediaPipe's facial_transformation_matrix is a Procrustes
+    # SIMILARITY transform — its 3x3 block can carry SCALE, so the raw entries are s*rotation, not
+    # pure-rotation values. The old code did asin(R[0,2]) on the RAW block and clamped to [-1,1]
+    # "for numerical safety" — but that clamp was HIDING the scale distortion (|s*sin(yaw)| could
+    # exceed 1), giving systematically wrong yaw (Kirby symptom #1: "facing often incorrect").
+    # Orthonormalise via SVD (R_rot = U @ Vt) to divide out the (positive) scale before the Euler
+    # extraction; force a proper rotation (det +1) to reject a reflection from a degenerate frame.
+    # Positive uniform scale preserves entry SIGNS, so the downstream sign conventions are
+    # unchanged — only the magnitudes are corrected. Falls back to the raw block on SVD failure.
+    try:
+        U, _s, Vt = np.linalg.svd(R)
+        d = 1.0 if np.linalg.det(U @ Vt) >= 0.0 else -1.0
+        R = U @ np.diag([1.0, 1.0, d]) @ Vt
+    except np.linalg.LinAlgError:
+        pass  # keep the raw block; the clamp below still guards asin
+    # asin is now applied to a true rotation entry; the clamp is purely defensive.
+    sy = max(-1.0, min(1.0, float(R[0, 2])))
     yaw = math.degrees(math.asin(sy))
-    # Standard pitch / roll
     pitch = math.degrees(math.atan2(-float(R[1, 2]), float(R[2, 2])))
     roll = math.degrees(math.atan2(-float(R[0, 1]), float(R[0, 0])))
     return yaw, pitch, roll
