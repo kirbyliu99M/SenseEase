@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace SenseEase.Infrastructure.Real;
 
@@ -217,6 +218,17 @@ public sealed class WindowsActivityFilter
         }
     }
 
+    // ── Beta-1 D-16 / theme-2: opt-in per-app attribution ────────────────────────────
+    // OFF by default; the App layer sets this from AppConfig.PerAppAttributionEnabled at startup
+    // (explicit-consent gated, on-device). When on, each foreground change resolves the active
+    // app to a coarse "category/app" key (off the hook thread) exposed via CurrentForegroundKey,
+    // which the symptom recorder stamps onto a data-point so Theme-5 outcomes can join to which
+    // app the user was in. Never a raw window title; raw exe name stays local (export strips it).
+    public volatile bool PerAppAttributionEnabled;
+    private volatile string? _currentForegroundKey;
+    /// <summary>The current foreground app key ("category/app"), or null when disabled / unresolved.</summary>
+    public string? CurrentForegroundKey => _currentForegroundKey;
+
     // ── Hook callbacks (run on a system thread, not UI) ──────────────────────────────
     private void OnSystemWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
@@ -226,6 +238,20 @@ public sealed class WindowsActivityFilter
         {
             case EVENT_SYSTEM_FOREGROUND:
                 Interlocked.Exchange(ref _lastForegroundTicks, nowTicks);
+                // Beta-1 D-16: resolve the new foreground app OFF the hook thread (OpenProcess /
+                // QueryFullProcessImageName must not run on the system hook callback). Capture the
+                // hwnd; a dead window by resolve-time just yields null (best-effort).
+                if (PerAppAttributionEnabled)
+                {
+                    IntPtr fg = hwnd;
+                    Task.Run(() =>
+                    {
+                        var r = ForegroundAppResolver.Resolve(fg);
+                        _currentForegroundKey = r is { } v
+                            ? ForegroundAppResolver.FormatKey(v.category, v.appName)
+                            : null;
+                    });
+                }
                 break;
             case EVENT_SYSTEM_MENUSTART:
             case EVENT_SYSTEM_MENUEND:

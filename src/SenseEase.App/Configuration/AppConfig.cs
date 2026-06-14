@@ -328,6 +328,14 @@ public static class AppConfig
     /// explicit opt-in either at startup or via a future settings UI.</para></summary>
     public static bool HeadTrackingEnabled { get; set; } = false;
 
+    /// <summary>Beta-1 D-16 / theme-2: opt-in per-app OFI attribution. Default FALSE (privacy:
+    /// recording which apps a user runs is sensitive, health-adjacent telemetry — D-16 requires
+    /// explicit consent). When true, WindowsActivityFilter resolves the foreground app to a
+    /// coarse category + name key (ON-DEVICE only; never off-device — D-16) that the symptom
+    /// recorder stamps onto data-points for the Theme-5 join. Mirrors the head-tracking privacy
+    /// contract; flipping requires an explicit consent toggle (settings UI follow-on).</summary>
+    public static bool PerAppAttributionEnabled { get; set; } = false;
+
     /// <summary>M5.1-B (head-tracking sprint, 2026-05-30): user-facing
     /// "how much should the mask follow head gaze" choice.
     ///

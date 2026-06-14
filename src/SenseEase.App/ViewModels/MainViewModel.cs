@@ -838,6 +838,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             });
         };
 
+        // Beta-1 D-16 / theme-2: apply the opt-in per-app attribution flag to the activity
+        // filter (default OFF — explicit consent gated). When on, the filter resolves the
+        // foreground app to a coarse on-device key the symptom recorder stamps onto data-points.
+        SenseEase.Infrastructure.Real.WindowsActivityFilter.Instance.PerAppAttributionEnabled
+            = AppConfig.PerAppAttributionEnabled;
+
         // H17: log the session baseline at boot so a field report ("my profile
         // flipped overnight") has a durable anchor for what state the session
         // started in. State.PersistedStateLoaded is a forensic category, so
