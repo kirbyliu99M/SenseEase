@@ -745,6 +745,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _behaviorFlushTickCounter;
     private const int BehaviorFlushPeriodSeconds = 60; // crash-durability cadence
 
+    // Beta-1 D-21: the daily NL→FMS estimator — derives a per-day FMS ESTIMATE from the
+    // conversation (lexicon severity, on-device, labelled estimated) and records it through the
+    // option-C recorder. Lazy so it composes the live _log via SymptomRecorder. Run once at
+    // clean exit so it captures the whole day's PEAK reported discomfort.
+    private DailyFmsEstimator? _dailyFmsEstimatorLazy;
+    private DailyFmsEstimator DailyFmsEstimatorInstance =>
+        _dailyFmsEstimatorLazy ??= new DailyFmsEstimator(
+            new FileChatHistoryStore(AppConfig.ChatHistoryPath),
+            new FileSymptomEventStore(AppConfig.SymptomLogPath),
+            SymptomRecorder);
+
     private bool _lastMaskActive;
 
     // Display Comfort (LuxController) removed at v0.11 (UI Consolidation
@@ -1863,6 +1874,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // UM1: persist the day's final behaviour aggregate before teardown so the
         // tail since the last 60 s heartbeat isn't lost on a clean exit.
         FlushBehaviorAggregate();
+        // Beta-1 D-21: record today's NL→FMS estimate (the day's peak reported discomfort) at
+        // clean exit, when the full day's conversation is available. Idempotent per UTC day;
+        // best-effort (never throws). This is the first producer that fills symptom_log.jsonl.
+        try { DailyFmsEstimatorInstance.RunOnce(DateTime.UtcNow); } catch { }
         try { _userModelAnalysisCts?.Cancel(); _userModelAnalysisCts?.Dispose(); } catch { }
         try { _activityDetector.Dispose(); } catch { }
 
