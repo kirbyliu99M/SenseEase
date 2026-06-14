@@ -42,6 +42,13 @@ decompose_yaw_pitch_roll = _HT.decompose_yaw_pitch_roll
 yaw_pitch_to_cxcy      = _HT.yaw_pitch_to_cxcy
 YAW_TO_CX_GAIN         = _HT.YAW_TO_CX_GAIN
 PITCH_TO_CY_GAIN       = _HT.PITCH_TO_CY_GAIN
+# THEME-4 (Beta-1, 2026-06-14): VIDEO-mode + multi-face primary selection.
+monotonic_video_ts_ms  = _HT.monotonic_video_ts_ms
+FaceSelector           = _HT.FaceSelector
+select_primary_face    = _HT.select_primary_face
+_face_bbox             = _HT._face_bbox
+_bbox_metrics          = _HT._bbox_metrics
+_face_score            = _HT._face_score
 
 
 class AdaptiveEma2DAlphaCurveTests(unittest.TestCase):
@@ -829,6 +836,246 @@ class SignConventionSide09Tests(unittest.TestCase):
             "head-right component: cx must be above 0.5")
         self.assertLess(cy, 0.5,
             "chin-up component: cy must be below 0.5")
+
+
+# ===========================================================================
+# THEME-4 (Beta-1, 2026-06-14): VIDEO-mode timestamp guard + multi-face
+# primary-face selection (D-20). Pure-function tests only — no live camera and
+# no real FaceLandmarker (non-deterministic in VIDEO mode + unavailable here).
+# ===========================================================================
+
+
+class MonotonicVideoTsTests(unittest.TestCase):
+    """The VIDEO-mode timestamp guard must NEVER feed a non-increasing value to
+    MediaPipe (which throws on non-monotonic timestamps). A clock resync /
+    stall is clamped UP to last_ts + 1."""
+
+    def test_first_call_accepts_zero(self):
+        """Seeded with last_ts = -1, a computed 0 ms is accepted unchanged."""
+        self.assertEqual(monotonic_video_ts_ms(0, -1), 0)
+
+    def test_strictly_increasing_passes_through(self):
+        self.assertEqual(monotonic_video_ts_ms(100, 67), 100)
+
+    def test_equal_timestamp_is_clamped_up(self):
+        """A computed ts EQUAL to the last must be bumped to last+1 (strict)."""
+        self.assertEqual(monotonic_video_ts_ms(67, 67), 68)
+
+    def test_backward_timestamp_is_clamped_up(self):
+        """A clock resync that computes a SMALLER ts than last must clamp up."""
+        self.assertEqual(monotonic_video_ts_ms(40, 67), 68)
+
+    def test_far_backward_jump_still_clamps_to_last_plus_one(self):
+        """A 30 s backward stall (e.g. monotonic glitch) clamps to last+1, not
+        to some huge gap."""
+        self.assertEqual(monotonic_video_ts_ms(-5000, 1000), 1001)
+
+    def test_chained_clamps_stay_strictly_monotonic(self):
+        """Feeding a degenerate clock (all zeros) still yields a strictly
+        increasing sequence."""
+        last = -1
+        seq = []
+        for _ in range(5):
+            ts = monotonic_video_ts_ms(0, last)  # clock stuck at 0
+            seq.append(ts)
+            last = ts
+        self.assertEqual(seq, [0, 1, 2, 3, 4])
+        # Strictly increasing.
+        self.assertTrue(all(seq[i] < seq[i + 1] for i in range(len(seq) - 1)))
+
+
+class _FakeLandmark:
+    """Minimal stand-in for a MediaPipe NormalizedLandmark (only .x / .y)."""
+
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+
+def _square_face(cx: float, cy: float, half: float):
+    """Return a 4-corner landmark 'face' as a square of side 2*half centred at
+    (cx, cy). bbox area = (2*half)^2."""
+    return [
+        _FakeLandmark(cx - half, cy - half),
+        _FakeLandmark(cx + half, cy - half),
+        _FakeLandmark(cx - half, cy + half),
+        _FakeLandmark(cx + half, cy + half),
+    ]
+
+
+class _FakeResult:
+    """Stand-in for FaceLandmarkerResult: index-aligned face_landmarks and
+    facial_transformation_matrixes."""
+
+    def __init__(self, faces):
+        self.face_landmarks = faces
+        # Identity 4x4 per face — selection never reads these, only the index.
+        self.facial_transformation_matrixes = [
+            np.eye(4, dtype=np.float64) for _ in faces
+        ]
+
+
+class FaceBboxMetricTests(unittest.TestCase):
+    """The bbox / scoring helpers are pure math derived from the normalized
+    landmark list (the transformation matrix has NO 2D extent)."""
+
+    def test_bbox_from_landmarks(self):
+        face = _square_face(0.5, 0.5, 0.1)
+        self.assertEqual(_face_bbox(face), (0.4, 0.4, 0.6, 0.6))
+
+    def test_bbox_empty_raises(self):
+        with self.assertRaises(ValueError):
+            _face_bbox([])
+
+    def test_bbox_metrics_area_and_centre(self):
+        area, cx, cy = _bbox_metrics((0.4, 0.4, 0.6, 0.6))
+        self.assertAlmostEqual(area, 0.04, places=6)  # 0.2 * 0.2
+        self.assertAlmostEqual(cx, 0.5, places=6)
+        self.assertAlmostEqual(cy, 0.5, places=6)
+
+    def test_centred_face_keeps_full_area_score(self):
+        """A face dead-centre is not penalised: score == area."""
+        score = _face_score(0.04, 0.5, 0.5)
+        self.assertAlmostEqual(score, 0.04, places=6)
+
+    def test_offcentre_face_is_penalised(self):
+        """An equally-sized face at the corner scores strictly lower than the
+        centred one."""
+        centred = _face_score(0.04, 0.5, 0.5)
+        cornered = _face_score(0.04, 0.05, 0.05)
+        self.assertLess(cornered, centred)
+
+
+class SelectPrimaryFaceTests(unittest.TestCase):
+    """D-20 core contract: largest wins; centrality breaks ties; stickiness
+    keeps the prior face within the margin; lost primary clears stickiness."""
+
+    def test_largest_face_wins_on_fresh_acquire(self):
+        """With no prior state, the larger face is chosen (it has higher
+        area-driven score). Index is into the SAME result arrays."""
+        sel = FaceSelector()
+        small = _square_face(0.5, 0.5, 0.05)   # area 0.01
+        big   = _square_face(0.2, 0.5, 0.15)   # area 0.09 (off-centre but huge)
+        result = _FakeResult([small, big])
+        idx = select_primary_face(result, sel)
+        self.assertEqual(idx, 1, "the larger face must be chosen on fresh acquire")
+
+    def test_centrality_breaks_tie_between_equal_size_faces(self):
+        """Two equal-area faces: the more-central one wins (higher score)."""
+        sel = FaceSelector()
+        edge   = _square_face(0.1, 0.1, 0.1)   # same area, far off-centre
+        centre = _square_face(0.5, 0.5, 0.1)   # same area, dead centre
+        result = _FakeResult([edge, centre])
+        idx = select_primary_face(result, sel)
+        self.assertEqual(idx, 1, "equal-size: the central face must win")
+
+    def test_stickiness_keeps_prior_face_within_margin(self):
+        """Once the seated (central) user is chosen, a momentarily slightly-
+        larger background face within the score margin must NOT steal focus."""
+        sel = FaceSelector()
+        # Frame 1: user clearly the best (central, decent size).
+        user = _square_face(0.5, 0.5, 0.12)     # area 0.0576, centred
+        bg   = _square_face(0.15, 0.5, 0.10)    # area 0.04, off-centre
+        idx1 = select_primary_face(_FakeResult([user, bg]), sel)
+        self.assertEqual(idx1, 0, "user should be chosen first")
+
+        # Frame 2: background grows just enough to edge ahead on raw score, but
+        # within the 15% stickiness margin -> user (index 0) must be kept.
+        user2 = _square_face(0.5, 0.5, 0.115)   # slightly smaller user
+        bg2   = _square_face(0.30, 0.5, 0.13)   # bigger background, off-centre
+        # Sanity: confirm bg2's raw score is within the sticky margin of user2,
+        # otherwise the test wouldn't exercise stickiness.
+        ua, ucx, ucy = _bbox_metrics(_face_bbox(user2))
+        ba, bcx, bcy = _bbox_metrics(_face_bbox(bg2))
+        us = _face_score(ua, ucx, ucy)
+        bs = _face_score(ba, bcx, bcy)
+        best = max(us, bs)
+        margin = _HT.STICKY_SCORE_MARGIN
+        self.assertGreaterEqual(min(us, bs), best * (1.0 - margin),
+                                "test fixture must put both faces within the margin")
+        idx2 = select_primary_face(_FakeResult([user2, bg2]), sel)
+        self.assertEqual(idx2, 0,
+            "a within-margin background face must NOT steal focus from the user")
+
+    def test_background_steals_focus_when_decisively_larger(self):
+        """If a competing face exceeds the stickiness margin (decisively larger
+        AND more central), the selector DOES switch — stickiness is not a
+        permanent lock."""
+        sel = FaceSelector()
+        user = _square_face(0.5, 0.5, 0.06)     # small user
+        other_small = _square_face(0.2, 0.5, 0.04)
+        self.assertEqual(select_primary_face(_FakeResult([user, other_small]), sel), 0)
+
+        # Now a clearly dominant, central face appears as index 1.
+        big_central = _square_face(0.5, 0.5, 0.20)  # way bigger + central
+        idx = select_primary_face(_FakeResult([_square_face(0.5, 0.5, 0.06), big_central]), sel)
+        self.assertEqual(idx, 1,
+            "a decisively larger/central face beyond the margin must win")
+
+    def test_prefers_nearest_to_prior_centre_among_margin_candidates(self):
+        """When several faces are within the score margin, the one whose centre
+        is nearest the previously-chosen centre wins (spatial continuity)."""
+        sel = FaceSelector()
+        # Frame 1: establish the chosen centre at the right side.
+        right = _square_face(0.75, 0.5, 0.10)
+        idx1 = select_primary_face(_FakeResult([right]), sel)
+        self.assertEqual(idx1, 0)
+
+        # Frame 2: two near-equal faces, one near the old centre (0.75) and one
+        # on the far left. Both within margin -> the near one (index 1) wins.
+        far_left  = _square_face(0.20, 0.5, 0.10)
+        near_old  = _square_face(0.73, 0.5, 0.10)
+        idx2 = select_primary_face(_FakeResult([far_left, near_old]), sel)
+        self.assertEqual(idx2, 1,
+            "among margin-equal faces, the one nearest the prior centre wins")
+
+    def test_no_faces_returns_none(self):
+        sel = FaceSelector()
+        self.assertIsNone(select_primary_face(_FakeResult([]), sel))
+        self.assertIsNone(select_primary_face(None, sel))
+
+    def test_lost_primary_clears_stickiness_after_n_frames(self):
+        """After the primary is lost for > STICKY_LOST_FRAMES frames the prior
+        centre is cleared, so re-acquisition picks fresh (largest) rather than
+        snapping to whatever is nearest a stale centre."""
+        sel = FaceSelector(lost_frames=3)
+        # Establish a chosen centre on the right.
+        select_primary_face(_FakeResult([_square_face(0.8, 0.5, 0.10)]), sel)
+        self.assertIsNotNone(sel._prev_centre)
+
+        # Lose the face for > 3 frames.
+        for _ in range(4):
+            self.assertIsNone(select_primary_face(_FakeResult([]), sel))
+        self.assertIsNone(sel._prev_centre,
+            "stickiness must clear after the lost-frame bound")
+
+        # Re-acquire with a big LEFT face and a small near-old-centre face.
+        big_left   = _square_face(0.2, 0.5, 0.18)  # dominant
+        small_old  = _square_face(0.8, 0.5, 0.05)  # near the stale centre
+        # With stickiness cleared, the largest (big_left, idx 0) must win even
+        # though small_old is near where the old primary was.
+        idx = select_primary_face(_FakeResult([big_left, small_old]), sel)
+        self.assertEqual(idx, 0,
+            "after stickiness clears, re-acquire must pick the largest fresh")
+
+    def test_short_loss_does_not_clear_stickiness(self):
+        """A loss SHORTER than the bound must keep the prior centre so a quick
+        blink/occlusion doesn't reset which person is tracked."""
+        sel = FaceSelector(lost_frames=5)
+        select_primary_face(_FakeResult([_square_face(0.8, 0.5, 0.10)]), sel)
+        for _ in range(3):  # 3 < 5
+            select_primary_face(_FakeResult([]), sel)
+        self.assertIsNotNone(sel._prev_centre,
+            "a short loss must NOT clear stickiness")
+
+    def test_returned_index_maps_through_skipped_empty_faces(self):
+        """If MediaPipe emits an empty landmark entry, it is skipped but the
+        returned index must still address the ORIGINAL result arrays."""
+        sel = FaceSelector()
+        faces = [[], _square_face(0.5, 0.5, 0.10)]  # index 0 empty, 1 real
+        idx = select_primary_face(_FakeResult(faces), sel)
+        self.assertEqual(idx, 1,
+            "returned index must address the original (un-skipped) arrays")
 
 
 if __name__ == "__main__":

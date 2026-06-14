@@ -177,6 +177,219 @@ def frame_mean_luma_normalized(frame_bgr: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
+# THEME-4 (Beta-1, 2026-06-14): monotonic-timestamp guard for VIDEO mode
+# ---------------------------------------------------------------------------
+def monotonic_video_ts_ms(computed_ts_ms: int, last_ts_ms: int) -> int:
+    """Return a STRICTLY-increasing int-ms timestamp for detect_for_video().
+
+    MediaPipe's VIDEO running mode raises if a frame's timestamp is not
+    strictly greater than the previous one. The loop clock can stall, resync,
+    or (under the SIDE-03 scheduler-resync) snap forward; any of those can
+    yield a ``computed_ts_ms`` that is <= the last value we fed. Clamp UP so
+    the contract (strict monotonicity) is never violated:
+
+        result = max(last_ts_ms + 1, computed_ts_ms)
+
+    Pure — no side effects; the caller owns ``last_ts_ms`` bookkeeping. The
+    FIRST call should pass ``last_ts_ms = -1`` so a computed 0 is accepted
+    as-is (max(0, 0) == 0).
+    """
+    floor = last_ts_ms + 1
+    return floor if computed_ts_ms < floor else computed_ts_ms
+
+
+# ---------------------------------------------------------------------------
+# THEME-4 (Beta-1, 2026-06-14): multi-face primary selection (D-20)
+# ---------------------------------------------------------------------------
+# The sidecar requests num_faces=3 (cheap headroom). In a 2+ person scene
+# MediaPipe does NOT guarantee a stable ordering of result.face_landmarks /
+# facial_transformation_matrixes frame-to-frame, so blindly taking index 0
+# makes the mask hop between people. D-20: "largest + most-central + sticky =
+# the seated user wins."
+#
+# Scoring per face (computed purely from the normalized 2D landmark list — the
+# 4x4 transformation matrix has NO 2D extent, so bbox MUST come from landmarks):
+#   score = bbox_area * (1 - CENTRALITY_WEIGHT * dist_from_frame_centre)
+# where dist_from_frame_centre is the Euclidean distance of the bbox centre
+# from (0.5, 0.5), capped, so a large but off-to-the-edge background face is
+# penalised relative to a slightly-smaller seated-and-centred user.
+#
+# Hysteresis / stickiness (anti flip-flop):
+#   - If a previously-chosen face is still present and its score is within
+#     STICKY_SCORE_MARGIN of the new best score, KEEP it (don't switch for a
+#     momentary advantage).
+#   - When multiple candidates are within the margin, prefer the one whose
+#     bbox centre is NEAREST last frame's chosen centre (spatial continuity).
+#   - If the primary is lost for more than STICKY_LOST_FRAMES consecutive
+#     frames, clear the stickiness so re-acquisition picks fresh.
+
+CENTRALITY_WEIGHT: float = 0.6   # how hard off-centre faces are penalised
+STICKY_SCORE_MARGIN: float = 0.15  # keep prior face if within 15% of new max
+STICKY_LOST_FRAMES: int = 5        # clear stickiness after N lost frames
+
+
+def _face_bbox(landmarks) -> tuple[float, float, float, float]:
+    """Return (min_x, min_y, max_x, max_y) of a normalized landmark list.
+
+    ``landmarks`` is one entry of result.face_landmarks — a sequence of
+    objects each exposing .x / .y in normalized [0, 1] image coordinates.
+    Pure; raises ValueError on an empty list (caller guards)."""
+    xs_min = xs_max = None
+    ys_min = ys_max = None
+    for lm in landmarks:
+        x = float(lm.x)
+        y = float(lm.y)
+        if xs_min is None or x < xs_min:
+            xs_min = x
+        if xs_max is None or x > xs_max:
+            xs_max = x
+        if ys_min is None or y < ys_min:
+            ys_min = y
+        if ys_max is None or y > ys_max:
+            ys_max = y
+    if xs_min is None:
+        raise ValueError("empty landmark list")
+    return xs_min, ys_min, xs_max, ys_max
+
+
+def _bbox_metrics(bbox: tuple[float, float, float, float]) -> tuple[float, float, float]:
+    """From (min_x, min_y, max_x, max_y) return (area, centre_x, centre_y)."""
+    min_x, min_y, max_x, max_y = bbox
+    w = max(0.0, max_x - min_x)
+    h = max(0.0, max_y - min_y)
+    return w * h, (min_x + max_x) * 0.5, (min_y + max_y) * 0.5
+
+
+def _face_score(area: float, cx: float, cy: float) -> float:
+    """Score = area attenuated by distance of bbox centre from frame centre.
+
+    dist is in normalized image units; the maximum possible centre-to-corner
+    distance is ~0.707, so we normalise by that to keep the penalty in a
+    sane [0, ~1] range before the weight is applied. A perfectly centred face
+    keeps full area; an edge face is reduced by up to CENTRALITY_WEIGHT."""
+    dx = cx - 0.5
+    dy = cy - 0.5
+    dist = math.sqrt(dx * dx + dy * dy)
+    norm_dist = min(1.0, dist / 0.70710678)  # /sqrt(0.5) -> [0, 1]
+    return area * (1.0 - CENTRALITY_WEIGHT * norm_dist)
+
+
+class FaceSelector:
+    """Owns the cross-frame stickiness for primary-face selection (D-20).
+
+    Pure-ish: ``select`` takes a list of per-face (area, cx, cy, score) tuples
+    (already derived from result.face_landmarks by the caller) and returns the
+    chosen index, with hysteresis against the previously-chosen face. State is
+    only the previous chosen centre + a lost-frame counter, so it is trivially
+    unit-testable without MediaPipe."""
+
+    def __init__(
+        self,
+        *,
+        score_margin: float = STICKY_SCORE_MARGIN,
+        lost_frames: int = STICKY_LOST_FRAMES,
+    ) -> None:
+        self._score_margin = score_margin
+        self._lost_frames = lost_frames
+        self._prev_centre: Optional[tuple[float, float]] = None
+        self._lost_count = 0
+
+    def select(self, faces: list[tuple[float, float, float, float]]) -> Optional[int]:
+        """Choose the primary face index from ``faces``.
+
+        ``faces[i]`` = (area, centre_x, centre_y, score). Returns the chosen
+        index, or None when ``faces`` is empty (primary lost this frame).
+
+        Selection:
+          1. Find the max-score face (the candidate to switch to).
+          2. If a previous centre exists, gather all faces whose score is
+             within ``score_margin`` (relative) of the max score — these are
+             "good enough" candidates. Among them, prefer the face nearest the
+             previous chosen centre (spatial continuity / stickiness). This
+             means a momentarily-larger background face cannot steal focus from
+             the seated user as long as the seated user stays within the
+             margin.
+          3. With no previous centre (fresh acquisition or after a long loss),
+             just take the max-score face.
+        """
+        if not faces:
+            # Primary lost this frame. Count toward the clear-stickiness bound.
+            self._lost_count += 1
+            if self._lost_count > self._lost_frames:
+                self._prev_centre = None
+            return None
+
+        # A present primary resets the lost counter.
+        self._lost_count = 0
+
+        # Candidate to switch to: the global max score.
+        best_idx = 0
+        best_score = faces[0][3]
+        for i in range(1, len(faces)):
+            if faces[i][3] > best_score:
+                best_score = faces[i][3]
+                best_idx = i
+
+        chosen = best_idx
+        if self._prev_centre is not None and best_score > 0.0:
+            # Faces within the relative margin of the best score are "sticky-
+            # eligible"; among them pick the one nearest last chosen centre.
+            threshold = best_score * (1.0 - self._score_margin)
+            pcx, pcy = self._prev_centre
+            nearest_idx = None
+            nearest_d2 = None
+            for i, (_area, cx, cy, score) in enumerate(faces):
+                if score >= threshold:
+                    d2 = (cx - pcx) ** 2 + (cy - pcy) ** 2
+                    if nearest_d2 is None or d2 < nearest_d2:
+                        nearest_d2 = d2
+                        nearest_idx = i
+            if nearest_idx is not None:
+                chosen = nearest_idx
+
+        # Record the chosen centre for next-frame stickiness.
+        self._prev_centre = (faces[chosen][1], faces[chosen][2])
+        return chosen
+
+    def reset(self) -> None:
+        self._prev_centre = None
+        self._lost_count = 0
+
+
+def select_primary_face(result, selector: FaceSelector) -> Optional[int]:
+    """Pure-helper bridge: derive per-face metrics from a FaceLandmarker
+    result and delegate ranking/stickiness to ``selector``.
+
+    Returns the chosen index into BOTH result.face_landmarks[i] and
+    result.facial_transformation_matrixes[i] (they are index-aligned), or
+    None when no usable face is present. Faces with an empty/degenerate
+    landmark list are skipped (defensive — MediaPipe shouldn't emit them).
+    """
+    if result is None or not getattr(result, "face_landmarks", None):
+        return selector.select([])
+
+    faces: list[tuple[float, float, float, float]] = []
+    index_map: list[int] = []  # faces[j] corresponds to original result index
+    for orig_i, lms in enumerate(result.face_landmarks):
+        if not lms:
+            continue
+        try:
+            bbox = _face_bbox(lms)
+        except ValueError:
+            continue
+        area, cx, cy = _bbox_metrics(bbox)
+        if area <= 0.0:
+            continue
+        faces.append((area, cx, cy, _face_score(area, cx, cy)))
+        index_map.append(orig_i)
+
+    chosen = selector.select(faces)
+    if chosen is None:
+        return None
+    return index_map[chosen]
+
+
+# ---------------------------------------------------------------------------
 # FaceLandmarker setup
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL_FILENAME = "face_landmarker.task"
@@ -212,25 +425,48 @@ def resolve_model_path(explicit: Optional[str]) -> str:
 
 
 def make_face_landmarker(model_path: str) -> mp_vision.FaceLandmarker:
-    """Construct a FaceLandmarker in IMAGE (synchronous) mode.
+    """Construct a FaceLandmarker in VIDEO mode.
 
-    We use IMAGE mode (not LIVE_STREAM) because we drive the loop at a
-    fixed 15 Hz cadence ourselves and want deterministic per-frame timing
-    suitable for soak measurement.
+    THEME-4 (Beta-1, 2026-06-14): switched from IMAGE to VIDEO running mode.
+    In IMAGE mode the sidecar called landmarker.detect() per frame with NO
+    temporal tracking, so min_tracking_confidence was inert and the soak
+    showed ~41% dropout for a single still user (review findings #11/#12/#13).
+    VIDEO mode (detect_for_video with a strictly-monotonic timestamp) carries
+    detection state across frames, making min_tracking_confidence live and
+    cutting the per-frame re-detection dropout.
+
+    We use VIDEO (not LIVE_STREAM) because we drive the loop at a fixed 15 Hz
+    cadence ourselves and want deterministic, synchronous per-frame timing
+    suitable for soak measurement — LIVE_STREAM is async/callback-based.
+
+    num_faces=3 (was 1): cheap headroom so select_primary_face / FaceSelector
+    can pick the seated user in a 2+ person scene instead of whichever face
+    MediaPipe happened to order at index 0 that frame (D-20).
+
+    Confidence tuning (now that VIDEO mode makes tracking live):
+      min_face_detection_confidence = 0.4   (was 0.5; lower so a re-acquire
+                                             under poor lighting is easier)
+      min_tracking_confidence       = 0.6   (was 0.5; higher so the carried
+                                             track is trusted before forcing a
+                                             full re-detect)
+      min_face_presence_confidence  = 0.5   (unchanged)
+    The LOCKED downstream params (gains, jump filter, AdaptiveEma2D) are NOT
+    touched — the running-mode + face-selection fix is validated in isolation.
 
     Privacy: output_face_blendshapes=False, output_facial_transformation
-    _matrixes=True. We need ONLY the transformation matrix.
+    _matrixes=True. We need ONLY the transformation matrix (+ landmarks for
+    2D bbox-based primary-face selection, which are never emitted).
     """
     base_options = mp_python.BaseOptions(model_asset_path=model_path)
     options = mp_vision.FaceLandmarkerOptions(
         base_options=base_options,
-        running_mode=mp_vision.RunningMode.IMAGE,
-        num_faces=1,
+        running_mode=mp_vision.RunningMode.VIDEO,
+        num_faces=3,
         output_face_blendshapes=False,
         output_facial_transformation_matrixes=True,
-        min_face_detection_confidence=0.5,
+        min_face_detection_confidence=0.4,
         min_face_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
+        min_tracking_confidence=0.6,
     )
     return mp_vision.FaceLandmarker.create_from_options(options)
 
@@ -398,6 +634,28 @@ class WebcamOpenError(RuntimeError):
     file branch."""
 
 
+def _harden_exposure(cap: cv2.VideoCapture) -> None:
+    """THEME-4 (Beta-1, 2026-06-14): best-effort exposure hardening.
+
+    Lighting-driven dropout is partly a camera-auto-exposure problem that no
+    running-mode change can fully cure: as the auto-exposure hunts (bright
+    background, backlit user) the face under-/over-exposes and MediaPipe loses
+    it. Request a FIXED exposure (auto-exposure OFF) on DSHOW where supported.
+
+    This is best-effort only and fully guarded — many UVC drivers ignore or
+    reject the property, and some only honour it in manual mode. We never fail
+    capture over it. The DSHOW convention for CAP_PROP_AUTO_EXPOSURE is
+    0.25 = manual / 0.75 = auto (a quirk inherited from the legacy 1/4..1
+    encoding); we set 0.25 to pin manual. Non-Windows backends are left alone.
+    """
+    if os.name != "nt":
+        return
+    try:
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 0.25 = manual on DSHOW
+    except Exception:
+        pass
+
+
 def open_capture(spec: str) -> cv2.VideoCapture:
     """Open a webcam index or a video file.
 
@@ -421,6 +679,7 @@ def open_capture(spec: str) -> cv2.VideoCapture:
         if cap.isOpened():
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_W)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_H)
+            _harden_exposure(cap)
             return cap
         cap.release()
         raise WebcamOpenError(
@@ -496,6 +755,13 @@ class CaptureManager:
         self._last_reopen_attempt: Optional[float] = None
         # Set once the sustained-failure window is exceeded: caller exits.
         self.give_up = False
+        # THEME-4 (2026-06-14): pending-reopen latch. Set whenever a fresh
+        # VideoCapture is successfully created mid-session (camera loss ->
+        # reconnect). The run() loop consumes it via consume_reopened() and,
+        # when set, recreates the FaceLandmarker — a VIDEO-mode tracker holds
+        # temporal state and a backward/seek discontinuity across a device
+        # swap is illegal, so the tracker MUST be reset on reconnect.
+        self._reopened_pending = False
 
     def open(self) -> None:
         """Initial open. Propagates the opener's exception on first failure
@@ -551,11 +817,27 @@ class CaptureManager:
             self._release_cap()
             try:
                 self._cap = self._opener(self._spec)
+                # THEME-4: a fresh handle exists. Latch the reopen so the
+                # run() loop resets the VIDEO-mode FaceLandmarker before it
+                # feeds the new device's frames (stale temporal state +
+                # timestamp discontinuity would otherwise corrupt tracking).
+                self._reopened_pending = True
             except Exception as ex:  # opener may raise (busy/denied/absent)
                 self._cap = None
                 if self._log is not None:
                     self._log(f"capture re-open attempt failed: {ex}")
         return None
+
+    def consume_reopened(self) -> bool:
+        """Return True exactly once after each successful mid-session re-open.
+
+        THEME-4: the run() loop polls this each iteration; on True it recreates
+        the FaceLandmarker (and resets the FaceSelector / video-timestamp
+        clock) so the new device starts the VIDEO tracker fresh."""
+        if self._reopened_pending:
+            self._reopened_pending = False
+            return True
+        return False
 
     def _release_cap(self) -> None:
         try:
@@ -832,6 +1114,12 @@ def run(
     model_resolved = resolve_model_path(model_path)
     landmarker = make_face_landmarker(model_resolved)
 
+    # THEME-4 (2026-06-14): VIDEO-mode primary-face selector + monotonic
+    # timestamp clock. The selector carries cross-frame stickiness (D-20);
+    # last_video_ts_ms seeds at -1 so the first computed 0 ms is accepted.
+    face_selector = FaceSelector()
+    last_video_ts_ms = -1
+
     # M5.1-C: AdaptiveEma2D replaces the constant-α Ema2D. SMOOTH_ALPHA
     # constant kept in module scope for documentation of the old default;
     # AdaptiveEma2D ignores it and computes α per-tick from velocity.
@@ -867,7 +1155,11 @@ def run(
     diag_file = None
     if diag_path is not None:
         diag_file = open(diag_path, "w", encoding="utf-8", buffering=1)
-        diag_file.write("t_ms,yaw_deg,pitch_deg,cx_raw,cy_raw,cx_smoothed,cy_smoothed,face_detected,face_present,mirror,velocity_deg_per_frame,adaptive_alpha\n")
+        # THEME-4 (2026-06-14): two new --diag-only columns make multi-person
+        # primary selection CSV-verifiable: selected_face_idx (index chosen by
+        # FaceSelector, -1 when no face) and n_faces (faces MediaPipe returned
+        # this frame). Production JSON schema is UNCHANGED — these are diag-only.
+        diag_file.write("t_ms,yaw_deg,pitch_deg,cx_raw,cy_raw,cx_smoothed,cy_smoothed,face_detected,face_present,mirror,velocity_deg_per_frame,adaptive_alpha,selected_face_idx,n_faces\n")
 
     # M5.1-A Layer 1 (2026-05-29): frame validity filter. On any frame where
     # face_present == 0 OR yaw / pitch jumps > MAX_JUMP_PER_FRAME_DEG since
@@ -879,6 +1171,19 @@ def run(
     # consistency-unlatch and absence-reset are now encapsulated there.
     jump_filter = JumpFilter(DEFAULT_CX, DEFAULT_CY)
     skipped_frame_count = 0
+
+    # THEME-4 (2026-06-14): per-frame inference try/except bookkeeping. One
+    # MediaPipe/cv2 throw must NOT kill the whole sidecar — we log (rate-
+    # limited), emit a face_detected=false record like the camera-loss path,
+    # and CONTINUE the loop. A separate sustained-exception bound gives up only
+    # if the inference path throws continuously for INFER_EXC_WINDOW_S (a real,
+    # non-transient fault) so a permanently-wedged model surfaces via a non-
+    # zero exit rather than spinning forever emitting centered frames.
+    INFER_EXC_LOG_INTERVAL_S = 5.0    # rate-limit identical stderr spam
+    INFER_EXC_WINDOW_S       = 30.0   # sustained-failure give-up bound
+    infer_exc_failing_since: Optional[float] = None
+    infer_exc_last_log: Optional[float] = None
+    inference_gave_up = False
 
     t0_mono = time.monotonic()
     next_tick = t0_mono
@@ -930,20 +1235,36 @@ def run(
                     sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
                     sys.stdout.flush()
                 continue
+
+            # THEME-4 (2026-06-14): a mid-session re-open just produced a fresh
+            # VideoCapture (camera loss -> reconnect). The VIDEO-mode tracker
+            # holds temporal state and the timestamp clock would jump backward
+            # relative to the new device's frames; both are illegal. Recreate
+            # the landmarker, reset the selector, and re-seed the timestamp
+            # clock so the new device starts a clean track. (No-op for a finite
+            # video file, which never re-opens.)
+            if cap_mgr.consume_reopened():
+                try:
+                    landmarker.close()
+                except Exception:
+                    pass
+                landmarker = make_face_landmarker(model_resolved)
+                face_selector.reset()
+                last_video_ts_ms = -1
+                sys.stderr.write(
+                    "[head_tracker] capture re-opened; FaceLandmarker reset "
+                    "(fresh VIDEO track)\n"
+                )
+
             if mirror:
                 frame_bgr = cv2.flip(frame_bgr, 1)
 
             # Time only the inference + decomposition step (the "hot" path).
             infer_start = time.perf_counter()
 
-            # MediaPipe wants an RGB mp.Image.
-            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            result = landmarker.detect(mp_image)
-
             face_detected = False
             face_present = 0.0  # MediaPipe FaceLandmarker doesn't expose a per-detection
-                                # score in IMAGE mode; presence implies >= configured
+                                # score; presence implies >= configured
                                 # min_face_presence_confidence (0.5). We report 1.0 when
                                 # present, 0.0 when absent. G1-renamed from `confidence`;
                                 # schema slot preserved for v1.0 scalar-confidence model.
@@ -951,42 +1272,85 @@ def run(
             raw_pitch: Optional[float] = None
             cx_raw = DEFAULT_CX
             cy_raw = DEFAULT_CY
+            selected_face_idx = -1   # --diag only; -1 == no face this frame
+            n_faces = 0              # --diag only
 
-            if result and result.facial_transformation_matrixes:
-                mat = np.asarray(result.facial_transformation_matrixes[0],
-                                 dtype=np.float64)
-                if mat.shape == (4, 4):
-                    yaw, pitch, _roll = decompose_yaw_pitch_roll(mat)
-                    # M5.1-A (2026-05-29): the documentation in
-                    # decompose_yaw_pitch_roll above claimed "pitch > 0 =
-                    # chin UP" but the actual atan2(-R[1,2], R[2,2])
-                    # decomposition returns the OPPOSITE — chin-up gives
-                    # negative pitch. The M2 cy mapping was then computed
-                    # against the wrong assumption, so chin-up moved the
-                    # mask to the BOTTOM. Diagnose CSV from user (chin-up-
-                    # first procedure) showed pitch going to −40° during
-                    # chin-up motion, confirming the inversion. Negate
-                    # unconditionally (not mirror-conditional — horizontal
-                    # flip doesn't affect rotation around the X axis).
-                    # M5.1-A v2 (2026-05-29): YAW NEGATION REMOVED. UX-iter 3
-                    # added "if mirror: yaw = -yaw" to fix what user reported
-                    # as "sometimes inverted". Diagnose CSV + M5.1-A re-test
-                    # revealed the negation made yaw GENUINELY inverted. The
-                    # "sometimes inverted" symptom was actually smoothing lag
-                    # during rapid motion (raw vs smoothed direction opposite
-                    # during reversals), not a sign issue. Removing the
-                    # negation restores the M2 original convention: positive
-                    # raw yaw maps to cx > 0.5 = mask right, which matches
-                    # physical head-right under the default --mirror=on flow.
-                    pitch = -pitch
-                    raw_yaw, raw_pitch = yaw, pitch
-                    cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
-                    face_detected = True
-                    face_present = 1.0
-                else:
-                    face_present = 0.0
-            else:
+            # THEME-4: per-frame try/except around the inference + decode block.
+            # A single MediaPipe / cv2 throw must NOT kill the sidecar. On
+            # exception we log (rate-limited), leave face_present at 0.0 (the
+            # block below emits a face_detected=false / last-valid record just
+            # like the camera-loss path) and CONTINUE the loop. A sustained-
+            # exception bound gives up only after INFER_EXC_WINDOW_S of
+            # continuous failure (a real, non-transient fault).
+            inference_ok = True
+            try:
+                # MediaPipe wants an RGB mp.Image.
+                rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                # THEME-4: VIDEO mode requires a strictly-monotonic int-ms
+                # timestamp. Derive it from the loop clock and clamp UP so a
+                # clock resync / stall can never feed a non-increasing value
+                # (MediaPipe throws on non-monotonic timestamps).
+                computed_ts_ms = int((time.monotonic() - t0_mono) * 1000.0)
+                video_ts_ms = monotonic_video_ts_ms(computed_ts_ms, last_video_ts_ms)
+                last_video_ts_ms = video_ts_ms
+                result = landmarker.detect_for_video(mp_image, video_ts_ms)
+
+                if result and getattr(result, "face_landmarks", None):
+                    n_faces = len(result.face_landmarks)
+
+                # THEME-4 D-20: choose the seated user among num_faces=3 via
+                # largest + most-central + sticky selection. Index the SAME i
+                # into facial_transformation_matrixes[i] (index-aligned).
+                idx = select_primary_face(result, face_selector)
+                if (idx is not None
+                        and result is not None
+                        and result.facial_transformation_matrixes
+                        and 0 <= idx < len(result.facial_transformation_matrixes)):
+                    selected_face_idx = idx
+                    mat = np.asarray(result.facial_transformation_matrixes[idx],
+                                     dtype=np.float64)
+                    if mat.shape == (4, 4):
+                        yaw, pitch, _roll = decompose_yaw_pitch_roll(mat)
+                        # M5.1-A: chin-up gives negative raw pitch (atan2
+                        # decomposition); negate unconditionally so downstream
+                        # convention is "pitch > 0 = chin up". M5.1-A v2: NO
+                        # yaw negation (the "sometimes inverted" symptom was
+                        # smoothing lag, not a sign error). Positive raw yaw ->
+                        # cx > 0.5 = mask right under the default --mirror=on.
+                        pitch = -pitch
+                        raw_yaw, raw_pitch = yaw, pitch
+                        cx_raw, cy_raw = yaw_pitch_to_cxcy(yaw, pitch)
+                        face_detected = True
+                        face_present = 1.0
+            except Exception as ex:  # MediaPipe / cv2 / decode throw
+                inference_ok = False
+                face_detected = False
                 face_present = 0.0
+                raw_yaw = raw_pitch = None
+                # Rate-limited stderr log (don't spam at 15 Hz).
+                if (infer_exc_last_log is None
+                        or now - infer_exc_last_log >= INFER_EXC_LOG_INTERVAL_S):
+                    infer_exc_last_log = now
+                    sys.stderr.write(
+                        f"[head_tracker] inference error (continuing, "
+                        f"emitting face_detected=false): {type(ex).__name__}: {ex}\n"
+                    )
+
+            # THEME-4: sustained-inference-failure give-up bound. On a healthy
+            # frame clear the timer; on a throwing frame arm/advance it and bail
+            # out (non-zero exit) only after the window is exhausted.
+            if inference_ok:
+                infer_exc_failing_since = None
+            else:
+                if infer_exc_failing_since is None:
+                    infer_exc_failing_since = now
+                elif now - infer_exc_failing_since > INFER_EXC_WINDOW_S:
+                    inference_gave_up = True
+                    sys.stderr.write(
+                        f"[head_tracker] inference failing for "
+                        f">{INFER_EXC_WINDOW_S:.0f}s; giving up (exit non-zero)\n"
+                    )
 
             # M5.1-A Layer 1: validity check via JumpFilter (SIDE-01 2026-06-11).
             # JumpFilter owns last_valid_* state; caller feeds smoother with
@@ -1031,7 +1395,8 @@ def run(
                     f"{cx_raw:.4f},{cy_raw:.4f},{cx:.4f},{cy:.4f},"
                     f"{int(face_detected)},{face_present:.1f},"
                     f"{int(mirror)},"
-                    f"{smoother.current_velocity:.3f},{smoother.current_alpha:.3f}\n"
+                    f"{smoother.current_velocity:.3f},{smoother.current_alpha:.3f},"
+                    f"{selected_face_idx},{n_faces}\n"
                 )
 
             rec = FrameRecord(
@@ -1055,6 +1420,12 @@ def run(
                 sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
                 sys.stdout.flush()
 
+            # THEME-4: sustained inference failure exhausted the bound — exit
+            # after this (centered) record so the host's OnProcessExited fires
+            # on a real, non-transient fault instead of spinning forever.
+            if inference_gave_up:
+                break
+
     finally:
         try:
             landmarker.close()
@@ -1077,6 +1448,11 @@ def run(
     # but a true device loss surfaces via OnProcessExited's non-zero exit code.
     if capture_gave_up:
         return 3
+    # THEME-4: sustained inference failure (model wedged) also surfaces as a
+    # distinct non-zero exit so the host restarts the sidecar rather than
+    # trusting an endless stream of centered records.
+    if inference_gave_up:
+        return 4
     return 0
 
 
@@ -1144,8 +1520,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Write per-frame diagnostic CSV (t_ms, yaw_deg, pitch_deg, "
              "cx_raw, cy_raw, cx_smoothed, cy_smoothed, face_detected, "
-             "face_present, mirror) to PATH. Used by the M5.1-A inverted-"
-             "direction diagnosis. Off by default.",
+             "face_present, mirror, velocity_deg_per_frame, adaptive_alpha, "
+             "selected_face_idx, n_faces) to PATH. Used by the M5.1-A "
+             "inverted-direction diagnosis and the THEME-4 multi-face "
+             "selection check. Off by default.",
     )
     return p
 
