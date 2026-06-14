@@ -645,10 +645,6 @@ public partial class MainWindow : Window
         SenseDefaults.OverlayOneEuroFcMin,
         SenseDefaults.OverlayOneEuroBeta,
         SenseDefaults.OverlayOneEuroDCutoff);
-    // Beta-1 theme-4 (option B): learns the user's resting head position (velocity-gated) and
-    // feeds the pump deviations from it, so an off-axis camera/posture no longer locks the hole
-    // off-centre. Runs BEFORE _poseFilter in OnCompositionRendering.
-    private readonly NeutralRecenterFilter _neutralRecenter = new();
     private double _displayedCx = 0.5;
     private double _displayedCy = 0.5;
     private DateTime _lastRenderUtc;
@@ -756,22 +752,11 @@ public partial class MainWindow : Window
             _lastRenderUtc = now;
             if (dtMs <= 0 || dtMs > 100) dtMs = 6.0; // first frame / overflow fallback
 
-            // Beta-1 regression fix (2026-06-15): cancel the constant posture/camera yaw offset
-            // BEFORE the One-Euro filter. The sidecar emits absolute-yaw cx with no neutral
-            // baseline, so an off-axis camera/seating made the hole "shift and lock" off-centre the
-            // moment a face was detected. The recenter now captures a ONE-TIME neutral at first
-            // detection and feeds the DEVIATION from it (a centred head ⇒ a centred hole). The old
-            // velocity-gated CONTINUOUS learning was removed: its head-speed gate was unit-broken
-            // (per-frame Δ at the ~165 Hz pump vs a ~15 Hz sidecar diluted head-speed ~11×, so the
-            // gate never closed and it "learned" a held gaze back toward centre on a ~4 s tau — the
-            // "follows then drifts off, never reaches the point" regression).
-            (targetCx, targetCy) = _neutralRecenter.Recenter(targetCx, targetCy, dtMs / 1000.0, gazeValid);
-
-            // The deadzone+expo response curve (former fix C) was REMOVED from the pump: deadzone
-            // 0.08 + expo 1.4 attenuated a normal turn to ~33–67% and dead-banded small turns
-            // ("restricting to the edges / 沒到點"). Jitter (#3) belongs to the One-Euro filter's
-            // FcMin floor — the correct single smoother — so the pump is now a clean
-            // recenter → One-Euro chain (the structural fix Kirby asked for).
+            // Head-tracking reverted to the og baseline (2026-06-15): the sidecar pose feeds the
+            // One-Euro filter directly — no neutral-recenter, no deadzone/expo response curve. The
+            // Beta-1 batch (theme-4 VIDEO mode, B SVD, C/D, recenter) regressed below the shipped og
+            // installer (barely detected + laggy + undershot the edges), so it was rolled back to the
+            // known-good pump. gazeValid still governs the `active` flag below.
             (_displayedCx, _displayedCy) =
                 _poseFilter.Filter(targetCx, targetCy, dtMs / 1000.0);
 
