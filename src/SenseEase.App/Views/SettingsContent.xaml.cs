@@ -713,6 +713,11 @@ public partial class SettingsContent : UserControl
         // old clear path skipped — now included so the "all my data" label is honest.
         BestEffortDelete(AppConfig.ChatHistoryPath);
         BestEffortDelete(AppConfig.CalibrationHistoryPath);
+
+        // Beta-1 Phase-1: the structured symptom/comfort event log (FMS self-reports +
+        // daily estimates) — DeletableOnClear=true on every row, so the H24 "all my data"
+        // clear must remove it too.
+        BestEffortDelete(AppConfig.SymptomLogPath);
     }
 
     /// <summary>Best-effort PII file delete — a missing file is success (nothing to

@@ -219,6 +219,13 @@ public static class AppConfig
     public static string UserModelIndexPath => Path.Combine(
         DataRoot, "SenseEase", "user_model_index.json");
 
+    // Beta-1 Phase-1 (the shared EventLog foundation): the structured symptom/comfort event log
+    // — the explicit FMS self-report (D-18/19) + the daily NL→FMS estimate (D-21), one
+    // SymptomEvent per line. Same %LOCALAPPDATA%\SenseEase home so H24 clear + H25 uninstall
+    // cover it. Exportable=false on every row (export is the de-identified aggregate path, D-17).
+    public static string SymptomLogPath => Path.Combine(
+        DataRoot, "SenseEase", "symptom_log.jsonl");
+
     // H24: the chatbot model trace (the ClearOnDiskTrace target). Mirrors the path
     // MistralChatbotService writes to (Infrastructure can't see this App config, so
     // both sides compute %LOCALAPPDATA%\SenseEase\model_trace.jsonl independently).
