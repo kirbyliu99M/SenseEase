@@ -602,6 +602,23 @@
                                 Click="OnClearAllDataClicked"
                                 ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察、模型追蹤、對話紀錄與舊版校正紀錄；保留漸進適應進度與偏好設定。', En='Deletes the behaviour log, analysis index, longitudinal observations, model trace, chat transcript, and legacy calibration history; keeps your graded-exposure progress and preferences.'}"/>
 
+                        <!-- Beta-1 D-16 (2026-06-14): per-app attribution consent.
+                             OFF by default; flipping ON lets SenseEase record which
+                             foreground app + coarse category was active when a comfort
+                             event fires, so personalisation can learn per-app triggers.
+                             STRICTLY on-device (D-16) — the app name never leaves the
+                             machine. Runtime-changeable: WindowsActivityFilter reads the
+                             live flag each foreground change (no restart needed). -->
+                        <Border Background="{DynamicResource Separator}" Height="1" Margin="0,18,0,14"/>
+                        <CheckBox x:Name="TogglePerAppAttribution"
+                                  Content="{loc:T Zh='記錄使用中的應用程式（協助個人化）', En='Record which app I am using (helps personalisation)'}"
+                                  Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                                  Checked="OnTogglePerAppAttributionChanged"
+                                  Unchecked="OnTogglePerAppAttributionChanged"/>
+                        <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會在不適發生時記錄你正在使用哪個應用程式及其類別，用來學習個別的觸發來源。所有資料僅在本機處理，應用程式名稱永遠不會上傳。', En='When on, SenseEase records which app (and its category) was active when discomfort occurs, to learn your individual triggers. All data stays on this device — the app name is never uploaded.'}"
+                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
+
                         <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
                              "regret" toggle + the Reset that moved here from the console.
                              Hidden unless AppConfig.AutoProfilingEnabled (set in OnLoaded). -->

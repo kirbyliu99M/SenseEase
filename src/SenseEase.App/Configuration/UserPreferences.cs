@@ -223,6 +223,24 @@ public sealed class UserPreferences
     [JsonPropertyName("persistent_overlay_baseline_tier")]
     public int PersistentOverlayBaselineTier { get; set; } = 1;
 
+    // ── Per-app attribution consent (Beta-1 D-16, 2026-06-14) ───────────────
+
+    /// <summary>Beta-1 D-16: per-app attribution consent. Default <c>false</c> —
+    /// STRICTLY opt-in. When true, <c>WindowsActivityFilter</c> resolves the
+    /// foreground app to a coarse category + raw app-name key (ON-DEVICE ONLY;
+    /// never off-device processed — D-16) that the symptom recorder stamps onto
+    /// data-points so personalisation can learn per-app triggers (Theme-5 join).
+    /// Mirrors the head-tracking privacy contract. Hydrated at startup in
+    /// App.OnStartup onto <c>AppConfig.PerAppAttributionEnabled</c> (the per-process
+    /// source of truth the MainViewModel ctor reads to seed the activity filter),
+    /// and runtime-changeable: the Settings toggle writes the live
+    /// <c>WindowsActivityFilter.Instance.PerAppAttributionEnabled</c> flag so it
+    /// takes effect on the next foreground change without a restart. Rolls forward
+    /// like every other additive field — old v=1..3 files load cleanly with the
+    /// field absent (defaults to OFF), so no version bump.</summary>
+    [JsonPropertyName("per_app_attribution_enabled")]
+    public bool PerAppAttributionEnabled { get; set; } = false;
+
     // ── Notification HUD card position (2026-06-07) ─────────────────────────
 
     /// <summary>HUD-card rework: persisted X (Left) of the draggable notification

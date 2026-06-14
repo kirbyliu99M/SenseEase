@@ -423,6 +423,14 @@ public partial class App : Application
                     StringComparison.OrdinalIgnoreCase)
                     ? Configuration.HeadTrackingFollowModeKind.FullFollow
                     : Configuration.HeadTrackingFollowModeKind.Balanced;
+            // Beta-1 D-16: mirror the per-app attribution consent (default OFF,
+            // STRICTLY opt-in) onto AppConfig BEFORE the MainViewModel ctor reads
+            // it to seed WindowsActivityFilter.Instance.PerAppAttributionEnabled.
+            // NOT integrity-gated — it spawns no native process; it only governs
+            // whether the foreground app name (on-device only, D-16) is stamped
+            // onto data-points. Runtime-changeable thereafter via Settings.
+            Configuration.AppConfig.PerAppAttributionEnabled =
+                Configuration.UserPreferences.Current.PerAppAttributionEnabled;
             // D-10 (2026-06-11): the escape-hatch hydrate was removed with the
             // feature. AppConfig.HeadTrackingEscapeHatchEnabled no longer exists
             // (FEAT-06 cancelled — the FOV mask is never weakened), so there is

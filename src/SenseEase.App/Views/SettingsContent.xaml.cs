@@ -220,6 +220,11 @@ public partial class SettingsContent : UserControl
             ToggleHeadTrackingEnabled.IsChecked =
                 UserPreferences.Current.HeadTrackingEnabled;
 
+            // Beta-1 D-16: hydrate the per-app attribution consent toggle. Guarded
+            // by _wiring so this assignment does not re-enter the Save path.
+            TogglePerAppAttribution.IsChecked =
+                UserPreferences.Current.PerAppAttributionEnabled;
+
             // UX-08: show the Restart-needed chip only on a genuine pending change
             // (toggle ≠ the value the app started with), not on every Settings open.
             UpdateRestartChip();
@@ -327,6 +332,25 @@ public partial class SettingsContent : UserControl
         // UX-08: a flip toward (or back to) the app-start value updates the pending
         // chip — flipping back to the launched value hides it again (no fake restart).
         UpdateRestartChip();
+    }
+
+    /// <summary>Beta-1 D-16 (2026-06-14): per-app attribution consent toggle.
+    /// Unlike head-tracking (startup-bound), this is runtime-live: it writes the
+    /// volatile <see cref="WindowsActivityFilter.PerAppAttributionEnabled"/> flag
+    /// the hook thread reads on the next foreground change, so consent takes (or
+    /// drops) effect immediately — no restart chip. STRICTLY on-device (D-16): the
+    /// flag only governs whether the foreground app name is stamped locally.</summary>
+    private void OnTogglePerAppAttributionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        bool desired = TogglePerAppAttribution.IsChecked == true;
+        UserPreferences.Current.PerAppAttributionEnabled = desired;
+        UserPreferences.Current.Save();
+        AppConfig.PerAppAttributionEnabled = desired;
+        // Apply live so the next foreground change is (or stops being) attributed
+        // without waiting for a relaunch.
+        SenseEase.Infrastructure.Real.WindowsActivityFilter.Instance.PerAppAttributionEnabled
+            = desired;
     }
 
     /// <summary>UX-08 (B1b): show the Restart-needed chip ONLY when the live

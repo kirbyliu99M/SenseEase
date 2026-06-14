@@ -367,6 +367,40 @@ public class UserPreferencesTests : IDisposable
         Assert.Contains("FullFollow", json);
     }
 
+    // ── Beta-1 D-16: per-app attribution consent (privacy-critical default-OFF) ──
+
+    [Fact]
+    public void Defaults_PerAppAttribution_IsOff()
+        // STRICTLY opt-in: no per-app recording until the user explicitly consents.
+        => Assert.False(UserPreferences.Load().PerAppAttributionEnabled);
+
+    [Fact]
+    public void Save_PerAppAttribution_RoundTrips_AsSnakeCaseJson()
+    {
+        new UserPreferences { PerAppAttributionEnabled = true }.Save();
+
+        string json = File.ReadAllText(UserPreferences.FilePath);
+        Assert.Contains("per_app_attribution_enabled", json);
+
+        UserPreferences.ResetCacheForTesting();
+        Assert.True(UserPreferences.Load().PerAppAttributionEnabled);
+    }
+
+    [Fact]
+    public void Load_OldFileWithoutPerAppAttributionKey_DefaultsOff_AndKeepsOtherFields()
+    {
+        // D-16: the consent flag is additive (no schema bump). An older v=3 file with
+        // no "per_app_attribution_enabled" key must load cleanly and default the
+        // consent to OFF — no collection without an explicit opt-in.
+        Directory.CreateDirectory(Path.GetDirectoryName(UserPreferences.FilePath)!);
+        File.WriteAllText(UserPreferences.FilePath,
+            """{ "schema_version": 3, "auto_expand_notifications": true }""");
+
+        var p = UserPreferences.Load();
+        Assert.False(p.PerAppAttributionEnabled);   // privacy-conservative default
+        Assert.True(p.AutoExpandNotifications);      // surviving field intact
+    }
+
     // ── Appearance setting (2026-06-07): theme_mode ─────────────────────────
 
     [Fact]
