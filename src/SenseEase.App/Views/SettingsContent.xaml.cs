@@ -353,6 +353,46 @@ public partial class SettingsContent : UserControl
             = desired;
     }
 
+    /// <summary>Beta-1 D-17 (2026-06-14): export a de-identified clinical summary the user can
+    /// hand to a clinician. The numeric aggregation (measured vs estimated kept separate, raw app
+    /// names stripped to category) lives in <see cref="ClinicalExportService"/>; this handler just
+    /// runs the Save dialog and surfaces success/failure. The export is user-initiated, so unlike
+    /// the best-effort telemetry writers a failure is reported, not swallowed.</summary>
+    private void OnExportClinicalClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title        = LocalizationManager.Current.Pick("匯出健康報告", "Export health report"),
+            Filter       = "JSON (*.json)|*.json",
+            FileName     = $"senseease-health-export-{DateTime.UtcNow:yyyyMMdd}.json",
+            AddExtension = true,
+            DefaultExt   = ".json",
+        };
+        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
+
+        try
+        {
+            var svc = new ClinicalExportService(
+                new FileSymptomEventStore(AppConfig.SymptomLogPath));
+            svc.WriteJson(dlg.FileName, DateTime.UtcNow);
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "已匯出去識別化的健康報告（僅數字與類別）。",
+                    "Exported a de-identified health report (numbers and categories only)."),
+                DialogKind.Info);
+        }
+        catch
+        {
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "匯出失敗。請再試一次，或改存到其他位置（例如桌面）。",
+                    "Export failed. Please try again, or save to another location (such as your Desktop)."),
+                DialogKind.Error);
+        }
+    }
+
     /// <summary>UX-08 (B1b): show the Restart-needed chip ONLY when the live
     /// head-tracking toggle differs from the value the app launched with (a real
     /// pending restart). Flipping the toggle back to the app-start value hides the

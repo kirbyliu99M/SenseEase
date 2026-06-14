@@ -619,6 +619,24 @@
                                    FontSize="12" Foreground="{DynamicResource TextTertiary}"
                                    TextWrapping="Wrap" Margin="0,6,0,0"/>
 
+                        <!-- Beta-1 D-17 (2026-06-14): de-identified clinical export. Builds a
+                             numbers-and-categories-only aggregate (measured vs estimated kept
+                             separate) to share with a clinician — never a raw app name, an
+                             utterance, or a finer-than-date timestamp. OnExportClinicalClicked
+                             → ClinicalExportService.WriteJson. -->
+                        <Border Background="{DynamicResource Separator}" Height="1" Margin="0,18,0,14"/>
+                        <TextBlock Text="{loc:T Zh='健康報告匯出', En='Health report export'}"
+                                   Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock Text="{loc:T Zh='匯出一份去識別化的數據摘要（僅數字與類別，不含應用程式名稱或對話內容），可提供給醫療人員參考。測量值與估計值會分開呈現。', En='Export a de-identified numeric summary (numbers and categories only — no app names or conversation text) to share with a clinician. Measured and estimated values are shown separately.'}"
+                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <Button x:Name="ExportClinicalButton"
+                                Content="{loc:T Zh='匯出健康報告…', En='Export health report…'}"
+                                HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
+                                Cursor="Hand" Click="OnExportClinicalClicked"
+                                ToolTip="{loc:T Zh='把去識別化的數值摘要存成 JSON 檔。', En='Save a de-identified numeric summary as a JSON file.'}"/>
+
                         <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
                              "regret" toggle + the Reset that moved here from the console.
                              Hidden unless AppConfig.AutoProfilingEnabled (set in OnLoaded). -->
