@@ -563,6 +563,59 @@ public class AdaptiveFitWiringTests
         }
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // 5b. SENSITIVE PROFILE (Beta-1 #7) — propose-stronger-only ALSO covers the
+    //     SENSITIVE habituation profile (independent of the vestibular flag). The
+    //     selector previously applied the silent same-segment Band-DOWN for sensitive
+    //     users, quietly lowering the whole mask-alpha envelope for the cohort least
+    //     able to tolerate it. The protection-floor guard now blocks it.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void FlagOn_SensitiveProfile_BlocksTheWeakerBandMove_ThatATypicalUserWouldTake()
+    {
+        bool original = AppConfig.AdaptiveFitSelectorEnabled;
+        try
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = true;
+
+            // Identical calm window in both engines: it favours the Band-DOWN (weaker) move
+            // to (4,2). The SENSITIVE engine must BLOCK it while the (default) TYPICAL engine
+            // takes it — proving the profile-aware guard, not a generic hold, does the work.
+            var sensitiveLog = new InMemoryEventLogStore();
+            var typicalLog   = new InMemoryEventLogStore();
+            SeedDurable(sensitiveLog, pressure: 5.0, spike: false);
+            SeedDurable(typicalLog,   pressure: 5.0, spike: false);
+
+            var sensitive = new MockInferenceEngine(null, null, null, sensitiveLog)
+            {
+                AdaptiveFitSelectorEnabled = true,
+            };
+            sensitive.SetHabituationProfile(SenseEase.Core.Inference.HabituationProfile.Sensitive, "test");
+
+            var typical = new MockInferenceEngine(null, null, null, typicalLog)
+            {
+                AdaptiveFitSelectorEnabled = true,   // default profile (Typical) — not sensitive
+            };
+
+            DriveCalm(sensitive);
+            DriveCalm(typical);
+
+            var weaker = new GridCoord(4, 2);
+
+            Assert.True(ResolvesToSet0(sensitive),
+                "sensitive profile must block the weaker-band move and hold at Set0");
+            Assert.False(ResolvesToSet(sensitive, weaker),
+                "sensitive must NOT silently step toward the weaker band (4,2)");
+            Assert.True(ResolvesToSet(typical, weaker),
+                "a typical user should take the weaker-band move the sensitive guard blocked");
+        }
+        finally
+        {
+            AppConfig.AdaptiveFitSelectorEnabled = original;
+        }
+    }
+
     [Fact]
     public void FlagOn_Vestibular_ResolvedLevelHonoursTheL9Floor_NeverDropsBelow9OnAMove()
     {

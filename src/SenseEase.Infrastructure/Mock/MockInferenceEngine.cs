@@ -447,10 +447,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 : 0;
             Current.Mode = mode;
 
-            // Hysteresis: trigger at SenseDefaults.TriggerPressure (85), release
-            // below 85% of it (72.25) to avoid sticky behavior/flicker.
-            bool shouldMaskOn = pressure >= SenseDefaults.TriggerPressure;
-            bool shouldMaskOff = pressure < (SenseDefaults.TriggerPressure * 0.85);
+            // Hysteresis: trigger at the user's EFFECTIVE trigger (default 85; a vestibular
+            // user is 50), release below 85% of it to avoid sticky behavior/flicker.
+            // Beta-1 #5 (review): visible protection (mask on/off, FOV, tier) was wired to the
+            // FIXED 85, so a vestibular user's lowered trigger only moved DisplayStressPercent
+            // + strike sensitivity — the actual mask/FOV/tier were byte-identical to a
+            // non-vestibular user, silently negating the vestibular envelope. Driving these
+            // off effTrigger fixes that; for the default user effTrigger == TriggerPressure,
+            // so non-vestibular behavior is byte-identical.
+            bool shouldMaskOn = pressure >= effTrigger;
+            bool shouldMaskOff = pressure < (effTrigger * 0.85);
             bool cooldownPassed =
                 (now - _lastMaskChange).TotalMilliseconds >= SenseDefaults.CooldownMs;
 
@@ -631,7 +637,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                     // The composed radius is finally clamped to
                     // [MinComposedFovRadius, 100] by ComposeFovRadius itself.
                     int target = (int)Math.Round(Math.Clamp(value, SenseDefaults.MinComposedFovRadius, 100));
-                    int natural = ComputeFovRadiusPercent(Current.Pressure) + _habituation.HabituationOffset;
+                    int natural = ComputeFovRadiusPercent(Current.Pressure, _habituation.EffectiveTrigger) + _habituation.HabituationOffset;
                     _userFovOffset = Math.Clamp(target - natural, -60, 0);
                     break;
                 }
@@ -1047,11 +1053,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // proposes distance-1 cells, but we re-assert before applying).
         if (GridCoord.ManhattanDistance(_activeSet, target) != 1) return;
 
-        // Vestibular propose-stronger-only applies to BOTH the silent same-segment
-        // move AND the queued cross-segment proposal — a weaker-band target is never
-        // moved-to OR queued. A blocked move HOLDs this tick. (Re-ordered ahead of the
-        // segment branch in P5 so the guard gates the queue too.)
-        if (!PassesVestibularGuard(_activeSet, target)) return;
+        // Propose-stronger-only guard applies to BOTH the silent same-segment move AND the
+        // queued cross-segment proposal — a weaker-band target is never moved-to OR queued
+        // for a protected cohort. A blocked move HOLDs this tick. (Re-ordered ahead of the
+        // segment branch in P5 so the guard gates the queue too.) Beta-1 #7 extends this from
+        // vestibular-only to ALSO cover the SENSITIVE habituation profile.
+        if (!PassesProtectionFloorGuard(_activeSet, target)) return;
 
         if (FiveBandSegmentForSet(target) != FiveBandSegmentForSet(_activeSet))
         {
@@ -1162,23 +1169,30 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    /// <summary>Vestibular guard (SPEC item 4): for a user carrying vestibular
-    /// protection (the SAME in-memory signal the hard-cap path keys off —
-    /// <see cref="IsVestibularActive"/>, now sourced solely from
-    /// <see cref="SetVestibularProtection"/> / the snapshot since D-13 deleted the
-    /// calibration advisory path), BLOCK any move toward a WEAKER band (lower
-    /// <see cref="GridCoord.Band"/>) — propose-stronger-only. A move that holds or
-    /// raises Band is allowed. Non-advisory users are unaffected. (The L9 floor /
-    /// 0.20 mask floor are enforced at resolve time by the grid's clamps; this method
-    /// governs the directional move gate.)</summary>
-    private bool PassesVestibularGuard(GridCoord current, GridCoord target)
+    /// <summary>Protection-floor guard: BLOCK any selector move toward a WEAKER band
+    /// (lower <see cref="GridCoord.Band"/>) for the cohorts that must never have their
+    /// protection silently reduced. A move that holds or raises Band is always allowed.
+    /// <list type="bullet">
+    ///   <item><b>Vestibular</b> (SPEC item 4) — <see cref="IsVestibularActive"/>,
+    ///   sourced solely from <see cref="SetVestibularProtection"/> / the snapshot since
+    ///   D-13 deleted the calibration advisory path. Propose-stronger-only.</item>
+    ///   <item><b>Beta-1 #7 — SENSITIVE habituation profile.</b> The selector previously
+    ///   applied a same-segment Band-DOWN SILENTLY for sensitive users (the two flags are
+    ///   independent: vestibular vs profile), quietly lowering the whole mask-alpha envelope
+    ///   for the cohort least able to tolerate it. Never auto-weaken: a sensitive user's
+    ///   protection only reduces through explicit user action, not the silent selector.</item>
+    /// </list>
+    /// (The L9 floor / 0.20 mask floor are enforced at resolve time by the grid's clamps;
+    /// this method governs the directional move gate.)</summary>
+    private bool PassesProtectionFloorGuard(GridCoord current, GridCoord target)
     {
-        // D-13: IsVestibularActive is now the persistent auto-profiling signal only
-        // (the legacy calibration advisory branch was deleted).
-        if (!IsVestibularActive) return true;
+        // A move that holds or strengthens the band is always allowed.
+        if (target.Band >= current.Band) return true;
 
-        // Propose-stronger-only: a move that LOWERS the intensity Band is blocked.
-        return target.Band >= current.Band;
+        // A weaker (protection-reducing) move is blocked for the protected cohorts.
+        if (IsVestibularActive) return false;
+        if (_habituation.CurrentProfile == SenseEase.Core.Inference.HabituationProfile.Sensitive) return false;
+        return true;
     }
 
     // ── Adaptive Fit P5 (propose-confirm) public surface ─────────────────────
@@ -1216,7 +1230,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
             // Re-assert the move is still valid (adjacency + propose-stronger-only).
             if (GridCoord.ManhattanDistance(_activeSet, target) != 1
-                || !PassesVestibularGuard(_activeSet, target))
+                || !PassesProtectionFloorGuard(_activeSet, target))
             {
                 _pendingSetMove = null;
                 return false;
@@ -1931,7 +1945,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // _userFovOffset is <= 0 (user wants more protection); HabituationOffset is >= 0 (engine
     // relaxes). They are summed once here so there is a single writer of FovRadiusPercent.
     private int ComposeFovRadius(double pressure)
-        => Math.Clamp(ComputeFovRadiusPercent(pressure) + _userFovOffset + _habituation.HabituationOffset,
+        => Math.Clamp(ComputeFovRadiusPercent(pressure, _habituation.EffectiveTrigger) + _userFovOffset + _habituation.HabituationOffset,
                       15, 100);
 
     // Periodically re-pull the user's FOV-adjustment history so habituation personalisation
@@ -1956,21 +1970,27 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _habituationStore.Save(_habituation.Snapshot());
     }
 
-    private static int ComputeFovRadiusPercent(double pressure)
+    // Beta-1 #5: the FOV-radius projection now keys off the user's EFFECTIVE trigger
+    // (default 85; vestibular 50) instead of the literal TriggerPressure, so a vestibular
+    // user's FOV tightens earlier. For the default user trigger == TriggerPressure so the
+    // output is byte-identical. The 1.6× post-trigger saturation is preserved as a fraction
+    // of the effective trigger (0.6× trigger past the trigger point).
+    private static int ComputeFovRadiusPercent(double pressure, double trigger)
     {
-        double pre = Math.Clamp(pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
-        if (pressure <= SenseDefaults.TriggerPressure)
+        double trig = trigger > 0 ? trigger : SenseDefaults.TriggerPressure;
+        double pre = Math.Clamp(pressure / trig, 0.0, 1.0);
+        if (pressure <= trig)
         {
-            // Linear: 100% (fully open at rest) → DefaultFovRadiusPercent (35%) at TriggerPressure
+            // Linear: 100% (fully open at rest) → DefaultFovRadiusPercent (35%) at the trigger
             double radius = 100.0 - (100.0 - SenseDefaults.DefaultFovRadiusPercent) * pre;
             return (int)Math.Round(radius);
         }
 
         int tightestRadius = SenseDefaults.TightestNaturalFovRadiusPercent;
-        // Steeper post-trigger slope: saturate at 1.6× TriggerPressure (not 2.0×)
+        // Steeper post-trigger slope: saturate at 1.6× trigger (not 2.0×)
         // so realistic sustained OFI actually drives FOV to the floor.
         double post = Math.Clamp(
-            (pressure - SenseDefaults.TriggerPressure) / (0.6 * SenseDefaults.TriggerPressure),
+            (pressure - trig) / (0.6 * trig),
             0.0, 1.0);
         double activeRadius = SenseDefaults.DefaultFovRadiusPercent
             - ((SenseDefaults.DefaultFovRadiusPercent - tightestRadius) * post);
@@ -2010,7 +2030,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // here keeps mask onset / alpha ramp internally consistent. The user's narrower
         // FOV is preserved as a PREFERENCE that takes effect when pressure DOES spike,
         // but it no longer makes the mask appear on its own.
-        double t      = Math.Clamp(Current.Pressure / SenseDefaults.TriggerPressure, 0.0, 1.0);
+        // Beta-1 #5: tier discretizes against the EFFECTIVE trigger (default 85; vestibular
+        // 50) so a vestibular user climbs the ladder earlier. Default user == byte-identical.
+        double effTrig = _habituation.EffectiveTrigger > 0 ? _habituation.EffectiveTrigger : SenseDefaults.TriggerPressure;
+        double t      = Math.Clamp(Current.Pressure / effTrig, 0.0, 1.0);
         // Alpha-2 (selector→renderer): the discretizer GAIN comes from the ACTIVE set's curve
         // when the selector is ON. set0.Scale == 11.0, so flag-ON at set0 stays byte-identical
         // to the old literal; a future per-set Scale would (now) actually change the
