@@ -268,6 +268,20 @@ public static class ShaderCommandLexicon
     private static readonly string[] EnNegationGuards =
         { "don't", "do not", "doesn't", "didn't", "why is", "why's", "tell me about", "what is", "what's" };
 
+    /// <summary>Beta-1 #14: Chinese question / rhetorical guards, symmetric to
+    /// <see cref="EnNegationGuards"/>. The app's PRIMARY language is zh, but only English had a
+    /// guard — so 「為什麼網格被關掉」 ("why was the grid turned off?") wrongly resolved to a HIDE
+    /// command and turned the protective Chang-Hain anchor grid off. A question/rhetorical
+    /// utterance about the grid is never a command; it falls through to the LLM.</summary>
+    private static readonly string[] ZhQuestionGuards =
+        { "為什麼", "為甚麼", "為何", "怎麼", "是不是", "難道", "嗎" };
+
+    /// <summary>zh hide verbs OTHER than 不要 — used to detect when 不要 is NEGATING a hide verb
+    /// (不要關閉網格 = "don't turn off the grid") rather than itself requesting removal
+    /// (不要網格 = "(I) don't want the grid"). The former must NOT turn the grid off.</summary>
+    private static readonly string[] GridHideVerbsZhExceptBuyao =
+        { "關閉", "關掉", "移除", "拿掉", "隱藏" };
+
     /// <summary>Round-3: detect an explicit grid SHOW/HIDE request by co-occurrence of
     /// a verb with a grid noun, in EITHER order, in either language. Resolves to the
     /// SAME ShaderCommand the slash / strict-NL grid paths produce (gv=0 for hide,
@@ -285,9 +299,23 @@ public static class ShaderCommandLexicon
         if (!mentionsGrid) return None();
 
         // en negation / question guard: a negated or rhetorical grid sentence is NOT a
-        // command (locked-spec #6). zh 不要 is an explicit remove request, so it is in
-        // the hide-verb list and intentionally NOT guarded here.
+        // command (locked-spec #6).
         if (ContainsAny(lower, EnNegationGuards)) return None();
+
+        // Beta-1 #14: zh question / rhetorical guard (symmetric to the en guard) — "why is the
+        // grid off?" etc. is never a command.
+        if (ContainsAny(trimmed, ZhQuestionGuards)) return None();
+
+        // Beta-1 #14: 不要 is ambiguous — 不要網格 ("don't want the grid") is a remove request,
+        // but 不要關閉網格 ("don't turn off the grid") NEGATES the following hide verb. When 不要
+        // co-occurs with another hide/show verb it is negating it → fall through to the LLM
+        // rather than (wrongly) turning the protective grid off/on.
+        if (trimmed.Contains("不要", StringComparison.Ordinal)
+            && (ContainsAny(trimmed, GridHideVerbsZhExceptBuyao)
+                || ContainsAny(trimmed, GridShowVerbsZh)
+                || ContainsAny(lower, GridHideVerbsEn)
+                || ContainsAny(lower, GridShowVerbsEn)))
+            return None();
 
         bool hide = ContainsAny(trimmed, GridHideVerbsZh) || ContainsAny(lower, GridHideVerbsEn);
         bool show = ContainsAny(trimmed, GridShowVerbsZh) || ContainsAny(lower, GridShowVerbsEn);

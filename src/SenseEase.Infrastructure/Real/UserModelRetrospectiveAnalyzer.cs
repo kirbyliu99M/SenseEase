@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
+using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.Infrastructure.Real;
@@ -66,9 +67,26 @@ public sealed class UserModelRetrospectiveAnalyzer
         var index = _userModel.LoadIndex();
         var all = _chatHistory.Load();
 
-        // The index is a cumulative count of analysed turns; the file is trimmed, so
-        // clamp the start to the available count (a shrunk file => nothing new, safe).
-        int start = Math.Min(Math.Max(0, index.LastAnalyzedChatTurnIndex), all.Count);
+        // Beta-1 #16: resolve the resume point by a STABLE content marker, not a positional
+        // cursor. chat_history.jsonl is a trimmed sliding window, so a positional index drifts
+        // once the file trims — the old clamp parked at all.Count and the analyzer froze
+        // forever (new turns scrolled in below the cursor and were never analysed). Find the
+        // last-analysed message by marker: resume just after it; if it was trimmed away,
+        // re-scan the whole current window (safe superset — the observation writer dedups).
+        // Legacy indexes (no marker yet) fall back to the positional clamp so existing
+        // behaviour + tests are unchanged until the first marker is written.
+        int start;
+        if (!string.IsNullOrEmpty(index.LastAnalyzedMarker))
+        {
+            int found = -1;
+            for (int i = all.Count - 1; i >= 0; i--)
+                if (MarkerOf(all[i]) == index.LastAnalyzedMarker) { found = i; break; }
+            start = found >= 0 ? found + 1 : 0;
+        }
+        else
+        {
+            start = Math.Min(Math.Max(0, index.LastAnalyzedChatTurnIndex), all.Count);
+        }
         var slice = all.Skip(start).Take(MaxTurnsPerRun).ToList();
         if (slice.Count == 0) return 0; // nothing new to analyse
 
@@ -99,9 +117,24 @@ public sealed class UserModelRetrospectiveAnalyzer
 
         // The slice WAS analysed (empty output just means no clinically relevant
         // content) — advance the index so we never re-analyse it. Capped at the
-        // slice size so a >100-turn backlog is consumed across runs.
+        // slice size so a >100-turn backlog is consumed across runs. Persist BOTH the
+        // positional cursor (back-compat) AND the stable marker of the last analysed message
+        // (Beta-1 #16: the marker is what makes the resume trim-proof).
         index.LastAnalyzedChatTurnIndex = start + slice.Count;
+        index.LastAnalyzedMarker = MarkerOf(all[start + slice.Count - 1]);
         _userModel.SaveIndex(index);
         return written;
     }
+
+    /// <summary>Beta-1 #16: a process-stable marker for a chat message (string.GetHashCode is
+    /// randomised per process, so it cannot persist across runs). FNV-1a over role+content;
+    /// stores a hash, never the content itself, so the index carries no transcript text.</summary>
+    private static string MarkerOf(ChatMessage m)
+    {
+        string s = ((int)m.Role).ToString() + ":" + (m.Content ?? string.Empty);
+        ulong hh = 1469598103934665603UL;          // FNV-1a 64-bit offset basis
+        foreach (char c in s) { hh ^= c; hh *= 1099511628211UL; }
+        return hh.ToString("x16");
+    }
+
 }

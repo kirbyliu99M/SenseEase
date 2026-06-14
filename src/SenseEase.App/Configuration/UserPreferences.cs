@@ -381,6 +381,13 @@ public sealed class UserPreferences
         {
             _current = new UserPreferences();
             _current.Save();
+            // Beta-1 #18: the actual Windows login-autostart lives in the HKCU Run key (owned
+            // by AutoStartRegistry), NOT in this JSON. Swapping in a fresh instance set
+            // RunAtWindowsStartup=false but left a stale Run entry still launching the app at
+            // login (and the toggle re-reads the registry, so the UI also desynced). Reconcile
+            // the registry to the reset value. Best-effort: a registry failure must not abort
+            // the preference reset.
+            try { AutoStartRegistry.SetEnabled(_current.RunAtWindowsStartup); } catch { /* best-effort */ }
         }
     }
 

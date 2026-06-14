@@ -124,8 +124,16 @@ internal static class FeedbackLexicon
     private static readonly string[] LighterKeywords =
     { "太暗", "看不清", "看不見", "太黑", "亮一點", "暗了", "看不到", "too dark", "lighter", "brighter", "can't see", "hard to see" };
 
+    // Beta-1 #15 (clinical-safety): the BARE grid nouns (格線 / 網格 / grid) were REMOVED from
+    // this LESS list. They made any discomfort utterance that merely NAMES the grid (e.g.
+    // 「網格讓我頭暈」 / "the grid makes me dizzy") FADE the protective Chang-Hain anchor grid:
+    // DeriveAdjustments sets a protective +gv for ReportDiscomfort, then ClassifyShaderHints saw
+    // the bare noun and forced gv negative, overriding it. A grid REDUCTION now requires an
+    // explicit reduce/dislike cue (干擾 / 分散 / 太多 / distracting / busy / ...), so naming the
+    // grid while distressed deepens protection instead of removing the anchor that suppresses
+    // vection. Explicit "/grid off" + the on-purpose ShaderCommandLexicon path are unaffected.
     private static readonly string[] GridLessKeywords =
-    { "格線", "網格", "干擾", "格線太多", "網格太明顯", "分散", "grid", "distracting", "busy", "too many lines" };
+    { "干擾", "格線太多", "網格太明顯", "分散", "distracting", "busy", "too many lines" };
 
     private static readonly string[] GridMoreKeywords =
     { "看不到格", "需要參考", "錨點", "more grid", "show grid", "need reference" };
