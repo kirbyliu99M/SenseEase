@@ -592,6 +592,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _symptomRecorderLazy ??= new SymptomEventRecorder(
             new FileSymptomEventStore(AppConfig.SymptomLogPath), _log);
 
+    /// <summary>Beta-1 D-18/D-19: record a MEASURED comfort rating (the main-console 5★ widget)
+    /// as a patient-reported FMS data-point. Stamps the LIVE capture context — the engine
+    /// <see cref="VimsTier"/>, the protection ON/OFF state (<see cref="MaskActive"/>), and the
+    /// coarse on-device foreground key (null unless per-app consent is on, D-16) — so the symptom
+    /// log can later compute the within-subject ON-vs-OFF comfort delta (the honest replacement
+    /// for the retired "70%" claim) and the Theme-2 per-app join. The event-assembly lives in the
+    /// pure <see cref="ComfortRatingScale"/> so it is unit-tested without the VM. Best-effort:
+    /// a rating must never crash the console.</summary>
+    internal void RecordComfortRating(int stars, string trigger = "")
+    {
+        try
+        {
+            var ev = ComfortRatingScale.BuildMeasuredReport(
+                stars, VimsTier, MaskActive,
+                WindowsActivityFilter.Instance.CurrentForegroundKey, trigger);
+            SymptomRecorder.Record(ev);
+        }
+        catch { /* a comfort rating must never propagate into the UI click handler */ }
+    }
+
     // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
     // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
     // container — services are composed as `readonly` fields on the view-

@@ -420,6 +420,65 @@
                      user request). SelectProfileCommand / CurrentProfile stay on
                      MainViewModel (unused by the dashboard UI now). -->
 
+                <!-- ── D-18/D-19: comfort rating (measured PRO) ──────────────────
+                     Teams-post-call style on the MAIN CONSOLE. Each star is
+                     symptom-anchored (D-19, anchors in the tooltips); a click
+                     records a MEASURED FMS data-point stamped with the live tier +
+                     protection ON/OFF state (OnComfortStarClicked →
+                     MainViewModel.RecordComfortRating). This per-user measured
+                     comfort signal is the honest replacement for the retired
+                     population "70%" claim (D-18). -->
+                <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                        BorderBrush="{DynamicResource Separator}" BorderThickness="1"
+                        Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
+                        Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Type.Heading}"
+                                   Text="{loc:T Zh='現在的舒適度如何？', En='How comfortable do you feel right now?'}"/>
+                        <TextBlock Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="{loc:T Zh='點一下星星紀錄此刻的感受 — 用來了解防護在你身上的實際效果（資料僅存於本機）。', En='Tap a star to log how you feel — it shows how protection affects your comfort over time (stored on this device only).'}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <StackPanel.Resources>
+                                <Style TargetType="Button">
+                                    <EventSetter Event="Click" Handler="OnComfortStarClicked"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                    <Setter Property="FontSize" Value="30"/>
+                                    <Setter Property="Padding" Value="6,2"/>
+                                    <Setter Property="Cursor" Value="Hand"/>
+                                    <Setter Property="Content" Value="★"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center"
+                                                                      VerticalAlignment="Center"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </StackPanel.Resources>
+                            <Button Tag="1" AutomationProperties.Name="{loc:T Zh='1 顆星', En='1 star'}"
+                                    ToolTip="{loc:T Zh='1★ · 很不舒服', En='1 star · Very uncomfortable'}"/>
+                            <Button Tag="2" AutomationProperties.Name="{loc:T Zh='2 顆星', En='2 stars'}"
+                                    ToolTip="{loc:T Zh='2★ · 不太舒服', En='2 stars · Uncomfortable'}"/>
+                            <Button Tag="3" AutomationProperties.Name="{loc:T Zh='3 顆星', En='3 stars'}"
+                                    ToolTip="{loc:T Zh='3★ · 普通', En='3 stars · Okay'}"/>
+                            <Button Tag="4" AutomationProperties.Name="{loc:T Zh='4 顆星', En='4 stars'}"
+                                    ToolTip="{loc:T Zh='4★ · 舒適', En='4 stars · Comfortable'}"/>
+                            <Button Tag="5" AutomationProperties.Name="{loc:T Zh='5 顆星', En='5 stars'}"
+                                    ToolTip="{loc:T Zh='5★ · 非常舒適', En='5 stars · Very comfortable'}"/>
+                        </StackPanel>
+                        <TextBlock x:Name="ComfortRatingAck" Style="{StaticResource Type.Caption}"
+                                   Foreground="{DynamicResource ComfortSteadyText}" Margin="0,8,0,0"
+                                   TextWrapping="Wrap" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
                 <Expander Header="{loc:T Zh='進階數據', En='Advanced'}" IsExpanded="False" Margin="0,0,0,16"
                           Foreground="{DynamicResource TextSecondary}">

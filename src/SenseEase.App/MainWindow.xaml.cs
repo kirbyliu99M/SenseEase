@@ -984,6 +984,27 @@ public partial class MainWindow : Window
             _viewModel.ResetStateCommand.Execute(null);
     }
 
+    /// <summary>Beta-1 D-18/D-19: a comfort-rating star was clicked. Records a MEASURED FMS
+    /// data-point (the honest per-user signal that replaces the retired "70%" claim) via the VM,
+    /// then shows a brief in-place acknowledgment. The star number rides on the Button's Tag
+    /// (1-5). Best-effort + defensive — a malformed Tag or missing VM is a silent no-op so a
+    /// rating tap can never throw out of the console.</summary>
+    private void OnComfortStarClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button b) return;
+        if (!int.TryParse(b.Tag?.ToString(), out int stars)) return;
+
+        _viewModel.RecordComfortRating(stars, "manual");
+
+        if (ComfortRatingAck is not null)
+        {
+            ComfortRatingAck.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+                $"已記錄 {stars}★ — 謝謝你的回饋",
+                $"Logged {stars}★ — thanks for the feedback");
+            ComfortRatingAck.Visibility = Visibility.Visible;
+        }
+    }
+
     /// <summary>Open the Event Log in its own window (UI/UX fine-tune 2026-06-07:
     /// relocated from a top-level tab; opened from Settings → 事件記錄). Created on
     /// demand and reused while open; the field is cleared on Closed so the next
