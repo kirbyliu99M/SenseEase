@@ -226,8 +226,13 @@ public sealed class WindowsActivityFilter
     // app the user was in. Never a raw window title; raw exe name stays local (export strips it).
     public volatile bool PerAppAttributionEnabled;
     private volatile string? _currentForegroundKey;
-    /// <summary>The current foreground app key ("category/app"), or null when disabled / unresolved.</summary>
-    public string? CurrentForegroundKey => _currentForegroundKey;
+    /// <summary>The current foreground app key ("category/app"), or null when disabled / unresolved.
+    /// <para>Gated on <see cref="PerAppAttributionEnabled"/> at the READ point so withdrawing
+    /// consent at runtime takes effect immediately: the last-resolved key is only refreshed while
+    /// consent is on (the hook branch above), so a stale value can linger after a toggle-off — this
+    /// guard makes it unreachable, guaranteeing no data-point is ever stamped with an app key once
+    /// consent is withdrawn (D-16: no collection without consent).</para></summary>
+    public string? CurrentForegroundKey => PerAppAttributionEnabled ? _currentForegroundKey : null;
 
     // ── Hook callbacks (run on a system thread, not UI) ──────────────────────────────
     private void OnSystemWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
