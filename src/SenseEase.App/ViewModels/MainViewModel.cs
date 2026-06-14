@@ -1572,9 +1572,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // its v0.9-baseline behavior. Q3-verified: sidecar cx/cy use the
         // same MappingMode.RelativeToBoundingBox convention as the WPF
         // RadialGradientBrush.Center — no conversion needed at any layer.
+        // Beta-1 #4 (clinical-safety): treat the pose as ACTIVE only when a face is actually
+        // detected. The sidecar keeps emitting the last-valid cx/cy with FaceDetected=false on
+        // face loss (SIDE-04, so the stream stays fresh and the staleness fallback never fires),
+        // so a non-null sample is necessary but NOT sufficient. Writing HeadTrackingActive=true
+        // on a stale face_detected=false sample violated SenseState.HeadTrackingActive's contract
+        // and would carry a stale gaze into any consumer of the published state (e.g. the
+        // Theme-5 data layer / a non-pump renderer). When the face is lost, publish the centered
+        // baseline (0.5/0.5, inactive) — the 165 Hz pump owns the SMOOTH ease-to-center for the
+        // live overlay; this only fixes the published source-of-truth state.
         var poseReader = _overrideReader ?? _headPoseReader;
         HeadPoseSample? pose = poseReader.ReadLatest();
-        if (pose is not null)
+        if (pose is not null && pose.FaceDetected)
         {
             state.HeadGazeX = pose.Cx;
             state.HeadGazeY = pose.Cy;

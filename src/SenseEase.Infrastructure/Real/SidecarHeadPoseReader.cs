@@ -77,6 +77,14 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     /// crashing (model stall, webcam frozen, etc.).</summary>
     public const int StalenessThresholdMs = 2000;
 
+    // Beta-1 #10 (clinical-safety): on face loss the sidecar keeps emitting the last-valid
+    // cx/cy with FaceDetected=false (SIDE-04), so _latestStoredAtMs keeps refreshing and the
+    // staleness check above ALWAYS passes — Health would report Healthy while no face is
+    // actually tracked, masking a VIMS-protection gap on the tray / Settings indicator. Past
+    // this grace with no FaceDetected==true sample, ComputeHealth reports NoFrames instead.
+    // Matches the pump's FaceLossGraceMs so the health surface and the overlay agree.
+    public const int FaceLossHealthGraceMs = 2000;
+
     // Pre-Alpha v0.11.1: replaces _pythonExePath + _sidecarScriptPath. The
     // PyInstaller --onedir bundle is a single self-contained exe -- no
     // separate interpreter to invoke.
@@ -93,6 +101,7 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
     // Monotonic timestamp (UTC ticks) of when the latest sample was stored.
     // Used to enforce the staleness fallback. Read/written with Interlocked.
     private long _latestStoredAtMs; // NE10: monotonic Environment.TickCount64 (immune to wall-clock / NTP / VM-resume jumps)
+    private long _latestFaceDetectedAtMs; // Beta-1 #10: monotonic TickCount64 of the last FaceDetected==true sample (0 = never)
 
     // Volatile so OnProcessExited (ThreadPool process-monitor thread) and
     // ReaderLoop's terminal block read a fresh reference for the identity
@@ -210,6 +219,13 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
         if (storedAtMs == 0) return HeadTrackingHealth.NoFrames; // never received a frame
         long ageMs = Environment.TickCount64 - storedAtMs;       // NE10: monotonic
         if (ageMs > StalenessThresholdMs) return HeadTrackingHealth.NoFrames;
+
+        // Beta-1 #10: a fresh sample is not enough — the sidecar streams FaceDetected=false
+        // frames on face loss. Report NoFrames once no face has been seen for longer than the
+        // grace, so the health surface stops claiming tracking works while no face is present.
+        long faceAtMs = Interlocked.Read(ref _latestFaceDetectedAtMs);
+        if (faceAtMs == 0) return HeadTrackingHealth.NoFrames; // alive but never tracked a face
+        if (Environment.TickCount64 - faceAtMs > FaceLossHealthGraceMs) return HeadTrackingHealth.NoFrames;
         return HeadTrackingHealth.Healthy;
     }
 
@@ -609,7 +625,19 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             }
             else
             {
-                _log?.Invoke("[SidecarHeadPoseReader] lifecycle-gate wait timed out (2s) — forcing Dispose without DoStop.");
+                // Beta-1 #9: a wedged in-flight Start/Stop/Restart held the gate past the 2 s
+                // wait, so DoStop never runs and proc.Kill() is skipped. If the JobObject
+                // backstop ALSO failed to arm, the child head_tracker.exe is orphaned (it holds
+                // the webcam). Do NOT depend solely on the JobObject — attempt a direct
+                // best-effort kill of the captured process outside the gate. Snapshot the field
+                // so a concurrent null does not throw.
+                _log?.Invoke("[SidecarHeadPoseReader] lifecycle-gate wait timed out (2s) — forcing Dispose without DoStop; best-effort killing the child directly.");
+                var proc = _process;
+                if (proc is not null)
+                {
+                    try { if (!proc.HasExited) proc.Kill(entireProcessTree: false); } catch { /* best-effort */ }
+                    try { proc.Dispose(); } catch { }
+                }
             }
         }
         catch { /* never throw from Dispose */ }
@@ -781,11 +809,20 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
                     Volatile.Write(ref _latest, sample);
                     Interlocked.Exchange(ref _latestStoredAtMs, Environment.TickCount64);
                     Interlocked.Increment(ref _receivedSampleCount); // M5.1-C
+                    // Beta-1 #10: track FaceDetected freshness separately from stream freshness,
+                    // and treat a face (re)acquisition as a NoFrames → Healthy edge.
+                    bool faceRecovered = false;
+                    if (sample.FaceDetected)
+                    {
+                        long prevFaceMs = Interlocked.Exchange(ref _latestFaceDetectedAtMs, Environment.TickCount64);
+                        faceRecovered = prevFaceMs == 0
+                            || (Environment.TickCount64 - prevFaceMs) > FaceLossHealthGraceMs;
+                    }
                     // FEAT-08: first frame (or recovery from a stale gap) is a
                     // NoFrames/Dead → Healthy transition. RefreshHealth no-ops
                     // when already Healthy, so the per-frame call is cheap; only
                     // raise the event on the actual edge to avoid event spam.
-                    if (wasFirstOrStale) RefreshHealth();
+                    if (wasFirstOrStale || faceRecovered) RefreshHealth();
                     // H36: a good parse resets the malformed backoff so the next
                     // bad line is logged immediately again.
                     malformedRun     = 0;
@@ -1093,6 +1130,10 @@ public sealed class SidecarHeadPoseReader : IHeadPoseReader, IDisposable
             ? Environment.TickCount64 - (long)(DateTime.UtcNow - t).TotalMilliseconds
             : Environment.TickCount64;
         Interlocked.Exchange(ref _latestStoredAtMs, storedMs);
+        // Beta-1 #10: mirror the FaceDetected freshness clock so health tests see the same
+        // face-loss semantics as the live path (a FaceDetected sample marks the face fresh).
+        if (sample.FaceDetected)
+            Interlocked.Exchange(ref _latestFaceDetectedAtMs, storedMs);
         // Sample stored implies the reader is logically alive for the test.
         Interlocked.Exchange(ref _started, 1);
         Interlocked.Exchange(ref _sidecarDead, 0);

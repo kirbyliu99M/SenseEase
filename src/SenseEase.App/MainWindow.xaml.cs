@@ -725,13 +725,17 @@ public partial class MainWindow : Window
             // smoothed position so the recenter is smooth rather than a snap.
             double targetCx = gazeValid ? pose!.Cx : 0.5;
             double targetCy = gazeValid ? pose!.Cy : 0.5;
-            bool active = pose is not null && (gazeValid
-                          // Stay "active" (overlay follows the smoothed displayed
-                          // position) until the mask has essentially reached
-                          // center, then go inactive so the radius snaps to the
-                          // v0.9 baseline rather than easing indefinitely.
+            // Beta-1 #3 (clinical-safety): do NOT gate `active` on `pose is not null`. When the
+            // sidecar dies / goes stale (ReadLatest == null) with the gaze parked at a corner,
+            // the old `pose is not null &&` prefix forced active=false the instant pose went
+            // null, which made ApplyHeadPose SNAP the hole to center in one frame (a visible
+            // jolt — the exact jump the recenter-grace clause exists to prevent). The target is
+            // already 0.5/0.5 when the gaze is lost (above), so keeping `active` true while the
+            // displayed center is still off-center lets the One-Euro filter EASE it home; it
+            // goes inactive only once centered (then the radius settles to the v0.9 baseline).
+            bool active = gazeValid
                           || Math.Abs(_displayedCx - 0.5) > 0.01
-                          || Math.Abs(_displayedCy - 0.5) > 0.01);
+                          || Math.Abs(_displayedCy - 0.5) > 0.01;
 
             // ── Beta A1: ONE smoothing pass — single One-Euro filter ──────────
             // Replaces the previous fixed 15 ms half-life lerp (a second, divergent

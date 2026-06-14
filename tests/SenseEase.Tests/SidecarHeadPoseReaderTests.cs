@@ -357,6 +357,33 @@ public class SidecarHeadPoseReaderTests
     }
 
     [Fact]
+    public void Health_NoFrames_WhenFaceLostBeyondGrace_EvenWhileStreamIsFresh()
+    {
+        // Beta-1 #10 (clinical-safety): on face loss the sidecar keeps streaming
+        // FaceDetected=false frames (SIDE-04), so _latestStoredAtMs stays fresh and the
+        // staleness check passes. Health must still report NoFrames once no face has been seen
+        // for longer than FaceLossHealthGraceMs — otherwise the tray/Settings indicator falsely
+        // claims tracking works while no face is present (a hidden VIMS-protection gap).
+        var reader = new SidecarHeadPoseReader(
+            sidecarExePath: @"C:\nonexistent\head_tracker.exe");
+
+        var face = new HeadPoseSample(
+            TimestampMs: 1, Cx: 0.5, Cy: 0.5, Luma: 0.3, FaceDetected: true,  FacePresent: 1.0);
+        var noFace = new HeadPoseSample(
+            TimestampMs: 2, Cx: 0.5, Cy: 0.5, Luma: 0.3, FaceDetected: false, FacePresent: 0.0);
+
+        // Last real face seen just beyond the grace; then a FRESH no-face frame keeps the
+        // stream alive (stream age ~0 passes the staleness gate, face age > grace).
+        reader.TestHook_StoreSample(face,
+            DateTime.UtcNow.AddSeconds(-(SidecarHeadPoseReader.FaceLossHealthGraceMs / 1000.0 + 1)));
+        reader.TestHook_StoreSample(noFace, DateTime.UtcNow);
+
+        Assert.Equal(HeadTrackingHealth.NoFrames, reader.Health);
+
+        reader.Dispose();
+    }
+
+    [Fact]
     public void Health_NoFrames_WhenStartedButNoSampleEverStored()
     {
         // FEAT-08: watchdog-window silence scenario. The reader has been started
