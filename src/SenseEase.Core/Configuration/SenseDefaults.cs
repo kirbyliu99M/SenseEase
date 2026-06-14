@@ -91,9 +91,11 @@ public static class SenseDefaults
     /// heavy near-still smoothing (FcMin unchanged) while opening the cutoff sooner on
     /// fast moves (speed-adaptive: smooth when slow, responsive when fast). ROUND-4
     /// TUNABLE / UVHS-adjustable.</summary>
-    // Head-tracking reverted to the og baseline (2026-06-15): Beta back to 0.015 (the shipped
-    // installer value). The D bump to 0.05 was part of the rolled-back over-tuning batch.
-    public const double OverlayOneEuroBeta = 0.015;
+    // 2026-06-15 responsiveness enhancement (on the og baseline): Beta 0.015 -> 0.03 — a MODEST
+    // lag trim on fast moves (the canonical One-Euro speed knob; FcMin unchanged so the near-still
+    // smoothing is preserved). Deliberately well below the rolled-back 0.05 over-tune. No sidecar
+    // rebuild needed for this — easily dialled back here if any bounce returns.
+    public const double OverlayOneEuroBeta = 0.03;
     /// <summary>Beta A1: One-Euro derivative-estimate cutoff (Hz). Low-passes the
     /// speed estimate that drives the adaptive cutoff so a single noisy frame
     /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
