@@ -144,6 +144,19 @@ if (Test-Path $vulkanDir) {
         Write-Host "  removed: vulkan/ggml-rpc.dll"
         $vulkanRemoved++
     }
+    # Beta-1 review (cleanup): drop the dead CLI *-impl.dll backends. The matching
+    # llama-cli/bench/quantize/... .exe launchers are deleted above; their *-impl.dll
+    # backing libraries are NOT in llama-server.exe's import closure (verified: the server
+    # imports only llama-server-impl.dll -> ggml*.dll + llama.dll + llama-common.dll +
+    # mtmd.dll), so they are pure bloat that also polluted install.manifest.json with
+    # entries nothing runs. Keep llama-server-impl.dll (the server's own backend).
+    Get-ChildItem -Path $vulkanDir -File -Filter "*-impl.dll" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne "llama-server-impl.dll" } |
+        ForEach-Object {
+            Remove-Item $_.FullName -Force
+            Write-Host "  removed: vulkan/$($_.Name)"
+            $vulkanRemoved++
+        }
 } else {
     Write-Host "  (vulkan/ not present -- skipping)"
 }
@@ -260,19 +273,20 @@ if (-not (Test-Path $readmeSrc)) {
 # The step below auto-runs when the installer artifact already sits next to
 # this script's sibling installer/ folder (i.e. on the build machine post-ISCC).
 Write-Section "Emit installer .sha256 sidecar (PKG-03)"
+# Beta-1 #22: ALWAYS (re)compute the sidecar for the CURRENT artifact, and exclude *.old.exe
+# archives. The .iss reuses OutputBaseFilename on same-day rebuilds, so the previous
+# skip-if-exists left the published .sha256 hashing the OLD installer bytes -> a tester running
+# sha256 verification on the fresh download got a MISMATCH on a legitimate build. Overwriting
+# guarantees the sidecar always matches the bytes that were just compiled.
 $installerPattern = Join-Path "installer" "SenseEase_Setup-Alpha_Test.*.exe"
 $installerFiles   = Get-ChildItem -Path $installerPattern -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Extension -eq ".exe" }
+                        Where-Object { $_.Extension -eq ".exe" -and $_.Name -notlike "*.old.exe" }
 if ($installerFiles) {
     foreach ($exe in $installerFiles) {
         $sidecar = "$($exe.FullName).sha256"
-        if (-not (Test-Path $sidecar)) {
-            $hash = (Get-FileHash -Path $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash *$($exe.Name)" | Set-Content -Path $sidecar -Encoding ascii -NoNewline
-            Write-Host "  wrote: $($exe.Name).sha256"
-        } else {
-            Write-Host "  exists (skipped): $($exe.Name).sha256"
-        }
+        $hash = (Get-FileHash -Path $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$hash *$($exe.Name)" | Set-Content -Path $sidecar -Encoding ascii -NoNewline
+        Write-Host "  wrote: $($exe.Name).sha256"
     }
 } else {
     Write-Host "  (no installer artifacts found in installer/ -- run ISCC first, then re-run this step)" -ForegroundColor Yellow
@@ -332,6 +346,28 @@ foreach ($pat in $manifestPatterns) {
         Sort-Object FullName |
         ForEach-Object {
             # Dist-relative path with forward slashes (stable across machines).
+            $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')
+            if (-not $manifest.Contains($rel)) {
+                $sha = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                $manifest[$rel] = $sha
+                $hashedCount++
+                Write-Host "  hashed: $rel"
+            }
+        }
+}
+
+# Beta-1 #21: hash the head-tracker sidecar's NATIVE libraries too. head_tracker.exe is a tiny
+# PyInstaller bootstrap stub whose hash matches even if _internal/python312.dll (the actual
+# CPython interpreter that runs the tracker logic with live camera access) is swapped for a
+# tampered copy -- the *.pyd-only pass above left the interpreter + native DLLs unverified, so
+# arbitrary native code could run past a manifest that still reads "clean". Hash every
+# *.dll/*.so/*.dylib UNDER the sidecar subtree only (scoped so the hundreds of .NET app-root
+# DLLs are NOT pulled into the manifest).
+$sidecarRoot = Join-Path $Dist "tools/head-tracker-sidecar/dist/head_tracker"
+if (Test-Path $sidecarRoot) {
+    Get-ChildItem -Path $sidecarRoot -Recurse -File -Include *.dll, *.so, *.dylib -ErrorAction SilentlyContinue |
+        Sort-Object FullName |
+        ForEach-Object {
             $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')
             if (-not $manifest.Contains($rel)) {
                 $sha = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
