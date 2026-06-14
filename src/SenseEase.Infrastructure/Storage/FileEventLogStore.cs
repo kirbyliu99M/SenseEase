@@ -40,7 +40,12 @@ public sealed class FileEventLogStore : IEventLogStore
     public const int RetentionDays = 7;
 
     private static readonly string[] DurableCategoryPrefixes =
-        { "Habituation.", "Chatbot.", "Calibration.", "Safety.", "Storage.", "State.", "AdaptiveFit." };
+        { "Habituation.", "Chatbot.", "Calibration.", "Safety.", "Storage.", "State.", "AdaptiveFit.",
+          // Beta-1 Phase-1 (option C): the FMS/comfort self-report + daily-estimate MIRROR lines
+          // (the structured system-of-record is symptom_log.jsonl; this is the human-readable copy
+          // in the dashboard + forensic log) persist as a durable category so a tester's symptom
+          // ratings survive a restart and are visible in the main event log.
+          "Symptom." };
 
     // FEAT-09/LOGIC-07/SEC-04: forensic categories that MUST land even after the daily
     // cap is hit — losing them silently is the actual harm (a Safety.* intercept or a

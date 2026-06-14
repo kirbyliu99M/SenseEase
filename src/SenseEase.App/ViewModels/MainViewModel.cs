@@ -581,6 +581,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // identically to InMemoryEventLogStore, so the dashboard mirror is unchanged.
     private readonly IEventLogStore _log = new FileEventLogStore(AppConfig.AuditLogDir);
 
+    // Beta-1 Phase-1 (option C): the symptom/comfort recorder — writes the structured
+    // SymptomEvent to symptom_log.jsonl (system-of-record) AND mirrors a Symptom.* line into
+    // _log (dashboard + durable forensic log). Lazy so it composes the already-initialised _log
+    // without a constructor dependency. The 5★/FMS console widget (D-18/19) and the daily NL→FMS
+    // estimator (D-21) record THROUGH this; the selector's FMS input (D-19) reads the structured
+    // store. This is what turns the new log into richer data for sounder personalization.
+    private SymptomEventRecorder? _symptomRecorderLazy;
+    internal SymptomEventRecorder SymptomRecorder =>
+        _symptomRecorderLazy ??= new SymptomEventRecorder(
+            new FileSymptomEventStore(AppConfig.SymptomLogPath), _log);
+
     // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
     // This codebase doesn't use a Microsoft.Extensions.DependencyInjection
     // container — services are composed as `readonly` fields on the view-
