@@ -765,6 +765,17 @@ public partial class MainWindow : Window
             // (target is already 0.5 there).
             (targetCx, targetCy) = _neutralRecenter.Recenter(targetCx, targetCy, dtMs / 1000.0, gazeValid);
 
+            // Beta-1 theme-4 fix (C): head→screen response curve on the recentred deviation — a
+            // centre deadzone (kills residual still-head jitter, #3) + expo (fine control near
+            // centre, full reach at the edges). Applied per-axis, post-recenter so the deadzone is
+            // centred on the user's neutral. Only while the gaze is valid; on loss the target is
+            // already the centred 0.5 (deadzone would no-op anyway).
+            if (gazeValid)
+            {
+                targetCx = HeadResponseCurve.Shape(targetCx, SenseDefaults.OverlayHeadDeadzone, SenseDefaults.OverlayHeadExpo);
+                targetCy = HeadResponseCurve.Shape(targetCy, SenseDefaults.OverlayHeadDeadzone, SenseDefaults.OverlayHeadExpo);
+            }
+
             (_displayedCx, _displayedCy) =
                 _poseFilter.Filter(targetCx, targetCy, dtMs / 1000.0);
 

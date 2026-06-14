@@ -91,7 +91,13 @@ public static class SenseDefaults
     /// heavy near-still smoothing (FcMin unchanged) while opening the cutoff sooner on
     /// fast moves (speed-adaptive: smooth when slow, responsive when fast). ROUND-4
     /// TUNABLE / UVHS-adjustable.</summary>
-    public const double OverlayOneEuroBeta = 0.015;
+    // Beta-1 theme-4 fix (D, 2026-06-14): raised 0.015 → 0.05 to cut the LAG Kirby reported
+    // (#4: "can't keep up with the head pose"). Per the 1€-filter tuning procedure (Casiez et al.
+    // CHI 2012): FcMin sets the still-jitter floor, Beta cuts lag on fast moves — Kirby felt lag
+    // on fast head turns, so Beta needed raising (the canonical ×10 direction). Heavy near-still
+    // smoothing (FcMin unchanged) is preserved; the deadzone (OverlayHeadDeadzone) handles
+    // residual still jitter so Beta can rise without re-introducing it. UVHS-tunable.
+    public const double OverlayOneEuroBeta = 0.05;
     /// <summary>Beta A1: One-Euro derivative-estimate cutoff (Hz). Low-passes the
     /// speed estimate that drives the adaptive cutoff so a single noisy frame
     /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
@@ -113,6 +119,16 @@ public static class SenseDefaults
     /// <summary>Time constant (s) the neutral baseline tracks the resting posture WHILE still.
     /// Long enough (seconds) that it captures posture, not active gaze.</summary>
     public const double OverlayNeutralLearnTauSeconds = 4.0;
+
+    // Beta-1 theme-4 fix (C, 2026-06-14): the head→screen RESPONSE CURVE applied after the
+    // neutral recenter (HeadResponseCurve), so it is centred on the user's neutral. Deadzone kills
+    // residual still-head jitter (#3); the expo gives fine control near centre + full reach at the
+    // edges (the standard head-as-pointer mapping). UVHS-tunable.
+    /// <summary>Centre deadzone as a fraction of the half-range [0,1): a recentred deviation whose
+    /// magnitude is at/below this maps to exactly centre (no hole movement). ~8%.</summary>
+    public const double OverlayHeadDeadzone = 0.08;
+    /// <summary>Response-curve exponent (&gt;1 = fine control near centre, full reach at edges).</summary>
+    public const double OverlayHeadExpo = 1.4;
 
     // ── Beta A2: single-pass field renderer (mask + grid as ONE per-pixel field) ─
     // (docs/BETA_FEATHERING_COHERENCE_PLAN.md §A2.) The mask, the cell-fill and the
