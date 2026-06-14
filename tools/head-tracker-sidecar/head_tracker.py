@@ -219,20 +219,13 @@ def make_face_landmarker(model_path: str) -> mp_vision.FaceLandmarker:
     suitable for soak measurement.
 
     Privacy: output_face_blendshapes=False, output_facial_transformation
-    _matrixes=True. Face landmarks are used ONLY in-process to pick the nearest
-    face (largest 2D bbox) in a multi-person scene — they are never emitted.
-
-    num_faces=3 (2026-06-15): cheap headroom so select_closest_face_index can
-    track the user — the person CLOSEST to the PC, i.e. the LARGEST face —
-    instead of whichever face MediaPipe happened to order first. With a single
-    face present the selection returns index 0, so single-user behaviour is
-    byte-identical to num_faces=1.
+    _matrixes=True. We need ONLY the transformation matrix.
     """
     base_options = mp_python.BaseOptions(model_asset_path=model_path)
     options = mp_vision.FaceLandmarkerOptions(
         base_options=base_options,
         running_mode=mp_vision.RunningMode.IMAGE,
-        num_faces=3,
+        num_faces=1,
         output_face_blendshapes=False,
         output_facial_transformation_matrixes=True,
         min_face_detection_confidence=0.5,
@@ -240,35 +233,6 @@ def make_face_landmarker(model_path: str) -> mp_vision.FaceLandmarker:
         min_tracking_confidence=0.5,
     )
     return mp_vision.FaceLandmarker.create_from_options(options)
-
-
-def select_closest_face_index(result) -> int:
-    """Pick the face NEAREST the camera in a multi-person scene = the one with the
-    largest 2D bounding box (the seated user is closest to the PC, so their face is
-    biggest on screen). Returns 0 when there is one face or no landmarks, so
-    single-user behaviour is identical to num_faces=1. Pure — no state, no I/O,
-    never raises (a malformed result degrades to index 0)."""
-    try:
-        mats = getattr(result, "facial_transformation_matrixes", None) or []
-        faces = getattr(result, "face_landmarks", None) or []
-        n = min(len(faces), len(mats))
-        if n <= 1:
-            return 0
-        best_idx = 0
-        best_area = -1.0
-        for i in range(n):
-            lms = faces[i]
-            if not lms:
-                continue
-            xs = [lm.x for lm in lms]
-            ys = [lm.y for lm in lms]
-            area = (max(xs) - min(xs)) * (max(ys) - min(ys))
-            if area > best_area:
-                best_area = area
-                best_idx = i
-        return best_idx
-    except Exception:
-        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +305,7 @@ class AdaptiveEma2D:
     """
 
     # α at each velocity regime (piecewise linear between control points).
-    ALPHA_LOW       = 0.11   # < VEL_LOW  (2026-06-15: 0.08->0.11, trims slow-move lag;
-                             #            C# One-Euro FcMin still floors residual rest-jitter)
+    ALPHA_LOW       = 0.08   # < VEL_LOW
     ALPHA_MED_LOW   = 0.30   # at VEL_MED
     ALPHA_MED_HIGH  = 0.50   # at VEL_HIGH
     ALPHA_HIGH      = 0.55   # > VEL_HIGH
@@ -990,9 +953,7 @@ def run(
             cy_raw = DEFAULT_CY
 
             if result and result.facial_transformation_matrixes:
-                # Multi-person: track the user CLOSEST to the PC (largest face).
-                face_idx = select_closest_face_index(result)
-                mat = np.asarray(result.facial_transformation_matrixes[face_idx],
+                mat = np.asarray(result.facial_transformation_matrixes[0],
                                  dtype=np.float64)
                 if mat.shape == (4, 4):
                     yaw, pitch, _roll = decompose_yaw_pitch_roll(mat)

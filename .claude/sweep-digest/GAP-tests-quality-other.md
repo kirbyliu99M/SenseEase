@@ -1,0 +1,3 @@
+# GAP-tests-quality — fixed/rejected/unverified
+
+- REJECTED GAP-tests-quality-08 [P2] Habituation pause/resume tested only via engine API; no test drives the UI entry point (ToggleHabituationCommand) | Evidence accurate (no tests touch ToggleHabituationCommand), but MainWindow.xaml:541-544 shows the habituation pause button was deliberately removed from the dashboard 2026-06-09 per user request; command intentionally 'unused by the UI now'. Asserting the control is reachable contradicts that decision.
