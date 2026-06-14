@@ -327,7 +327,13 @@ public partial class OverlayWindow : Window, IOverlayRenderer
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
-        ClickThrough.Enable(this);
+        // Beta-1 theme-3: system-UI overlay — click-through AND absent from Alt-Tab + taskbar +
+        // never foreground-activating (fixes the blank "SenseEase Overlay" Alt-Tab entry + the
+        // Show()-steals-focus jolt). The no-activate mechanism is WS_EX_NOACTIVATE set HERE
+        // (SourceInitialized fires within Show(), before the window is presented, so the show
+        // itself does not activate). NOTE: WPF forbids ShowActivated="False" on a Maximized
+        // window, so WS_EX_NOACTIVATE — the Win32-authoritative path — is what we rely on.
+        ClickThrough.EnableSystemUiClickThrough(this);
 
         // Fade the overlay in so it doesn't pop harshly.
         Opacity = 0;
