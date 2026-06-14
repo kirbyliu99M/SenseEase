@@ -83,7 +83,13 @@ public static class SenseDefaults
     // radius envelope. Start values per the plan; tune in UVHS.
     /// <summary>Beta A1: One-Euro minimum cutoff frequency (Hz). Lower ⇒ heavier
     /// smoothing of slow/near-still motion (less jitter); the responsiveness floor.</summary>
-    public const double OverlayOneEuroFcMin = 1.0;
+    // 2026-06-15 synthesis (restore 0609 responsiveness on the 0611 one-clock architecture):
+    // FcMin 1.0->8.0. FcMin=1.0 gave a ~159 ms rest time-constant — a heavy SECOND low-pass stacked
+    // on the sidecar's AdaptiveEma2D, the "laggy / doesn't react" follow regression vs the 0609
+    // build's 15 ms lerp. FcMin=8.0 → ~16 ms rest half-life ≈ the 0609 lerp. Safe against jitter:
+    // the sidecar (ALPHA_LOW=0.08) is the real rest de-jitter, so lightening the host filter cuts
+    // lag without reintroducing breathing. One-clock coherence is filter-agnostic (one (cx,cy)/frame).
+    public const double OverlayOneEuroFcMin = 8.0;
     /// <summary>Beta A1: One-Euro speed coefficient. Higher ⇒ the cutoff opens up
     /// faster as the head speeds up (less lag on fast moves). Kirby round-3 (item 4.2,
     /// 2026-06-11): raised 0.007 → 0.015 — the plan's 0.007 under-reacted to fast head
@@ -91,9 +97,12 @@ public static class SenseDefaults
     /// heavy near-still smoothing (FcMin unchanged) while opening the cutoff sooner on
     /// fast moves (speed-adaptive: smooth when slow, responsive when fast). ROUND-4
     /// TUNABLE / UVHS-adjustable.</summary>
-    // Head-tracking reverted to the og baseline (2026-06-15): Beta back to 0.015 (the shipped
-    // installer value). The D bump to 0.05 was part of the rolled-back over-tuning batch.
-    public const double OverlayOneEuroBeta = 0.015;
+    // 2026-06-15 synthesis: Beta 0.015->0.5. At 0.015 the One-Euro cutoff barely opened even on a
+    // fast 120 deg/s turn (fc 1.00->1.04 Hz, tau stayed ~153 ms) — effectively a CONSTANT heavy
+    // low-pass that never got responsive while moving (the dominant "fails to follow"). Beta=0.5
+    // opens fc to ~1.7 Hz @60 deg/s and ~2.4 Hz @120 deg/s (tau 94/66 ms) — genuine speed-adaptive
+    // follow. Must move WITH FcMin (FcMin alone leaves fast-turn undershoot). Reversible single const.
+    public const double OverlayOneEuroBeta = 0.5;
     /// <summary>Beta A1: One-Euro derivative-estimate cutoff (Hz). Low-passes the
     /// speed estimate that drives the adaptive cutoff so a single noisy frame
     /// cannot momentarily un-smooth the position. 1.0 Hz is the canonical default.</summary>
