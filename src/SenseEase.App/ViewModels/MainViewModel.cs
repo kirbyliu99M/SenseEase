@@ -662,6 +662,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch { /* advisory signal — never disturb the VM */ }
     }
 
+    /// <summary>B3 (per-app learning): push the coarse, consent-gated foreground key into the engine
+    /// so durable events get stamped with the app they occurred under (the bucket for per-app stats).
+    /// <c>WindowsActivityFilter.CurrentForegroundKey</c> is already D-16-gated — it returns null unless
+    /// per-app consent is on — so this carries NO new privacy surface (it is the same coarse
+    /// "category/app" key already stamped on FMS reports). Called on the 1 Hz metrics tick so the key
+    /// is fresh before any spike/state-change durable event fires. Best-effort; null ⇒ global bucket.</summary>
+    private void PushForegroundContextToEngine()
+    {
+        try
+        {
+            string? key = WindowsActivityFilter.Instance.CurrentForegroundKey;
+            (_engine as MockInferenceEngine)?.NotifyForegroundAppCategory(key);
+        }
+        catch { /* advisory signal — never disturb the VM */ }
+    }
+
     /// <summary>D-redesign: a best-effort read-only roll-up of the recent MEASURED FMS self-reports
     /// (last <paramref name="days"/> days, default 7) for the in-app comfort-trend glance — the
     /// count, the mean discomfort, and the within-subject protection ON-vs-OFF mean delta. Reads
@@ -1104,6 +1120,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ActivityStatus = string.IsNullOrEmpty(reason) ? "Idle" : $"Suppressed: {reason}";
             }
             catch { /* filter unavailable — leave previous status */ }
+
+            // B3 (per-app learning): keep the engine's foreground key fresh (1 Hz) so a durable
+            // event emitted right after an alt-tab is bucketed to the correct app. Consent-gated
+            // upstream (null unless D-16 is on); null ⇒ global bucket = today's behaviour.
+            PushForegroundContextToEngine();
 
             // Auto Driver/Passenger summary. Show live idle reading when auto-detection
             // is on, "Manual" when the user has overridden or disabled the feature.

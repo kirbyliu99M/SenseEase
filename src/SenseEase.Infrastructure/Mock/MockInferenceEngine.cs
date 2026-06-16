@@ -137,6 +137,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private double _recentFmsMean;
     private int    _recentFmsCount;
 
+    // B3 (per-app learning): the App layer pushes the coarse, consent-gated foreground key
+    // ("category/app", or null when D-16 consent is off / app unknown) here via
+    // NotifyForegroundAppCategory, because the foreground filter lives in the App layer. The
+    // durable-event appenders stamp it onto EventLogEntry.ForegroundKey so the per-app stats
+    // pipeline can bucket history by app. null ⇒ the global bucket (today's behaviour).
+    // Set/read only on the dispatcher thread (engine tick + the App push), like _recentFms*,
+    // so no lock is needed.
+    private string? _currentForegroundKey;
+
     // Recency window (seconds) within which the last manual +/- still counts as a
     // selector manual-authority signal. Local to this file (no SenseDefaults edit
     // in scope). Kept conservative — a single SettlingMinSeconds window.
@@ -1004,6 +1013,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _recentFmsMean  = valid ? Math.Clamp(mean, 0.0, 20.0) : 0.0;
     }
 
+    /// <summary>B3 (per-app learning): receive the coarse, consent-gated foreground key
+    /// (<c>"category/app"</c>, or null when D-16 per-app consent is off / the app is unknown),
+    /// pushed by the App layer (the foreground filter lives there, out of this layer's reach —
+    /// mirrors <see cref="UpdateRecentFmsContext"/> / <see cref="NotifyManualLevelNudge"/>). The
+    /// durable-event appenders stamp it onto <see cref="EventLogEntry.ForegroundKey"/> so the
+    /// per-app stats pipeline can later bucket history by app. A blank/whitespace key is
+    /// normalised to null (the global bucket). Runs on the dispatcher thread like the engine tick,
+    /// so no lock is needed.</summary>
+    public void NotifyForegroundAppCategory(string? foregroundKey)
+        => _currentForegroundKey = string.IsNullOrWhiteSpace(foregroundKey) ? null : foregroundKey;
+
     // ── Adaptive Fit selector tick (Alpha-2 core GROUP D) ─────────────────────
     // Reachable ONLY from the flag-gated region in Update(); the caller already
     // holds _gate and has verified _adaptiveFitSelectorEnabled. While the flag is
@@ -1373,6 +1393,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 Pressure     = Current.Pressure,
                 FovRadius    = Current.FovRadiusPercent,
                 MaskSnapshot = Current.MaskActive ? "ON" : "off",
+                ForegroundKey = _currentForegroundKey,   // B3: per-app bucketing (null = global)
             });
         }
         catch { /* best-effort; event-log writes must never crash the engine */ }
@@ -1828,6 +1849,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 Pressure     = Current.Pressure,
                 FovRadius    = Current.FovRadiusPercent,
                 MaskSnapshot = Current.MaskActive ? "ON" : "off",
+                ForegroundKey = _currentForegroundKey,   // B3: per-app bucketing (null = global)
             });
         }
         catch { /* best-effort; recovery diagnostics must never crash engine boot */ }
@@ -1846,6 +1868,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 Pressure     = Current.Pressure,
                 FovRadius    = Current.FovRadiusPercent,
                 MaskSnapshot = Current.MaskActive ? "ON" : "off",
+                ForegroundKey = _currentForegroundKey,   // B3: per-app bucketing (null = global)
             });
         }
         catch { /* best-effort; event-log writes must never crash the engine */ }

@@ -20,6 +20,15 @@ public class EventLogEntry
     public int FovRadius { get; set; }
     public string MaskSnapshot { get; set; } = "—";
 
+    /// <summary>B3 (per-app learning): the coarse on-device foreground key
+    /// (<c>"category/app"</c>) in effect when this durable entry was emitted, or
+    /// <c>null</c> when per-app consent (D-16) is off / the app is unknown. Additive +
+    /// nullable: historical entries (and every entry written while consent is off)
+    /// deserialize to null and fall into the global bucket, so the per-app stats
+    /// pipeline degrades to today's app-agnostic behaviour. Never a raw window title —
+    /// it is the same coarse key already stamped on FMS <c>SymptomEvent</c>s.</summary>
+    public string? ForegroundKey { get; set; }
+
     /// <summary>Display helper for the dashboard ListView. CW-12/UX-15: Timestamp is
     /// stored in UTC, so convert to local for the human-visible row. ToLocalTime()
     /// converts a UTC-kind value (and treats an Unspecified-kind value as UTC); a
