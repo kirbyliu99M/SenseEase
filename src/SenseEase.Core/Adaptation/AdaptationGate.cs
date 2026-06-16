@@ -189,6 +189,19 @@ public static class AdaptationGate
         return new GateDecision.Apply(newDelta, resulting, AdaptDirection.Tighten, reason);
     }
 
+    /// <summary>B5 Stage 4 — map a chatbot-proposed sensitivity scale into a gate DIRECTION (the only
+    /// thing the LLM is allowed to influence). The engine relation is
+    /// <c>effectiveTrigger = TriggerPressure / scale</c>, so a HIGHER proposed scale = lower trigger =
+    /// MORE protection = Tighten; a LOWER scale = Relax; equal = Hold. The magnitude of the proposed
+    /// scale is intentionally discarded — the gate sizes the move, never the LLM.</summary>
+    public static AdaptDirection DirectionFromSensitivityProposal(double proposedScale, double currentScale)
+    {
+        if (!double.IsFinite(proposedScale) || !double.IsFinite(currentScale)) return AdaptDirection.Hold;
+        if (proposedScale > currentScale + Epsilon) return AdaptDirection.Tighten;
+        if (proposedScale < currentScale - Epsilon) return AdaptDirection.Relax;
+        return AdaptDirection.Hold;
+    }
+
     private const double Epsilon = 1e-9;
 }
 

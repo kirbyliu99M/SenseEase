@@ -277,6 +277,26 @@ public sealed class UserPreferences
         set => ProactiveCheckInsConsentRaw = value.ToString();
     }
 
+    /// <summary>B5 (auto-adaptation): opt-in consent for the deterministic AdaptationGate to AUTO-APPLY
+    /// small, bounded protection adjustments derived from the chatbot's retrospective analysis (validated
+    /// against MEASURED data, reversible, clamped to ±12pp). Tri-state, string-serialised like
+    /// <see cref="ProactiveCheckInsConsentRaw"/>. Default "Unset" = OFF: with consent off the gate never
+    /// runs, so protection is exactly as today. Additive — old preference files load with it absent.</summary>
+    [JsonPropertyName("adaptive_autotune_consent")]
+    public string AdaptiveAutoTuneConsentRaw { get; set; } = nameof(ProactiveCheckInConsent.Unset);
+
+    /// <summary>Tolerant typed view over <see cref="AdaptiveAutoTuneConsentRaw"/> (mirrors
+    /// <see cref="ProactiveCheckInsConsent"/>). Reuses the tri-state opt-in enum; only
+    /// <see cref="ProactiveCheckInConsent.Enabled"/> turns the auto-adaptation loop on.</summary>
+    [JsonIgnore]
+    public ProactiveCheckInConsent AdaptiveAutoTuneConsent
+    {
+        get => Enum.TryParse<ProactiveCheckInConsent>(AdaptiveAutoTuneConsentRaw, ignoreCase: true, out var m)
+            ? m
+            : ProactiveCheckInConsent.Unset;
+        set => AdaptiveAutoTuneConsentRaw = value.ToString();
+    }
+
     // ── Notification HUD card position (2026-06-07) ─────────────────────────
 
     /// <summary>HUD-card rework: persisted X (Left) of the draggable notification
