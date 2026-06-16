@@ -184,6 +184,86 @@ public class AdaptationEvidenceTests
         Assert.IsType<GateDecision.Apply>(d);
     }
 
+    // ── DeriveAutoChannelTiming (the wired history derivation — final-review HIGH fixes) ──────────
+
+    private const string AutoParam = "AutoAdaptTrigger";
+
+    private static AdjustmentRecord Rec(string param, double delta, string source, double daysAgo)
+        => new() { Parameter = param, Delta = delta, Source = source, TimestampUtc = Now.AddDays(-daysAgo) };
+
+    [Fact]
+    public void Timing_HasEverAutoRelaxed_FalseForUnwindOfPriorTighten()
+    {
+        // tighten (−3) then unwind back to baseline (+3): cumulative goes −3 → 0, never net-positive.
+        // Must NOT count as "ever relaxed" (else the first genuine relax bypasses cold-start — HIGH).
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(
+            new List<AdjustmentRecord> { Rec(AutoParam, -3, "system", 5), Rec(AutoParam, +3, "system", 1) }, Now, AutoParam);
+        Assert.False(t.HasEverAutoRelaxed);
+    }
+
+    [Fact]
+    public void Timing_HasEverAutoRelaxed_TrueForGenuineNetRelax()
+    {
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(
+            new List<AdjustmentRecord> { Rec(AutoParam, +3, "system", 1) }, Now, AutoParam);
+        Assert.True(t.HasEverAutoRelaxed);
+    }
+
+    [Fact]
+    public void Timing_HasEverAutoRelaxed_TrueOnceCumulativeCrossesBaseline()
+    {
+        // −3, +3, +3 ⇒ cumulative −3, 0, +3 ⇒ crosses baseline on the last ⇒ true.
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(
+            new List<AdjustmentRecord> { Rec(AutoParam, -3, "system", 5), Rec(AutoParam, +3, "system", 3), Rec(AutoParam, +3, "system", 1) },
+            Now, AutoParam);
+        Assert.True(t.HasEverAutoRelaxed);
+    }
+
+    [Fact]
+    public void Timing_ResetTare_ClearsPreResetHistory()
+    {
+        // A relax then a Reset ⇒ the gate must see cold-start again (no surviving auto history).
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(
+            new List<AdjustmentRecord> { Rec(AutoParam, +3, "system", 5), Rec("Reset", 0, "reset", 3) }, Now, AutoParam);
+        Assert.False(t.HasEverAutoRelaxed);
+        Assert.True(double.IsPositiveInfinity(t.DaysSinceLastAutoChange));
+        Assert.Equal(0, t.AutoChangesThisWeek);
+    }
+
+    [Fact]
+    public void Timing_ResetTare_KeepsPostResetHistory()
+    {
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(
+            new List<AdjustmentRecord> { Rec(AutoParam, +3, "system", 5), Rec("Reset", 0, "reset", 3), Rec(AutoParam, +3, "system", 1) },
+            Now, AutoParam);
+        Assert.True(t.HasEverAutoRelaxed);   // the post-reset relax
+        Assert.Equal(1, t.AutoChangesThisWeek);
+    }
+
+    [Fact]
+    public void Timing_Counts_DaysAndWeekAndNetRelaxAndManualTighten()
+    {
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(new List<AdjustmentRecord>
+        {
+            Rec(AutoParam, +3, "system", 0),   // a relax today
+            Rec(AutoParam, -3, "system", 0),   // a tighten today (not added to gross relax)
+            Rec("LevelNudge", -8, "user", 1),  // a manual tighten ~24h ago
+        }, Now, AutoParam);
+        Assert.Equal(2, t.AutoChangesThisWeek);
+        Assert.Equal(3.0, t.NetRelaxTodayPp, 9);                 // gross same-day relax only
+        Assert.True(t.HoursSinceLastManualTighten is >= 23.0 and <= 25.0);
+        Assert.True(t.DaysSinceLastAutoChange < 0.01);            // most recent auto change is today
+    }
+
+    [Fact]
+    public void Timing_NoRecords_IsNeutral()
+    {
+        var t = AdaptationEvidence.DeriveAutoChannelTiming(new List<AdjustmentRecord>(), Now, AutoParam);
+        Assert.False(t.HasEverAutoRelaxed);
+        Assert.True(double.IsPositiveInfinity(t.DaysSinceLastAutoChange));
+        Assert.True(double.IsPositiveInfinity(t.HoursSinceLastManualTighten));
+    }
+
     [Fact]
     public void EndToEnd_Avoidance_GateHolds()
     {

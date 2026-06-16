@@ -735,6 +735,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 _habituation.EffectiveTrigger -= _autoAdaptTriggerDeltaPp;
                 _autoAdaptTriggerDeltaPp = 0.0;
                 _profileSnapshotDirty = true;
+                MaybePersistProfileSnapshot();   // persist ONLY when the auto-delta actually changed
             }
             PersistHabituation(force: true);
             _vimsTier = 1;
@@ -745,7 +746,6 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // mirror beside the compose (single source = _userFovOffset, now 0).
             Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
             Current.UserFovOffsetPp  = _userFovOffset;
-            MaybePersistProfileSnapshot();   // B5: persist the zeroed auto-adaptation delta
         }
     }
 
@@ -1707,6 +1707,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
         {
             if (!double.IsFinite(newDelta)) return;
             newDelta = Math.Clamp(newDelta, -AutoAdaptTriggerSpanPp, AutoAdaptTriggerSpanPp);
+            // Vestibular: the auto-channel may never RELAX (positive). The gate already rejects vestibular
+            // relax; enforce it at the engine boundary too so no path can carry a positive delta here.
+            if (_vestibularProtection && newDelta > 0.0) newDelta = 0.0;
             double diff = newDelta - _autoAdaptTriggerDeltaPp;
             if (Math.Abs(diff) < 1e-9) return;
 
@@ -1734,11 +1737,33 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// composed trigger above the 50 floor. Keeps the invariant EffectiveTrigger == base + delta.</summary>
     private void ApplyAutoDeltaToFreshBase()
     {
-        if (_autoAdaptTriggerDeltaPp != 0.0)
-            _habituation.EffectiveTrigger += _autoAdaptTriggerDeltaPp;
+        // True no-op when the auto-channel is unused (consent never engaged): the cohort cap below must
+        // NOT fire at delta==0, or it would silently change an existing path (e.g. a vestibular user's
+        // chatbot AdjustSensitivity result) — keep every pre-B5 EffectiveTrigger path byte-identical.
+        if (_autoAdaptTriggerDeltaPp == 0.0) return;
+
+        // A vestibular user may NEVER carry a RELAX (positive) auto-delta. Retire it outright rather than
+        // letting the cohort cap merely HIDE it — otherwise a later SetVestibularProtection(false) would
+        // resurrect the relax on top of the (higher) non-vestibular base.
+        if (_vestibularProtection && _autoAdaptTriggerDeltaPp > 0.0)
+            _autoAdaptTriggerDeltaPp = 0.0;
+
+        _habituation.EffectiveTrigger += _autoAdaptTriggerDeltaPp;
         if (_vestibularProtection &&
             _habituation.EffectiveTrigger > CalibrationProcessor.VestibularTriggerPressureOverride)
             _habituation.EffectiveTrigger = CalibrationProcessor.VestibularTriggerPressureOverride;
+    }
+
+    /// <summary>B5: an ATOMIC snapshot of the adaptation-relevant engine state, taken under the gate lock
+    /// so the (base = effective − delta) pairing the App computes can never tear against a concurrent
+    /// mutate (the App's tuning pass runs off the UI thread). Replaces several lock-free reads.</summary>
+    public (double EffectiveTrigger, double AutoDeltaPp, double PersonalPressureScale, bool Vestibular, HabituationProfile Profile) SnapshotForAdaptation()
+    {
+        lock (_gate)
+        {
+            return (_habituation.EffectiveTrigger, _autoAdaptTriggerDeltaPp, _personalPressureScale,
+                    _vestibularProtection, _habituation.CurrentProfile);
+        }
     }
 
     /// <summary>B5 accessor: the engine's current effective trigger (base + auto delta). Used by the

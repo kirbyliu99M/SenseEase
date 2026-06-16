@@ -125,7 +125,7 @@ public sealed class UserModelRetrospectiveAnalyzer
         // appears we surface its DIRECTION to the gate). The gate validates it against measured data;
         // an absent or wrong proposal is harmless. ProposedValue is normalised to a boxed double.
         if (parsed.Proposal is { Intent: OverrideIntent.AdjustSensitivity } prop &&
-            prop.ProposedValue is double scale && double.IsFinite(scale))
+            TryUnwrapScale(prop.ProposedValue, out double scale) && double.IsFinite(scale))
         {
             LastProposedSensitivityScale = scale;
             LastProposalRationale = prop.Rationale ?? string.Empty;
@@ -151,6 +151,21 @@ public sealed class UserModelRetrospectiveAnalyzer
     /// <summary>Beta-1 #16: a process-stable marker for a chat message (string.GetHashCode is
     /// randomised per process, so it cannot persist across runs). FNV-1a over role+content;
     /// stores a hash, never the content itself, so the index carries no transcript text.</summary>
+    /// <summary>Unwrap the parser's normalised proposed value to a double. <c>NormaliseProposedValue</c>
+    /// boxes a whole-number JSON value as <c>long</c> and a fractional one as <c>double</c>, so an
+    /// <c>is double</c> test alone silently misses integer scales like 1/2/3 (a boxed long does not match
+    /// a double pattern). Accept both — mirrors the engine's <c>TryUnwrapDouble</c>.</summary>
+    private static bool TryUnwrapScale(object? value, out double result)
+    {
+        switch (value)
+        {
+            case double d: result = d;        return true;
+            case long l:   result = l;        return true;
+            case int i:    result = i;        return true;
+            default:       result = 0.0;      return false;
+        }
+    }
+
     private static string MarkerOf(ChatMessage m)
     {
         string s = ((int)m.Role).ToString() + ":" + (m.Content ?? string.Empty);

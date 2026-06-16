@@ -165,6 +165,45 @@ public class AutoAdaptTriggerChannelTests
     }
 
     [Fact]
+    public void Vestibular_RetiresStaleRelaxDelta_OnTransition_NoResurrection()
+    {
+        // A typical user auto-relaxes (+6), then becomes vestibular: the relax must be RETIRED (not just
+        // hidden by the cap), so turning vestibular back OFF can never resurrect it (final-review MED).
+        var engine = new MockInferenceEngine(null, null, null, null);
+        engine.ApplyAutoAdaptDelta(6.0);                       // +6 relax (typical)
+        double baseTrigger = engine.EffectiveTrigger - 6.0;    // the non-vestibular base
+
+        engine.SetVestibularProtection(true);
+        Assert.Equal(0.0, engine.AutoAdaptTriggerDeltaPp, 9);   // relax retired
+        Assert.Equal(50.0, engine.EffectiveTrigger, 9);
+
+        engine.SetVestibularProtection(false);
+        Assert.Equal(baseTrigger, engine.EffectiveTrigger, 9);  // back to base — the +6 did NOT come back
+        Assert.Equal(0.0, engine.AutoAdaptTriggerDeltaPp, 9);
+    }
+
+    [Fact]
+    public void Vestibular_RuntimeRelax_IsClampedToZero_AtEngineBoundary()
+    {
+        var engine = new MockInferenceEngine(null, null, null, null);
+        engine.SetVestibularProtection(true);
+        engine.ApplyAutoAdaptDelta(6.0);                        // a relax attempt
+        Assert.Equal(0.0, engine.AutoAdaptTriggerDeltaPp, 9);   // clamped to 0 (vestibular never relaxes)
+        Assert.Equal(50.0, engine.EffectiveTrigger, 9);
+    }
+
+    [Fact]
+    public void ConsentOff_VestibularAdjustSensitivity_NotCapped_NoRegression()
+    {
+        // delta==0 (B5 never used): ApplyAutoDeltaToFreshBase must be a true no-op, so a vestibular
+        // user's chatbot AdjustSensitivity is byte-identical to pre-B5 (85/scale, NOT clamped to 50).
+        var engine = new MockInferenceEngine(null, null, null, null);
+        engine.SetVestibularProtection(true);
+        engine.ApplyChatbotOverride(OverrideIntent.AdjustSensitivity, 1.2);
+        Assert.Equal(SenseDefaults.TriggerPressure / 1.2, engine.EffectiveTrigger, 6); // ~70.8, not 50
+    }
+
+    [Fact]
     public void ApplyDelta_PersistsToSnapshot()
     {
         var store = new CapturingProfileStore();

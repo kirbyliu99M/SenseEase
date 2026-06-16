@@ -168,6 +168,64 @@ public static class AdaptationEvidence
             HasEverAutoRelaxed: hasEverAutoRelaxed);
     }
 
+    // ── Auto-channel timing/history (derived from the durable adjustment log) ──────────────────────
+
+    public sealed record AutoChannelTiming(
+        double DaysSinceLastAutoChange,
+        int AutoChangesThisWeek,
+        double NetRelaxTodayPp,
+        bool HasEverAutoRelaxed,
+        double HoursSinceLastManualTighten);
+
+    /// <summary>Derive the gate's timing/history inputs from the durable adjustment log (append-ordered,
+    /// <see cref="AdjustmentRecord.TimestampUtc"/>-stamped). HONORS THE RESET TARE — only records AFTER the
+    /// most-recent <c>Source=="reset"</c> count, so a user Reset genuinely returns the gate to cold-start
+    /// (an auto-relax cannot "survive" a Reset through the history). <c>HasEverAutoRelaxed</c> means the
+    /// CUMULATIVE auto-delta crossed above baseline (a genuine net relax) — NOT merely that a positive
+    /// diff was logged: the audit Delta is the per-apply DIFF, so unwinding a prior tighten (e.g. −3→0)
+    /// logs a +3 diff but never goes net-positive, and must NOT trip cold-start. <paramref name="autoParameter"/>
+    /// is the audit Parameter the engine writes ("AutoAdaptTrigger").</summary>
+    public static AutoChannelTiming DeriveAutoChannelTiming(
+        IReadOnlyList<AdjustmentRecord>? records, DateTime nowUtc, string autoParameter)
+    {
+        var none = new AutoChannelTiming(double.PositiveInfinity, 0, 0.0, false, double.PositiveInfinity);
+        if (records is null || records.Count == 0) return none;
+
+        // Reset tare: discard everything at/before the most-recent reset sentinel (mirrors WeightFor).
+        int lastReset = -1;
+        for (int i = records.Count - 1; i >= 0; i--)
+            if (string.Equals(records[i]?.Source, "reset", StringComparison.Ordinal)) { lastReset = i; break; }
+
+        var live = new List<AdjustmentRecord>();
+        for (int i = lastReset + 1; i < records.Count; i++)
+            if (records[i] is not null) live.Add(records[i]);
+
+        var auto = live.Where(r => r.Parameter == autoParameter).OrderBy(r => r.TimestampUtc).ToList();
+
+        double daysSinceLast = auto.Count > 0
+            ? Math.Max(0.0, (nowUtc - auto[^1].TimestampUtc).TotalDays) : double.PositiveInfinity;
+        int thisWeek = auto.Count(r => (nowUtc - r.TimestampUtc).TotalDays <= 7.0);
+        // Gross same-day relax (Delta>0 only). Deliberately gross, not net: a same-day tighten does NOT
+        // earn back relax budget, so the per-day cap fails toward protection (the desired direction).
+        double netRelaxToday = auto.Where(r => r.TimestampUtc.Date == nowUtc.Date && r.Delta > 0).Sum(r => r.Delta);
+
+        // Cumulative net-relax: running sum of the per-apply diffs = the auto-channel value over time;
+        // "ever net-relaxed" = that sum ever exceeded baseline (0). Distinguishes a genuine relax from a
+        // benign unwind of a prior tighten (the cold-start bypass the final review flagged HIGH).
+        double cumulative = 0.0;
+        bool everNetRelaxed = false;
+        foreach (var r in auto) { cumulative += r.Delta; if (cumulative > 1e-9) { everNetRelaxed = true; break; } }
+
+        var manualTightens = live.Where(r =>
+            string.Equals(r.Source, "user", StringComparison.Ordinal)
+            && (r.Parameter == "FovRadius" || r.Parameter == "LevelNudge")
+            && r.Delta < 0).ToList();
+        double hoursSinceManualTighten = manualTightens.Count > 0
+            ? Math.Max(0.0, (nowUtc - manualTightens.Max(r => r.TimestampUtc)).TotalHours) : double.PositiveInfinity;
+
+        return new AutoChannelTiming(daysSinceLast, thisWeek, netRelaxToday, everNetRelaxed, hoursSinceManualTighten);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Linear-interpolated percentile over an ascending array (PERCENTILE.INC); single sample

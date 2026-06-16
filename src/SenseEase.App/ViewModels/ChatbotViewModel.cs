@@ -911,11 +911,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(text)) return;
         try
         {
-            _dispatcher.Invoke(() =>
+            // BeginInvoke (fire-and-forget): a transparency notice must NEVER block its caller — a
+            // synchronous Invoke from the long-lived background tuning loop can wedge if the UI pump is
+            // draining (shutdown) or absent (headless). The notice has no return value, so async is fine.
+            _dispatcher.BeginInvoke(new Action(() =>
             {
                 Messages.Add(new ChatMessageViewModel(text, ChatRole.Assistant));
                 PersistMessage(ChatRole.Assistant, text);
-            });
+            }));
         }
         catch { /* advisory — never disturb the caller */ }
     }

@@ -900,6 +900,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // B5: the deterministic learning-loop coordinator (WPF-free; gated on consent inside RunOnce).
     private readonly AdaptationCoordinator _adaptationCoordinator = new();
     private const double AdaptiveAutoTuneWindowDays = 7.0;
+    private const double AdaptiveAutoTuneBehaviourWindowDays = 28.0; // recent horizon for the exposure trend
     private const string AutoAdaptParameter = "AutoAdaptTrigger";
     private int _behaviorFlushTickCounter;
     private const int BehaviorFlushPeriodSeconds = 60; // crash-durability cadence
@@ -2080,41 +2081,40 @@ public sealed class MainViewModel : INotifyPropertyChanged
             DateTime now = DateTime.UtcNow;
             var cfg = AdaptationGateConfig.Default;
 
-            // Evidence — measured-only FMS + tolerated-exposure trend (Stage 3 pure helpers).
+            // Evidence — measured-only FMS + tolerated-exposure trend (Stage 3 pure helpers). The
+            // behaviour rows are windowed to a recent horizon so an unbounded history can't satisfy
+            // cold-start's behaviour-day floor or dominate the half-split trend with stale data.
             var symptomEvents = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
             var fms = AdaptationEvidence.MeasuredOnFms(symptomEvents, now, AdaptiveAutoTuneWindowDays, cfg.RelaxFmsLowThreshold);
-            var exposure = AdaptationEvidence.ExposureTrend(_behaviorWriter.ReadAll());
+            var behaviorRows = _behaviorWriter.ReadAll()
+                .Where(r => DateTime.TryParseExact(r.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                                                   DateTimeStyles.None, out var d)
+                            && (now.Date - d).TotalDays <= AdaptiveAutoTuneBehaviourWindowDays)
+                .ToList();
+            var exposure = AdaptationEvidence.ExposureTrend(behaviorRows);
 
-            // Timing — derived from the durable, TimestampUtc-stamped adjustment log (the auto-channel
-            // writes a Source="system" Parameter="AutoAdaptTrigger" audit record on every apply).
+            // Timing/history — purely derived from the durable adjustment log (reset-tared + cumulative
+            // net-relax; HasEverAutoRelaxed is "cumulative crossed baseline", NOT "any positive diff").
             IReadOnlyList<AdjustmentRecord> records =
                 (_adjustmentLog as FileAdjustmentLog)?.All() ?? System.Array.Empty<AdjustmentRecord>();
-            var autoRecords = records.Where(r => r.Parameter == AutoAdaptParameter).ToList();
-            double daysSinceLastAutoChange = autoRecords.Count > 0
-                ? (now - autoRecords.Max(r => r.TimestampUtc)).TotalDays : double.PositiveInfinity;
-            int autoChangesThisWeek = autoRecords.Count(r => (now - r.TimestampUtc).TotalDays <= 7.0);
-            double netRelaxTodayPp = autoRecords
-                .Where(r => r.TimestampUtc.Date == now.Date && r.Delta > 0).Sum(r => r.Delta);
-            bool hasEverAutoRelaxed = autoRecords.Any(r => r.Delta > 0);
-            var manualTightens = records.Where(r =>
-                r.Source == "user" && (r.Parameter == "FovRadius" || r.Parameter == "LevelNudge") && r.Delta < 0).ToList();
-            double hoursSinceManualTighten = manualTightens.Count > 0
-                ? (now - manualTightens.Max(r => r.TimestampUtc)).TotalHours : double.PositiveInfinity;
+            var timing = AdaptationEvidence.DeriveAutoChannelTiming(records, now, AutoAdaptParameter);
 
-            // Engine state — cohort, base trigger (= effective − auto), current auto delta.
-            Cohort cohort = mock.IsVestibularProtectionEnabled ? Cohort.Vestibular
-                          : (mock.HabituationProfile == HabituationProfile.Sensitive ? Cohort.Sensitive : Cohort.Typical);
-            double currentDelta = mock.AutoAdaptTriggerDeltaPp;
-            double baseTrigger  = mock.EffectiveTrigger - currentDelta;
+            // Engine state — ATOMIC snapshot under the gate lock so base = effective − auto can't tear
+            // against a concurrent engine mutate (this runs off the UI thread).
+            var snap = mock.SnapshotForAdaptation();
+            Cohort cohort = snap.Vestibular ? Cohort.Vestibular
+                          : (snap.Profile == HabituationProfile.Sensitive ? Cohort.Sensitive : Cohort.Typical);
+            double baseTrigger = snap.EffectiveTrigger - snap.AutoDeltaPp;
 
             var state = AdaptationEvidence.BuildMeasuredState(
-                cohort, fms, exposure, baseTrigger, currentDelta,
-                hoursSinceManualTighten, daysSinceLastAutoChange, autoChangesThisWeek, netRelaxTodayPp, hasEverAutoRelaxed);
+                cohort, fms, exposure, baseTrigger, snap.AutoDeltaPp,
+                timing.HoursSinceLastManualTighten, timing.DaysSinceLastAutoChange,
+                timing.AutoChangesThisWeek, timing.NetRelaxTodayPp, timing.HasEverAutoRelaxed);
 
             // Direction — the LLM's only influence; absent proposal ⇒ Hold (the gate still tightens on
             // measured worsening via its independent authority).
             AdaptDirection dir = proposedScale is double ps
-                ? AdaptationGate.DirectionFromSensitivityProposal(ps, mock.PersonalPressureScale)
+                ? AdaptationGate.DirectionFromSensitivityProposal(ps, snap.PersonalPressureScale)
                 : AdaptDirection.Hold;
             var hint = new AdaptationHint(dir, proposalRationale ?? string.Empty);
 
