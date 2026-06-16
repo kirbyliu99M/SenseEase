@@ -216,6 +216,7 @@ public sealed class ClinicalExportTests
 
         Assert.Contains("video", json);              // de-identified category present …
         Assert.Contains("game", json);
+        Assert.Contains("on_vs_off_by_category", json);  // B3.1: the per-app effectiveness block reaches the JSON
         Assert.DoesNotContain("youtube", json);      // … raw app names stripped
         Assert.DoesNotContain("vlc", json);
         Assert.DoesNotContain("dota", json);

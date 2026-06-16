@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using SenseEase.Core.Abstractions;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Models;
@@ -34,7 +35,12 @@ public sealed class FileEventLogStore : IEventLogStore
     private readonly string _dir;
     private readonly object _gate = new();
     private readonly LinkedList<EventLogEntry> _recent = new();
-    private static readonly JsonSerializerOptions _opts = new() { WriteIndented = false };
+    // WhenWritingNull: keep the durable line lean — a null ForegroundKey (the consent-off / pre-B3
+    // default, i.e. the common case) is OMITTED rather than written as ,"ForegroundKey":null, so B3.0
+    // doesn't quietly shrink the 1 MB/day forensic budget. ReadDurable already treats a missing field
+    // as null, so this is read-back-safe and round-trips identically.
+    private static readonly JsonSerializerOptions _opts =
+        new() { WriteIndented = false, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     public const long MaxDailyFileBytes = 1024 * 1024; // 1 MB
     public const int RetentionDays = 7;
