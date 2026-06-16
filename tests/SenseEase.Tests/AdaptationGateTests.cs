@@ -115,7 +115,8 @@ public class AdaptationGateTests
     {
         // SENSITIVE: auto-channel may never NET-increase the trigger. From delta 0, a relax is blocked.
         var s = RelaxReady() with { Cohort = Cohort.Sensitive, CurrentAutoDeltaPp = 0.0 };
-        Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+        Assert.Equal("sensitive-no-net-relax",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
     }
 
     [Fact]
@@ -299,4 +300,178 @@ public class AdaptationGateTests
     [Fact]
     public void NullState_Holds()
         => Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), null!, Cfg));
+
+    // ── Boundary + robustness battery (from the Stage-1 code red-team) ────────────────────────────
+
+    [Fact]
+    public void WorstFms_ExactlyAtThreshold_RejectsRelax()
+    {
+        // Inclusive (>=): a worst-case sitting exactly on the "low" ceiling is still discomfort.
+        var s = RelaxReady() with { WorstRecentFmsOn = 6.0 };
+        Assert.Equal("recent-fms-too-high",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void WorstFms_JustBelowThreshold_Relaxes()
+    {
+        var s = RelaxReady() with { WorstRecentFmsOn = 5.999 };
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Fact]
+    public void Sensitive_UnwindCrossingZero_Holds_DoesNotNetIncrease()
+    {
+        // −2 + step(3) would be +1 (a net increase) ⇒ SENSITIVE clamp pins to baseline ⇒ Hold.
+        // Locks the Math.Min(0, current) against a "simplify to 0.0" refactor that would breach the floor.
+        var s = RelaxReady() with { Cohort = Cohort.Sensitive, CurrentAutoDeltaPp = -2.0 };
+        Assert.Equal("sensitive-no-net-relax",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void DailyNetRelax_ExactlyAtCap_Allows()
+    {
+        var s = RelaxReady() with { NetRelaxTodayPp = 0.0 }; // 0 + step(3) == cap(3) ⇒ one step/day allowed
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Fact]
+    public void DailyNetRelax_JustOverCap_Rejects()
+    {
+        var s = RelaxReady() with { NetRelaxTodayPp = 0.01 };
+        Assert.Equal("daily-net-relax-cap",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void DailyNetRelax_CapBinds_WhenSmallerThanStep()
+    {
+        var cfg = Cfg with { MaxNetRelaxPerDayPp = 2.0 }; // cap < step(3) ⇒ even the first step blocked
+        Assert.Equal("daily-net-relax-cap",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), RelaxReady(), cfg)).Reason);
+    }
+
+    [Fact]
+    public void RelaxInterval_ExactlyAtBoundary_Allows()
+    {
+        var s = RelaxReady() with { DaysSinceLastAutoChange = 7.0 }; // == interval ⇒ allowed
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Fact]
+    public void RelaxInterval_JustUnder_Rejects()
+    {
+        var s = RelaxReady() with { DaysSinceLastAutoChange = 6.999 };
+        Assert.Equal("relax-min-interval",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void WeeklyCap_OnePriorChange_StillAllows()
+    {
+        var s = RelaxReady() with { AutoChangesThisWeek = 1 }; // 1 < cap 2 ⇒ second change allowed
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Theory]
+    [InlineData(double.NaN, 1000.0, 0.0)]   // garbage worst-FMS
+    [InlineData(3.0, double.NaN, 0.0)]      // garbage discomfort clock
+    [InlineData(3.0, 1000.0, double.NaN)]   // garbage net-relax accumulator
+    public void NonFiniteState_FailsClosed_NeverRelaxes(double worstFms, double hoursDiscomfort, double netRelax)
+    {
+        var s = RelaxReady() with
+        {
+            WorstRecentFmsOn = worstFms,
+            HoursSinceLastDiscomfort = hoursDiscomfort,
+            NetRelaxTodayPp = netRelax,
+        };
+        Assert.Equal("non-finite-state",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void PositiveInfinityTimingSentinels_AreAllowed()
+    {
+        // "+Infinity = none" only makes relax harder, so it must NOT be rejected as non-finite.
+        var s = RelaxReady() with
+        {
+            HoursSinceLastDiscomfort = double.PositiveInfinity,
+            DaysSinceLastAutoChange = double.PositiveInfinity,
+        };
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Fact]
+    public void RelaxHint_Worsening_AtTightenFloor_HoldsAtTightenBudget_NeverRelaxes()
+    {
+        // The headline anti-injection case: attacker says RELAX, data is worsening, no tighten budget
+        // left. Must Hold at the tighten budget — never relax, never raise the trigger.
+        var s = RelaxReady() with { BehaviorWorsening = true, CurrentAutoDeltaPp = -12.0 };
+        Assert.Equal("at-tighten-budget",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void ColdStart_MarginExactlyMet_Relaxes()
+    {
+        var s = RelaxReady() with { HasEverAutoRelaxed = false, BehaviourDays = 14, MeasuredOnReportCount = 8 };
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Fact]
+    public void ColdStart_OneDayShort_Rejects()
+    {
+        var s = RelaxReady() with { HasEverAutoRelaxed = false, BehaviourDays = 13, MeasuredOnReportCount = 8 };
+        Assert.Equal("cold-start-behaviour-days",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void ColdStart_OneReportShort_Rejects()
+    {
+        var s = RelaxReady() with { HasEverAutoRelaxed = false, BehaviourDays = 14, MeasuredOnReportCount = 7 };
+        Assert.Equal("cold-start-fms-reports",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void SteadyState_ExactlyMinReports_Relaxes()
+    {
+        var s = RelaxReady() with { MeasuredOnReportCount = 5 };
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
+
+    [Fact]
+    public void Tighten_NearFloor_ClampsToFloor_Applies()
+    {
+        var s = RelaxReady() with { CurrentAutoDeltaPp = -10.0, BehaviorWorsening = true };
+        var d = Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Hold(), s, Cfg));
+        Assert.Equal(AdaptDirection.Tighten, d.Direction);
+        Assert.Equal(-12.0, d.NewAutoDeltaPp, 9); // −10−3 = −13 clamped to the −12 floor
+    }
+
+    [Fact]
+    public void Avoidance_DecliningWhileNominallyAtBaseline_RejectsRelax()
+    {
+        // The §4 "deepest finding": load looks at-baseline but is trending down = early avoidance.
+        var s = RelaxReady() with { ExposureDeclining = true, ExposureAtOrAboveBaseline = true };
+        Assert.Equal("insufficient-tolerated-exposure",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void DiscomfortWindow_ExactlyAtBoundary_Suppresses()
+    {
+        var s = RelaxReady() with { HoursSinceLastDiscomfort = 48.0 };
+        Assert.Equal("discomfort-signal-relax-suppressed",
+            Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg)).Reason);
+    }
+
+    [Fact]
+    public void DiscomfortWindow_JustOutside_Allows()
+    {
+        var s = RelaxReady() with { HoursSinceLastDiscomfort = 48.0001 };
+        Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Relax(), s, Cfg));
+    }
 }

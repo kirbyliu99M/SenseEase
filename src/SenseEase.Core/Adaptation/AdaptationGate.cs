@@ -23,7 +23,11 @@ namespace SenseEase.Core.Adaptation;
 ///
 /// <para>No I/O, no engine references, no clock — fully unit-testable. Scope (Stage 1): the pressure
 /// axis (<c>EffectiveTrigger</c>) only; the bounded selector band-bias axis is a later stage within
-/// the SAME budget framework.</para>
+/// the SAME budget framework. The §6 <b>composed slew limit</b> (cap the per-smoothing-window tier/FOV
+/// change an auto-shift causes) is NOT enforced here — it needs live tier/FOV/window state the pure
+/// gate has no access to, so it is the COMPOSE/wiring stage's responsibility; the gate's
+/// <see cref="GateDecision.Apply.ResultingEffectiveTrigger"/> is the TARGET that layer applies subject
+/// to the slew cap.</para>
 /// </summary>
 public static class AdaptationGate
 {
@@ -35,6 +39,17 @@ public static class AdaptationGate
     {
         if (s is null || cfg is null) return new GateDecision.Hold("no state");
         hint ??= new AdaptationHint(AdaptDirection.Hold, string.Empty);
+
+        // Fail CLOSED on non-finite measured inputs. NaN makes every comparison below fall open toward
+        // RELAX (NaN > x and NaN <= x are both false in IEEE/C#), which is the worst failure mode for an
+        // under-protection-harm system, so a garbage upstream value (e.g. p75 of an empty window) must
+        // never leak a relax. FMS / trigger / delta / net-relax must be finite; the two timing fields may
+        // legitimately be +Infinity ("none" — which only makes relax HARDER), but never NaN or −Infinity.
+        if (!double.IsFinite(s.WorstRecentFmsOn) || !double.IsFinite(s.CurrentAutoDeltaPp) ||
+            !double.IsFinite(s.BaseEffectiveTrigger) || !double.IsFinite(s.NetRelaxTodayPp) ||
+            double.IsNaN(s.HoursSinceLastDiscomfort) || s.HoursSinceLastDiscomfort == double.NegativeInfinity ||
+            double.IsNaN(s.DaysSinceLastAutoChange) || s.DaysSinceLastAutoChange == double.NegativeInfinity)
+            return new GateDecision.Hold("non-finite-state");
 
         // A discomfort/worsening signal forbids relaxation this evaluation — the monotonicity invariant.
         // (Worsening behaviour OR a fresh discomfort report within the suppression window.)
@@ -99,8 +114,10 @@ public static class AdaptationGate
         if (!s.FmsCoverageOk)
             return "fms-coverage-insufficient";
 
-        // Worst-case ON-state FMS: one fresh bad episode blocks relax (no mean-dilution).
-        if (s.WorstRecentFmsOn > cfg.RelaxFmsLowThreshold)
+        // Worst-case ON-state FMS: one fresh bad episode blocks relax (no mean-dilution). INCLUSIVE
+        // (>=): a worst-case sitting exactly at the "low" ceiling is still discomfort — fail toward
+        // protection, never relax at the boundary.
+        if (s.WorstRecentFmsOn >= cfg.RelaxFmsLowThreshold)
             return "recent-fms-too-high";
 
         // Behaviour trend must be stable/improving AND reflect tolerated exposure, not avoidance.
@@ -133,11 +150,15 @@ public static class AdaptationGate
 
         // SENSITIVE: the auto-channel may never NET-increase the trigger (delta must stay <= 0). A relax
         // that would push delta positive is blocked; unwinding a prior auto-tighten toward 0 is allowed.
+        bool sensitiveClamped = false;
         if (s.Cohort == Cohort.Sensitive && newDelta > 0.0)
+        {
             newDelta = Math.Min(0.0, s.CurrentAutoDeltaPp); // never above baseline for SENSITIVE
+            sensitiveClamped = true;
+        }
 
         if (newDelta <= s.CurrentAutoDeltaPp + Epsilon)
-            return new GateDecision.Hold("at-relax-budget");
+            return new GateDecision.Hold(sensitiveClamped ? "sensitive-no-net-relax" : "at-relax-budget");
 
         double resulting = s.BaseEffectiveTrigger + newDelta;
         return new GateDecision.Apply(newDelta, resulting, AdaptDirection.Relax, "relax-ok");

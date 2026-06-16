@@ -114,9 +114,11 @@ v2 moves is orthogonal and was ungated. v2:
   net-weaken inside one interval. The **user's own** manual relax/Reset is **never** rate-limited by the
   auto-channel.
 - **Composed slew limit (visual-transient safety):** an auto trigger-shift counts against the same
-  visual-transient budget as a mask flip — the gate caps per-smoothing-window composed FOV change and
-  tier change attributable to an auto change (≤1 tier, ≤ N pp FOV), since lowering `EffectiveTrigger`
-  also makes the mask appear sooner and the FOV collapse faster (the back-door v1 ignored).
+  visual-transient budget as a mask flip, since lowering `EffectiveTrigger` also makes the mask appear
+  sooner and the FOV collapse faster (the back-door v1 ignored). This cap (≤1 tier, ≤ N pp composed FOV
+  per smoothing window) is enforced at the **COMPOSE/wiring stage** (Stage 2), NOT in the pure gate —
+  it needs live tier/FOV/window state the gate has no access to. The gate emits a *target*
+  `ResultingEffectiveTrigger`; the compose layer applies it subject to the slew cap.
 
 ## 7. Cold-start + suppression (persisted, not session-only)
 
