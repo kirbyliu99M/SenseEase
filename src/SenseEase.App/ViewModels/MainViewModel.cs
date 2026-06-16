@@ -16,6 +16,8 @@ using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Real;
 using SenseEase.Infrastructure.Storage;
+using SenseEase.Core.Adaptation;
+using System.Linq;
 using System.IO;
 using System.Globalization;
 
@@ -894,6 +896,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // reads the engine offset via HabituationOffsetPp, never writes engine state.
     private readonly DailyBehaviorAccumulator _behaviorAccumulator = new();
     private readonly DailyBehaviorAggregateWriter _behaviorWriter = new(AppConfig.BehaviorLogPath);
+
+    // B5: the deterministic learning-loop coordinator (WPF-free; gated on consent inside RunOnce).
+    private readonly AdaptationCoordinator _adaptationCoordinator = new();
+    private const double AdaptiveAutoTuneWindowDays = 7.0;
+    private const string AutoAdaptParameter = "AutoAdaptTrigger";
     private int _behaviorFlushTickCounter;
     private const int BehaviorFlushPeriodSeconds = 60; // crash-durability cadence
 
@@ -2023,6 +2030,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         {
                             await analyzer.RunAsync(ct).ConfigureAwait(false);
                             ranToCompletion = true;
+                            // B5: consent-gated learning-loop tuning pass, using any sensitivity proposal
+                            // the analyzer captured this run. Best-effort; never blocks/breaks the loop.
+                            MaybeRunAdaptationTuning(analyzer.LastProposedSensitivityScale, analyzer.LastProposalRationale);
                         }
                         catch (OperationCanceledException) { throw; } // app exiting / superseded
                         catch { /* transient fault → retry next interval (ranToCompletion stays false) */ }
@@ -2047,6 +2057,86 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// attempt (RunAsync faulted) is treated as a transient failure and retried.</summary>
     internal static bool ShouldRetryUserModelAnalysis(bool llmAvailable, bool ranToCompletion)
         => !(llmAvailable && ranToCompletion);
+
+    /// <summary>B5 — the learning-loop tuning pass, run AFTER the retrospective analysis completes and
+    /// ONLY when the user has opted in (<see cref="ProactiveCheckInConsent.Enabled"/>). Assembles the
+    /// gate's <see cref="MeasuredState"/> from the durable logs + live engine state, maps the LLM's
+    /// OPTIONAL sensitivity proposal to a direction (else Hold ⇒ data-driven tighten only), and runs the
+    /// deterministic <see cref="AdaptationGate"/> via the coordinator. On an Apply it moves the engine's
+    /// dedicated auto-channel and surfaces a subtle in-chat notice.
+    ///
+    /// <para>Fully bounded: consent default OFF; the gate is fail-closed + clamped (±12pp) + monotone;
+    /// the change is reversible (a Settings reset zeros it). Best-effort — any fault is swallowed so the
+    /// analysis loop and the engine are never disturbed. Runs on the background analysis thread: the file
+    /// reads are off-UI, <c>ApplyAutoAdaptDelta</c> locks the engine gate, and the notice marshals to the
+    /// dispatcher.</para></summary>
+    private void MaybeRunAdaptationTuning(double? proposedScale, string proposalRationale)
+    {
+        try
+        {
+            if (UserPreferences.Current.AdaptiveAutoTuneConsent != ProactiveCheckInConsent.Enabled) return;
+            if (_engine is not MockInferenceEngine mock) return;
+
+            DateTime now = DateTime.UtcNow;
+            var cfg = AdaptationGateConfig.Default;
+
+            // Evidence — measured-only FMS + tolerated-exposure trend (Stage 3 pure helpers).
+            var symptomEvents = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
+            var fms = AdaptationEvidence.MeasuredOnFms(symptomEvents, now, AdaptiveAutoTuneWindowDays, cfg.RelaxFmsLowThreshold);
+            var exposure = AdaptationEvidence.ExposureTrend(_behaviorWriter.ReadAll());
+
+            // Timing — derived from the durable, TimestampUtc-stamped adjustment log (the auto-channel
+            // writes a Source="system" Parameter="AutoAdaptTrigger" audit record on every apply).
+            IReadOnlyList<AdjustmentRecord> records =
+                (_adjustmentLog as FileAdjustmentLog)?.All() ?? System.Array.Empty<AdjustmentRecord>();
+            var autoRecords = records.Where(r => r.Parameter == AutoAdaptParameter).ToList();
+            double daysSinceLastAutoChange = autoRecords.Count > 0
+                ? (now - autoRecords.Max(r => r.TimestampUtc)).TotalDays : double.PositiveInfinity;
+            int autoChangesThisWeek = autoRecords.Count(r => (now - r.TimestampUtc).TotalDays <= 7.0);
+            double netRelaxTodayPp = autoRecords
+                .Where(r => r.TimestampUtc.Date == now.Date && r.Delta > 0).Sum(r => r.Delta);
+            bool hasEverAutoRelaxed = autoRecords.Any(r => r.Delta > 0);
+            var manualTightens = records.Where(r =>
+                r.Source == "user" && (r.Parameter == "FovRadius" || r.Parameter == "LevelNudge") && r.Delta < 0).ToList();
+            double hoursSinceManualTighten = manualTightens.Count > 0
+                ? (now - manualTightens.Max(r => r.TimestampUtc)).TotalHours : double.PositiveInfinity;
+
+            // Engine state — cohort, base trigger (= effective − auto), current auto delta.
+            Cohort cohort = mock.IsVestibularProtectionEnabled ? Cohort.Vestibular
+                          : (mock.HabituationProfile == HabituationProfile.Sensitive ? Cohort.Sensitive : Cohort.Typical);
+            double currentDelta = mock.AutoAdaptTriggerDeltaPp;
+            double baseTrigger  = mock.EffectiveTrigger - currentDelta;
+
+            var state = AdaptationEvidence.BuildMeasuredState(
+                cohort, fms, exposure, baseTrigger, currentDelta,
+                hoursSinceManualTighten, daysSinceLastAutoChange, autoChangesThisWeek, netRelaxTodayPp, hasEverAutoRelaxed);
+
+            // Direction — the LLM's only influence; absent proposal ⇒ Hold (the gate still tightens on
+            // measured worsening via its independent authority).
+            AdaptDirection dir = proposedScale is double ps
+                ? AdaptationGate.DirectionFromSensitivityProposal(ps, mock.PersonalPressureScale)
+                : AdaptDirection.Hold;
+            var hint = new AdaptationHint(dir, proposalRationale ?? string.Empty);
+
+            _adaptationCoordinator.RunOnce(
+                consentEnabled: true,
+                hint: hint,
+                state: state,
+                applyAutoDelta: d => mock.ApplyAutoAdaptDelta(d),
+                onApplied: (apply, _) => ChatbotVm?.AddAdaptationNotice(AdaptationNoticeText(apply)));
+        }
+        catch { /* advisory tuning — never disturb the analysis loop or the engine */ }
+    }
+
+    /// <summary>B5 — the subtle bilingual in-chat notice for an applied auto-adaptation (Kirby's
+    /// "tell the user in the chatbox" transparency policy). Direction-aware; points at the reversible
+    /// path. Render-only text.</summary>
+    private static string AdaptationNoticeText(GateDecision.Apply apply)
+        => apply.Direction == AdaptDirection.Relax
+            ? Loc("根據你最近的回報，我稍微放寬了畫面防護。若想調回，可隨時在設定中重置，或要求加強。",
+                  "Based on your recent check-ins, I eased the screen protection a little. You can undo this anytime in Settings (reset), or ask for more protection.")
+            : Loc("根據你最近的狀況，我略為加強了畫面防護。若想調整，可隨時在設定中重置。",
+                  "Based on your recent patterns, I strengthened the screen protection a little. You can adjust this anytime in Settings (reset).");
 
     public void DisposeServices()
     {

@@ -902,6 +902,24 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         });
     }
 
+    /// <summary>B5: surface a SUBTLE, system-styled adaptation notice in the chat — the user-facing
+    /// transparency for an auto-applied protection tweak (Kirby's "tell the user in the chatbox" policy).
+    /// A plain assistant line, no picker. Marshals to the UI thread; best-effort (a notice failure must
+    /// never disturb the background tuning loop). Safe to call from any thread.</summary>
+    public void AddAdaptationNotice(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        try
+        {
+            _dispatcher.Invoke(() =>
+            {
+                Messages.Add(new ChatMessageViewModel(text, ChatRole.Assistant));
+                PersistMessage(ChatRole.Assistant, text);
+            });
+        }
+        catch { /* advisory — never disturb the caller */ }
+    }
+
     /// <summary>
     /// Build the state-annotated model input. Prepends terse [RecentAdjustments] and
     /// [RecentEvents] blocks (oldest-first, capped at <see cref="HistoryWindow"/>) so

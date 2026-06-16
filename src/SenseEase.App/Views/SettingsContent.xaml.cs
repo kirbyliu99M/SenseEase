@@ -230,6 +230,10 @@ public partial class SettingsContent : UserControl
             ToggleProactiveCheckIns.IsChecked =
                 UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Enabled;
 
+            // B5: hydrate the auto-adaptation opt-in. Checked == Enabled; Unset/Declined render unchecked.
+            ToggleAdaptiveAutoTune.IsChecked =
+                UserPreferences.Current.AdaptiveAutoTuneConsent == ProactiveCheckInConsent.Enabled;
+
             // UX-08: show the Restart-needed chip only on a genuine pending change
             // (toggle ≠ the value the app started with), not on every Settings open.
             UpdateRestartChip();
@@ -296,6 +300,18 @@ public partial class SettingsContent : UserControl
         // Settings is the manual control: checked == Enabled, unchecked == Declined (an explicit
         // "no", which also stops the first-run consent toast from reappearing).
         UserPreferences.Current.ProactiveCheckInsConsent = ToggleProactiveCheckIns.IsChecked == true
+            ? ProactiveCheckInConsent.Enabled
+            : ProactiveCheckInConsent.Declined;
+        UserPreferences.Current.Save();
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnToggleAdaptiveAutoTuneChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        // B5: Settings is the manual control — checked == Enabled (turn the auto-adaptation loop on),
+        // unchecked == Declined (an explicit off). Default stays Unset until the user chooses here.
+        UserPreferences.Current.AdaptiveAutoTuneConsent = ToggleAdaptiveAutoTune.IsChecked == true
             ? ProactiveCheckInConsent.Enabled
             : ProactiveCheckInConsent.Declined;
         UserPreferences.Current.Save();

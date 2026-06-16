@@ -32,6 +32,16 @@ public sealed class UserModelRetrospectiveAnalyzer
     /// <summary>Hard cap on chat turns analysed in a single run (resource guard).</summary>
     public const int MaxTurnsPerRun = 100;
 
+    /// <summary>B5 Stage 4: the last AdjustSensitivity scale the LLM proposed during this run (null if it
+    /// emitted none). Captured from the SAME parse that extracts observations — no extra LLM call, no
+    /// prompt change. The App maps it to a gate DIRECTION only; the deterministic AdaptationGate validates
+    /// it against MEASURED data before anything changes, so a wrong/absent value is harmless (no relax).</summary>
+    public double? LastProposedSensitivityScale { get; private set; }
+
+    /// <summary>The rationale text accompanying <see cref="LastProposedSensitivityScale"/> (render-only,
+    /// for the in-chat notice; never re-enters any computation).</summary>
+    public string LastProposalRationale { get; private set; } = string.Empty;
+
     /// <summary>Analysis-only system prompt (UM4 brief). Appended as the [SYSTEM]
     /// message for this task; the conversation slice is the chat history.</summary>
     public const string AnalysisSystemPrompt =
@@ -109,6 +119,18 @@ public sealed class UserModelRetrospectiveAnalyzer
 
         int written = 0;
         var parsed = HabituationOverrideParser.TryParse(raw);
+
+        // B5 Stage 4: capture an OPTIONAL sensitivity proposal the LLM may have emitted (it is NOT
+        // prompted to — no prompt change here, to keep observation extraction intact — but if one
+        // appears we surface its DIRECTION to the gate). The gate validates it against measured data;
+        // an absent or wrong proposal is harmless. ProposedValue is normalised to a boxed double.
+        if (parsed.Proposal is { Intent: OverrideIntent.AdjustSensitivity } prop &&
+            prop.ProposedValue is double scale && double.IsFinite(scale))
+        {
+            LastProposedSensitivityScale = scale;
+            LastProposalRationale = prop.Rationale ?? string.Empty;
+        }
+
         foreach (var obs in parsed.Observations)
         {
             try { if (_observationWriter.Append(obs)) written++; }

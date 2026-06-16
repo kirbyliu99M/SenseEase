@@ -1741,11 +1741,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
             _habituation.EffectiveTrigger = CalibrationProcessor.VestibularTriggerPressureOverride;
     }
 
-    /// <summary>B5 test/diagnostics accessor: the engine's current effective trigger (base + auto delta).</summary>
-    internal double EffectiveTrigger => _habituation.EffectiveTrigger;
+    /// <summary>B5 accessor: the engine's current effective trigger (base + auto delta). Used by the
+    /// App to derive the base trigger (= this − <see cref="AutoAdaptTriggerDeltaPp"/>) for MeasuredState.</summary>
+    public double EffectiveTrigger => _habituation.EffectiveTrigger;
 
-    /// <summary>B5 test/diagnostics accessor: the current auto-adaptation channel contribution (pp).</summary>
-    internal double AutoAdaptTriggerDeltaPp => _autoAdaptTriggerDeltaPp;
+    /// <summary>B5 accessor: the current auto-adaptation channel contribution (pp; negative = tighten).</summary>
+    public double AutoAdaptTriggerDeltaPp => _autoAdaptTriggerDeltaPp;
+
+    /// <summary>B5 accessor: the user/load personal pressure scale (the gate's hint derivation compares a
+    /// chatbot-proposed scale against this current value to pick a direction).</summary>
+    public double PersonalPressureScale => _personalPressureScale;
 
     private static bool TryUnwrapDouble(object value, out double result)
     {
