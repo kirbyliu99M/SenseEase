@@ -134,9 +134,37 @@ public class FileAdjustmentLogTests : IDisposable
         log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -8, Source = "user" });
 
         var w = MockInferenceEngine.CombinedFovCautionWeight(log);
-        Assert.Equal(3, w.Count);
-        Assert.Equal(-22.0, w.NetDelta);             // -6 + -8 + -8
-        Assert.Equal(-22.0 / 3, w.MeanDelta, 9);
+        Assert.Equal(3, w.Count);                     // confidence = sum of both channels
+        Assert.Equal(-22.0, w.NetDelta);              // -6 + -8 + -8 (sum; unused downstream)
+        Assert.Equal(-8.0, w.MeanDelta, 9);           // most-cautious channel mean: min(fov -6, nudge -8)
+    }
+
+    [Fact]
+    public void CombinedFovCautionWeight_UpNudges_NeverDiluteSteeperFovCaution()
+    {
+        // Regression for the B2-caution HIGH: appending fixed -8 up-nudges to a STEEPER FovRadius
+        // history must NOT pull the caution mean toward -8 (which would relax faster = less protection).
+        var log = new FileAdjustmentLog(_tempPath);
+        log.Append(new AdjustmentRecord { Parameter = "FovRadius", Delta = -20, Source = "user" });
+        double before = MockInferenceEngine.CombinedFovCautionWeight(log).MeanDelta;   // -20
+
+        for (int i = 0; i < 10; i++)
+            log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -8, Source = "user" });
+        double after = MockInferenceEngine.CombinedFovCautionWeight(log).MeanDelta;
+
+        Assert.True(after <= before, $"up-nudges must not reduce caution (before {before}, after {after})");
+        Assert.Equal(-20.0, after, 9);                // held at the steeper FOV level, not diluted to -8
+    }
+
+    [Fact]
+    public void CombinedFovCautionWeight_NudgesRaiseCautionAboveShallowFov()
+    {
+        // Symmetric: when the nudge channel is MORE cautious than a shallow FOV history, it raises caution.
+        var log = new FileAdjustmentLog(_tempPath);
+        log.Append(new AdjustmentRecord { Parameter = "FovRadius",  Delta = -4, Source = "user" });
+        log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -8, Source = "user" });
+
+        Assert.Equal(-8.0, MockInferenceEngine.CombinedFovCautionWeight(log).MeanDelta, 9); // min(-4, -8)
     }
 
     [Fact]

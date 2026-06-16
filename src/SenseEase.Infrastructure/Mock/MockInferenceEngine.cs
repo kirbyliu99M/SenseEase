@@ -2004,8 +2004,18 @@ public sealed class MockInferenceEngine : IInferenceEngine
         var nudge = log.WeightFor("LevelNudge");
         int count = fov.Count + nudge.Count;
         if (count == 0) return new PersonalWeight("FovRadius", 0, 0.0, 0.0);
-        double net = fov.NetDelta + nudge.NetDelta;
-        return new PersonalWeight("FovRadius", count, net, net / count);
+        // Caution MUST be monotone in protection-seeking: appending a fixed-magnitude (−8) nudge
+        // channel must NEVER dilute a steeper FovRadius mean. A count-weighted average WOULD — adding
+        // −8 nudges to a −20 FOV mean pulls it toward −8, relaxing faster = LESS protection after the
+        // user pressed "more protection" (the B2-caution review HIGH). So take the MOST-CAUTIOUS
+        // (most-negative) per-channel mean for the caution magnitude; sum Count for the confidence
+        // ramp. (NetDelta is summed for completeness but unused downstream: the FOV-offset restore
+        // reads WeightFor("FovRadius").NetDelta directly; SetPersonalization consumes MeanDelta+Count.)
+        double fovMean   = fov.Count   > 0 ? fov.MeanDelta   : 0.0;
+        double nudgeMean = nudge.Count > 0 ? nudge.MeanDelta : 0.0;
+        double cautionMean = (fov.Count > 0 && nudge.Count > 0) ? Math.Min(fovMean, nudgeMean)
+                           : (fov.Count > 0 ? fovMean : nudgeMean);
+        return new PersonalWeight("FovRadius", count, fov.NetDelta + nudge.NetDelta, cautionMean);
     }
 
     // Persist habituation progress only when the earned offset actually changes,
