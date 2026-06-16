@@ -176,6 +176,15 @@ public sealed class HabituationProfileSnapshot
     [JsonPropertyName("personal_pressure_scale")]
     public double PersonalPressureScale { get; set; } = 1.0;
 
+    /// <summary>B5 (learning loop): the deterministic AdaptationGate's signed contribution to the engine
+    /// EffectiveTrigger, in pressure points (negative = tighten/more protection, positive = relax/less
+    /// protection). A DEDICATED auto-channel, separate from <see cref="PersonalPressureScale"/> (the
+    /// user/load channel); composed as <c>effectiveTrigger = base + this</c> and re-applied at boot.
+    /// Default 0.0 = no auto-adaptation, so pre-B5 snapshots deserialize to 0 ⇒ byte-identical behaviour.
+    /// Zeroed by a user Reset so an auto-relax can never survive a Reset.</summary>
+    [JsonPropertyName("auto_adapt_trigger_delta_pp")]
+    public double AutoAdaptTriggerDeltaPp { get; set; } = 0.0;
+
     /// <summary>SSQ-style primary symptom dimension from the most recent
     /// calibration. Null = no symptoms reported (all three SSQ dimension
     /// scores zero) OR no calibration has run.</summary>

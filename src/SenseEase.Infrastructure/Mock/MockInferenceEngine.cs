@@ -215,6 +215,15 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // Default 1.0 = "no personalisation" (matches the snapshot DTO default).
     private double                _personalPressureScale = 1.0;
 
+    // B5: the deterministic AdaptationGate's signed contribution to EffectiveTrigger, in pressure points
+    // (negative = tighten/more protection, positive = relax/less protection). A DEDICATED channel,
+    // separate from _personalPressureScale (the user/load channel): composed as EffectiveTrigger =
+    // base + this. Persisted in the profile snapshot; re-applied at boot on top of the restored base;
+    // zeroed by a Reset; clamped to ±AutoAdaptTriggerSpanPp at the engine boundary (mirrors
+    // AdaptationGateConfig.Default.AutoTriggerSpanPp).
+    private double                _autoAdaptTriggerDeltaPp = 0.0;
+    private const double          AutoAdaptTriggerSpanPp   = 12.0;
+
     public SenseState Current { get; } = new()
     {
         FovRadiusPercent = 100,
@@ -291,6 +300,10 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 savedSnapshot.PersonalPressureScale,
                 CalibrationProcessor.PersonalPressureScaleMin,
                 CalibrationProcessor.PersonalPressureScaleMax);
+            // B5: restore the persisted auto-adaptation delta (clamped defensively). Re-applied on top
+            // of the restored base trigger AFTER the vestibular branch below, via ApplyAutoDeltaToFreshBase.
+            _autoAdaptTriggerDeltaPp = Math.Clamp(
+                savedSnapshot.AutoAdaptTriggerDeltaPp, -AutoAdaptTriggerSpanPp, AutoAdaptTriggerSpanPp);
             // Alpha-2 audit fix: re-DERIVE the engine trigger from the restored scale.
             // Restoring the FIELD alone wasn't enough — EffectiveTrigger is what the engine
             // actually reads, and nothing on the LOAD path re-applied it (only the runtime
@@ -331,6 +344,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 _habituation.EffectiveTrigger          = CalibrationProcessor.VestibularTriggerPressureOverride;
                 _habituation.SevereStrikeLimitOverride = 1;
             }
+
+            // B5: re-apply the restored auto-adaptation delta on top of the base trigger the lines above
+            // just established (scale-derived or vestibular-50), then re-assert the vestibular cap. Runs
+            // once at boot, after the base is set, so the gate's contribution survives restarts.
+            ApplyAutoDeltaToFreshBase();
 
             // Note: we deliberately do NOT restore strike_count from the snapshot.
             // Strikes are a within-session safety counter — re-loading them on
@@ -708,6 +726,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
             _habituation.ResetTransientState();
             Current.HabituationLevel  = _habituation.HabituationLevel;
             Current.HabituationPaused = false;
+            // B5: a Reset removes the auto-adaptation contribution entirely (return to the user's own
+            // base trigger), so an auto-relax can NEVER survive a Reset — the under-protection-undo gap
+            // the red-team flagged. EffectiveTrigger holds base + delta here, so subtracting the delta
+            // returns it to base; persisted below so the zero survives a restart.
+            if (_autoAdaptTriggerDeltaPp != 0.0)
+            {
+                _habituation.EffectiveTrigger -= _autoAdaptTriggerDeltaPp;
+                _autoAdaptTriggerDeltaPp = 0.0;
+                _profileSnapshotDirty = true;
+            }
             PersistHabituation(force: true);
             _vimsTier = 1;
             _pendingTierCandidate = 1;
@@ -717,6 +745,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // mirror beside the compose (single source = _userFovOffset, now 0).
             Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
             Current.UserFovOffsetPp  = _userFovOffset;
+            MaybePersistProfileSnapshot();   // B5: persist the zeroed auto-adaptation delta
         }
     }
 
@@ -873,6 +902,8 @@ public sealed class MockInferenceEngine : IInferenceEngine
                 _habituation.EffectiveTrigger          = SenseDefaults.TriggerPressure;
                 _habituation.SevereStrikeLimitOverride = null;
             }
+            // B5: re-compose the auto-adaptation delta on top of the (re)set base trigger + re-assert cap.
+            ApplyAutoDeltaToFreshBase();
             _profileSnapshotDirty = true;
             MaybePersistProfileSnapshot();
             // NOTE: deliberately NO event-log entry here. The App-layer caller
@@ -1615,6 +1646,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
                     //   effective_trigger = default_trigger / scale
                     // so lower scale (less sensitive) raises the trigger.
                     _habituation.EffectiveTrigger = SenseDefaults.TriggerPressure / scale;
+                    // B5: re-compose the auto-adaptation delta on top of the new user base, so a user
+                    // sensitivity change never erases the gate's contribution (the v1 overwrite bug).
+                    ApplyAutoDeltaToFreshBase();
                     applied = true;
                     break;
                 }
@@ -1657,6 +1691,61 @@ public sealed class MockInferenceEngine : IInferenceEngine
             return applied;
         }
     }
+
+    /// <summary>B5 — apply the deterministic AdaptationGate's decision to the dedicated auto-channel.
+    /// <paramref name="newDelta"/> is the new SIGNED contribution to EffectiveTrigger (negative =
+    /// tighten/more protection, positive = relax/less protection), clamped to ±AutoAdaptTriggerSpanPp at
+    /// this boundary (the gate already clamps — belt-and-suspenders). Applied as the DIFFERENCE from the
+    /// current auto-delta so the user/load base is preserved; the vestibular cap is re-asserted; the
+    /// snapshot is persisted; an AUDIT-ONLY AdjustmentRecord (Source="system", which WeightFor ignores)
+    /// records the move. No-op on a non-finite or unchanged delta. The composed visual slew is bounded by
+    /// the gate's one-step (≤3pp) limit + the existing UpdateVimsTier hysteresis/EMA, so no separate
+    /// per-window slew clamp is needed for ≤3pp steps (a larger step would warrant one).</summary>
+    public void ApplyAutoAdaptDelta(double newDelta)
+    {
+        lock (_gate)
+        {
+            if (!double.IsFinite(newDelta)) return;
+            newDelta = Math.Clamp(newDelta, -AutoAdaptTriggerSpanPp, AutoAdaptTriggerSpanPp);
+            double diff = newDelta - _autoAdaptTriggerDeltaPp;
+            if (Math.Abs(diff) < 1e-9) return;
+
+            _habituation.EffectiveTrigger += diff;
+            if (_vestibularProtection &&
+                _habituation.EffectiveTrigger > CalibrationProcessor.VestibularTriggerPressureOverride)
+                _habituation.EffectiveTrigger = CalibrationProcessor.VestibularTriggerPressureOverride;
+
+            _autoAdaptTriggerDeltaPp = newDelta;
+            _profileSnapshotDirty = true;
+            _adjustmentLog?.Append(new AdjustmentRecord
+            {
+                Parameter = "AutoAdaptTrigger",
+                Delta     = diff,
+                Source    = "system", // AUDIT-ONLY: WeightFor sums Source=="user", so this never feeds the FOV offset / caution math
+            });
+            Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+            MaybePersistProfileSnapshot();
+        }
+    }
+
+    /// <summary>B5 — re-apply the auto-adaptation delta on top of a freshly-set BASE EffectiveTrigger
+    /// (call right after boot restore / AdjustSensitivity / SetVestibularProtection set the base), then
+    /// re-assert the vestibular cap so a positive (relax) delta can never push a vestibular user's
+    /// composed trigger above the 50 floor. Keeps the invariant EffectiveTrigger == base + delta.</summary>
+    private void ApplyAutoDeltaToFreshBase()
+    {
+        if (_autoAdaptTriggerDeltaPp != 0.0)
+            _habituation.EffectiveTrigger += _autoAdaptTriggerDeltaPp;
+        if (_vestibularProtection &&
+            _habituation.EffectiveTrigger > CalibrationProcessor.VestibularTriggerPressureOverride)
+            _habituation.EffectiveTrigger = CalibrationProcessor.VestibularTriggerPressureOverride;
+    }
+
+    /// <summary>B5 test/diagnostics accessor: the engine's current effective trigger (base + auto delta).</summary>
+    internal double EffectiveTrigger => _habituation.EffectiveTrigger;
+
+    /// <summary>B5 test/diagnostics accessor: the current auto-adaptation channel contribution (pp).</summary>
+    internal double AutoAdaptTriggerDeltaPp => _autoAdaptTriggerDeltaPp;
 
     private static bool TryUnwrapDouble(object value, out double result)
     {
@@ -1921,6 +2010,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // context-build sees the current value (previously the DTO
             // default 1.0 was emitted regardless of the applied scale).
             PersonalPressureScale   = _personalPressureScale,
+            // B5: persist the auto-adaptation delta so the gate's contribution survives restarts
+            // (re-applied in the ctor load path on top of the restored base trigger).
+            AutoAdaptTriggerDeltaPp = _autoAdaptTriggerDeltaPp,
             ParamsSnapshot          = new HabituationParamsSnapshot
             {
                 StableWindowMs  = p.StableWindowMs,
