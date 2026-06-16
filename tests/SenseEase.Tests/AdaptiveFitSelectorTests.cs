@@ -168,6 +168,31 @@ public class AdaptiveFitSelectorTests
     }
 
     [Fact]
+    public void FmsTerm_IsMonotoneUpInBand_NeverFavoursLowerBand()
+    {
+        // Regression for the bilateral-Fit bug (total-check HIGH): with FMS reports present, the
+        // measured-discomfort reward to a HIGHER band must be ≥ the reward to a LOWER band — the term
+        // can only ever push protection UP, never DOWN. (A Fit() match kernel peaked at a mid band and
+        // could reward a lower band more for sub-maximal FMS, perversely reducing protection.)
+        var w = SelectorWeights.Default;
+        var current = new GridCoord(5, 2);                  // mid band, so both neighbours exist
+        var higher  = new GridCoord(6, 2);
+        var lower   = new GridCoord(4, 2);
+        var withFms = new UserIntensityStats(1.0, 1.0, 0.0, 0.5, FmsAggregate: 14.0, FmsSampleCount: 6, SampleCount: 20);
+        var noFms   = withFms with { FmsSampleCount = 0 };
+
+        // Isolate the FMS term as the score delta vs the no-FMS baseline for each band.
+        double dHigher = DeterministicSetSelector.Score(current, higher, withFms, w, 0)
+                       - DeterministicSetSelector.Score(current, higher, noFms,  w, 0);
+        double dLower  = DeterministicSetSelector.Score(current, lower,  withFms, w, 0)
+                       - DeterministicSetSelector.Score(current, lower,  noFms,  w, 0);
+
+        Assert.True(dHigher >= dLower,
+            $"FMS reward must be monotone-up (higher {dHigher} >= lower {dLower})");
+        Assert.True(dHigher > 0, "high measured FMS must add positive reward to a higher band");
+    }
+
+    [Fact]
     public void ConfidenceGate_ArgmaxMustBeatHoldByAtLeastTheMargin()
     {
         // From the median set, high-intensity stats clearly favour moving UP in band. With a

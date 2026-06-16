@@ -997,10 +997,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// like the engine tick, so no lock is needed; bad values guard to neutral.</summary>
     public void UpdateRecentFmsContext(double mean, int count)
     {
-        _recentFmsCount = count > 0 ? count : 0;
-        _recentFmsMean  = (_recentFmsCount > 0 && !double.IsNaN(mean) && mean >= 0.0)
-            ? Math.Clamp(mean, 0.0, 20.0)
-            : 0.0;
+        // A bad mean (NaN/negative) zeroes BOTH count and mean, so the selector sees "no data"
+        // (count and mean stay consistent — never count>0 with a meaningless mean).
+        bool valid = count > 0 && !double.IsNaN(mean) && mean >= 0.0;
+        _recentFmsCount = valid ? count : 0;
+        _recentFmsMean  = valid ? Math.Clamp(mean, 0.0, 20.0) : 0.0;
     }
 
     // ── Adaptive Fit selector tick (Alpha-2 core GROUP D) ─────────────────────

@@ -50,8 +50,9 @@ public static class DeterministicSetSelector
     // CalmRatio and FmsAggregate:
     //   CalmRatio is already a fraction in [0,1] — used directly.
     //   FmsAggregate (0..20) → normalised by /20 and consumed as the B1 OUTCOME term, but ONLY
-    //   when FmsSampleCount > 0 (the window has self-reports). High measured discomfort biases the
-    //   Band UP (same direction as pressure); no reports ⇒ the FMS term is 0 (no bias).
+    //   when FmsSampleCount > 0 (the window has self-reports). MONOTONE-UP product (fms/20)·bandTarget,
+    //   so high measured discomfort always biases the Band UP and never rewards a lower band; no
+    //   reports ⇒ the FMS term is 0 (no bias, never lowers protection).
 
     /// <summary>
     /// Evaluate one selection. Returns <see cref="SelectorDecision.MoveTo"/> an adjacent cell
@@ -111,7 +112,7 @@ public static class DeterministicSetSelector
     /// <summary>
     /// Score a single candidate (pure). Higher is better.
     /// <code>
-    ///   W1·fit(pressure,band) + W2·fit(spike,shape) + W3·fit(calm,band) + W6·fit(fms,band)[if reports]
+    ///   W1·fit(pressure,band) + W2·fit(spike,shape) + W3·fit(calm,band) + W6·(fms/20)·band[if reports]
     ///   − W4·ManhattanDistance(current,candidate) − W5·manualConflict
     /// </code>
     /// </summary>
@@ -139,11 +140,14 @@ public static class DeterministicSetSelector
         double fitCalm     = Fit(calmNorm, 1.0 - bandTarget, w.FitTolerance);
 
         // B1: measured-FMS OUTCOME term — applied ONLY when the window has self-reports
-        // (FmsSampleCount > 0), so "no reports" carries no FMS bias. High measured discomfort fits a
-        // HIGHER Band (same direction as pressure); low fits a lower Band. fmsNorm = FMS/20 ∈ [0,1].
+        // (FmsSampleCount > 0), so "no reports" carries no FMS bias. MONOTONE-UP: the reward is the
+        // PRODUCT of normalised discomfort and band height, so higher measured discomfort always
+        // favours a HIGHER Band and never rewards a lower one. (A Fit() match kernel would peak at a
+        // mid band and could perversely pull protection DOWN for sub-maximal FMS — the bug this fixes.)
+        // fmsNorm = FMS/20 ∈ [0,1]; 0 ("feeling fine") ⇒ term 0 (no bias, never lowers protection).
         double fmsTerm = 0.0;
         if (stats.FmsSampleCount > 0)
-            fmsTerm = w.W6Fms * Fit(Clamp01(stats.FmsAggregate / 20.0), bandTarget, w.FitTolerance);
+            fmsTerm = w.W6Fms * Clamp01(stats.FmsAggregate / 20.0) * bandTarget;
 
         double distance = GridCoord.ManhattanDistance(current, candidate);
         double conflict = ManualConflict(current, candidate, recentManualLevelDelta);
