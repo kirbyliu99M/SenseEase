@@ -1520,7 +1520,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // P5: a card +/- nudge defers the AdaptiveFit selector AND retracts any stale
         // pending suggestion. This path never reaches ApplyUserFeedback (it rides the
         // always-on baseline floor), so the OnManualAdjust wiring lives here.
-        (_engine as MockInferenceEngine)?.NotifyManualLevelNudge();
+        (_engine as MockInferenceEngine)?.NotifyManualLevelNudge(direction);   // B2: register manual-authority sign
         SetSensingModeToWgc();
         if (target <= 1)
         {

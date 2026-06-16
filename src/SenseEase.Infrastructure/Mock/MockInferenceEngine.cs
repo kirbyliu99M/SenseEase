@@ -1298,13 +1298,22 @@ public sealed class MockInferenceEngine : IInferenceEngine
     }
 
     /// <summary>P5: a manual +/- nudge from the card path (which never reaches
-    /// <see cref="ApplyUserFeedback"/>) defers the selector AND retracts a stale
-    /// suggestion. Gated on the selector flag so it is inert while OFF.</summary>
-    public void NotifyManualLevelNudge()
+    /// <see cref="ApplyUserFeedback"/>) defers the selector AND retracts a stale suggestion.
+    /// <para>B2: it now ALSO registers the manual-authority SIGN for the card path. Previously only
+    /// the chatbot FOV path (<see cref="ApplyUserFeedback"/>) set <c>_lastManualLevelDeltaSign</c>, so
+    /// a card ±1 nudge merely reset the cooldown without deferring a conflicting auto-move. Now the
+    /// user's manual direction defers an opposing selector move via <c>W5ManualConflict</c> for the
+    /// recency window. <paramref name="direction"/> &gt;= 0 = the user asked for MORE protection
+    /// (a stronger band ⇒ +1); &lt; 0 = less (−1). Gated on the selector flag so it is inert while
+    /// OFF. (The nudge's protection itself persists via the baseline tier, so it is deliberately NOT
+    /// logged to WeightFor("FovRadius") here — that would double-apply the resting FOV offset.)</summary>
+    public void NotifyManualLevelNudge(int direction = +1)
     {
         lock (_gate)
         {
             if (!_adaptiveFitSelectorEnabled) return;
+            _lastManualLevelDeltaSign = direction >= 0 ? +1 : -1;
+            _lastManualFeedbackAtUtc  = DateTime.UtcNow;
             _adaptiveFitMachine.OnManualAdjust();
             _pendingSetMove = null;
         }
