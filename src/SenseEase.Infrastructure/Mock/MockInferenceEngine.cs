@@ -359,7 +359,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         if (adjustmentLog is not null)
         {
             var weight = adjustmentLog.WeightFor("FovRadius");
-            _habituation.SetPersonalization(weight);
+            _habituation.SetPersonalization(CombinedFovCautionWeight(adjustmentLog));   // B2: FovRadius + LevelNudge
             // Re-seed the user-driven FOV offset from the persisted log so the
             // tightening the user accumulated last session (via chatbot feedback)
             // survives restarts. Without this, every restart silently reset the
@@ -1987,7 +1987,25 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _personalizationAccumulator += dt;
         if (_personalizationAccumulator < SenseDefaults.HabituationPersonalizationRefreshSeconds) return;
         _personalizationAccumulator = 0.0;
-        _habituation.SetPersonalization(_adjustmentLog.WeightFor("FovRadius"));
+        _habituation.SetPersonalization(CombinedFovCautionWeight(_adjustmentLog));   // B2: FovRadius + LevelNudge
+    }
+
+    /// <summary>B2: the habituation-CAUTION input = the user's FOV-preference history (chatbot FOV
+    /// adjustments, Parameter "FovRadius") COMBINED with their manual level nudges (Parameter
+    /// "LevelNudge"). Both express "I want more/less protection", so both shape the relaxation cadence.
+    /// Kept SEPARATE from the FOV-offset restore (which uses "FovRadius" only) so a level nudge feeds
+    /// the caution WITHOUT double-applying the resting FOV offset — the nudge's protection already
+    /// persists via the baseline tier. Both channels are tared by the same most-recent Reset
+    /// (WeightFor is reset-aware). Null log ⇒ a zero weight. Static + internal for unit cover.</summary>
+    internal static PersonalWeight CombinedFovCautionWeight(IAdjustmentLog? log)
+    {
+        if (log is null) return new PersonalWeight("FovRadius", 0, 0.0, 0.0);
+        var fov   = log.WeightFor("FovRadius");
+        var nudge = log.WeightFor("LevelNudge");
+        int count = fov.Count + nudge.Count;
+        if (count == 0) return new PersonalWeight("FovRadius", 0, 0.0, 0.0);
+        double net = fov.NetDelta + nudge.NetDelta;
+        return new PersonalWeight("FovRadius", count, net, net / count);
     }
 
     // Persist habituation progress only when the earned offset actually changes,

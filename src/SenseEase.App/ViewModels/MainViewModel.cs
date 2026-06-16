@@ -275,6 +275,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
+    // B2: nominal FOV-equivalent (pp) charged to the habituation caution per manual level nudge —
+    // ~one tier's FOV step (15-100 range / 12 tiers). Logged under the "LevelNudge" parameter.
+    private const int ManualNudgeFovEquivalentPp = 8;
     private readonly IHabituationStore _habituationStore = new FileHabituationStore(AppConfig.HabituationStatePath);
     // Stage 7b: pass HabituationStatePath as the wipe-probe artifact so the
     // app-data-wipe detection path (Stage 6c) is actually live in production.
@@ -1521,6 +1524,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // pending suggestion. This path never reaches ApplyUserFeedback (it rides the
         // always-on baseline floor), so the OnManualAdjust wiring lives here.
         (_engine as MockInferenceEngine)?.NotifyManualLevelNudge(direction);   // B2: register manual-authority sign
+        // B2 caution-feed: persist the nudge as a "LevelNudge" adjustment so it feeds the habituation
+        // relaxation cadence (CombinedFovCautionWeight) — a habitually-tightening user habituates more
+        // gently. SEPARATE parameter (not "FovRadius") so it never shifts the resting FOV offset (the
+        // nudge's protection already persists via the baseline tier). Up (more protection) ⇒ negative
+        // Delta (matching the FOV "more protection = tighter" sign). Best-effort.
+        try
+        {
+            _adjustmentLog.Append(new AdjustmentRecord
+            {
+                Parameter = "LevelNudge",
+                Delta     = (direction >= 0 ? -1 : +1) * ManualNudgeFovEquivalentPp,
+                Source    = "user",
+            });
+        }
+        catch { /* persistence is best-effort; the nudge must still apply */ }
         SetSensingModeToWgc();
         if (target <= 1)
         {

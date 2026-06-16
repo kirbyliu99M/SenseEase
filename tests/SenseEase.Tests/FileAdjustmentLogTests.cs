@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using SenseEase.Core.Models;
+using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Storage;
 using Xunit;
 
@@ -121,4 +122,48 @@ public class FileAdjustmentLogTests : IDisposable
         Assert.Equal(0, w.Count);
         Assert.Equal(0.0, w.NetDelta);
     }
+
+    // ── B2 caution-feed: the manual nudge ("LevelNudge") joins the FOV caution ──────────
+
+    [Fact]
+    public void CombinedFovCautionWeight_MergesFovRadiusAndLevelNudge()
+    {
+        var log = new FileAdjustmentLog(_tempPath);
+        log.Append(new AdjustmentRecord { Parameter = "FovRadius",  Delta = -6, Source = "user" });
+        log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -8, Source = "user" });
+        log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -8, Source = "user" });
+
+        var w = MockInferenceEngine.CombinedFovCautionWeight(log);
+        Assert.Equal(3, w.Count);
+        Assert.Equal(-22.0, w.NetDelta);             // -6 + -8 + -8
+        Assert.Equal(-22.0 / 3, w.MeanDelta, 9);
+    }
+
+    [Fact]
+    public void CombinedFovCautionWeight_LevelNudgeDoesNotAffectFovRadiusOffsetChannel()
+    {
+        // The nudge must NOT shift the FOV-offset restore (which keys on "FovRadius" only).
+        var log = new FileAdjustmentLog(_tempPath);
+        log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -8, Source = "user" });
+
+        Assert.Equal(0, log.WeightFor("FovRadius").Count);   // FOV-offset channel unaffected
+        Assert.Equal(1, MockInferenceEngine.CombinedFovCautionWeight(log).Count); // caution sees it
+    }
+
+    [Fact]
+    public void CombinedFovCautionWeight_ResetClearsBothChannels()
+    {
+        var log = new FileAdjustmentLog(_tempPath);
+        log.Append(new AdjustmentRecord { Parameter = "FovRadius",  Delta = -50, Source = "user" });
+        log.Append(new AdjustmentRecord { Parameter = "LevelNudge", Delta = -50, Source = "user" });
+        log.Append(new AdjustmentRecord { Parameter = "Reset",      Source = "reset" });
+
+        var w = MockInferenceEngine.CombinedFovCautionWeight(log);
+        Assert.Equal(0, w.Count);
+        Assert.Equal(0.0, w.NetDelta);
+    }
+
+    [Fact]
+    public void CombinedFovCautionWeight_NullLog_IsZero()
+        => Assert.Equal(0, MockInferenceEngine.CombinedFovCautionWeight(null).Count);
 }
