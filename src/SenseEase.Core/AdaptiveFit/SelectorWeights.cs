@@ -28,6 +28,8 @@ namespace SenseEase.Core.AdaptiveFit;
 /// <param name="W3Calm">Weight on the calm-ratio→Band fit term (relax-when-calm).</param>
 /// <param name="W4Distance">Penalty per unit Manhattan step from the current cell (tie-break).</param>
 /// <param name="W5ManualConflict">Penalty for a candidate opposing a recent manual adjustment.</param>
+/// <param name="W6Fms">Weight on the measured-FMS→Band fit term (B1 outcome signal); applied only
+/// when the window has ≥1 measured FMS report.</param>
 /// <param name="ConfidenceMargin">Minimum score advantage argmax needs over Hold to move (anti-overfit).</param>
 /// <param name="FitTolerance">Half-width (normalised [0,1] units) of the linear fit kernel.</param>
 public readonly record struct SelectorWeights(
@@ -36,6 +38,7 @@ public readonly record struct SelectorWeights(
     double W3Calm,
     double W4Distance,
     double W5ManualConflict,
+    double W6Fms,
     double ConfidenceMargin,
     double FitTolerance)
 {
@@ -47,6 +50,7 @@ public readonly record struct SelectorWeights(
         W3Calm:           SenseDefaults.SelectorW3Calm,
         W4Distance:       SenseDefaults.SelectorW4Distance,
         W5ManualConflict: SenseDefaults.SelectorW5ManualConflict,
+        W6Fms:            SenseDefaults.SelectorW6Fms,
         ConfidenceMargin: SenseDefaults.SelectorConfidenceMargin,
         FitTolerance:     SenseDefaults.SelectorFitTolerance);
 }

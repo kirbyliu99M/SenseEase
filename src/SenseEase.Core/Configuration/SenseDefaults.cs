@@ -480,6 +480,14 @@ public static class SenseDefaults
     /// adjustment is effectively suppressed (user authority defers the auto-move).</summary>
     public const double SelectorW5ManualConflict = 2.0;
 
+    /// <summary>B1: weight on the measured-FMS→Band fit term — the OUTCOME signal. Applied only when
+    /// the window has ≥1 measured FMS self-report (<see cref="UserIntensityStats.FmsSampleCount"/> &gt; 0),
+    /// so it reinforces (or, with real felt-discomfort data, overrides) the pressure-only signal:
+    /// high recent measured discomfort biases toward a higher Band, low toward a lower Band. Set equal
+    /// to <see cref="SelectorW3Calm"/> — a strong secondary term, below the primary pressure weight (1.0).
+    /// Provisional until M1 anchors the OFI norms.</summary>
+    public const double SelectorW6Fms = 0.6;
+
     /// <summary>Minimum score advantage argmax must hold over "stay" before any move fires
     /// (anti-overfit confidence gate). Conservative: small fit wobbles do not move the set.</summary>
     public const double SelectorConfidenceMargin = 0.15;

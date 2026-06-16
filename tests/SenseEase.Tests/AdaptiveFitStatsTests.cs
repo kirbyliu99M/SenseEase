@@ -170,6 +170,44 @@ public class AdaptiveFitStatsTests
             fmsSelector: _ => fms[i++]);
 
         Assert.Equal(6.0, stats.FmsAggregate, 9);
+        Assert.Equal(2, stats.FmsSampleCount);   // two non-null reports
+    }
+
+    // ── B1: precomputed FMS aggregate (production path — symptom_log is a separate store) ──
+
+    [Fact]
+    public void Build_PrecomputedFms_PopulatesAggregateAndCount()
+    {
+        var entries = new[] { Entry(50), Entry(60) };
+        UserIntensityStats stats = IntensityStatsBuilder.Build(
+            entries, DateTime.UtcNow, triggerPressure: 100.0, fmsMean: 12.5, fmsCount: 4);
+
+        Assert.Equal(12.5, stats.FmsAggregate, 9);
+        Assert.Equal(4, stats.FmsSampleCount);
+    }
+
+    [Fact]
+    public void Build_PrecomputedFms_OverridesPerEntrySelector()
+    {
+        // fmsCount > 0 selects the precomputed aggregate over any per-entry selector.
+        var entries = new[] { Entry(50) };
+        UserIntensityStats stats = IntensityStatsBuilder.Build(
+            entries, DateTime.UtcNow, triggerPressure: 100.0,
+            fmsSelector: _ => 2.0, fmsMean: 15.0, fmsCount: 7);
+
+        Assert.Equal(15.0, stats.FmsAggregate, 9);
+        Assert.Equal(7, stats.FmsSampleCount);
+    }
+
+    [Fact]
+    public void Build_NoFms_LeavesFmsSampleCountZero()
+    {
+        var entries = new[] { Entry(50), Entry(60) };
+        UserIntensityStats stats = IntensityStatsBuilder.Build(
+            entries, DateTime.UtcNow, triggerPressure: 100.0);
+
+        Assert.Equal(0, stats.FmsSampleCount);
+        Assert.Equal(0.0, stats.FmsAggregate, 9);
     }
 
     // ── Empty / null input -> neutral ──────────────────────────────────────────

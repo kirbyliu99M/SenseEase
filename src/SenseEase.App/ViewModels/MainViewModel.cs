@@ -641,6 +641,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SymptomRecorder.Record(ev);
         }
         catch { /* a comfort rating must never propagate into the UI click handler */ }
+        PushFmsContextToEngine();   // B1: reflect the just-logged report in the selector immediately
+    }
+
+    /// <summary>B1: push the recent measured-FMS aggregate (mean + count over the selector's 7-day
+    /// durable window) into the engine so the Adaptive Fit selector can use it as the OUTCOME term.
+    /// The symptom store lives in the App data root, so the App computes it and hands it to the engine
+    /// (the engine cannot reach it). Best-effort; called on the 60 s heartbeat + after each rating.
+    /// No data ⇒ (0,0) ⇒ no FMS bias.</summary>
+    private void PushFmsContextToEngine()
+    {
+        try
+        {
+            var s = GetRecentComfortSummary();   // default 7-day window — matches the selector's durable window
+            (_engine as MockInferenceEngine)?.UpdateRecentFmsContext(s.MeanFms, s.Count);
+        }
+        catch { /* advisory signal — never disturb the VM */ }
     }
 
     /// <summary>D-redesign: a best-effort read-only roll-up of the recent MEASURED FMS self-reports
@@ -1107,6 +1123,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 _behaviorFlushTickCounter = 0;
                 FlushBehaviorAggregate();
+                PushFmsContextToEngine();   // B1: refresh the selector's measured-FMS outcome term
             }
         };
         _metricsTimer.Start();

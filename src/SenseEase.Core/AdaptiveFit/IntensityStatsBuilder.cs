@@ -38,17 +38,26 @@ public static class IntensityStatsBuilder
     /// values fall back to <see cref="SenseDefaults.TriggerPressure"/> to avoid div-by-zero.</param>
     /// <param name="stablePressureFraction">The calm cut-off (normalised-pressure below
     /// this counts as calm). Defaults to <see cref="SenseDefaults.HabituationStablePressureFraction"/>.</param>
-    /// <param name="fmsSelector">Optional accessor for an FMS score on an entry. The base
-    /// <see cref="EventLogEntry"/> carries no FMS field, so when this is null
-    /// <see cref="UserIntensityStats.FmsAggregate"/> is 0. Supplied for forward-compat
-    /// without coupling Core to a richer log shape.</param>
+    /// <param name="fmsSelector">Optional per-entry FMS accessor (test / forward-compat). The base
+    /// <see cref="EventLogEntry"/> carries no FMS field, so in production this is null and the
+    /// measured-FMS aggregate is supplied via <paramref name="fmsMean"/>/<paramref name="fmsCount"/>
+    /// instead. Used only when <paramref name="fmsCount"/> is 0.</param>
+    /// <param name="fmsMean">Production path (B1): the PRECOMPUTED mean of measured FMS reports
+    /// (0..20) over the same window, read from <c>symptom_log.jsonl</c> by the caller (the symptom
+    /// store is separate from the event log, so it cannot be joined per-entry here and the builder
+    /// stays pure/no-I/O). Ignored unless <paramref name="fmsCount"/> &gt; 0.</param>
+    /// <param name="fmsCount">Number of measured FMS reports behind <paramref name="fmsMean"/>;
+    /// &gt; 0 selects the precomputed path and is surfaced as
+    /// <see cref="UserIntensityStats.FmsSampleCount"/> (the selector's presence gate).</param>
     /// <returns>A populated snapshot, or <see cref="UserIntensityStats.Neutral"/> for empty input.</returns>
     public static UserIntensityStats Build(
         IEnumerable<EventLogEntry> durableEntries,
         DateTime now,
         double triggerPressure,
         double stablePressureFraction = SenseDefaults.HabituationStablePressureFraction,
-        Func<EventLogEntry, double?>? fmsSelector = null)
+        Func<EventLogEntry, double?>? fmsSelector = null,
+        double fmsMean = 0.0,
+        int fmsCount = 0)
     {
         if (durableEntries is null)
             return UserIntensityStats.Neutral;
@@ -79,9 +88,19 @@ public static class IntensityStatsBuilder
         double windowHours = WindowHours(entries, now);
         double spikesPerHour = spikeCount / windowHours;
 
-        // ── FMS aggregate: mean of any FMS value present, else 0 ───────────────────
+        // ── FMS aggregate (measured discomfort) ────────────────────────────────────
+        // Production: the caller injects a precomputed mean+count from symptom_log.jsonl
+        // (separate store ⇒ not joinable per-entry; keeps the builder pure). Otherwise fall
+        // back to the per-entry fmsSelector (test / forward-compat). FmsSampleCount > 0 is the
+        // selector's presence gate (so "no reports" carries no FMS bias).
         double fmsAggregate = 0.0;
-        if (fmsSelector is not null)
+        int fmsSampleCount = 0;
+        if (fmsCount > 0)
+        {
+            fmsAggregate = fmsMean;
+            fmsSampleCount = fmsCount;
+        }
+        else if (fmsSelector is not null)
         {
             double sum = 0.0;
             int n = 0;
@@ -95,7 +114,10 @@ public static class IntensityStatsBuilder
                 }
             }
             if (n > 0)
+            {
                 fmsAggregate = sum / n;
+                fmsSampleCount = n;
+            }
         }
 
         return new UserIntensityStats(
@@ -104,6 +126,7 @@ public static class IntensityStatsBuilder
             SpikeRecurrencePerHour: spikesPerHour,
             CalmRatio: calmRatio,
             FmsAggregate: fmsAggregate,
+            FmsSampleCount: fmsSampleCount,
             SampleCount: entries.Count);
     }
 

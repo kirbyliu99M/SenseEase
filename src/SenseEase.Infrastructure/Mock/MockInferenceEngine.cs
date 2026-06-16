@@ -130,6 +130,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // FileEventLogStore.RetentionDays (7) so we read the full rolling JSONL.
     private const double AdaptiveFitDurableWindowDays = 7.0;
 
+    // B1: the App layer pushes the recent measured-FMS aggregate (mean 0..20 + report count over the
+    // same durable window) here via UpdateRecentFmsContext, because symptom_log.jsonl lives in the App
+    // data root (out of this Infrastructure layer's reach). The selector consumes it as the OUTCOME
+    // term, gated on count > 0. (0,0) ⇒ no FMS bias until the App supplies data.
+    private double _recentFmsMean;
+    private int    _recentFmsCount;
+
     // Recency window (seconds) within which the last manual +/- still counts as a
     // selector manual-authority signal. Local to this file (no SenseDefaults edit
     // in scope). Kept conservative — a single SettlingMinSeconds window.
@@ -983,6 +990,19 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
+    /// <summary>B1: receive the recent measured-FMS aggregate (mean 0..20 + report count) over the
+    /// selector's durable window, pushed by the App layer (symptom_log.jsonl lives in the App data
+    /// root, out of this layer's reach — mirrors how <see cref="NotifyManualLevelNudge"/> is pushed in).
+    /// The selector consumes it as the OUTCOME term, gated on count &gt; 0. Runs on the dispatcher thread
+    /// like the engine tick, so no lock is needed; bad values guard to neutral.</summary>
+    public void UpdateRecentFmsContext(double mean, int count)
+    {
+        _recentFmsCount = count > 0 ? count : 0;
+        _recentFmsMean  = (_recentFmsCount > 0 && !double.IsNaN(mean) && mean >= 0.0)
+            ? Math.Clamp(mean, 0.0, 20.0)
+            : 0.0;
+    }
+
     // ── Adaptive Fit selector tick (Alpha-2 core GROUP D) ─────────────────────
     // Reachable ONLY from the flag-gated region in Update(); the caller already
     // holds _gate and has verified _adaptiveFitSelectorEnabled. While the flag is
@@ -1008,7 +1028,8 @@ public sealed class MockInferenceEngine : IInferenceEngine
         catch { return; } // best-effort read; a failed read just means "no move this tick"
 
         UserIntensityStats stats = IntensityStatsBuilder.Build(
-            durable, now, _habituation.EffectiveTrigger);
+            durable, now, _habituation.EffectiveTrigger,
+            fmsMean: _recentFmsMean, fmsCount: _recentFmsCount);
 
         // recentManualLevelDelta: the last manual +/- within the recency window,
         // else 0 (no conflict). Conservative + simple per spec.

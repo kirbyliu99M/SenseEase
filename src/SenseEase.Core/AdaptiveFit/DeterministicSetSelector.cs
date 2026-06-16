@@ -49,9 +49,9 @@ public static class DeterministicSetSelector
 
     // CalmRatio and FmsAggregate:
     //   CalmRatio is already a fraction in [0,1] — used directly.
-    //   FmsAggregate (0..20) is not part of the cell-fit score in this provisional pass
-    //   (the spec's score uses pressure, spike, calm only); it is reserved for a later
-    //   confidence/weighting refinement and intentionally not consumed here.
+    //   FmsAggregate (0..20) → normalised by /20 and consumed as the B1 OUTCOME term, but ONLY
+    //   when FmsSampleCount > 0 (the window has self-reports). High measured discomfort biases the
+    //   Band UP (same direction as pressure); no reports ⇒ the FMS term is 0 (no bias).
 
     /// <summary>
     /// Evaluate one selection. Returns <see cref="SelectorDecision.MoveTo"/> an adjacent cell
@@ -111,7 +111,7 @@ public static class DeterministicSetSelector
     /// <summary>
     /// Score a single candidate (pure). Higher is better.
     /// <code>
-    ///   W1·fit(pressure,band) + W2·fit(spike,shape) + W3·fit(calm,band)
+    ///   W1·fit(pressure,band) + W2·fit(spike,shape) + W3·fit(calm,band) + W6·fit(fms,band)[if reports]
     ///   − W4·ManhattanDistance(current,candidate) − W5·manualConflict
     /// </code>
     /// </summary>
@@ -138,12 +138,20 @@ public static class DeterministicSetSelector
         // feature is fit against (1 − bandTarget).
         double fitCalm     = Fit(calmNorm, 1.0 - bandTarget, w.FitTolerance);
 
+        // B1: measured-FMS OUTCOME term — applied ONLY when the window has self-reports
+        // (FmsSampleCount > 0), so "no reports" carries no FMS bias. High measured discomfort fits a
+        // HIGHER Band (same direction as pressure); low fits a lower Band. fmsNorm = FMS/20 ∈ [0,1].
+        double fmsTerm = 0.0;
+        if (stats.FmsSampleCount > 0)
+            fmsTerm = w.W6Fms * Fit(Clamp01(stats.FmsAggregate / 20.0), bandTarget, w.FitTolerance);
+
         double distance = GridCoord.ManhattanDistance(current, candidate);
         double conflict = ManualConflict(current, candidate, recentManualLevelDelta);
 
         return w.W1Pressure * fitPressure
              + w.W2Spike    * fitSpike
              + w.W3Calm     * fitCalm
+             + fmsTerm
              - w.W4Distance * distance
              - w.W5ManualConflict * conflict;
     }

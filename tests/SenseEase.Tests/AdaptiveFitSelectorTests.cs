@@ -29,7 +29,8 @@ public class AdaptiveFitSelectorTests
 {
     // ── Stats fixtures ─────────────────────────────────────────────────────────
     // The shared locked UserIntensityStats shape (Group B owns the type; C consumes it):
-    //   (PressureP50, PressureP90, SpikeRecurrencePerHour, CalmRatio, FmsAggregate, SampleCount).
+    //   (PressureP50, PressureP90, SpikeRecurrencePerHour, CalmRatio, FmsAggregate, FmsSampleCount, SampleCount).
+    //   FmsSampleCount: 0 on these fixtures ⇒ the B1 FMS outcome term is inert (pressure/spike/calm only).
 
     private static readonly int EnoughSamples = SenseDefaults.SelectorMinSamplesBeforeAnyMove + 5;
 
@@ -42,6 +43,7 @@ public class AdaptiveFitSelectorTests
         SpikeRecurrencePerHour: 0.0,
         CalmRatio: 0.5,
         FmsAggregate: 5.0,
+        FmsSampleCount: 0,
         SampleCount: samples == 0 ? EnoughSamples : samples);
 
     /// <summary>A clearly high-intensity window: sustained high pressure (P90 well above
@@ -53,6 +55,7 @@ public class AdaptiveFitSelectorTests
         SpikeRecurrencePerHour: 6.0, // norm = 1.0 (full scale)  → top shape target
         CalmRatio: 0.05,             // barely any calm
         FmsAggregate: 16.0,
+        FmsSampleCount: 0,
         SampleCount: samples == 0 ? EnoughSamples : samples);
 
     /// <summary>A clearly calm window: low pressure, high calm. This should pull DOWN in Band.</summary>
@@ -62,6 +65,7 @@ public class AdaptiveFitSelectorTests
         SpikeRecurrencePerHour: 0.0,
         CalmRatio: 0.95,             // mostly calm
         FmsAggregate: 1.0,
+        FmsSampleCount: 0,
         SampleCount: samples == 0 ? EnoughSamples : samples);
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -125,6 +129,42 @@ public class AdaptiveFitSelectorTests
                 }
             }
         }
+    }
+
+    // ── B1: measured-FMS OUTCOME term (gated on FmsSampleCount > 0) ──────────────
+
+    [Fact]
+    public void FmsTerm_Inert_WhenNoReports()
+    {
+        // FmsSampleCount == 0 ⇒ the FMS term contributes nothing, whatever FmsAggregate says.
+        var current = GridCoord.Set0;
+        var up = GridCoord.AdjacentCells(current).First(c => c.Band > current.Band);
+        var w = SelectorWeights.Default;
+
+        var lowFms  = new UserIntensityStats(1.0, 1.0, 0.0, 0.5, FmsAggregate: 0.0,  FmsSampleCount: 0, SampleCount: 20);
+        var highFms = new UserIntensityStats(1.0, 1.0, 0.0, 0.5, FmsAggregate: 18.0, FmsSampleCount: 0, SampleCount: 20);
+
+        Assert.Equal(
+            DeterministicSetSelector.Score(current, up, lowFms,  w, 0),
+            DeterministicSetSelector.Score(current, up, highFms, w, 0), 9);
+    }
+
+    [Fact]
+    public void FmsTerm_HighMeasuredDiscomfort_RaisesHigherBandScore()
+    {
+        // Identical window; the ONLY difference is that measured FMS reports are now present and
+        // high. The higher-Band candidate's score must rise — the outcome signal biases upward.
+        var current = GridCoord.Set0;
+        var up = GridCoord.AdjacentCells(current).First(c => c.Band > current.Band);
+        var w = SelectorWeights.Default;
+
+        var without = new UserIntensityStats(1.0, 1.0, 0.0, 0.5, FmsAggregate: 18.0, FmsSampleCount: 0, SampleCount: 20);
+        var with    = new UserIntensityStats(1.0, 1.0, 0.0, 0.5, FmsAggregate: 18.0, FmsSampleCount: 6, SampleCount: 20);
+
+        Assert.True(
+            DeterministicSetSelector.Score(current, up, with, w, 0) >
+            DeterministicSetSelector.Score(current, up, without, w, 0),
+            "high measured FMS should raise the higher-Band candidate's score");
     }
 
     [Fact]

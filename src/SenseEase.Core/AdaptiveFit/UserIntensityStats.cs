@@ -23,7 +23,11 @@ namespace SenseEase.Core.AdaptiveFit;
 /// <param name="CalmRatio">
 /// Fraction of samples below the stable-pressure fraction, [0..1].</param>
 /// <param name="FmsAggregate">
-/// Rolling mean of any per-entry FMS value (0..20); 0 when no FMS field is present.</param>
+/// Rolling mean of any measured FMS value (0..20) over the window; 0 when none present.</param>
+/// <param name="FmsSampleCount">
+/// Count of measured FMS reports in the window. The selector applies its FMS term ONLY when
+/// this is &gt; 0, so a window with no self-reports (or the Neutral profile) carries no FMS bias —
+/// distinguishing "no data" from a genuine all-zero ("feeling fine") report set.</param>
 /// <param name="SampleCount">
 /// Window sample count (drives the min-samples confidence gate).</param>
 public sealed record UserIntensityStats(
@@ -32,6 +36,7 @@ public sealed record UserIntensityStats(
     double SpikeRecurrencePerHour,
     double CalmRatio,
     double FmsAggregate,
+    int    FmsSampleCount,
     int    SampleCount)
 {
     /// <summary>The safe, neutral profile used when there is no data: all-zero,
@@ -42,5 +47,6 @@ public sealed record UserIntensityStats(
             SpikeRecurrencePerHour: 0.0,
             CalmRatio: 0.0,
             FmsAggregate: 0.0,
+            FmsSampleCount: 0,
             SampleCount: 0);
 }
