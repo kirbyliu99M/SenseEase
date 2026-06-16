@@ -20,7 +20,9 @@ namespace SenseEase.Core.Inference;
 /// </summary>
 public sealed class ClinicalExport
 {
-    public int SchemaVersion { get; set; } = 1;
+    // v2 (B3): adds OnVsOffByCategory (per-app effectiveness). Additive + back-compatible —
+    // an older reader simply ignores the new field; the rest of the schema is unchanged.
+    public int SchemaVersion { get; set; } = 2;
     public bool DeIdentified { get; set; } = true;
     public string ExportKind { get; set; } = "aggregate";
     public string Scale { get; set; } = SymptomEvent.Scales.Fms20;
@@ -48,6 +50,11 @@ public sealed class ClinicalExport
     /// <summary>De-identified per-category MEASURED symptom load (category only — the raw app
     /// name is stripped, D-17).</summary>
     public List<CategoryAggregate> ByCategory { get; set; } = new();
+
+    /// <summary>B3 (output ②): the protection ON-vs-OFF MEASURED FMS contrast WITHIN each app
+    /// category — the per-app effectiveness signal. One entry per category that has measured data;
+    /// the matched delta is populated only when that category has BOTH an ON and an OFF arm.</summary>
+    public List<CategoryContrast> OnVsOffByCategory { get; set; } = new();
 
     public ExposureDose Exposure { get; set; } = new();
 }
@@ -108,6 +115,22 @@ public sealed class CategoryAggregate
     public double? MeanFms { get; set; }
 }
 
+/// <summary>B3 (output ②, per-app effectiveness): the within-subject protection ON-vs-OFF MEASURED
+/// FMS contrast computed WITHIN a single de-identified app category — "is protection helping in this
+/// kind of app?". Same shape + null-unless-both-arms rule as <see cref="TierContrast"/>; the label is
+/// the de-identified category only (the raw app name is stripped, D-17).</summary>
+public sealed class CategoryContrast
+{
+    public string Category { get; set; } = string.Empty;
+    public int CountOn { get; set; }
+    public int CountOff { get; set; }
+    public double? MeanFmsOn { get; set; }
+    public double? MeanFmsOff { get; set; }
+    /// <summary>MeanOff − MeanOn. Positive = lower discomfort with protection on, in THIS category.
+    /// Null unless both arms have data (an honest "not enough data yet" rather than a fabricated 0).</summary>
+    public double? Delta { get; set; }
+}
+
 /// <summary>How much data backs the numbers above — dose/coverage.</summary>
 public sealed class ExposureDose
 {
@@ -148,6 +171,7 @@ public static class ClinicalExportBuilder
                 .Select(g => BuildTierContrast(g.Key, g.ToList()))
                 .ToList(),
             ByCategory = BuildByCategory(measured),
+            OnVsOffByCategory = BuildByCategoryContrast(measured),
             Exposure   = BuildExposure(all, measured, estimated),
             Window     = BuildWindow(all),
         };
@@ -215,6 +239,33 @@ public static class ClinicalExportBuilder
                 Category = g.Key,
                 Count    = g.Count(),
                 MeanFms  = Round(g.Select(e => e.Value).Average()),
+            })
+            .ToList();
+
+    /// <summary>B3 (output ②): per-category protection ON-vs-OFF contrast. Same matched-arms rule as
+    /// <see cref="BuildTierContrast"/> (delta only when both arms exist), grouped by the de-identified
+    /// category. Only rows with a foreground key (i.e. captured while per-app consent was on) participate.</summary>
+    private static List<CategoryContrast> BuildByCategoryContrast(List<SymptomEvent> measured)
+        => measured
+            .Where(e => !string.IsNullOrWhiteSpace(e.ForegroundKey))
+            .GroupBy(e => ExtractCategory(e.ForegroundKey!))
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g =>
+            {
+                var rows = g.ToList();
+                var on  = rows.Where(e => e.InterventionState == SymptomEvent.InterventionStates.On).Select(e => e.Value).ToList();
+                var off = rows.Where(e => e.InterventionState == SymptomEvent.InterventionStates.Off).Select(e => e.Value).ToList();
+                var c = new CategoryContrast
+                {
+                    Category   = g.Key,
+                    CountOn    = on.Count,
+                    CountOff   = off.Count,
+                    MeanFmsOn  = on.Count  > 0 ? Round(on.Average())  : (double?)null,
+                    MeanFmsOff = off.Count > 0 ? Round(off.Average()) : (double?)null,
+                };
+                if (c.MeanFmsOn.HasValue && c.MeanFmsOff.HasValue)
+                    c.Delta = Round(c.MeanFmsOff.Value - c.MeanFmsOn.Value);
+                return c;
             })
             .ToList();
 

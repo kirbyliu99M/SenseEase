@@ -53,6 +53,7 @@ public sealed class ClinicalExportTests
         Assert.Equal(0, e.Estimated.Count);
         Assert.Empty(e.ByCategory);
         Assert.Empty(e.OnVsOffByTier);
+        Assert.Empty(e.OnVsOffByCategory);
         Assert.Equal(0, e.Exposure.TotalSamples);
         Assert.Null(e.Window.FirstDateUtc);
         Assert.True(e.DeIdentified);
@@ -117,6 +118,50 @@ public sealed class ClinicalExportTests
         Assert.DoesNotContain(cats, c => c.Category.Contains("youtube"));
         Assert.DoesNotContain(cats, c => c.Category.Contains("vlc"));
         Assert.DoesNotContain(cats, c => c.Category.Contains("dota"));
+    }
+
+    [Fact]
+    public void OnVsOffByCategory_MatchedContrast_OnlyWhenBothArmsPresent()
+    {
+        // B3 output ②: per-app effectiveness. video has BOTH arms (off=14 youtube, on=4 vlc) → a
+        // matched delta; game has only an ON arm (10 dota2) → no delta (honest "not enough data").
+        var byCat = ClinicalExportBuilder.Build(Sample()).OnVsOffByCategory;
+
+        var video = byCat.Single(c => c.Category == "video");
+        Assert.Equal(4, video.MeanFmsOn!.Value, 2);
+        Assert.Equal(14, video.MeanFmsOff!.Value, 2);
+        Assert.Equal(10, video.Delta!.Value, 2);       // 14 − 4 = +10 (protection helps in video apps)
+
+        var game = byCat.Single(c => c.Category == "game");
+        Assert.Equal(10, game.MeanFmsOn!.Value, 2);
+        Assert.Null(game.MeanFmsOff);                   // no OFF sample in a game …
+        Assert.Null(game.Delta);                        // … so no matched per-app delta
+    }
+
+    [Fact]
+    public void OnVsOffByCategory_EmptyWhenNoForegroundKey()
+    {
+        // Per-app effectiveness only exists with per-app consent (a foreground key). Reports with no
+        // key (consent off) must NOT manufacture a category bucket.
+        var noKey = new List<SymptomEvent>
+        {
+            Measured(8,  SymptomEvent.InterventionStates.On,  5, null, Day1A),
+            Measured(12, SymptomEvent.InterventionStates.Off, 5, null, Day1B),
+        };
+        Assert.Empty(ClinicalExportBuilder.Build(noKey).OnVsOffByCategory);
+    }
+
+    [Fact]
+    public void OnVsOffByCategory_LeaksNoRawAppName()
+    {
+        // The privacy red line also holds for the new per-app contrast (D-17): category labels only.
+        var byCat = ClinicalExportBuilder.Build(Sample()).OnVsOffByCategory;
+        Assert.All(byCat, c =>
+        {
+            Assert.DoesNotContain("youtube", c.Category);
+            Assert.DoesNotContain("vlc", c.Category);
+            Assert.DoesNotContain("dota", c.Category);
+        });
     }
 
     [Fact]
