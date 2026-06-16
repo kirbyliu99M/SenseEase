@@ -20,6 +20,25 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel = new();
     private OverlayWindow? _overlay;
     private SpikePopupWindow? _spikePopup;
+    // Phase-1 rev: the contextual discomfort check-in is an IN-WINDOW overlay (CheckInOverlayHost),
+    // NOT a separate window — it never appears outside the console (which would clash with the
+    // pop-up bar / interrupt over other apps). _checkInGovernor rate-limits it; a spike that fires
+    // while the console is backgrounded is DEFERRED via _pendingSpikeCheckIn and surfaced (with its
+    // context captured at spike time) when the console is next activated.
+    private readonly CheckInGovernor _checkInGovernor = new();
+    private bool _checkInAnswered;
+    private bool _pendingSpikeCheckIn;
+    private string? _pendingCheckInContext;
+    // Phase-2 Eye-Care DYNAMIC inline self-report: the question/options appear ONLY when a check-in
+    // is warranted — never logged yet, the cooldown elapsed, or the motion tier changed since the
+    // last log ("an update is needed"). Otherwise the card rests, preventing surge/duplicate taps +
+    // confusion (paced EMA-style). In-memory; tier-change overrides the cooldown.
+    private DateTime? _lastInlineLogUtc;
+    private int _lastInlineLogTier;
+    // Latch: once a check-in is warranted the prompt STAYS shown until the user logs (a log clears
+    // it), so it doesn't flicker as the live tier oscillates around the last-logged level.
+    private bool _inlineWarrantLatched = true;
+    private static readonly TimeSpan InlineCheckInCooldown = TimeSpan.FromMinutes(30);
 
     // Path Z UX iter 5: tray-resident lifecycle. _quittingFromTray flips to
     // true when the tray's "退出 SenseEase" menu fires Application.Shutdown
@@ -167,6 +186,10 @@ public partial class MainWindow : Window
                         {
                             ShowNotificationCardForCurrentTier(userInitiated: false);
                         }
+
+                        // Phase-1 event-driven feedback: surface a contextual discomfort check-in
+                        // (strictly opt-in + cadence-governed), independent of the auto-expand card.
+                        MaybeShowSpikeCheckIn();
                     }
                     else
                     {
@@ -205,6 +228,10 @@ public partial class MainWindow : Window
         // proposal, surface it in the Card. Card events route back through
         // the VM's Accept/Decline/Defer methods.
         _viewModel.ProposalSurfaceRequested += OnProposalSurfaceRequested;
+
+        // Phase-1 rev: flush a deferred spike check-in when the console returns to the foreground
+        // (a background spike never pops a window; it waits to surface IN the app on return).
+        Activated += OnConsoleActivated;
 
         // ── Eye-Protection chart bootstrap ─────────────────────────────────────
         Loaded += (_, _) =>
@@ -549,6 +576,10 @@ public partial class MainWindow : Window
     private void MainTabs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (e.OriginalSource is not System.Windows.Controls.TabControl tc || !ReferenceEquals(tc, MainTabs)) return;
+
+        // Phase-2: lazily refresh the Eye-Care "my check-ins" card when its tab becomes selected.
+        if (ReferenceEquals(MainTabs.SelectedItem, EyeCareTab)) RefreshEyeCareCheckIns();
+
         if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) return;
 
         if (MainTabs.Template?.FindName("PART_SelectedContentHost", MainTabs)
@@ -952,38 +983,404 @@ public partial class MainWindow : Window
 
     private SettingsWindow? _settingsWindow;
 
-    /// <summary>Confirm before the destructive console Reset. View-layer MessageBox keeps
-    /// ResetState/ResetStateCommand testable (no UI in the VM). ResetState is Q4.5-safe
-    /// (clears transient shader/FOV personalisation; PRESERVES the earned habituation offset).</summary>
-    private void OnConsoleResetClicked(object sender, RoutedEventArgs e)
+    // OnConsoleResetClicked removed (C cleanup, 2026-06-15): the console Reset button was relocated
+    // to Settings (SettingsContent.OnResetStateClicked / ResetStateButton); no XAML wired this
+    // handler, so it was dead. ResetStateCommand on the VM is unchanged and still driven there.
+
+    // OnFmsLogClicked / OnFmsBandClicked / RecordFmsAndAck / RefreshComfortTrend removed (Phase-1
+    // rev, 2026-06-16): the persistent dashboard slider card was retired in favour of the in-console
+    // check-in overlay below; the weekly trend relocates to the Phase-2 notification feed.
+    // MainViewModel.GetRecentComfortSummary is retained for that feed.
+
+    // ── Phase-1 rev: IN-CONSOLE contextual discomfort check-in ──────────────────
+    // A pressure spike (existing PressureSpikeDetector, 30 s cooldown) surfaces a non-blocking
+    // notification/survey card OVERLAID INSIDE THE CONSOLE WINDOW (Teams/Trend-Micro style) — NEVER
+    // a separate floating window (that appeared over other apps + clashed with the pop-up bar). If
+    // the console is NOT foreground at spike time, nothing pops outside the app; the check-in is
+    // deferred and surfaced (with its captured context) on the next console activation. Strictly
+    // opt-in (first eligible spike shows a one-time in-console consent card) and governed.
+
+    private static string PickLoc(string zh, string en)
+        => SenseEase.App.Localization.LocalizationManager.Current.Pick(zh, en);
+
+    /// <summary>From the PressureSpikeDetected new-path handler. If consent allows and cadence
+    /// permits: show the in-console overlay when the console is the foreground window; otherwise
+    /// DEFER it (queued, shown on next activation) — never a floating prompt outside the app.</summary>
+    private void MaybeShowSpikeCheckIn()
     {
-        if (SenseEase.App.Views.ThemedDialog.Confirm(
-                this,
-                SenseEase.App.Localization.LocalizationManager.Current.Pick(
-                    "確定要重設個人化狀態嗎？\n\n這會清除暫時的個人化（遮罩微調），但保留你已養成的習慣化進度。",
-                    "Reset personalisation state?\n\nThis clears transient personalisation (shader tweaks) but keeps your earned habituation progress.")))
-            _viewModel.ResetStateCommand.Execute(null);
+        try
+        {
+            if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Declined) return;
+            if (CheckInOverlayHost is { Visibility: Visibility.Visible }) return;   // one at a time
+            if (!_checkInGovernor.ShouldPrompt()) return;
+
+            string? ctx = FriendlyForegroundContext();   // capture context at spike time
+            if (IsActive) ShowSpikeCheckInOverlay(ctx);
+            else { _pendingSpikeCheckIn = true; _pendingCheckInContext = ctx; }
+        }
+        catch { /* a feedback prompt must never crash the spike handler */ }
     }
 
-    /// <summary>Beta-1 D-18/D-19: a comfort-rating star was clicked. Records a MEASURED FMS
-    /// data-point (the honest per-user signal that replaces the retired "70%" claim) via the VM,
-    /// then shows a brief in-place acknowledgment. The star number rides on the Button's Tag
-    /// (1-5). Best-effort + defensive — a malformed Tag or missing VM is a silent no-op so a
-    /// rating tap can never throw out of the console.</summary>
-    private void OnComfortStarClicked(object sender, RoutedEventArgs e)
+    /// <summary>MainWindow.Activated: surface a deferred spike check-in (queued while the console was
+    /// backgrounded) IN the app on return, with the context captured at spike time. Never throws.</summary>
+    private void OnConsoleActivated(object? sender, EventArgs e)
+    {
+        // Phase-2: re-warrant the Eye-Care inline check-in on activation (the tier may have risen or
+        // the cooldown elapsed while the console was backgrounded on that tab).
+        if (MainTabs is not null && ReferenceEquals(MainTabs.SelectedItem, EyeCareTab))
+            RefreshEyeCareCheckIns();
+
+        if (!_pendingSpikeCheckIn) return;
+        _pendingSpikeCheckIn = false;
+        try
+        {
+            if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Declined) return;
+            if (CheckInOverlayHost is { Visibility: Visibility.Visible }) return;
+            if (!_checkInGovernor.ShouldPrompt()) return;
+            ShowSpikeCheckInOverlay(_pendingCheckInContext);
+        }
+        catch { }
+    }
+
+    /// <summary>Route to the in-console consent card (first run, Unset) or the 5-point survey.</summary>
+    private void ShowSpikeCheckInOverlay(string? ctx)
+    {
+        if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Unset)
+            ShowConsentOverlay(ctx);
+        else
+            ShowCheckInSurveyOverlay(ctx);
+    }
+
+    /// <summary>First-run opt-in card (Unset). Sets the persisted consent; collects no FMS value.
+    /// Only ever transitions OUT of Unset, so a stale card can't override a later Settings choice.</summary>
+    private void ShowConsentOverlay(string? ctx)
+    {
+        string enable  = PickLoc("好，問我", "Yes, ask me");
+        string decline = PickLoc("不用了", "No thanks");
+        ShowCheckInOverlay(
+            header:   PickLoc("動態提醒", "Motion check-in"),
+            question: PickLoc(
+                "偵測到較多畫面動態時，要讓 SenseEase 順手問一下你的感受嗎？回饋僅儲存於本機，可隨時關閉。",
+                "When SenseEase notices a lot of on-screen motion, may it check in on how you feel? Answers stay on this device, and you can turn this off anytime."),
+            footer:   PickLoc("健康自我紀錄 — 並非醫療診斷。", "A wellness check-in — not a medical assessment."),
+            options:  new[] { enable, decline },
+            onOption: idx =>
+            {
+                bool optedIn = false;
+                try
+                {
+                    var prefs = UserPreferences.Current;
+                    if (prefs.ProactiveCheckInsConsent == ProactiveCheckInConsent.Unset)
+                    {
+                        prefs.ProactiveCheckInsConsent = idx == 0
+                            ? ProactiveCheckInConsent.Enabled
+                            : ProactiveCheckInConsent.Declined;
+                        prefs.Save();
+                    }
+                    optedIn = idx == 0
+                        && UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Enabled;
+                }
+                catch { /* a consent tap must never crash the dispatcher */ }
+                _checkInGovernor.RecordAnswered();
+                if (optedIn)
+                    // First-run CONTINUATION: surface the survey for THIS same spike (a content swap in
+                    // the already-open overlay, not a new prompt) — otherwise the introducing spike
+                    // shows no survey and the next is blocked for MinInterval.
+                    ShowCheckInSurveyOverlay(ctx);
+                else
+                    HideCheckInOverlay();
+            });
+    }
+
+    /// <summary>The contextual 5-point discomfort survey (formal, no slider) attributed to the spike
+    /// (+ app category when consent allows). The chosen point records a MEASURED FMS PRO with
+    /// trigger="spike". The five points map evenly across FMS 0/5/10/15/20.</summary>
+    private void ShowCheckInSurveyOverlay(string? ctx)
+    {
+        string q = ctx is null
+            ? PickLoc("剛才偵測到較多畫面動態。你現在的感受如何？",
+                      "Lots of on-screen motion just now. How are you feeling?")
+            : PickLoc($"剛才在使用{ctx}時偵測到較多畫面動態。你現在的感受如何？",
+                      $"Lots of on-screen motion just now while using {ctx}. How are you feeling?");
+
+        var bands = FivePointBands();
+        var labels = new string[bands.Length];
+        for (int i = 0; i < bands.Length; i++) labels[i] = bands[i].label;
+
+        ShowCheckInOverlay(
+            header:   PickLoc("動態提醒", "Motion check-in"),
+            question: q,
+            footer:   PickLoc("健康自我紀錄 — 並非醫療診斷。", "A wellness check-in — not a medical assessment."),
+            options:  labels,
+            onOption: idx =>
+            {
+                _viewModel.RecordFmsRating(bands[idx].fms, SymptomEvent.Triggers.Spike);
+                _checkInGovernor.RecordAnswered();
+                RefreshEyeCareCheckIns();   // reflect the new row in the Eye-Care list immediately
+                HideCheckInOverlay();
+            });
+    }
+
+    /// <summary>The 5-point formal discomfort survey shared by every check-in surface — none → very
+    /// severe, evenly spaced across FMS 0/5/10/15/20 (the same even mapping as the retired 5★, in a
+    /// formal survey style rather than stars).</summary>
+    private static (string label, int fms)[] FivePointBands() => new[]
+    {
+        (PickLoc("沒有",     "None"),        0),
+        (PickLoc("輕微",     "Slight"),      5),
+        (PickLoc("中等",     "Moderate"),   10),
+        (PickLoc("嚴重",     "Severe"),     15),
+        (PickLoc("非常嚴重", "Very severe"), 20),
+    };
+
+    /// <summary>Populate + reveal the IN-WINDOW proactive overlay (a Panel.ZIndex layer of the root
+    /// Grid — never a separate window). Teams-style: a translucent scrim dims and CAPTURES clicks to
+    /// the console behind it (a scrim click or the ✕ dismisses); the card is centered. Opacity-fade
+    /// only (no translate — motion is a nausea trigger here), gated on
+    /// AccessibilityHelper.ReducedMotion(). RecordShown advances the cadence governor.</summary>
+    private void ShowCheckInOverlay(string header, string question, string footer,
+        string[] options, Action<int> onOption)
+    {
+        if (CheckInOverlayHost is null) return;
+        // Already-visible ⇒ this is a content SWAP (e.g. consent → survey for the same spike); skip
+        // the entrance fade so the swap doesn't flash. Fresh show ⇒ fade in.
+        bool wasVisible = CheckInOverlayHost.Visibility == Visibility.Visible;
+
+        CheckInOverlayHeader.Text   = header;
+        CheckInOverlayQuestion.Text = question;
+        CheckInOverlayFooter.Text   = footer;
+
+        CheckInOverlayOptions.Children.Clear();
+        for (int i = 0; i < options.Length; i++)
+        {
+            int idx = i;
+            var btn = new System.Windows.Controls.Button
+            {
+                Content = options[i],
+                Style   = (Style)FindResource("CheckInOptionButton"),
+                Tag     = idx,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(btn, options[i]);
+            // onOption owns the next step: hide, or (consent opt-in) swap straight to the survey in
+            // the same overlay. The click handler must NOT force-hide, or it would cancel the swap.
+            btn.Click += (_, _) => { _checkInAnswered = true; onOption(idx); };
+            CheckInOverlayOptions.Children.Add(btn);
+        }
+
+        _checkInAnswered = false;
+        CheckInOverlayHost.Visibility = Visibility.Visible;
+        _checkInGovernor.RecordShown();
+
+        if (!wasVisible && !SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1,
+                new Duration(TimeSpan.FromMilliseconds(180)))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut },
+            };
+            CheckInOverlayHost.BeginAnimation(OpacityProperty, fade);
+        }
+        else CheckInOverlayHost.Opacity = 1;
+    }
+
+    /// <summary>Dismiss (✕) — hide WITHOUT answering; arms the governor's 24 h suppression.</summary>
+    private void OnCheckInOverlayDismiss(object sender, RoutedEventArgs e)
+    {
+        if (!_checkInAnswered) _checkInGovernor.RecordDismissed();
+        HideCheckInOverlay();
+    }
+
+    /// <summary>Hide the overlay — opacity-fade out when OS animations are on, else instant.</summary>
+    private void HideCheckInOverlay()
+    {
+        if (CheckInOverlayHost is null) return;
+        if (!SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(
+                CheckInOverlayHost.Opacity, 0, new Duration(TimeSpan.FromMilliseconds(120)));
+            fade.Completed += (_, _) =>
+            {
+                CheckInOverlayHost.BeginAnimation(OpacityProperty, null);
+                CheckInOverlayHost.Opacity = 1;
+                CheckInOverlayHost.Visibility = Visibility.Collapsed;
+            };
+            CheckInOverlayHost.BeginAnimation(OpacityProperty, fade);
+        }
+        else CheckInOverlayHost.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>The localized foreground-app CATEGORY for the check-in copy, or null to use
+    /// app-agnostic copy. Honours D-16: <c>WindowsActivityFilter.CurrentForegroundKey</c> is null
+    /// unless per-app consent is on; the key is "category/appName" — we surface ONLY the coarse,
+    /// localized category (never the raw app name), and only for known categories.</summary>
+    private static string? FriendlyForegroundContext()
+    {
+        try
+        {
+            string? key = SenseEase.Infrastructure.Real.WindowsActivityFilter.Instance.CurrentForegroundKey;
+            if (string.IsNullOrWhiteSpace(key)) return null;
+            int slash = key.IndexOf('/');
+            string category = slash >= 0 ? key.Substring(0, slash) : key;
+            return category switch
+            {
+                "browser" => PickLoc("瀏覽器", "a browser"),
+                "video"   => PickLoc("影片播放器", "a video player"),
+                "game"    => PickLoc("遊戲", "a game"),
+                "office"  => PickLoc("辦公軟體", "an office app"),
+                "dev"     => PickLoc("開發工具", "a developer tool"),
+                "comm"    => PickLoc("通訊軟體", "a messaging app"),
+                _         => null,   // "other"/unknown → app-agnostic copy
+            };
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Phase-2 (Eye-Care tab): the "Check in now" button — a USER-initiated manual check-in.
+    /// Ungoverned (always available; does NOT consume the proactive 8 h cooldown) and recorded with
+    /// trigger="manual". Reuses the same in-console 5-point survey overlay.</summary>
+    /// <summary>Phase-2 (Eye-Care tab): a DIRECT inline 5-point self-report tap (no pop-up).
+    /// USER-initiated and UNGOVERNED (always available; touches NO governor state, so it cannot
+    /// disturb the proactive 8 h cooldown or a prior dismissal's quiet). Recorded as
+    /// trigger="manual"; acks + refreshes the recent list in place.</summary>
+    private void OnEyeCareInlineBandClicked(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.Button b) return;
-        if (!int.TryParse(b.Tag?.ToString(), out int stars)) return;
+        if (!int.TryParse(b.Tag?.ToString(), out int fms)) return;
+        _viewModel.RecordFmsRating(Math.Clamp(fms, 0, 20), SymptomEvent.Triggers.Manual);
+        // Start the inline cooldown + capture the context, and CLEAR the warrant latch so the card
+        // RESTS (options hidden) until the cooldown elapses or the motion tier rises — prevents
+        // surge / duplicate taps.
+        _lastInlineLogUtc = DateTime.UtcNow;
+        _lastInlineLogTier = _viewModel.VimsTier;
+        _inlineWarrantLatched = false;
+        RefreshEyeCareCheckIns();
+    }
 
-        _viewModel.RecordComfortRating(stars, "manual");
+    /// <summary>A click on the proactive overlay's scrim (outside the card) dismisses it — same as
+    /// the ✕: if the user hasn't answered, arm the governor's 24 h suppression (Teams-style backdrop).</summary>
+    private void OnCheckInScrimClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!_checkInAnswered) _checkInGovernor.RecordDismissed();
+        HideCheckInOverlay();
+    }
 
-        if (ComfortRatingAck is not null)
+    /// <summary>Phase-2: refresh the Eye-Care "my check-ins" card — the weekly trend line, the
+    /// recent-check-ins list, and the empty state. Best-effort; never throws into the UI.</summary>
+    private void RefreshEyeCareCheckIns()
+    {
+        try
         {
-            ComfortRatingAck.Text = SenseEase.App.Localization.LocalizationManager.Current.Pick(
-                $"已記錄 {stars}★ — 謝謝你的回饋",
-                $"Logged {stars}★ — thanks for the feedback");
-            ComfortRatingAck.Visibility = Visibility.Visible;
+            if (EyeCareTrendText is not null)
+            {
+                var s = _viewModel.GetRecentComfortSummary();
+                if (s.Count <= 0)
+                {
+                    EyeCareTrendText.Text = PickLoc("近 7 天還沒有紀錄。", "No check-ins in the last 7 days yet.");
+                }
+                else
+                {
+                    int mean = (int)Math.Round(s.MeanFms, MidpointRounding.AwayFromZero);
+                    string head = PickLoc(
+                        $"近 7 天：{s.Count} 次紀錄 · 平均不適 {mean}/20",
+                        $"Last 7 days: {s.Count} check-in(s) · average discomfort {mean}/20");
+                    string tail = "";
+                    if (s.OnVsOffDelta is double d)
+                    {
+                        int rounded = (int)Math.Round(Math.Abs(d), MidpointRounding.AwayFromZero);
+                        if (rounded == 0)
+                            tail = PickLoc(" · 開啟與關閉防護時平均相近", " · about the same with protection ON or OFF");
+                        else
+                            tail = d < 0
+                                ? PickLoc($" · 開啟防護時平均低 {rounded} 分", $" · {rounded} point(s) lower with protection ON")
+                                : PickLoc($" · 開啟防護時平均高 {rounded} 分", $" · {rounded} point(s) higher with protection ON");
+                    }
+                    EyeCareTrendText.Text = head + tail;
+                }
+            }
+
+            if (EyeCareCheckInList is not null)
+            {
+                EyeCareCheckInList.Children.Clear();
+                var rows = _viewModel.GetRecentCheckIns(8);
+                foreach (var r in rows)
+                    EyeCareCheckInList.Children.Add(BuildCheckInRow(r));
+                if (EyeCareCheckInEmpty is not null)
+                    EyeCareCheckInEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            UpdateInlinePromptState();   // dynamic prompt-vs-resting gate
         }
+        catch { /* best-effort UI refresh */ }
+    }
+
+    /// <summary>Phase-2: toggle the Eye-Care inline prompt vs its resting state — the DYNAMIC gate.
+    /// Pure UI + a clock/tier compare (NO file I/O), so it is cheap to call LIVE on every engine
+    /// StateChanged while the Eye-Care tab is open (re-surfaces the prompt the moment the motion tier
+    /// RISES past the last-logged level) as well as on tab-select / activate / post-log. Warranted =
+    /// never logged this session, the cooldown elapsed, OR the tier rose since the last log — so the
+    /// cooldown paces steady/improving states while a worsening moment re-asks immediately.</summary>
+    private void UpdateInlinePromptState()
+    {
+        bool nowWarranted;
+        if (_lastInlineLogUtc is DateTime last)
+            nowWarranted = (DateTime.UtcNow - last) >= InlineCheckInCooldown
+                           || _viewModel.VimsTier > _lastInlineLogTier;   // tier ROSE → ask again now
+        else
+            nowWarranted = true;   // never logged this session
+
+        if (nowWarranted) _inlineWarrantLatched = true;   // latch on; only a log (below) clears it
+        bool show = _inlineWarrantLatched;
+
+        if (EyeCareInlinePrompt is not null)
+            EyeCareInlinePrompt.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (EyeCareInlineResting is not null)
+        {
+            EyeCareInlineResting.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+            if (!show)
+                EyeCareInlineResting.Text = PickLoc(
+                    "已記錄，謝謝你的回饋。動態感升高或過一陣子後會再出現。",
+                    "Logged — thanks. The check-in returns if your motion level rises or after a while.");
+        }
+    }
+
+    /// <summary>One recent-check-in row: "06/16 14:30  ·  Moderate (10)  ·  protection on" (local
+    /// time; the 0-20 value bucketed to its 5-point label).</summary>
+    private System.Windows.FrameworkElement BuildCheckInRow(CheckInListEntry r)
+    {
+        string when  = r.WhenUtc.ToLocalTime().ToString("MM/dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        string level = $"{FmsLevelLabel(r.Fms)} ({r.Fms})";
+        string prot  = r.ProtectionOn ? PickLoc("防護開啟", "Protection on")
+                                      : PickLoc("防護關閉", "Protection off");
+
+        // Aligned 3-column row: time | level (value) | protection (right) — columns line up row-to-row.
+        var grid = new System.Windows.Controls.Grid { Margin = new Thickness(0, 3, 0, 3) };
+        grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(96) });
+        grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = GridLength.Auto });
+
+        var c0 = MakeRowText(when);  System.Windows.Controls.Grid.SetColumn(c0, 0);
+        var c1 = MakeRowText(level); System.Windows.Controls.Grid.SetColumn(c1, 1);
+        var c2 = MakeRowText(prot);  System.Windows.Controls.Grid.SetColumn(c2, 2);
+        grid.Children.Add(c0); grid.Children.Add(c1); grid.Children.Add(c2);
+        return grid;
+    }
+
+    private static System.Windows.Controls.TextBlock MakeRowText(string text)
+    {
+        var tb = new System.Windows.Controls.TextBlock { Text = text, FontSize = 12, TextWrapping = TextWrapping.NoWrap };
+        tb.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextSecondary");
+        return tb;
+    }
+
+    /// <summary>Bucket a 0-20 FMS value to its 5-point survey label (also covers legacy 5★ values).</summary>
+    private static string FmsLevelLabel(int fms)
+    {
+        if (fms <= 2)  return PickLoc("沒有", "None");
+        if (fms <= 7)  return PickLoc("輕微", "Slight");
+        if (fms <= 12) return PickLoc("中等", "Moderate");
+        if (fms <= 17) return PickLoc("嚴重", "Severe");
+        return PickLoc("非常嚴重", "Very severe");
     }
 
     /// <summary>Open the Event Log in its own window (UI/UX fine-tune 2026-06-07:
@@ -1154,6 +1551,11 @@ public partial class MainWindow : Window
     /// called from a non-UI thread (e.g. WgcSensingProvider.OnTick).</summary>
     private void OnViewModelStateChanged(SenseState st)
     {
+        // Phase-2: live-re-warrant the Eye-Care inline prompt on a tier change while that tab is open
+        // (cheap, no I/O) so a rising motion level re-surfaces the check-in without any navigation.
+        if (MainTabs is not null && ReferenceEquals(MainTabs.SelectedItem, EyeCareTab))
+            UpdateInlinePromptState();
+
         _persistentBar?.SetTier(st.VimsTier);
 
         // Task 5: tier-up auto-expand. When the band crosses out of

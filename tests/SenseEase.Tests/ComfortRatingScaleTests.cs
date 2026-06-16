@@ -80,4 +80,47 @@ public sealed class ComfortRatingScaleTests
         Assert.Equal("session_end", ev.Trigger);                  // explicit trigger preserved
         Assert.Equal(0, ev.Value);                                 // 5★ → FMS 0
     }
+
+    // ── D-redesign: the 0-20 slider/band capture records the FULL FMS resolution ──
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    [InlineData(20)]
+    public void BuildMeasuredFmsReport_RecordsTheRawFmsValue_AsAMeasuredSliderPro(int fms)
+    {
+        var ev = ComfortRatingScale.BuildMeasuredFmsReport(
+            fms, contextTier: 4, maskActive: true, foregroundKey: null, trigger: "");
+
+        Assert.True(ev.Measured);                                   // a PRO, never an estimate
+        Assert.Equal(SymptomEvent.Kinds.FmsReport, ev.Kind);
+        Assert.Equal(SymptomEvent.Scales.Fms20, ev.Scale);
+        Assert.Equal(SymptomEvent.Sources.Slider, ev.Source);      // the 0-20 capture, not stars
+        Assert.Equal(fms, ev.Value);                               // full 0-20 resolution preserved
+        Assert.Equal(4, ev.ContextTier);
+        Assert.Equal(SymptomEvent.InterventionStates.On, ev.InterventionState);
+        Assert.Equal(SymptomEvent.Triggers.Manual, ev.Trigger);    // blank → manual
+        Assert.False(ev.Exportable);                               // raw rows never export (D-17)
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(21)]
+    [InlineData(100)]
+    public void BuildMeasuredFmsReport_OutOfRange_Throws(int fms)
+        // Fail loud — a miswired slider must not record a garbage clinical PRO.
+        => Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ComfortRatingScale.BuildMeasuredFmsReport(fms, 1, true, null, ""));
+
+    [Fact]
+    public void BuildMeasuredFmsReport_MaskOff_PreservesTriggerAndInterventionOff()
+    {
+        var ev = ComfortRatingScale.BuildMeasuredFmsReport(
+            fms: 13, contextTier: 9, maskActive: false, foregroundKey: "category:video", trigger: "spike");
+
+        Assert.Equal(SymptomEvent.InterventionStates.Off, ev.InterventionState);
+        Assert.Equal("category:video", ev.ForegroundKey);
+        Assert.Equal("spike", ev.Trigger);                         // explicit trigger preserved
+        Assert.Equal(13, ev.Value);
+    }
 }

@@ -6,10 +6,15 @@
         AllowsTransparency="True"
         Background="Transparent"
         Topmost="True"
-        ShowInTaskbar="False"
         ResizeMode="NoResize"
         WindowState="Maximized"
         IsHitTestVisible="False">
+    <!-- E fix (2026-06-15): ShowInTaskbar="False" was REMOVED. With it set, WPF creates a hidden
+         owner HWND that does NOT receive WS_EX_TOPMOST — a documented cause of intermittent z-order
+         loss (the overlay dropping behind a fullscreen/borderless app). Taskbar + Alt-Tab absence
+         is instead guaranteed by WS_EX_TOOLWINDOW (with WS_EX_APPWINDOW cleared), applied in
+         OnSourceInitialized via ClickThrough.EnableSystemUiClickThrough BEFORE the window is shown,
+         so dropping the attribute does NOT reintroduce a taskbar button. UVHS-visible (z-order). -->
     <!-- Beta A2 HYBRID (UVHS round 2, 2026-06-11): content split by spatial frequency.
          A 1.2 px world-locked hairline grid CANNOT survive rasterization into the
          quarter-res field bitmap (each line becomes a fat bilinear-blurred band that

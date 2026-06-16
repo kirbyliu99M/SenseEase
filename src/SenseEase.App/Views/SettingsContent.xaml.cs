@@ -225,6 +225,11 @@ public partial class SettingsContent : UserControl
             TogglePerAppAttribution.IsChecked =
                 UserPreferences.Current.PerAppAttributionEnabled;
 
+            // Phase-1: hydrate the proactive contextual check-in opt-in. Checked == Enabled; both
+            // Unset (not yet asked) and Declined render unchecked. Guarded by _wiring.
+            ToggleProactiveCheckIns.IsChecked =
+                UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Enabled;
+
             // UX-08: show the Restart-needed chip only on a genuine pending change
             // (toggle ≠ the value the app started with), not on every Settings open.
             UpdateRestartChip();
@@ -281,6 +286,18 @@ public partial class SettingsContent : UserControl
     {
         if (_wiring) return;
         UserPreferences.Current.AutoExpandNotifications = ToggleAuto.IsChecked == true;
+        UserPreferences.Current.Save();
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnToggleProactiveCheckInsChanged(object sender, RoutedEventArgs e)
+    {
+        if (_wiring) return;
+        // Settings is the manual control: checked == Enabled, unchecked == Declined (an explicit
+        // "no", which also stops the first-run consent toast from reappearing).
+        UserPreferences.Current.ProactiveCheckInsConsent = ToggleProactiveCheckIns.IsChecked == true
+            ? ProactiveCheckInConsent.Enabled
+            : ProactiveCheckInConsent.Declined;
         UserPreferences.Current.Save();
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -380,6 +397,47 @@ public partial class SettingsContent : UserControl
                 LocalizationManager.Current.Pick(
                     "已匯出去識別化的健康報告（僅數字與類別）。",
                     "Exported a de-identified health report (numbers and categories only)."),
+                DialogKind.Info);
+        }
+        catch
+        {
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "匯出失敗。請再試一次，或改存到其他位置（例如桌面）。",
+                    "Export failed. Please try again, or save to another location (such as your Desktop)."),
+                DialogKind.Error);
+        }
+    }
+
+    /// <summary>Export the RAW per-check-in data as CSV for the user's own long-term analysis
+    /// (spreadsheet / pandas / R). Unlike the de-identified clinician report, this keeps the
+    /// per-event UTC timestamp + coarse foreground key — it is the user's OWN on-device data. The
+    /// CSV rendering lives in <see cref="SymptomEventCsvExporter"/>; this handler runs the Save
+    /// dialog and surfaces success/failure (user-initiated → reported, not swallowed).</summary>
+    private void OnExportSymptomCsvClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title        = LocalizationManager.Current.Pick("匯出原始紀錄 (CSV)", "Export raw check-in data (CSV)"),
+            Filter       = "CSV (*.csv)|*.csv",
+            FileName     = $"senseease-checkins-{DateTime.UtcNow:yyyyMMdd}.csv",
+            AddExtension = true,
+            DefaultExt   = ".csv",
+        };
+        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
+
+        try
+        {
+            var events = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
+            string csv = SymptomEventCsvExporter.ToCsv(events);
+            // UTF-8 WITH BOM so Excel opens the CJK / unicode columns without mojibake.
+            System.IO.File.WriteAllText(dlg.FileName, csv, new System.Text.UTF8Encoding(true));
+            ThemedDialog.Notify(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    $"已匯出 {events.Count} 筆原始紀錄為 CSV。",
+                    $"Exported {events.Count} raw check-in row(s) as CSV."),
                 DialogKind.Info);
         }
         catch
@@ -709,11 +767,11 @@ public partial class SettingsContent : UserControl
                 Window.GetWindow(this),
                 LocalizationManager.Current.Pick(
                     "確定要清除 SenseEase 為你建立的所有資料並重設嗎？\n\n" +
-                    "將刪除：行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄、舊版校正紀錄。\n" +
+                    "將刪除：行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄、感受紀錄、舊版校正紀錄。\n" +
                     "會保留：漸進適應進度與偏好設定。\n\n此動作無法復原。",
                     "Clear all the data SenseEase built about you and reset?\n\n" +
                     "Will delete: behaviour log, analysis index, longitudinal observations, " +
-                    "model diagnostic trace, chat transcript, legacy calibration history.\n" +
+                    "model diagnostic trace, chat transcript, check-in history, legacy calibration history.\n" +
                     "Will keep: your graded-exposure progress and preferences.\n\n" +
                     "This cannot be undone."),
                 DialogKind.Warning))

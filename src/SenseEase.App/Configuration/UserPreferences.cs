@@ -28,6 +28,17 @@ public enum AppThemeMode
     Dark,
 }
 
+/// <summary>Proactive-check-in consent tri-state (Phase-1 event-driven feedback, 2026-06-16).
+/// <list type="bullet">
+///   <item><see cref="Unset"/> — never asked: the first eligible spike shows a one-time opt-in
+///         toast, NOT a check-in, until the user chooses.</item>
+///   <item><see cref="Enabled"/> — the user opted in; contextual check-ins may show (governed by
+///         the cadence rules).</item>
+///   <item><see cref="Declined"/> — the user said no; never prompt.</item>
+/// </list>
+/// String-serialised for forward-compat; unknown values fall back to <see cref="Unset"/>.</summary>
+public enum ProactiveCheckInConsent { Unset, Enabled, Declined }
+
 /// <summary>
 /// Pop-up sprint Task 5: persisted user preferences. Lives at
 /// %LocalAppData%/SenseEase/user-preferences.json. Atomic write via the
@@ -240,6 +251,31 @@ public sealed class UserPreferences
     /// field absent (defaults to OFF), so no version bump.</summary>
     [JsonPropertyName("per_app_attribution_enabled")]
     public bool PerAppAttributionEnabled { get; set; } = false;
+
+    // ── Proactive contextual check-ins (Phase 1 event-driven FMS, 2026-06-16) ──
+
+    /// <summary>Consent for proactive, event-triggered discomfort check-ins — the contextual
+    /// "lots of motion just now — how are you feeling?" prompt surfaced after a pressure spike.
+    /// Tri-state, string-serialised like <see cref="ThemeModeRaw"/> for tolerant forward-compat.
+    /// Default "Unset" — STRICTLY opt-in: the first eligible spike shows a one-time opt-in toast,
+    /// never a check-in, until the user chooses. Rolls forward like every other additive field —
+    /// old v=1..3 files load cleanly with the field absent (defaults to Unset), so no version bump.</summary>
+    [JsonPropertyName("proactive_checkins_consent")]
+    public string ProactiveCheckInsConsentRaw { get; set; } = nameof(ProactiveCheckInConsent.Unset);
+
+    /// <summary>Tolerant typed view over <see cref="ProactiveCheckInsConsentRaw"/> (mirrors the
+    /// <see cref="ThemeMode"/> pattern). Unknown/malformed strings degrade to
+    /// <see cref="ProactiveCheckInConsent.Unset"/> rather than throwing inside deserialisation;
+    /// the setter writes the canonical enum name back so the persisted file stays
+    /// "Unset"/"Enabled"/"Declined".</summary>
+    [JsonIgnore]
+    public ProactiveCheckInConsent ProactiveCheckInsConsent
+    {
+        get => Enum.TryParse<ProactiveCheckInConsent>(ProactiveCheckInsConsentRaw, ignoreCase: true, out var m)
+            ? m
+            : ProactiveCheckInConsent.Unset;
+        set => ProactiveCheckInsConsentRaw = value.ToString();
+    }
 
     // ── Notification HUD card position (2026-06-07) ─────────────────────────
 

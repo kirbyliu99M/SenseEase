@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -16,6 +17,7 @@ using SenseEase.Infrastructure.Mock;
 using SenseEase.Infrastructure.Real;
 using SenseEase.Infrastructure.Storage;
 using System.IO;
+using System.Globalization;
 
 namespace SenseEase.App.ViewModels;
 
@@ -24,6 +26,17 @@ namespace SenseEase.App.ViewModels;
 /// channel — this is the AdaptiveFit selector's own queued suggestion, surfaced ONLY behind
 /// a user-initiated card-open. <c>TargetLevel</c> drives the canned non-medical card copy.</summary>
 public readonly record struct PendingSetMoveVm(int Band, int Shape, int TargetLevel, DateTime ExpiresAtUtc);
+
+/// <summary>D-redesign: a small read-only roll-up of the recent MEASURED FMS self-reports for the
+/// in-app comfort-trend glance. <c>Count</c> = 0 means "no data in the window" (the <c>default</c>
+/// sentinel). <c>OnVsOffDelta</c> is the within-subject protection ON-minus-OFF mean discomfort
+/// (negative ⇒ lower discomfort with protection ON); null when one of the two states has no
+/// samples yet. A PERSONAL trend, never a population promise (the honest D-18 replacement for "70%").</summary>
+internal readonly record struct ComfortTrendSummary(int Count, double MeanFms, double? OnVsOffDelta);
+
+/// <summary>D-redesign Phase-2: one recent MEASURED FMS check-in for the Eye-Care "my check-ins"
+/// list. Raw fields only — the code-behind localizes the level label and formats the time.</summary>
+internal readonly record struct CheckInListEntry(DateTime WhenUtc, int Fms, bool ProtectionOn, string? ForegroundKey);
 
 /// <summary>
 /// Dashboard view model. Wires the mock Sensing ??Inference ??Feedback loop and
@@ -610,6 +623,90 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SymptomRecorder.Record(ev);
         }
         catch { /* a comfort rating must never propagate into the UI click handler */ }
+    }
+
+    /// <summary>D-redesign: record a MEASURED 0-20 FMS self-report from the console capture (the
+    /// 0-20 slider / one-tap band) as a patient-reported data-point. Same live-context stamping
+    /// (tier + protection ON/OFF + coarse foreground key) and same best-effort contract as
+    /// <see cref="RecordComfortRating"/>; <paramref name="fms"/> is 0-20 (range-validated in
+    /// <see cref="ComfortRatingScale.BuildMeasuredFmsReport"/>). A rating must never crash the
+    /// console — a bad value/throw is swallowed here exactly like the 5★ path.</summary>
+    internal void RecordFmsRating(int fms, string trigger = "")
+    {
+        try
+        {
+            var ev = ComfortRatingScale.BuildMeasuredFmsReport(
+                fms, VimsTier, MaskActive,
+                WindowsActivityFilter.Instance.CurrentForegroundKey, trigger);
+            SymptomRecorder.Record(ev);
+        }
+        catch { /* a comfort rating must never propagate into the UI click handler */ }
+    }
+
+    /// <summary>D-redesign: a best-effort read-only roll-up of the recent MEASURED FMS self-reports
+    /// (last <paramref name="days"/> days, default 7) for the in-app comfort-trend glance — the
+    /// count, the mean discomfort, and the within-subject protection ON-vs-OFF mean delta. Reads
+    /// symptom_log.jsonl off the same path the recorder writes; filters to measured FMS rows only,
+    /// so a conversation-derived estimate (D-21) never contaminates the user-facing PERSONAL trend.
+    /// Never throws — any read/parse failure yields the empty <see cref="ComfortTrendSummary"/>.</summary>
+    internal ComfortTrendSummary GetRecentComfortSummary(int days = 7)
+    {
+        try
+        {
+            var recent = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadRecent(256);
+            DateTime cutoff = DateTime.UtcNow.AddDays(-Math.Abs(days));
+
+            int count = 0; long sum = 0;
+            int onCount = 0; long onSum = 0;
+            int offCount = 0; long offSum = 0;
+
+            foreach (var e in recent)
+            {
+                if (!e.Measured || e.Scale != SymptomEvent.Scales.Fms20) continue;
+                if (!DateTimeOffset.TryParse(e.TsUtc, CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out DateTimeOffset dto)) continue;
+                if (dto.UtcDateTime < cutoff) continue;
+
+                count++; sum += e.Value;
+                if (e.InterventionState == SymptomEvent.InterventionStates.On)       { onCount++;  onSum  += e.Value; }
+                else if (e.InterventionState == SymptomEvent.InterventionStates.Off) { offCount++; offSum += e.Value; }
+            }
+
+            if (count == 0) return default;
+            double mean = (double)sum / count;
+            double? delta = (onCount > 0 && offCount > 0)
+                ? (double)onSum / onCount - (double)offSum / offCount
+                : (double?)null;
+            return new ComfortTrendSummary(count, mean, delta);
+        }
+        catch { return default; }
+    }
+
+    /// <summary>D-redesign Phase-2: the most-recent MEASURED FMS check-ins (newest-first, up to
+    /// <paramref name="count"/>) for the Eye-Care "my check-ins" list. Best-effort read of
+    /// symptom_log.jsonl; never throws (returns empty on any failure).</summary>
+    internal IReadOnlyList<CheckInListEntry> GetRecentCheckIns(int count = 8)
+    {
+        var list = new List<CheckInListEntry>();
+        try
+        {
+            if (count <= 0) return list;
+            var recent = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadRecent(256);
+            // recent is oldest-first; walk backwards to take the newest `count` measured FMS rows.
+            for (int i = recent.Count - 1; i >= 0 && list.Count < count; i--)
+            {
+                var e = recent[i];
+                if (!e.Measured || e.Scale != SymptomEvent.Scales.Fms20) continue;
+                DateTime when = DateTimeOffset.TryParse(e.TsUtc, CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out DateTimeOffset dto) ? dto.UtcDateTime : DateTime.UtcNow;
+                list.Add(new CheckInListEntry(
+                    when, e.Value,
+                    e.InterventionState == SymptomEvent.InterventionStates.On,
+                    e.ForegroundKey));
+            }
+        }
+        catch { /* best-effort */ }
+        return list;
     }
 
     // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────

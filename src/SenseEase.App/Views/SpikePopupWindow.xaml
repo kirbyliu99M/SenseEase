@@ -9,6 +9,7 @@
         Background="Transparent"
         Topmost="True"
         ShowInTaskbar="False"
+        ShowActivated="False"
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
         WindowStartupLocation="Manual">
@@ -30,6 +31,7 @@
         <StackPanel>
             <DockPanel LastChildFill="False" Margin="0,0,0,10">
                 <TextBlock DockPanel.Dock="Left"
+                           x:Name="HeaderText"
                            Text="● VIMS spike"
                            Foreground="{DynamicResource ComfortHighText}"
                            FontWeight="Bold" FontSize="12"/>
@@ -97,7 +99,8 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="{loc:T Zh='點選選項後將自動寫入聊天助理', En='Selected answer is sent to AI Assistant.'}"
+            <TextBlock x:Name="FooterText"
+                       Text="{loc:T Zh='點選選項後將自動寫入聊天助理', En='Selected answer is sent to AI Assistant.'}"
                        FontSize="12" Foreground="{DynamicResource TextSecondary}"
                        TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>

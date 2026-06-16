@@ -42,8 +42,9 @@ public sealed class SymptomEvent
     /// <summary>The discomfort value on <see cref="Scale"/> (FMS: 0 = none … 20 = severe).</summary>
     public int Value { get; set; }
 
-    /// <summary>Where the value came from: see <see cref="Sources"/> ("stars" = the 5★ console
-    /// rating mapped to FMS 0-20; "nl_daily" = the daily conversation-derived estimate).</summary>
+    /// <summary>Where the value came from: see <see cref="Sources"/> ("slider" = the 0-20 FMS
+    /// console rating; "stars" = the legacy 5★ rating mapped to FMS 0-20; "nl_daily" = the daily
+    /// conversation-derived estimate).</summary>
     public string Source { get; set; } = Sources.Stars;
 
     /// <summary>The engine VIMS tier (1-12) in effect when the data-point was captured — the
@@ -66,7 +67,9 @@ public sealed class SymptomEvent
     // ── Value catalogs (string-valued for forward-compatible JSONL) ───────────
     public static class Kinds { public const string FmsReport = "fms_report"; public const string FmsEstimate = "fms_estimate"; }
     public static class Scales { public const string Fms20 = "fms20"; }
-    public static class Sources { public const string Stars = "stars"; public const string NlDaily = "nl_daily"; public const string Manual = "manual"; }
+    // "stars" is the legacy 5★ console widget (kept for back-compat reads of older logs + the
+    // pinned ComfortRatingScaleTests); "slider" is the current 0-20 FMS console capture (D-redesign).
+    public static class Sources { public const string Stars = "stars"; public const string NlDaily = "nl_daily"; public const string Slider = "slider"; }
     public static class InterventionStates { public const string On = "on"; public const string Off = "off"; public const string Baseline = "baseline"; }
     public static class Triggers { public const string Spike = "spike"; public const string Idle = "idle"; public const string SessionEnd = "session_end"; public const string Manual = "manual"; }
 }

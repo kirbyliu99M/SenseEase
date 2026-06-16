@@ -19,11 +19,16 @@ public partial class SpikePopupWindow : Window
     /// <summary>Raised when the user taps an option card. String is the option label.</summary>
     public event Action<string>? OptionSelected;
 
-    public SpikePopupWindow(string question, string[] options)
+    public SpikePopupWindow(string question, string[] options,
+        string? headerText = null, string? footerText = null)
     {
         InitializeComponent();
         QuestionText.Text = question ?? string.Empty;
         OptionList.ItemsSource = options ?? Array.Empty<string>();
+        // Phase-1 reuse: the contextual FMS check-in supplies its own header/footer copy.
+        // Both default to null → keep the XAML's legacy VIMS-spike strings (the chatbot path).
+        if (headerText is not null) HeaderText.Text = headerText;
+        if (footerText is not null) FooterText.Text = footerText;
         Loaded += OnLoaded;
     }
 

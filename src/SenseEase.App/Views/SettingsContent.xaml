@@ -619,6 +619,17 @@
                                    FontSize="12" Foreground="{DynamicResource TextTertiary}"
                                    TextWrapping="Wrap" Margin="0,6,0,0"/>
 
+                        <!-- Phase-1 (2026-06-16): opt-in for the event-driven contextual check-in. -->
+                        <CheckBox x:Name="ToggleProactiveCheckIns"
+                                  Content="{loc:T Zh='動態較多時順手問我的感受（事件提醒）', En='Check in on how I feel after intense motion (event prompts)'}"
+                                  Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                                  Margin="0,14,0,0"
+                                  Checked="OnToggleProactiveCheckInsChanged"
+                                  Unchecked="OnToggleProactiveCheckInsChanged"/>
+                        <TextBlock Text="{loc:T Zh='開啟後，偵測到大量畫面動態時會出現一個可一鍵回應的小提醒，詢問你的不適程度。完全選用、可隨時關閉，並有頻率限制以避免打擾；資料僅存於本機。', En='When on, a one-tap prompt appears after a burst of on-screen motion, asking how you feel. Fully optional, dismissible, rate-limited so it never nags, and stored on this device only.'}"
+                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
+
                         <!-- Beta-1 D-17 (2026-06-14): de-identified clinical export. Builds a
                              numbers-and-categories-only aggregate (measured vs estimated kept
                              separate) to share with a clinician — never a raw app name, an
@@ -636,6 +647,27 @@
                                 HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
                                 Cursor="Hand" Click="OnExportClinicalClicked"
                                 ToolTip="{loc:T Zh='把去識別化的數值摘要存成 JSON 檔。', En='Save a de-identified numeric summary as a JSON file.'}"/>
+                        <!-- D-redesign: not-a-medical-device disclaimer on the health export.
+                             Wording is checked against the §6 BannedPhraseLint medical-claim
+                             vocabulary (describes the tool, not the user's clinical state). -->
+                        <TextBlock Text="{loc:T Zh='SenseEase 為健康輔助工具，並非醫療器材。這些自評數值僅供您與醫療人員參考，並非臨床評估。', En='SenseEase is a wellness tool, not a medical device. These self-reported values are for reference by you and your clinician only — not a clinical assessment.'}"
+                                   FontSize="11" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
+                                   TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+                        <!-- Raw per-check-in CSV export for the user's own long-term analysis
+                             (distinct from the de-identified clinician report above). -->
+                        <Border Background="{DynamicResource Separator}" Height="1" Margin="0,18,0,14"/>
+                        <TextBlock Text="{loc:T Zh='匯出原始紀錄（CSV）', En='Export raw data (CSV)'}"
+                                   Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock Text="{loc:T Zh='把你的每一筆感受紀錄（含時間與當時情境）匯出成 CSV，方便長期用試算表或統計工具分析。這是你自己的資料，僅在你主動匯出時才離開本機。', En='Export every one of your check-ins (with its timestamp and context) as a CSV for long-term analysis in a spreadsheet or stats tool. This is your own data; it only leaves this device when you choose to export it.'}"
+                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                                   TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <Button x:Name="ExportSymptomCsvButton"
+                                Content="{loc:T Zh='匯出原始紀錄…', En='Export raw data…'}"
+                                HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
+                                Cursor="Hand" Click="OnExportSymptomCsvClicked"
+                                ToolTip="{loc:T Zh='把每一筆感受紀錄存成 CSV 檔。', En='Save every check-in as a CSV file.'}"/>
 
                         <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
                              "regret" toggle + the Reset that moved here from the console.

@@ -138,13 +138,9 @@
              EventLogWindow.xaml). The DesignLint ratchet counts inline hex only, so no
              ratchet change is needed. -->
 
-        <Style TargetType="GridViewColumnHeader">
-            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
+        <!-- C cleanup (2026-06-15): the orphaned implicit GridViewColumnHeader style was deleted
+             here — MainWindow has no GridView/ListView (the Event Log moved to EventLogWindow,
+             which carries its own copy of this style inline). It styled nothing. -->
 
         <!-- C2 (audit): shared keyboard-focus ring. Implicit styles reach every
              unstyled focusable control; the explicit button styles carry it via
@@ -161,9 +157,45 @@
             <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
         </Style>
 
+        <!-- Phase-1 rev: formal 5-point survey button for the in-console check-in overlay (and the
+             2-option consent card). Instantiated in code-behind; theme-consistent (SurfaceMuted +
+             Separator hairline, hover → Separator fill, themed focus ring). Labels only, no emoji. -->
+        <Style x:Key="CheckInOptionButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="6,8"/>
+            <Setter Property="Margin" Value="3,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource Radius.sm}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Separator}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         </ResourceDictionary>
     </Window.Resources>
 
+    <!-- Phase-1 rev: root wrapped in a Grid so the in-console check-in overlay (CheckInOverlayHost,
+         at the end of this Grid) can render ON TOP of the dashboard content without a separate window. -->
+    <Grid>
     <DockPanel>
 
         <!-- ══════════ UX-13: FIRST-RUN WELCOME STRIP ══════════
@@ -420,64 +452,12 @@
                      user request). SelectProfileCommand / CurrentProfile stay on
                      MainViewModel (unused by the dashboard UI now). -->
 
-                <!-- ── D-18/D-19: comfort rating (measured PRO) ──────────────────
-                     Teams-post-call style on the MAIN CONSOLE. Each star is
-                     symptom-anchored (D-19, anchors in the tooltips); a click
-                     records a MEASURED FMS data-point stamped with the live tier +
-                     protection ON/OFF state (OnComfortStarClicked →
-                     MainViewModel.RecordComfortRating). This per-user measured
-                     comfort signal is the honest replacement for the retired
-                     population "70%" claim (D-18). -->
-                <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
-                        BorderBrush="{DynamicResource Separator}" BorderThickness="1"
-                        Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='現在的舒適度如何？', En='How comfortable do you feel right now?'}"/>
-                        <TextBlock Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap" Margin="0,4,0,0"
-                                   Text="{loc:T Zh='點一下星星紀錄此刻的感受 — 用來了解防護在你身上的實際效果（資料僅存於本機）。', En='Tap a star to log how you feel — it shows how protection affects your comfort over time (stored on this device only).'}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                            <StackPanel.Resources>
-                                <Style TargetType="Button">
-                                    <EventSetter Event="Click" Handler="OnComfortStarClicked"/>
-                                    <Setter Property="Background" Value="Transparent"/>
-                                    <Setter Property="BorderThickness" Value="0"/>
-                                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-                                    <Setter Property="FontSize" Value="30"/>
-                                    <Setter Property="Padding" Value="6,2"/>
-                                    <Setter Property="Cursor" Value="Hand"/>
-                                    <Setter Property="Content" Value="★"/>
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center"
-                                                                      VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </StackPanel.Resources>
-                            <Button Tag="1" AutomationProperties.Name="{loc:T Zh='1 顆星', En='1 star'}"
-                                    ToolTip="{loc:T Zh='1★ · 很不舒服', En='1 star · Very uncomfortable'}"/>
-                            <Button Tag="2" AutomationProperties.Name="{loc:T Zh='2 顆星', En='2 stars'}"
-                                    ToolTip="{loc:T Zh='2★ · 不太舒服', En='2 stars · Uncomfortable'}"/>
-                            <Button Tag="3" AutomationProperties.Name="{loc:T Zh='3 顆星', En='3 stars'}"
-                                    ToolTip="{loc:T Zh='3★ · 普通', En='3 stars · Okay'}"/>
-                            <Button Tag="4" AutomationProperties.Name="{loc:T Zh='4 顆星', En='4 stars'}"
-                                    ToolTip="{loc:T Zh='4★ · 舒適', En='4 stars · Comfortable'}"/>
-                            <Button Tag="5" AutomationProperties.Name="{loc:T Zh='5 顆星', En='5 stars'}"
-                                    ToolTip="{loc:T Zh='5★ · 非常舒適', En='5 stars · Very comfortable'}"/>
-                        </StackPanel>
-                        <TextBlock x:Name="ComfortRatingAck" Style="{StaticResource Type.Caption}"
-                                   Foreground="{DynamicResource ComfortSteadyText}" Margin="0,8,0,0"
-                                   TextWrapping="Wrap" Visibility="Collapsed"/>
-                    </StackPanel>
-                </Border>
+                <!-- Phase-1 rev (2026-06-16): the persistent FMS card was REMOVED here. Feedback is
+                     now solicited as an in-console notification/survey overlay (CheckInOverlayHost,
+                     a Panel.ZIndex layer over the whole console) that appears on a motion spike —
+                     never a docked dashboard section, never a separate floating window. The weekly
+                     trend relocates to the Phase-2 notification feed. -->
+                <!-- (no docked feedback card) -->
 
                 <!-- ── Advanced (demoted raw telemetry — bindings byte-identical) ── -->
                 <Expander Header="{loc:T Zh='進階數據', En='Advanced'}" IsExpanded="False" Margin="0,0,0,16"
@@ -716,86 +696,66 @@
             </TabItem>
 
             <!-- ── Tab 2: Eye-Protection Statistics ── -->
-            <TabItem Header="{loc:T Zh='護眼', En='Eye Care'}">
+            <TabItem x:Name="EyeCareTab" Header="{loc:T Zh='護眼', En='Eye Care'}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}">
                     <StackPanel Margin="24,20,24,24">
 
-                        <!-- H4 (audit): D1 comfort hero — leads the Eye-Protection
-                             tab with the same calm, plain-language status as the
-                             Dashboard instead of a raw-telemetry dump. Same
-                             read-only converters + Comfort* tokens. -->
-                        <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
-                                BorderBrush="{DynamicResource Separator}" BorderThickness="1"
-                                Padding="{StaticResource Pad.CardAll}" Effect="{StaticResource Elev.2}"
-                                Margin="0,0,0,16"
-                                AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource TierToHeadline}, Mode=OneWay}">
-                            <StackPanel>
-                                <!-- The 5級「動態感」status is the ONLY user-facing status (live
-                                     on tier + language); self-contained, no separate caption. -->
-                                <!-- The 5級「動態感」status (title) + the auto Driver/Passenger
-                                     mode chip on ONE row; the redundant comfort pill that
-                                     duplicated the title is removed, mode chip up by the title. -->
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Style="{StaticResource Type.Title}" VerticalAlignment="Center">
-                                        <TextBlock.Text>
-                                            <MultiBinding Converter="{StaticResource TierToFeelLabel}">
-                                                <Binding Path="VimsTier"/>
-                                                <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                                            </MultiBinding>
-                                        </TextBlock.Text>
-                                    </TextBlock>
-                                    <!-- UX-06: calm plain protection label, live on language
-                                         (same converter as the Dashboard hero). -->
-                                    <Border CornerRadius="{StaticResource Radius.pill}" Padding="12,5" Margin="12,0,0,0"
-                                            VerticalAlignment="Center"
-                                            Background="{DynamicResource SurfaceMuted}">
-                                        <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondary}">
-                                            <TextBlock.Text>
-                                                <MultiBinding Converter="{StaticResource ModeToProtectionLabel}">
-                                                    <Binding Path="Mode"/>
-                                                    <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                                                </MultiBinding>
-                                            </TextBlock.Text>
-                                        </TextBlock>
-                                    </Border>
-                                </StackPanel>
-                                <!-- ComfortMeter (2026-06-09): fill ← live motion TIER (TierToFillPercent),
-                                     same VimsTier as the title label + overlay (see Dashboard hero). -->
-                                <ProgressBar Value="{Binding VimsTier, Converter={StaticResource TierToFillPercent}, Mode=OneWay}" Maximum="100"
-                                             Height="6" Margin="0,16,0,0" BorderThickness="0"
-                                             Background="{DynamicResource SurfaceMuted}"
-                                             AutomationProperties.Name="{loc:T Zh='舒適度', En='Comfort level'}">
-                                    <ProgressBar.Style>
-                                        <Style TargetType="ProgressBar">
-                                            <Setter Property="Foreground" Value="{DynamicResource ComfortSteady}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="Rising">
-                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortRising}"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding VimsTier, Converter={StaticResource TierToComfortBand}}" Value="High">
-                                                    <Setter Property="Foreground" Value="{DynamicResource ComfortHigh}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </ProgressBar.Style>
-                                </ProgressBar>
+                        <!-- Phase-2 (2026-06-16): the comfort-hero card was REMOVED here — it
+                             duplicated the Dashboard tab's hero (Kirby). The Eye-Care tab now leads
+                             with the check-in card below. -->
 
-                                <!-- ComfortMeter legend (a11y): persistent caption +
-                                     low/high endpoint hints so the meter reads without
-                                     colour alone. Binding/Max above are untouched. -->
-                                <Grid Margin="0,4,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Type.Caption}"
-                                               Foreground="{DynamicResource TextTertiary}"
-                                               Text="{loc:T Zh='低', En='Low'}"/>
-                                    <TextBlock Grid.Column="2" Style="{StaticResource Type.Caption}"
-                                               Foreground="{DynamicResource TextTertiary}"
-                                               Text="{loc:T Zh='高', En='High'}"/>
-                                </Grid>
+                        <!-- Phase-2 (2026-06-16): "my check-ins" — the in-app review home for the
+                             event-driven FMS feedback, organized into the Eye Care tab (the "選單").
+                             Trend + recent check-ins + a manual check-in. NOT a floating window and
+                             NOT an always-on dashboard solicitation — you navigate here to review. -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="{loc:T Zh='我的感受紀錄', En='My check-ins'}"
+                                           Style="{StaticResource SectionTitle}"/>
+                                <TextBlock x:Name="EyeCareTrendText" Style="{StaticResource CardLabel}"
+                                           TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+                                <!-- DYNAMIC self-report: the question + 5-point options show ONLY when a
+                                     check-in is warranted (first time / 30-min cooldown elapsed / the
+                                     motion tier changed since the last log = "update needed"). After a
+                                     tap the card RESTS (options hidden) to prevent surge/duplicate input
+                                     + confusion — paced EMA-style. Toggled in RefreshEyeCareCheckIns. -->
+                                <StackPanel x:Name="EyeCareInlinePrompt">
+                                    <TextBlock Text="{loc:T Zh='你現在的感受如何？', En='How are you feeling right now?'}"
+                                               Style="{StaticResource CardLabel}" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <UniformGrid Rows="1">
+                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="0"  Click="OnEyeCareInlineBandClicked"
+                                                Content="{loc:T Zh='沒有', En='None'}"        AutomationProperties.Name="{loc:T Zh='沒有不適', En='No discomfort'}"/>
+                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="5"  Click="OnEyeCareInlineBandClicked"
+                                                Content="{loc:T Zh='輕微', En='Slight'}"      AutomationProperties.Name="{loc:T Zh='輕微不適', En='Slight discomfort'}"/>
+                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="10" Click="OnEyeCareInlineBandClicked"
+                                                Content="{loc:T Zh='中等', En='Moderate'}"    AutomationProperties.Name="{loc:T Zh='中等不適', En='Moderate discomfort'}"/>
+                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="15" Click="OnEyeCareInlineBandClicked"
+                                                Content="{loc:T Zh='嚴重', En='Severe'}"      AutomationProperties.Name="{loc:T Zh='嚴重不適', En='Severe discomfort'}"/>
+                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="20" Click="OnEyeCareInlineBandClicked"
+                                                Content="{loc:T Zh='非常嚴重', En='Very severe'}" AutomationProperties.Name="{loc:T Zh='非常嚴重不適', En='Very severe discomfort'}"/>
+                                    </UniformGrid>
+                                </StackPanel>
+                                <!-- Resting state (text set in code-behind): shown while a fresh check-in
+                                     isn't warranted, so the user can't surge-tap. -->
+                                <TextBlock x:Name="EyeCareInlineResting" Visibility="Collapsed"
+                                           Style="{StaticResource CardLabel}" Foreground="{DynamicResource TextTertiary}"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="{loc:T Zh='健康自我紀錄 — 並非醫療診斷。', En='A wellness check-in — not a medical assessment.'}"
+                                           Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
+                                           Margin="0,8,0,0" TextWrapping="Wrap"/>
+
+                                <Border Background="{DynamicResource Separator}" Height="1" Margin="0,16,0,12"/>
+                                <TextBlock Text="{loc:T Zh='最近的紀錄', En='Recent'}"
+                                           Style="{StaticResource CardLabel}" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <StackPanel x:Name="EyeCareCheckInList"/>
+                                <TextBlock x:Name="EyeCareCheckInEmpty" Visibility="Collapsed"
+                                           Style="{StaticResource CardLabel}" Foreground="{DynamicResource TextTertiary}"
+                                           TextWrapping="Wrap"
+                                           Text="{loc:T Zh='還沒有任何紀錄。出現「動態提醒」時，或在上方選一個程度即可記錄。', En='No check-ins yet. Log one when a motion check-in appears, or pick a level above.'}"/>
+                                <TextBlock Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
+                                           Margin="0,12,0,0" TextWrapping="Wrap"
+                                           Text="{loc:T Zh='想做長期分析？可在「設定」把原始紀錄匯出成 CSV。', En='For long-term analysis, export your raw data as CSV in Settings.'}"/>
                             </StackPanel>
                         </Border>
 
@@ -1089,4 +1049,42 @@
         </TabControl>
 
     </DockPanel>
+
+        <!-- ══════════ CHECK-IN OVERLAY — proactive prompt (Teams-style) ══════════
+             A big, CENTERED in-window prompt (Microsoft-Teams "rate your experience" style) shown
+             OVER the console after a real motion spike — NEVER a separate floating window, and only
+             while the console is the foreground app (a background spike is deferred to the next
+             activation). A light scrim dims + focuses the console so it reads as a deliberate prompt,
+             distinct from the small notification bar (which it used to be confused with). A click on
+             the scrim OR the ✕ dismisses. The manual "log anytime" path is the INLINE selector in the
+             Eye-Care card, NOT this overlay. Opacity-fade only (gated on ReducedMotion — motion is a
+             nausea trigger); header / question / 5-point options / footer set in code-behind. -->
+        <Grid x:Name="CheckInOverlayHost" Panel.ZIndex="100" Visibility="Collapsed">
+            <Rectangle Fill="Black" Opacity="0.34" MouseLeftButtonDown="OnCheckInScrimClick"
+                       AutomationProperties.Name="{loc:T Zh='關閉', En='Dismiss'}"/>
+            <Border Background="{DynamicResource Surface}" CornerRadius="{StaticResource Radius.md}"
+                    BorderBrush="{DynamicResource Separator}" BorderThickness="1"
+                    Effect="{StaticResource Elev.2}" Padding="28"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MaxWidth="560" MinWidth="440">
+                <StackPanel>
+                    <DockPanel LastChildFill="False" Margin="0,0,0,14">
+                        <TextBlock x:Name="CheckInOverlayHeader" DockPanel.Dock="Left"
+                                   FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Accent}"/>
+                        <Button DockPanel.Dock="Right" Content="✕" Width="28" Height="28" Padding="0"
+                                Background="Transparent" BorderThickness="0" Cursor="Hand"
+                                Foreground="{DynamicResource TextSecondary}" FontSize="15"
+                                Click="OnCheckInOverlayDismiss"
+                                AutomationProperties.Name="{loc:T Zh='關閉', En='Dismiss'}"/>
+                    </DockPanel>
+                    <TextBlock x:Name="CheckInOverlayQuestion" TextWrapping="Wrap" FontSize="16"
+                               Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,18"/>
+                    <UniformGrid x:Name="CheckInOverlayOptions" Rows="1"/>
+                    <TextBlock x:Name="CheckInOverlayFooter" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextTertiary}" Margin="0,16,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
 </Window>

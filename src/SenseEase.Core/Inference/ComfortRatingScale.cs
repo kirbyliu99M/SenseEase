@@ -54,13 +54,39 @@ public static class ComfortRatingScale
     /// is left blank for the store to stamp at append time.</summary>
     public static SymptomEvent BuildMeasuredReport(
         int stars, int contextTier, bool maskActive, string? foregroundKey, string trigger)
+        => BuildMeasured(StarsToFms(stars), SymptomEvent.Sources.Stars,
+                         contextTier, maskActive, foregroundKey, trigger);
+
+    /// <summary>Assemble a MEASURED FMS report DIRECTLY from a 0-20 FMS value — the current 0-20
+    /// console capture (slider / one-tap band), which records the full Keshavarz &amp; Hecht 0-20
+    /// resolution instead of the 5★ widget's five buckets. <paramref name="fms"/> must be in
+    /// <see cref="FmsMin"/>..<see cref="FmsMax"/>; an out-of-range value THROWS (fail loud — a
+    /// miswired caller must not silently record a garbage clinical PRO, same contract as
+    /// <see cref="StarsToFms"/>). Source is "slider"; the context/trigger semantics match
+    /// <see cref="BuildMeasuredReport(int,int,bool,string?,string)"/>.</summary>
+    public static SymptomEvent BuildMeasuredFmsReport(
+        int fms, int contextTier, bool maskActive, string? foregroundKey, string trigger)
+    {
+        if (fms < FmsMin || fms > FmsMax)
+            throw new ArgumentOutOfRangeException(
+                nameof(fms), fms, $"FMS value must be {FmsMin}-{FmsMax}.");
+        return BuildMeasured(fms, SymptomEvent.Sources.Slider,
+                             contextTier, maskActive, foregroundKey, trigger);
+    }
+
+    /// <summary>Shared assembly for a MEASURED FMS PRO (patient-reported outcome): both the 0-20
+    /// slider capture and the legacy 5★ widget funnel through here so the measured-vs-estimated
+    /// flag, the scale, and the live capture-context envelope are defined in ONE place and cannot
+    /// drift between the two producers.</summary>
+    private static SymptomEvent BuildMeasured(
+        int fmsValue, string source, int contextTier, bool maskActive, string? foregroundKey, string trigger)
         => new SymptomEvent
         {
             Kind              = SymptomEvent.Kinds.FmsReport,
             Measured          = true,
             Scale             = SymptomEvent.Scales.Fms20,
-            Value             = StarsToFms(stars),
-            Source            = SymptomEvent.Sources.Stars,
+            Value             = fmsValue,
+            Source            = source,
             ContextTier       = contextTier,
             InterventionState = maskActive
                 ? SymptomEvent.InterventionStates.On

@@ -47,6 +47,7 @@ public class SettingsClearAndRestartChipTests
         string modelTrace  = SeedFile(AppConfig.ModelTracePath, "{\"trace\":1}\n");
         string chatHistory = SeedFile(AppConfig.ChatHistoryPath, "{\"role\":\"user\",\"text\":\"hi\"}\n");
         string calibHist   = SeedFile(AppConfig.CalibrationHistoryPath, "{\"q\":1,\"a\":\"yes\"}\n");
+        string symptomLog  = SeedFile(AppConfig.SymptomLogPath, "{\"kind\":\"fms_report\",\"value\":10}\n");
 
         SettingsContent.ClearAllUserData();
 
@@ -54,6 +55,7 @@ public class SettingsClearAndRestartChipTests
         Assert.False(File.Exists(modelTrace),  "model diagnostic trace must be deleted");
         Assert.False(File.Exists(chatHistory), "chat transcript must be deleted (UX-09)");
         Assert.False(File.Exists(calibHist),   "legacy calibration history must be deleted (FEAT-13)");
+        Assert.False(File.Exists(symptomLog),  "FMS symptom log must be deleted (Beta-1 Phase-1 / H24)");
     }
 
     // ── UX-09 Q4.5: clear-all leaves the habituation offset / progress intact ──
