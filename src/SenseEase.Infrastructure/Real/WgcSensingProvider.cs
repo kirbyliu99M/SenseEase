@@ -171,6 +171,10 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     // can dereference once and reuse the captured snapshot for the whole tick.
     private volatile MaskRect? _excludeRect;
     private sealed record MaskRect(int Left, int Top, int Width, int Height);
+    // UI-RESHAPE: additive multi-rect slot for the reshape's simultaneously-visible surfaces
+    // (edge sidebar / popup bar / chat / NPS). The legacy single _excludeRect (bar/card) is
+    // untouched; OnTick zeroes the UNION of the single rect and every rect here.
+    private volatile MaskRect[]? _excludeRectsMulti;
     /// <summary>Set a monitor-coords rectangle (physical pixels) whose downsampled
     /// cells will be zeroed out before MAD. Used by Pop-up sprint Task 1 to prove
     /// the bar's pixels can be excluded from the OFI computation. Pass null to
@@ -188,6 +192,25 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
     /// <summary>Current monitor-coords exclude rect (or null if not set). For diagnostics.</summary>
     public (int Left, int Top, int Width, int Height)? CurrentExcludeRect
         => _excludeRect is { } r ? (r.Left, r.Top, r.Width, r.Height) : null;
+
+    /// <summary>UI-RESHAPE: set the FULL list of additional monitor-coords exclude rects for the
+    /// reshape's simultaneously-visible surfaces (replaces the prior list). Independent of the legacy
+    /// single-rect <see cref="SetMonitorExcludeRect"/>; OnTick zeroes the UNION of both. Pass null/empty
+    /// to clear. Invalid (non-positive) rects are dropped. Thread-safe; picked up on the next tick.</summary>
+    public void SetMonitorExcludeRects(System.Collections.Generic.IReadOnlyList<(int Left, int Top, int Width, int Height)>? rects)
+    {
+        if (rects is null || rects.Count == 0) { _excludeRectsMulti = null; return; }
+        var list = new System.Collections.Generic.List<MaskRect>(rects.Count);
+        foreach (var r in rects)
+            if (r.Width > 0 && r.Height > 0) list.Add(new MaskRect(r.Left, r.Top, r.Width, r.Height));
+        _excludeRectsMulti = list.Count == 0 ? null : list.ToArray();
+    }
+
+    /// <summary>UI-RESHAPE: current additive exclude rects (diagnostics/tests).</summary>
+    public System.Collections.Generic.IReadOnlyList<(int Left, int Top, int Width, int Height)> CurrentExcludeRects
+        => _excludeRectsMulti is { } a
+            ? System.Array.ConvertAll(a, r => (r.Left, r.Top, r.Width, r.Height))
+            : System.Array.Empty<(int, int, int, int)>();
 
     // ── Pop-up sprint Task 1: optional OFI trace log ───────────────────────────────────────
     // When env var SENSEEASE_WGC_BAR_VALIDATION=1, append "ms,ofi,maskOn" per tick to
@@ -994,32 +1017,41 @@ public sealed class WgcSensingProvider : ISensingProvider, IDisposable
                         // once the mask is engaged. One-tick artefact on the first frame
                         // the mask is set (prevFrame still has bar pixels) is acceptable;
                         // the spike detector requires sustained motion to fire.
-                        if (_excludeRect is { } mask && _prevFrame is not null
-                            && _prevFrame.Length == result.Length)
+                        // UI-RESHAPE: zero the legacy single rect (bar/card) AND every additive
+                        // reshape rect (edge sidebar / popup / chat / NPS) — the union — in BOTH frames.
+                        MaskRect[]? multiMask = _excludeRectsMulti;
+                        if ((_excludeRect is not null || multiMask is { Length: > 0 })
+                            && _prevFrame is not null && _prevFrame.Length == result.Length)
                         {
-                            int dxMin = (int)((long)mask.Left * dstW / srcW);
-                            int dxMax = (int)((long)(mask.Left + mask.Width - 1) * dstW / srcW);
-                            int dyMin = (int)((long)mask.Top * dstH / srcH);
-                            int dyMax = (int)((long)(mask.Top + mask.Height - 1) * dstH / srcH);
-                            // Clamp to grid bounds (e.g. bar partially off-screen).
-                            if (dxMin < 0) dxMin = 0;
-                            if (dyMin < 0) dyMin = 0;
-                            if (dxMax >= dstW) dxMax = dstW - 1;
-                            if (dyMax >= dstH) dyMax = dstH - 1;
-                            // NE14: never mutate the shared EmptyFrameSentinel. When
-                            // _prevFrame aliases it (after a prior null-frame tick) the
-                            // sentinel is already all-zero, so skipping the write is
-                            // behaviour-preserving and protects the shared static.
-                            bool prevIsSentinel = ReferenceEquals(_prevFrame, EmptyFrameSentinel);
-                            for (int dy = dyMin; dy <= dyMax; dy++)
+                            // NE14: never mutate the shared EmptyFrameSentinel. When _prevFrame aliases
+                            // it (after a prior null-frame tick) the sentinel is already all-zero, so
+                            // skipping the write is behaviour-preserving and protects the shared static.
+                            var prev = _prevFrame!;
+                            bool prevIsSentinel = ReferenceEquals(prev, EmptyFrameSentinel);
+                            void ZeroMask(MaskRect mask)
                             {
-                                int row = dy * dstW;
-                                for (int dx = dxMin; dx <= dxMax; dx++)
+                                int dxMin = (int)((long)mask.Left * dstW / srcW);
+                                int dxMax = (int)((long)(mask.Left + mask.Width - 1) * dstW / srcW);
+                                int dyMin = (int)((long)mask.Top * dstH / srcH);
+                                int dyMax = (int)((long)(mask.Top + mask.Height - 1) * dstH / srcH);
+                                // Clamp to grid bounds (e.g. bar partially off-screen).
+                                if (dxMin < 0) dxMin = 0;
+                                if (dyMin < 0) dyMin = 0;
+                                if (dxMax >= dstW) dxMax = dstW - 1;
+                                if (dyMax >= dstH) dyMax = dstH - 1;
+                                for (int dy = dyMin; dy <= dyMax; dy++)
                                 {
-                                    result[row + dx] = 0;
-                                    if (!prevIsSentinel) _prevFrame[row + dx] = 0;
+                                    int row = dy * dstW;
+                                    for (int dx = dxMin; dx <= dxMax; dx++)
+                                    {
+                                        result[row + dx] = 0;
+                                        if (!prevIsSentinel) prev[row + dx] = 0;
+                                    }
                                 }
                             }
+                            if (_excludeRect is { } single) ZeroMask(single);
+                            if (multiMask is not null)
+                                foreach (var r in multiMask) ZeroMask(r);
                         }
                     }
                     finally

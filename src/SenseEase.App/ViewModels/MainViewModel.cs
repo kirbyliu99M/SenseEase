@@ -59,6 +59,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void SetWgcMonitorExcludeRect(int? left, int? top, int? width, int? height)
         => _wgcSensing.SetMonitorExcludeRect(left, top, width, height);
 
+    /// <summary>UI-RESHAPE: pass-through for the reshape's ADDITIVE multi-surface exclude rects
+    /// (edge sidebar / popup bar / chat / NPS). Independent of the legacy single-rect bar/card path
+    /// above — OnTick zeroes the union of both. Driven by <see cref="Services.SurfaceExcludeCoordinator"/>.</summary>
+    public void SetWgcMonitorExcludeRects(System.Collections.Generic.IReadOnlyList<(int Left, int Top, int Width, int Height)>? rects)
+        => _wgcSensing.SetMonitorExcludeRects(rects);
+
     /// <summary>overlay-bar-redesign D3: pause-or-resume the WGC capture
     /// pipeline. Called by MainWindow when the Power Save toggle flips so
     /// the OFI pipeline goes quiet (frame callbacks short-circuit while
