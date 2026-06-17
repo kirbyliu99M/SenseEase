@@ -1,4 +1,5 @@
 using System;
+using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 
 namespace SenseEase.Infrastructure.Nlp;
@@ -181,6 +182,24 @@ internal static class NluComplianceGate
             }
         }
 
+        // Safety guard (tester-reported 2026-06-17): a QUESTION is never a current-discomfort
+        // REPORT, so it must NEVER silently actuate a protection change. A tester asked "do you
+        // think I'm dizzy now?" and the small model classified it ReportDiscomfort and adjusted
+        // the overlay unsolicited. If the turn is interrogative yet resolved to a discomfort
+        // report with actuating deltas, drop the actuation — the reply still answers the
+        // question. Scoped to ReportDiscomfort (a named symptom survived the demote), so polite
+        // commands are untouched. The flag rides out so the delivery layer can localize the
+        // "that looked like a question" note (the gate stays language-agnostic). Applies to BOTH
+        // engines — this is the single home for the guard (was in ChatbotViewModel.ApplyNluResult).
+        bool suppressedAsQuestion =
+            intent == "ReportDiscomfort"
+            && InterrogativeDetector.IsSymptomInquiry(userText)
+            && (fov != 0 || md != 0.0 || gv != 0.0); // fw is always 0 on this path
+        if (suppressedAsQuestion)
+        {
+            fov = 0; md = 0.0; gv = 0.0;
+        }
+
         string response = (reply ?? string.Empty).Trim();
         if (response.Length == 0)
             response = FeedbackLexicon.BuildFallbackResponse(userText, intent);
@@ -230,6 +249,7 @@ internal static class NluComplianceGate
             Response = response,
             FollowupQuestion = finalFollowupQ,
             FollowupOptions = finalFollowupOpts,
+            SuppressedAsQuestion = suppressedAsQuestion,
         };
     }
 }

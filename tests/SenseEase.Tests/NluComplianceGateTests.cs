@@ -109,4 +109,42 @@ public class NluComplianceGateTests
         Assert.Null(r.FollowupOptions);
         Assert.Equal("SenseEase reduces visual motion.", r.Response);
     }
+
+    // ── Stage C: the question-guard (a question never silently actuates) ─────────────────
+
+    [Theory]
+    [InlineData("do you think I'm dizzy now?")]
+    [InlineData("你覺得我現在頭暈嗎?")]
+    public void QuestionGuard_InterrogativeReportDiscomfort_ZeroesDeltas_AndFlags(string utterance)
+    {
+        // A named symptom survives the demote (intent stays ReportDiscomfort), but the
+        // interrogative framing means it must NOT actuate. Deltas zeroed, flag set, reply kept.
+        var r = NluComplianceGate.Check(Raw("ReportDiscomfort", fov: -8, md: 0.06, gv: 0.04), utterance);
+
+        Assert.Equal("ReportDiscomfort", r.Intent); // intent unchanged — only actuation suppressed
+        Assert.Equal(0, r.FovDelta);
+        Assert.Equal(0.0, r.MaskDepthDelta, 6);
+        Assert.Equal(0.0, r.GridVisibilityDelta, 6);
+        Assert.True(r.SuppressedAsQuestion);
+    }
+
+    [Fact]
+    public void QuestionGuard_GenuineReport_PreservesDeltas_NoFlag()
+    {
+        var r = NluComplianceGate.Check(Raw("ReportDiscomfort", fov: -8, md: 0.06), "I'm dizzy");
+
+        Assert.True(r.FovDelta != 0); // a real report still actuates
+        Assert.False(r.SuppressedAsQuestion);
+    }
+
+    [Fact]
+    public void QuestionGuard_HelpSeekingReport_StillActuates()
+    {
+        // "I'm dizzy, can you help?" is a help-seeking REPORT, not an asking-the-bot inquiry —
+        // IsSymptomInquiry is deliberately narrow, so this must still actuate.
+        var r = NluComplianceGate.Check(Raw("ReportDiscomfort", fov: -8), "I'm dizzy, can you help?");
+
+        Assert.True(r.FovDelta != 0);
+        Assert.False(r.SuppressedAsQuestion);
+    }
 }

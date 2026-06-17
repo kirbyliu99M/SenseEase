@@ -36,6 +36,16 @@ public class NluResult
     /// </summary>
     public string[]? FollowupOptions { get; set; }
 
+    /// <summary>
+    /// Render-only signal set by <c>NluComplianceGate</c> when it zeroed the actuating deltas
+    /// because the turn was an interrogative ("do you think I'm dizzy?") rather than a real
+    /// discomfort report. The gate decides + zeroes; the delivery layer
+    /// (<c>ChatbotViewModel.ApplyNluResult</c>) reads this to pick the localized "that looked
+    /// like a question, I didn't change anything" note. NOT consumed by the adaptation/learning
+    /// loop — it never reads a live NluResult. Default false.
+    /// </summary>
+    public bool SuppressedAsQuestion { get; set; }
+
     /// <summary>M3 Phase 7e: the LLM's full raw output (post-markdown-strip,
     /// pre-JSON-parse) carried through alongside the deserialized envelope.
     /// ChatbotViewModel runs <c>HabituationOverrideParser</c> on this so the

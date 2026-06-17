@@ -93,38 +93,32 @@ public class ApplyNluResultCharacterizationTests
     private static bool AnyAssistant(ChatbotViewModel vm, string fragment)
         => vm.Messages.Any(m => m.Role == ChatRole.Assistant && m.Content.Contains(fragment));
 
-    // ── 1. Question-guard: an interrogative ReportDiscomfort with deltas is zeroed ──────────
-    //    (and writes NO adjustment record), surfacing a veto note instead of actuating.
+    // ── 1. Delivery of a question-suppressed result: no actuation, surfaces the veto note ───
+    //    Post-Stage-C the question-guard DECISION lives in NluComplianceGate (it zeroed the
+    //    deltas and set SuppressedAsQuestion — see NluComplianceGateTests). ApplyNluResult is
+    //    pure delivery: it actuates nothing, writes NO record (protects the learning loop's
+    //    manual-tighten clock), and surfaces the localized veto note from the flag.
 
     [Theory]
     [InlineData(UILanguage.English, "looked like a question")]
     [InlineData(UILanguage.ChineseTraditional, "這看起來像是一個問題")]
-    public void Inquiry_ReportDiscomfortWithDeltas_Zeroed_NoRecord_VetoCopy(UILanguage lang, string vetoFragment)
+    public void SuppressedAsQuestionResult_SurfacesVetoCopy_NoActuation(UILanguage lang, string vetoFragment)
         => WithLanguage(lang, () =>
         {
             var (vm, bot, engine, log) = BuildVm(() => new NluResult
             {
                 Intent = "ReportDiscomfort",
-                FovDelta = -8,
-                MaskDepthDelta = 0.06,
-                GridVisibilityDelta = 0.04,
+                FovDelta = 0, MaskDepthDelta = 0.0, GridVisibilityDelta = 0.0, // gate already zeroed
+                SuppressedAsQuestion = true,
                 Response = "Are you feeling dizzy? Tell me if you'd like a change.",
             });
-            double maskBefore = engine.Current.Shader.MaskDepth;
-            double gridBefore = engine.Current.Shader.GridVisibility;
 
             vm.InputText = "do you think I'm dizzy now?";
             vm.SendCommand.Execute(null);
 
-            // Deltas zeroed → engine untouched on all three axes.
             Assert.Equal(0, engine.UserFovOffset);
-            Assert.Equal(maskBefore, engine.Current.Shader.MaskDepth, 6);
-            Assert.Equal(gridBefore, engine.Current.Shader.GridVisibility, 6);
-            // NO adjustment record written — protects the learning loop's manual-tighten clock.
-            Assert.Empty(log.Records);
-            // The model's reply still answers; a veto note is surfaced.
+            Assert.Empty(log.Records); // no spurious adjustment record
             Assert.True(AnyAssistant(vm, vetoFragment));
-            // Post-result guard, not a pre-LLM short-circuit: the model WAS consulted.
             Assert.Equal(1, bot.SendCount);
         });
 
