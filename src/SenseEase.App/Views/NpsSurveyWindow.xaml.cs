@@ -2,6 +2,8 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using SenseEase.App.Accessibility;
 using SenseEase.App.Interop;
 using SenseEase.App.Services;
 using SenseEase.App.Theme;
@@ -38,6 +40,7 @@ public partial class NpsSurveyWindow : Window, IShellSurface
     {
         InitializeComponent();
         DataContext = viewModel;
+        Opacity = 0;                       // fade in via OnEntrance (avoids an unsettled-position flash)
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) => AnchorBottomRight();
         SizeChanged += (_, _) => AnchorBottomRight();
@@ -45,6 +48,24 @@ public partial class NpsSurveyWindow : Window, IShellSurface
         // light-blue (fixes white-on-light-glass contrast in Windows dark mode).
         Loaded += OnThemeLoaded;
         Closed += OnThemeClosed;
+        ContentRendered += OnEntrance;
+    }
+
+    /// <summary>Native toast-style entrance: the card fades + rises into place once laid out
+    /// (bottom-right, so it rises from the corner). ReducedMotion snaps to the resting state.</summary>
+    private void OnEntrance(object? sender, EventArgs e)
+    {
+        if (AccessibilityHelper.ReducedMotion())
+        {
+            CardRise.BeginAnimation(TranslateTransform.YProperty, null);
+            BeginAnimation(OpacityProperty, null);
+            CardRise.Y = 0; Opacity = 1;
+            return;
+        }
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = new Duration(TimeSpan.FromMilliseconds(220));
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+        CardRise.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(16, 0, dur) { EasingFunction = ease });
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)

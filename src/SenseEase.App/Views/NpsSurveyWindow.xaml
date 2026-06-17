@@ -112,14 +112,57 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Compact card close (X) — a Teams-style feedback card has a dismiss in the header. -->
+            <Style x:Key="CardCloseBtn" TargetType="Button">
+                <Setter Property="Width" Value="28"/>
+                <Setter Property="Height" Value="28"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8">
+                                <Path Data="M6,6 L16,16 M16,6 L6,16" Width="13" Height="13" Stretch="Uniform"
+                                      Stroke="{DynamicResource Popup.Ink2}" StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#1FFFFFFF"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Border Width="320" Background="{DynamicResource Popup.PanelBg}"
+    <Border x:Name="Card" Width="332" TextElement.FontFamily="{DynamicResource Font.UI}"
+            Background="{DynamicResource Popup.PanelBg}"
             BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
-            CornerRadius="{StaticResource Radius.md}" Padding="18">
+            CornerRadius="{StaticResource Radius.md}" Padding="16,13,16,16"
+            RenderTransformOrigin="1,1">
+        <Border.RenderTransform><TranslateTransform x:Name="CardRise"/></Border.RenderTransform>
         <StackPanel>
-            <TextBlock Text="{Binding Prompt}" TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold"
+            <!-- Header: app identity (left) + dismiss (right) — Teams-style feedback card chrome. -->
+            <Grid Margin="0,0,0,10">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{DynamicResource Popup.Blue}"/>
+                    <TextBlock Text="SenseEase" Margin="8,0,0,0" VerticalAlignment="Center"
+                               FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink2}"/>
+                </StackPanel>
+                <Button HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource CardCloseBtn}"
+                        Command="{Binding DismissCommand}"
+                        ToolTip="{loc:T Zh='關閉', En='Close'}"
+                        AutomationProperties.Name="{loc:T Zh='關閉意見回饋', En='Close feedback'}"/>
+            </Grid>
+
+            <!-- The question -->
+            <TextBlock Text="{Binding Prompt}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"
                        Foreground="{DynamicResource Popup.Ink1}"/>
 
             <ItemsControl ItemsSource="{Binding Scores}" Margin="0,14,0,0" HorizontalAlignment="Center"
@@ -152,12 +195,19 @@
                            FontSize="11" Foreground="{DynamicResource Popup.Ink3}"/>
             </Grid>
 
-            <TextBlock Text="{Binding CommentLabel}" Margin="2,14,0,4" FontSize="12"
+            <TextBlock Text="{Binding CommentLabel}" Margin="2,16,0,5" FontSize="12"
                        Foreground="{DynamicResource Popup.Ink2}"/>
-            <TextBox Padding="8,6" FontSize="13" GotFocus="OnCommentFocus"
-                     Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
-                     Foreground="{DynamicResource Popup.Ink1}"
-                     AutomationProperties.Name="{Binding CommentLabel}"/>
+            <!-- Recessed dark field (was a default WHITE box → invisible light text in dark glass,
+                 same bug the chat input had). Multi-line so users can write longer feedback. -->
+            <Border Background="#33000000" BorderBrush="{DynamicResource Popup.Bdr}"
+                    BorderThickness="1" CornerRadius="9">
+                <TextBox Background="Transparent" BorderThickness="0" Padding="9,7" FontSize="13"
+                         MinHeight="22" MaxHeight="76" TextWrapping="Wrap" AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto" GotFocus="OnCommentFocus"
+                         Foreground="{DynamicResource Popup.Ink1}" CaretBrush="{DynamicResource Popup.Ink1}"
+                         Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="{Binding CommentLabel}"/>
+            </Border>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                 <Button Content="{loc:T Zh='暫時不要', En='Not now'}" Style="{StaticResource NpsGhostBtn}"
