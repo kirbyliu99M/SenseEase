@@ -36,6 +36,9 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+                <!-- GLASS BRIDGE for the window chrome (title row + close + Close button), matching
+                     the hosted SettingsContent. SettingsGlassTheme.Track flips the dark variant. -->
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SettingsGlassPalette.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
             <!-- Round translucent X close button — sits at the right of the title row. 32x32 hit

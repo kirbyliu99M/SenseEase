@@ -8,6 +8,11 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+                <!-- GLASS BRIDGE: redefines the SenseEaseTheme colour keys with the popup's glass
+                     values so Settings matches the brand panel (slate by default; the Game-Bar dark
+                     variant flips in via SettingsGlassTheme.Track). Merged ABOVE SenseEaseTheme so
+                     glass wins; structural tokens (radius/elevation/type) still resolve underneath. -->
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SettingsGlassPalette.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
             <!-- SettingSwitch (calm iOS-style toggle) moved to SenseEaseTheme.xaml

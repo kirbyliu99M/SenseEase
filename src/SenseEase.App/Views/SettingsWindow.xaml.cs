@@ -61,8 +61,11 @@ public partial class SettingsWindow : Window
         // Accent Close button, declared with theme tokens in XAML) light/dark-correct,
         // including a live OS theme flip while the dialog is open. Mirrors EventLogWindow;
         // the hosted SettingsContent tracks itself separately.
-        Loaded += (_, _) => ThemeManager.TrackElement(this);
-        Closed += (_, _) => ThemeManager.UntrackElement(this);
+        // GLASS BRIDGE (2026-06-18): match the popup panel — the chrome + hosted SettingsContent
+        // wear the glass palette (slate default; SettingsGlassTheme flips the Game-Bar dark variant).
+        // Replaces ThemeManager.TrackElement (which merged the grey Palette.Dark and fought the glass).
+        Loaded += (_, _) => SettingsGlassTheme.Track(this);
+        Closed += (_, _) => SettingsGlassTheme.Untrack(this);
 
         // UI-reshape Task 9 (2026-06-17): frosted Win11 acrylic behind the rounded Surface card,
         // applied once the HWND exists (mirrors NotificationCardWindow). The tint is THEME-AWARE —
@@ -77,9 +80,12 @@ public partial class SettingsWindow : Window
     /// card fill on top of this frost; the scrim only governs what bleeds through the blur.</summary>
     private void ApplyThemeAwareAcrylic()
     {
+        // GLASS BRIDGE (2026-06-18): the frost must match the popup glass. The old near-white light
+        // scrim (0xD9FFFFFF) was exactly why the card read WHITE. Slate by default, Game-Bar near-black
+        // on dark — same hue as the popup PanelBg the card paints on top. ABGR (0xAABBGGRR).
         uint tint = ThemeManager.ShouldUseDark()
-            ? 0xD9241E1Bu   // dark slate scrim
-            : 0xD9FFFFFFu;  // soft near-white scrim
+            ? 0xD9221F1Fu   // Game-Bar near-black (ARGB #1F1F22)
+            : 0xD92E231Du;  // slate (ARGB #1D232E)
         AcrylicGlass.EnableAcrylic(this, tint);
     }
 

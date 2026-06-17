@@ -178,14 +178,12 @@ public partial class SettingsContent : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // This UserControl merges the LIGHT SenseEaseTheme.xaml into its OWN
-        // Resources (for the non-colour StaticResource tokens — radius, elevation,
-        // typography). That view-local light dictionary shadows the dark palette
-        // ThemeManager merges at the Window level, so we must merge the dark
-        // override into OUR OWN resources too. Tracking it applies the current
-        // theme now AND re-applies on every later theme change (incl. a live OS
-        // light/dark flip in Auto mode). Unregistered in OnUnloaded.
-        ThemeManager.TrackElement(this);
+        // GLASS BRIDGE (2026-06-18): the Settings now wears the popup's glass palette
+        // (SettingsGlassPalette.xaml is merged in our XAML; this tracks the Game-Bar dark variant +
+        // re-applies on theme flips). Replaces ThemeManager.TrackElement here — that merged the GREY
+        // Palette.Dark and would fight the glass keys. The glass is ALWAYS on (slate by default),
+        // matching the popup, regardless of the OS light/dark. Unregistered in OnUnloaded.
+        SettingsGlassTheme.Track(this);
 
         // Event Log card (2026-06-07): only shown where the host wired OpenEventLog
         // (it needs the MainViewModel-backed window). Hidden in the notification
@@ -198,7 +196,7 @@ public partial class SettingsContent : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        ThemeManager.UntrackElement(this);
+        SettingsGlassTheme.Untrack(this);
         UserPreferences.Changed -= OnPreferencesChangedExternally;
     }
 
