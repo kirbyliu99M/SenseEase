@@ -33,35 +33,22 @@ public partial class PopupBarWindow : Window, IShellSurface
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
 
-    // Foreground-window class check — lets click-away tell a REAL app apart from a click on the
-    // BLANK desktop (which shifts focus to the desktop shell: Progman / WorkerW). A desktop click
-    // must NOT dismiss the bar; only switching to another app (or the cursor leaving) should.
-    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+    // Global left-button state, polled by the proximity timer for LIGHT DISMISS (a click anywhere
+    // OUTSIDE the popup collapses it — the standard flyout behaviour). Needed because the bar shows
+    // non-activating, so Window.Deactivated alone misses a click on the bare desktop.
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vKey);
+    private const int VK_LBUTTON = 0x01;
 
-    private static bool ForegroundIsDesktopShell()
-    {
-        try
-        {
-            IntPtr fg = GetForegroundWindow();
-            if (fg == IntPtr.Zero) return false;
-            var sb = new System.Text.StringBuilder(256);
-            GetClassName(fg, sb, sb.Capacity);
-            // Progman = the classic desktop; WorkerW = the wallpaper/icon layer that takes
-            // foreground on a blank-desktop click on Win10/11.
-            return sb.ToString() is "Progman" or "WorkerW";
-        }
-        catch { return false; } // on error, fall through to the normal click-away close
-    }
-
-    // ── #5 proximity auto-close ─────────────────────────────────────────────────
+    // ── #5 proximity auto-close + light dismiss ─────────────────────────────────
     // The bar would otherwise stay open forever (it shows non-activating, so Deactivated may
-    // never fire). A light cursor-proximity poll collapses it back to the edge handle once the
-    // cursor leaves — UNLESS it is pinned or a panel (chat/settings) is open (the user is
-    // mid-interaction; only an explicit click-away closes those).
+    // never fire). The same 50 ms poll does two things: (1) LIGHT DISMISS — a fresh left-click
+    // anywhere outside the popup collapses it (the bare-desktop click the user expects to dismiss
+    // it, which Deactivated misses because the window was never activated); (2) PROXIMITY — collapse
+    // back to the edge handle once the cursor leaves. Both are skipped while pinned; proximity also
+    // pauses while a panel (chat/settings) is open, but an explicit outside click still dismisses it.
     private readonly System.Windows.Threading.DispatcherTimer _autoClose;
     private int _farTicks;
+    private bool _prevLeftDown; // edge-detect a fresh left press; primed true on show (OnVisibleChanged)
     private long _graceUntilTick; // Environment.TickCount64 deadline; no auto-close before it
     /// <summary>Cursor must be more than this (dip) outside the bar rect to start closing.</summary>
     public double CloseMarginDip { get; set; } = 96.0;
@@ -263,7 +250,10 @@ public partial class PopupBarWindow : Window, IShellSurface
     {
         if (IsVisible)
         {
-            _farTicks = 0; _autoClose.Start();
+            // Prime _prevLeftDown TRUE: the reveal itself was a click (handle / tray), and the button
+            // may still be down on the first tick — don't let that held press count as a fresh
+            // outside-click that instantly re-collapses the bar. Only a NEW press dismisses.
+            _farTicks = 0; _prevLeftDown = true; _autoClose.Start();
             // #2 (tremble): keep the bar invisible, then DEFER the reveal fade one layout pass so
             // SizeToContent has settled the window position — otherwise it visibly jitters as it sizes.
             BarRoot.BeginAnimation(OpacityProperty, null);
@@ -278,19 +268,29 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (!IsVisible) { _autoClose.Stop(); return; }
         if (DataContext is not PopupBarViewModel vm) return;
 
-        // Never auto-close while pinned or mid-interaction (a panel open). Reset the grace so a
-        // brief excursion while interacting doesn't collapse the moment the panel closes.
-        if (vm.IsPinned || vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
-
-        // Reveal-from-afar grace (tray / hotkey): stay open a fixed window so the user can reach it.
-        if (Environment.TickCount64 < _graceUntilTick) { _farTicks = 0; return; }
-
         if (!GetCursorPos(out POINT p)) return;
         var dpi = VisualTreeHelper.GetDpi(this);
         double cx = p.X / dpi.DpiScaleX, cy = p.Y / dpi.DpiScaleY;
         double dx = Math.Max(0, Math.Max(Left - cx, cx - (Left + ActualWidth)));
         double dy = Math.Max(0, Math.Max(Top - cy, cy - (Top + ActualHeight)));
         double dist = Math.Sqrt((dx * dx) + (dy * dy));
+
+        // (1) LIGHT DISMISS — a FRESH left-click strictly outside the popup rect (the bar + any open
+        // card) collapses it, even when the window was never activated (the bare-desktop click the
+        // user expects to dismiss it, which Window.Deactivated misses). Honours the explicit dismiss
+        // immediately: bypasses the reveal grace AND the panel-open hold below. A pinned bar is
+        // exempt. dist > 0 ⇔ the cursor is outside the window rect.
+        bool leftDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        bool freshClick = leftDown && !_prevLeftDown;
+        _prevLeftDown = leftDown;
+        if (freshClick && dist > 0 && !vm.IsPinned) { _farTicks = 0; CollapseToHandle(); return; }
+
+        // (2) PROXIMITY — never auto-close while pinned or mid-interaction (a panel open). Reset the
+        // grace so a brief excursion while interacting doesn't collapse the moment the panel closes.
+        if (vm.IsPinned || vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
+
+        // Reveal-from-afar grace (tray / hotkey): stay open a fixed window so the user can reach it.
+        if (Environment.TickCount64 < _graceUntilTick) { _farTicks = 0; return; }
 
         if (dist <= CloseMarginDip) { _farTicks = 0; return; }
         if (++_farTicks >= CloseGraceTicks) { _farTicks = 0; CollapseToHandle(); }
@@ -308,12 +308,10 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
-        // Click-away close — but a PINNED bar stays put (that is the point of the pin).
+        // Click-away close (fires only when the window was activated, e.g. chat open) — but a PINNED
+        // bar stays put (that is the point of the pin). The non-activated case is covered by the
+        // light-dismiss poll in OnAutoCloseTick.
         if (DataContext is PopupBarViewModel { IsPinned: true }) return;
-        // A click on the BLANK desktop shifts focus to the desktop shell (Progman/WorkerW) and fires
-        // Deactivated, but it is NOT a real click-away — keep the bar up. Switching to another app
-        // still collapses it; so does the proximity poll once the cursor actually leaves.
-        if (ForegroundIsDesktopShell()) return;
         CollapseToHandle();
     }
 
