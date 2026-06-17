@@ -1,4 +1,7 @@
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using SenseEase.App.Interop;
 using SenseEase.App.Theme;
 using SenseEase.App.ViewModels;
 
@@ -24,6 +27,41 @@ public partial class EventLogWindow : Window
         DataContext = vm;
         Loaded += (_, _) => ThemeManager.TrackElement(this);
         Closed += (_, _) => ThemeManager.UntrackElement(this);
+
+        // UI-reshape Task 9 (2026-06-17): frosted Win11 acrylic behind the rounded Surface card,
+        // applied once the HWND exists (mirrors NotificationCardWindow). Theme-aware tint — a dark
+        // slate scrim in Dark mode, a soft near-white scrim in Light — so the frameless glass holds
+        // together in either theme. ABGR order (0xAABBGGRR).
+        SourceInitialized += (_, _) => ApplyThemeAwareAcrylic();
+    }
+
+    /// <summary>UI-reshape Task 9: pick an acrylic scrim that suits the current theme so the
+    /// frameless glass reads correctly in Light and Dark (mirrors
+    /// <c>NotificationCardWindow.ApplyThemeAwareAcrylic</c>). The Surface token paints the actual
+    /// card fill on top of this frost; the scrim only governs what bleeds through the blur.</summary>
+    private void ApplyThemeAwareAcrylic()
+    {
+        uint tint = ThemeManager.ShouldUseDark()
+            ? 0xD9241E1Bu   // dark slate scrim
+            : 0xD9FFFFFFu;  // soft near-white scrim
+        AcrylicGlass.EnableAcrylic(this, tint);
+    }
+
+    /// <summary>UI-reshape Task 9: clip the window root to a rounded rect on every resize so the
+    /// acrylic never shows a square translucent peek behind the rounded card corners — the glass
+    /// reads as one clean rounded slab (same idea as <c>PopupBarWindow.OnRootSizeChanged</c>).</summary>
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+        => RootGrid.Clip = new RectangleGeometry(
+               new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 16, 16);
+
+    /// <summary>UI-reshape Task 9: the slim title row is the drag handle — a left-press on the bare
+    /// row (the title text / empty space, not the round close button which handles its own click)
+    /// moves the frameless window. DragMove throws if the button was already released (fast click);
+    /// that is harmless, so it is swallowed.</summary>
+    private void OnTitleBarMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        try { DragMove(); } catch { /* DragMove throws outside a left-button-down context — ignore */ }
     }
 
     /// <summary>The "事件 / Action" column fills the remaining list width.

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using SenseEase.App.Configuration;
 using SenseEase.App.Localization;
 using SenseEase.App.Theme;
@@ -38,6 +39,12 @@ namespace SenseEase.App.Views;
 public partial class SettingsContent : UserControl
 {
     private bool _wiring; // suppress save while we initialise the checkboxes
+
+    /// <summary>TASK #7: true while the 唤出热键 / Reveal hotkey row is armed to capture the next
+    /// modifier+key chord (the user clicked 录制 / Record and the capture box has focus). The
+    /// PreviewKeyDown handler only consumes keys while this is set, so ordinary typing elsewhere
+    /// is never swallowed.</summary>
+    private bool _capturingHotkey;
 
     /// <summary>Host-provided lookup for the vestibular-diagnosis flag (M8
     /// pattern — read-only consumption of Habituation engine state). Defaults
@@ -78,6 +85,23 @@ public partial class SettingsContent : UserControl
     /// survives restart; the engine then picks it up at next launch (construction-time
     /// hydration). Q4.5-safe — never clears the earned habituation offset.</summary>
     public Action<bool>? SetGradedExposure { get; set; }
+
+    /// <summary>TASK #7 (UI-RESHAPE): host-provided read of the current reveal-popup global
+    /// hotkey gesture (e.g. "Win+Alt+S"), for the 唤出热键 / Reveal hotkey row's displayed value.
+    /// When null (e.g. the notification-card quick-Settings popup, which has no App-level shell)
+    /// the row hydrates from the persisted <see cref="UserPreferences.RevealHotkey"/> pref instead.
+    /// Read-only consumption — the live re-register is the host's job via the matching
+    /// <see cref="SetRevealHotkey"/> action.</summary>
+    public Func<string>? GetRevealHotkey { get; set; }
+
+    /// <summary>TASK #7: host-provided write of a newly-recorded reveal-popup hotkey gesture.
+    /// Wired by the host (App via MainWindow) to <c>App.ReRegisterRevealHotkey</c>, which
+    /// re-registers the live Win32 hotkey from the just-saved pref. This handler ALWAYS persists
+    /// <see cref="UserPreferences.RevealHotkey"/> + Saves first, then invokes this so the live
+    /// binding matches; when null (no-shell popup path) the choice still survives restart (the
+    /// App registers it from the pref at next launch). Mirrors the GradedExposure host-delegate
+    /// + null-fallback pattern.</summary>
+    public Action<string>? SetRevealHotkey { get; set; }
 
     /// <summary>Host-provided action that opens the dedicated Event Log window
     /// (2026-06-07: the Event Log moved out of a top-level tab into Settings).
@@ -210,6 +234,12 @@ public partial class SettingsContent : UserControl
                 LanguageEnglish.IsChecked = true;
             else
                 LanguageChinese.IsChecked = true;
+
+            // TASK #7: hydrate the 唤出热键 / Reveal hotkey display from the host's live value
+            // (or the persisted pref on the no-shell popup path). Guarded by _wiring — this is a
+            // read-only TextBlock update so it never re-enters a save, but kept consistent.
+            RevealHotkeyDisplay.Text =
+                GetRevealHotkey?.Invoke() ?? UserPreferences.Current.RevealHotkey;
 
             ToggleAuto.IsChecked           = UserPreferences.Current.AutoExpandNotifications;
             ToggleMinimizeToTray.IsChecked = UserPreferences.Current.MinimizeToTrayOnClose;
@@ -558,6 +588,92 @@ public partial class SettingsContent : UserControl
             UserPreferences.Current.HabituationEnabled = desired;
             UserPreferences.Current.Save();
         }
+    }
+
+    /// <summary>TASK #7: arm the reveal-hotkey capture. Focuses the capture box and flips
+    /// <see cref="_capturingHotkey"/> on so the next modifier+key chord is recorded by
+    /// <see cref="OnHotkeyCaptureKeyDown"/>. The button label/box hint flip to a "press a
+    /// combination" prompt; Escape (handled in the capture box) cancels without changing
+    /// anything.</summary>
+    private void OnRecordHotkeyClicked(object sender, RoutedEventArgs e)
+    {
+        _capturingHotkey = true;
+        RevealHotkeyDisplay.Text = LocalizationManager.Current.Pick("按下組合鍵…", "Press a combination…");
+        HotkeyCaptureBox.Focus();
+    }
+
+    /// <summary>TASK #7: capture the next modifier+key chord while armed. Ignores modifier-only
+    /// presses (waits for a real key), cancels on Escape, and on a valid chord builds the gesture
+    /// via <see cref="Services.GlobalHotkeyService.Format"/>, persists
+    /// <see cref="UserPreferences.RevealHotkey"/> + Save, then asks the host to re-register the
+    /// live hotkey via <see cref="SetRevealHotkey"/> (with a null-fallback that still persists so
+    /// the choice survives restart). Marked Handled so the chord never leaks to other handlers.</summary>
+    private void OnHotkeyCaptureKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_capturingHotkey) return;
+
+        // The real key may arrive as a system key (e.g. while Alt is held); unwrap it.
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        // Escape cancels the capture without changing the saved gesture.
+        if (key == Key.Escape)
+        {
+            e.Handled = true;
+            EndHotkeyCapture();
+            return;
+        }
+
+        // Ignore modifier-only presses — keep waiting for the actual key that completes the chord.
+        if (key is Key.LeftCtrl or Key.RightCtrl
+                or Key.LeftAlt or Key.RightAlt
+                or Key.LeftShift or Key.RightShift
+                or Key.LWin or Key.RWin
+                or Key.None)
+            return;
+
+        // Build the Win32 modifier mask from the live keyboard modifiers.
+        uint mods = 0;
+        var m = Keyboard.Modifiers;
+        if ((m & ModifierKeys.Control) != 0) mods |= Services.GlobalHotkeyService.MOD_CONTROL;
+        if ((m & ModifierKeys.Alt) != 0)     mods |= Services.GlobalHotkeyService.MOD_ALT;
+        if ((m & ModifierKeys.Shift) != 0)   mods |= Services.GlobalHotkeyService.MOD_SHIFT;
+        if ((m & ModifierKeys.Windows) != 0) mods |= Services.GlobalHotkeyService.MOD_WIN;
+
+        // Require at least one modifier — a bare key is not a valid global hotkey.
+        if (mods == 0)
+        {
+            e.Handled = true; // consume but keep capturing — prompt the user for a modifier
+            RevealHotkeyDisplay.Text =
+                LocalizationManager.Current.Pick("請加上 Ctrl / Alt / Shift / Win…", "Add Ctrl / Alt / Shift / Win…");
+            return;
+        }
+
+        e.Handled = true;
+        string gesture = Services.GlobalHotkeyService.Format(mods, key);
+
+        // Persist first so the host re-registers from a saved value (and so the no-shell popup
+        // path still records the choice for next launch).
+        UserPreferences.Current.RevealHotkey = gesture;
+        UserPreferences.Current.Save();
+
+        // Ask the host to re-register the live Win32 hotkey from the just-saved pref. Null on the
+        // no-shell popup path — the App picks the new value up at next launch.
+        SetRevealHotkey?.Invoke(gesture);
+
+        EndHotkeyCapture();
+        // Reflect the final (possibly host-confirmed) value.
+        RevealHotkeyDisplay.Text = GetRevealHotkey?.Invoke() ?? gesture;
+    }
+
+    /// <summary>TASK #7: disarm capture and restore the displayed gesture. Lost focus also ends a
+    /// capture (LostKeyboardFocus → this) so an abandoned capture never stays armed.</summary>
+    private void OnHotkeyCaptureLostFocus(object sender, RoutedEventArgs e) => EndHotkeyCapture();
+
+    private void EndHotkeyCapture()
+    {
+        if (!_capturingHotkey) return;
+        _capturingHotkey = false;
+        RevealHotkeyDisplay.Text = GetRevealHotkey?.Invoke() ?? UserPreferences.Current.RevealHotkey;
     }
 
     private void OnFollowModeChanged(object sender, RoutedEventArgs e)

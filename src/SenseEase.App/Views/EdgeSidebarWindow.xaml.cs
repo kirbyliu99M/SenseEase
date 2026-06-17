@@ -9,6 +9,7 @@ using SenseEase.App.Accessibility;
 using SenseEase.App.Converters;
 using SenseEase.App.Interop;
 using SenseEase.App.Services;
+using SenseEase.App.Theme;
 
 namespace SenseEase.App.Views;
 
@@ -71,12 +72,76 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         ClickThrough.EnableNoActivate(this);
         RepositionForWorkArea();
         _proximityTimer.Start();
+
+        // TASK #6: track Auto/Light/Dark so the popup glass tokens this window merges
+        // stay theme-correct (the neutral #3A3A3A handle itself reads on both themes, so
+        // there is no acrylic tint to flip here — see ApplyPopupTheme). Listen to BOTH
+        // theme signals exactly as ThemeManager does.
+        try { ThemeManager.TrackElement(this); } catch { /* no Application in headless tests */ }
+        ApplyPopupTheme();
+        try { Configuration.UserPreferences.Changed += OnThemePrefsChanged; } catch { }
+        try { Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnThemeSystemChanged; } catch { }
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
         _proximityTimer.Stop();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        try { ThemeManager.UntrackElement(this); } catch { }
+        try { Configuration.UserPreferences.Changed -= OnThemePrefsChanged; } catch { }
+        try { Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnThemeSystemChanged; } catch { }
+    }
+
+    // ── TASK #6: dark-variant theming for the popup glass tokens ────────────────
+    /// <summary>Pack URI for the dark popup-token override (Page-compiled pure
+    /// ResourceDictionary, no x:Class — pack-URI-mergeable like Palette.Dark).</summary>
+    internal const string DarkPopupTokensUri =
+        "pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.Dark.xaml";
+
+    private void OnThemePrefsChanged(object? sender, EventArgs e)
+    {
+        if (Dispatcher.CheckAccess()) ApplyPopupTheme();
+        else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
+    }
+
+    private void OnThemeSystemChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category != Microsoft.Win32.UserPreferenceCategory.General) return;
+        if (Dispatcher.CheckAccess()) ApplyPopupTheme();
+        else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
+    }
+
+    /// <summary>Idempotently merge PopupGlassTokens.Dark.xaml ABOVE the light tokens when
+    /// dark (add only if absent) and remove it when light, mirroring ThemeManager's merge.
+    /// The handle has no acrylic, so there is no tint to flip here. Never throws.</summary>
+    private void ApplyPopupTheme()
+    {
+        bool dark;
+        try { dark = ThemeManager.ShouldUseDark(); }
+        catch { dark = false; }
+
+        try
+        {
+            var merged = Resources.MergedDictionaries;
+            ResourceDictionary? existing = null;
+            foreach (ResourceDictionary rd in merged)
+            {
+                if (rd.Source is { } src &&
+                    string.Equals(src.ToString(), DarkPopupTokensUri, StringComparison.OrdinalIgnoreCase))
+                { existing = rd; break; }
+            }
+
+            if (dark)
+            {
+                if (existing is null)
+                    merged.Add(new ResourceDictionary { Source = new Uri(DarkPopupTokensUri, UriKind.Absolute) });
+            }
+            else if (existing is not null)
+            {
+                merged.Remove(existing);
+            }
+        }
+        catch { /* dictionary merge failed → leave on light default */ }
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)

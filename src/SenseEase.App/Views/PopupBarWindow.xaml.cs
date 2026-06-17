@@ -9,6 +9,7 @@ using System.Windows.Media.Animation;
 using SenseEase.App.Accessibility;
 using SenseEase.App.Interop;
 using SenseEase.App.Services;
+using SenseEase.App.Theme;
 using SenseEase.App.ViewModels;
 
 namespace SenseEase.App.Views;
@@ -23,8 +24,14 @@ namespace SenseEase.App.Views;
 /// </summary>
 public partial class PopupBarWindow : Window, IShellSurface
 {
-    // Light-blue glass acrylic tint (ABGR 0xAABBGGRR), from Popup.BarBg #B3D2E0FF (70% opacity).
-    private const uint BarAcrylicTint = 0xB3FFE0D2;
+    // Theme-aware bar acrylic tint (ABGR 0xAABBGGRR). Light: from Popup.BarBg #B3D2E0FF
+    // (the light-blue glass). Dark: from PopupGlassTokens.Dark's Popup.BarBg #B3232A36 — a
+    // deep slate scrim so the bar reads as one dark glass piece instead of a blue smear in
+    // Windows dark mode. The Popup.* token brushes paint the actual surface on top of this
+    // frost; the tint only governs what bleeds through the blur. Mirrors
+    // NotificationCardWindow.ApplyThemeAwareAcrylic.
+    private const uint BarAcrylicTintLight = 0xB3FFE0D2u; // ARGB #B3D2E0FF → ABGR
+    private const uint BarAcrylicTintDark  = 0xB3362A23u; // ARGB #B3232A36 → ABGR
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -40,6 +47,96 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (DataContext is INotifyPropertyChanged inpc) inpc.PropertyChanged += OnVmPropertyChanged;
         SourceInitialized += OnSourceInitialized;
         Deactivated += OnDeactivated;
+        // TASK #6: track Auto/Light/Dark so the glass adapts instead of being fixed
+        // light-blue (fixes white-on-light-glass contrast in Windows dark mode).
+        Loaded += OnThemeLoaded;
+        Closed += OnThemeClosed;
+    }
+
+    // ── TASK #6: dark-variant theming for the popup glass ───────────────────────
+    // The window merges the LIGHT Popup.* tokens (PopupGlassTokens.xaml) view-locally
+    // in XAML. On dark we merge PopupGlassTokens.Dark.xaml ABOVE it (same idempotent
+    // merge ThemeManager uses for Palette.Dark) so the Popup.* keys flip to their dark
+    // values, and we re-pick the acrylic tint. We listen to BOTH theme signals exactly
+    // as ThemeManager does: UserPreferences.Changed (the Settings → Appearance picker /
+    // forced Light↔Dark) and the OS light/dark flip (Auto mode). Guarded so the window
+    // is still constructible headless (no Application / unsourced HWND just no-op).
+
+    /// <summary>Pack URI for the dark popup-token override (Page-compiled pure
+    /// ResourceDictionary, no x:Class — pack-URI-mergeable like Palette.Dark).</summary>
+    internal const string DarkPopupTokensUri =
+        "pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.Dark.xaml";
+
+    private void OnThemeLoaded(object? sender, RoutedEventArgs e)
+    {
+        // Also track the GLOBAL dark palette (Palette.Dark) so any SenseEaseTheme.xaml
+        // structural brushes this window borrows stay light/dark-correct, matching the
+        // rest of the app's windows.
+        try { ThemeManager.TrackElement(this); } catch { /* no Application in headless tests */ }
+        ApplyPopupTheme();
+        try { Configuration.UserPreferences.Changed += OnThemePrefsChanged; } catch { }
+        try { Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnThemeSystemChanged; } catch { }
+    }
+
+    private void OnThemeClosed(object? sender, EventArgs e)
+    {
+        try { ThemeManager.UntrackElement(this); } catch { }
+        try { Configuration.UserPreferences.Changed -= OnThemePrefsChanged; } catch { }
+        try { Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnThemeSystemChanged; } catch { }
+    }
+
+    private void OnThemePrefsChanged(object? sender, EventArgs e)
+    {
+        // SetMode persists via UserPreferences.Save() → Changed. Re-apply on the UI thread.
+        if (Dispatcher.CheckAccess()) ApplyPopupTheme();
+        else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
+    }
+
+    private void OnThemeSystemChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        // Only the General category carries the light/dark personalization flip, and only
+        // Auto follows the OS (Light/Dark forced modes ignore it — cheap idempotent re-run).
+        if (e.Category != Microsoft.Win32.UserPreferenceCategory.General) return;
+        if (Dispatcher.CheckAccess()) ApplyPopupTheme();
+        else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
+    }
+
+    /// <summary>Idempotently bring the Popup.* tokens + acrylic frost into sync with the
+    /// effective theme: merge PopupGlassTokens.Dark.xaml when dark (add only if absent),
+    /// remove it when light, and re-pick the acrylic tint. Never throws.</summary>
+    private void ApplyPopupTheme()
+    {
+        bool dark;
+        try { dark = ThemeManager.ShouldUseDark(); }
+        catch { dark = false; } // no Application / registry → light default
+
+        try
+        {
+            var merged = Resources.MergedDictionaries;
+            ResourceDictionary? existing = null;
+            foreach (ResourceDictionary rd in merged)
+            {
+                if (rd.Source is { } src &&
+                    string.Equals(src.ToString(), DarkPopupTokensUri, StringComparison.OrdinalIgnoreCase))
+                { existing = rd; break; }
+            }
+
+            if (dark)
+            {
+                // Added LAST so it sits ABOVE the light PopupGlassTokens.xaml merged in XAML.
+                if (existing is null)
+                    merged.Add(new ResourceDictionary { Source = new Uri(DarkPopupTokensUri, UriKind.Absolute) });
+            }
+            else if (existing is not null)
+            {
+                merged.Remove(existing);
+            }
+        }
+        catch { /* dictionary merge failed → leave on light default */ }
+
+        // Re-pick the blur-behind tint (no-op until the HWND exists; re-run from
+        // OnSourceInitialized once it does).
+        AcrylicGlass.EnableAcrylic(this, dark ? BarAcrylicTintDark : BarAcrylicTintLight);
     }
 
     // ── #2/#6: magnetic expand/collapse — the chat panel slides in from the bar and the
@@ -105,8 +202,12 @@ public partial class PopupBarWindow : Window, IShellSurface
         // UI-RESHAPE iter: the popup is now an ACTIVATABLE flyout (NoActivate removed) so the chat
         // input is typable. ShellController calls Activate() on show; clicking any other window or
         // the desktop fires Deactivated → the popup hides itself (close-on-click-away). Topmost +
-        // ShowInTaskbar=false keep it unobtrusive; acrylic provides the glass.
-        AcrylicGlass.EnableAcrylic(this, BarAcrylicTint);
+        // ShowInTaskbar=false keep it unobtrusive; acrylic provides the glass. TASK #6:
+        // pick the theme-matching tint now that the HWND exists (re-applied on theme flips
+        // via ApplyPopupTheme).
+        bool dark;
+        try { dark = ThemeManager.ShouldUseDark(); } catch { dark = false; }
+        AcrylicGlass.EnableAcrylic(this, dark ? BarAcrylicTintDark : BarAcrylicTintLight);
     }
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)

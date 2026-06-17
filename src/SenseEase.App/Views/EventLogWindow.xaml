@@ -6,20 +6,32 @@
         Width="900" Height="640"
         MinWidth="560" MinHeight="360"
         WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False"
-        Background="{DynamicResource Canvas}"
-        FontFamily="Segoe UI">
+        FontFamily="Segoe UI"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.BitmapScalingMode="HighQuality">
     <!-- Dedicated Event Log window (UI/UX fine-tune 2026-06-07): the read-only
          event/diagnostic log moved OUT of a top-level tab into its own window,
-         opened from a button in Settings. This keeps the full-page list the tab
-         had (it can fill the window) without crowding the Settings scroll.
+         opened from a button in Settings.
 
-         Styled with theme TOKENS rather than any MainWindow-local Card /
-         SectionTitle styles (those aren't in scope here). The theme
-         dictionary is merged view-locally and ThemeManager.TrackElement(this) in
-         the code-behind keeps light/dark correct (incl. a live OS flip in Auto).
-         DataContext is the MainViewModel so the {Binding EventLog} markup is the
-         same as the former tab. -->
+         UI-reshape Task 9 (2026-06-17): frameless GLASS re-skin so opening it from the popup
+         no longer jumps to an old square console. WindowStyle=None + AllowsTransparency + a
+         theme-aware Win11 acrylic blur-behind (applied in SourceInitialized, mirroring
+         NotificationCardWindow), wrapping the EXISTING content in a rounded Surface card with a
+         slim custom title row (drag handle + round X close). RootGrid is clipped to a rounded
+         rect on SizeChanged so the acrylic reads as one clean rounded slab. CanResizeWithGrip
+         keeps the resize affordance.
+
+         All data + handlers preserved verbatim: DataContext is the MainViewModel so {Binding
+         EventLog} is identical to the former tab; the GridView columns, EventLogActionColumn,
+         and OnEventLogListSizeChanged are unchanged. Styled with theme TOKENS; the theme
+         dictionary is merged view-locally and ThemeManager.TrackElement(this) in the code-behind
+         keeps light/dark correct (incl. a live OS flip in Auto). -->
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -30,76 +42,139 @@
                  over its left-aligned data), and a SurfaceMuted band that read as native grid
                  chrome — that's what looked "weird" in Dark. Now: muted TextSecondary text,
                  LEFT-aligned to match the data, transparent fill with a single Separator
-                 hairline underline. Token-driven, so Light + Dark get the SAME clean fix. -->
+                 hairline underline. Token-driven, so Light + Dark get the SAME clean fix.
+                 FontSize bumped 11→12 to honour the 12px caption floor (UI-reshape Task 9). -->
             <Style TargetType="GridViewColumnHeader">
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontSize" Value="12"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="Padding" Value="8,6"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
                 <Setter Property="BorderThickness" Value="0,0,0,1"/>
             </Style>
+
+            <!-- Round translucent X close button — sits at the right of the title row. 32x32 hit
+                 area, 28x28 visible chip; reddens softly on hover. Glyph is a 12px-floor caption. -->
+            <Style x:Key="GlassCloseBtn" TargetType="Button">
+                <Setter Property="Width" Value="32"/>
+                <Setter Property="Height" Value="32"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
+                                        Background="{TemplateBinding Background}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="&#x2715;" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{TemplateBinding Foreground}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#22FF3B30"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#33FF3B30"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <Border Grid.Row="0"
-                Background="{DynamicResource Surface}"
+    <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
+        <!-- Rounded Surface slab — the glass card the acrylic frosts behind. -->
+        <Border Background="{DynamicResource Surface}"
                 BorderBrush="{DynamicResource CardBorder}"
                 BorderThickness="1"
-                CornerRadius="{StaticResource Radius.md}"
-                Effect="{StaticResource Elev.2}"
-                Padding="20,18">
-            <DockPanel>
-                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                CornerRadius="16"
+                Effect="{StaticResource Elev.3}">
+            <Grid Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Slim custom title row — the drag handle (MouseLeftButtonDown → DragMove). -->
+                <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,12"
+                      MouseLeftButtonDown="OnTitleBarMouseDown">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0"
+                    <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                Style="{StaticResource Type.Heading}"
-                               Text="{loc:T Zh='事件記錄', En='Event Log'}"/>
-                    <!-- Localized "最新 N 筆 / Latest N entries": loc:T returns a Binding so
-                         it works on Run.Text; the count Run updates live. Runs are adjacent
-                         (no inter-element whitespace) so only the spaces in the loc strings render. -->
-                    <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                               FontSize="12" Foreground="{DynamicResource TextTertiary}"><Run Text="{loc:T Zh='最新 ', En='Latest '}"/><Run Text="{Binding EventLog.Count, Mode=OneWay}"/><Run Text="{loc:T Zh=' 筆', En=' entries'}"/></TextBlock>
+                               Text="{loc:T Zh='SenseEase — 事件記錄', En='SenseEase — Event Log'}"/>
+                    <Button Grid.Column="1"
+                            Style="{StaticResource GlassCloseBtn}"
+                            Click="OnCloseClicked"
+                            ToolTip="{loc:T Zh='關閉', En='Close'}"
+                            AutomationProperties.Name="{loc:T Zh='關閉', En='Close'}"/>
                 </Grid>
 
-                <ListView x:Name="EventLogList"
-                          ItemsSource="{Binding EventLog}"
-                          Background="Transparent" BorderThickness="0"
-                          FontSize="12" Foreground="{DynamicResource TextSecondary}"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          SizeChanged="OnEventLogListSizeChanged">
-                    <ListView.View>
-                        <GridView>
-                            <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"  Width="90"
-                                            DisplayMemberBinding="{Binding Time}"/>
-                            <GridViewColumn x:Name="EventLogActionColumn"
-                                            Header="{loc:T Zh='事件', En='Action'}" Width="440"
-                                            DisplayMemberBinding="{Binding Message}"/>
-                        </GridView>
-                    </ListView.View>
-                </ListView>
-            </DockPanel>
-        </Border>
+                <Border Grid.Row="1"
+                        Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.md}"
+                        Effect="{StaticResource Elev.2}"
+                        Padding="20,18">
+                    <DockPanel>
+                        <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Style="{StaticResource Type.Heading}"
+                                       Text="{loc:T Zh='事件記錄', En='Event Log'}"/>
+                            <!-- Localized "最新 N 筆 / Latest N entries": loc:T returns a Binding so
+                                 it works on Run.Text; the count Run updates live. Runs are adjacent
+                                 (no inter-element whitespace) so only the spaces in the loc strings render. -->
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                                       FontSize="12" Foreground="{DynamicResource TextTertiary}"><Run Text="{loc:T Zh='最新 ', En='Latest '}"/><Run Text="{Binding EventLog.Count, Mode=OneWay}"/><Run Text="{loc:T Zh=' 筆', En=' entries'}"/></TextBlock>
+                        </Grid>
 
-        <Button Grid.Row="1"
-                Content="{loc:T Zh='關閉', En='Close'}"
-                HorizontalAlignment="Right"
-                Padding="18,8" Margin="0,12,0,0"
-                Background="{DynamicResource Accent}"
-                Foreground="{DynamicResource TextOnComfort}"
-                BorderThickness="0" FontSize="12" FontWeight="SemiBold"
-                Cursor="Hand"
-                Click="OnCloseClicked"/>
+                        <ListView x:Name="EventLogList"
+                                  ItemsSource="{Binding EventLog}"
+                                  Background="Transparent" BorderThickness="0"
+                                  FontSize="12" Foreground="{DynamicResource TextSecondary}"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                  SizeChanged="OnEventLogListSizeChanged">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"  Width="90"
+                                                    DisplayMemberBinding="{Binding Time}"/>
+                                    <GridViewColumn x:Name="EventLogActionColumn"
+                                                    Header="{loc:T Zh='事件', En='Action'}" Width="440"
+                                                    DisplayMemberBinding="{Binding Message}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </DockPanel>
+                </Border>
+
+                <Button Grid.Row="2"
+                        Content="{loc:T Zh='關閉', En='Close'}"
+                        HorizontalAlignment="Right"
+                        Padding="18,8" Margin="0,12,0,0"
+                        Background="{DynamicResource Accent}"
+                        Foreground="{DynamicResource TextOnComfort}"
+                        BorderThickness="0" FontSize="12" FontWeight="SemiBold"
+                        Cursor="Hand"
+                        Click="OnCloseClicked"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

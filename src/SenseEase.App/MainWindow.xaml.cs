@@ -137,6 +137,9 @@ public partial class MainWindow : Window
         // engine state; write = MainViewModel.GradedExposureEnabled (engine flip + persist).
         SettingsTabContent.GetGradedExposure       = () => _viewModel.GradedExposureEnabled;
         SettingsTabContent.SetGradedExposure       = v => _viewModel.GradedExposureEnabled = v;
+        // #7 reveal-hotkey picker: read the pref + re-register the live Win32 hotkey on change.
+        SettingsTabContent.GetRevealHotkey         = () => Configuration.UserPreferences.Current.RevealHotkey;
+        SettingsTabContent.SetRevealHotkey         = _ => (Application.Current as App)?.ReRegisterRevealHotkey();
         // Event Log relocated into Settings (2026-06-07): the 設定 tab's button opens
         // the dedicated EventLogWindow. Wired only where a MainViewModel exists (here +
         // the tray SettingsWindow below); the card hides itself when this is unwired.
@@ -1431,6 +1434,8 @@ public partial class MainWindow : Window
         // tray/gear Settings window also flips the engine pause in-session, not just at restart.
         _settingsWindow.GetGradedExposure       = () => _viewModel.GradedExposureEnabled;
         _settingsWindow.SetGradedExposure       = v => _viewModel.GradedExposureEnabled = v;
+        _settingsWindow.GetRevealHotkey         = () => Configuration.UserPreferences.Current.RevealHotkey;
+        _settingsWindow.SetRevealHotkey         = _ => (Application.Current as App)?.ReRegisterRevealHotkey();
         _settingsWindow.OpenEventLog            = ShowEventLogWindow;
         // FEAT-08 (CW-10, B1b UI half): same live head-tracking health read as the console
         // 設定 tab so the tray/gear Settings window's status caption is honest too (both hosts).

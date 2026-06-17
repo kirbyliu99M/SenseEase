@@ -6,52 +6,121 @@
         Title="SenseEase 設定"
         Width="520" Height="700"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False"
         Topmost="True"
-        Background="{DynamicResource Canvas}">
-    <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): thin Window chrome
-         hosting the shared SettingsContent UserControl. All toggle UI +
-         handlers live in SettingsContent so this Window and the main
-         console's "設定" TabItem share state automatically through
-         UserPreferences.Current + AppConfig.* singletons + the
-         UserPreferences.Changed event.
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.BitmapScalingMode="HighQuality">
+    <!-- UI-reshape Task 9 (2026-06-17): frameless GLASS re-skin so opening Settings from the
+         popup bar no longer jumps to an old square console. The window is now WindowStyle=None +
+         AllowsTransparency + a Win11 acrylic blur-behind (theme-aware tint applied in
+         SourceInitialized, mirroring NotificationCardWindow), wrapping the EXISTING
+         SettingsContent UserControl in a rounded Surface card with a slim custom title row
+         (drag handle + round X close). RootGrid is clipped to a rounded rect on SizeChanged so
+         the acrylic reads as one clean rounded slab (same idea as PopupBarWindow.OnRootSizeChanged).
 
-         Close button stays here (window-specific affordance — the tab
-         version has no Close because tabs don't close).
+         All toggle UI + handlers still live in SettingsContent so this Window and the main
+         console's "設定" TabItem share state automatically through UserPreferences.Current +
+         AppConfig.* singletons + the UserPreferences.Changed event. The constructor signature
+         (Func<bool> hasVestibularDiagnosis) and all pass-through delegates are preserved verbatim.
 
-         Theme (2026-06-09 dark-mode fix): the Window background + Close button
-         are theme TOKENS (Canvas / Accent / TextOnComfort), NOT hardcoded
-         colours. The old #E2ECFF / #024AD8 literals (a 2026-05-30 light-only
-         restyle) stayed light in Dark mode, leaving a periwinkle frame around
-         the already-dark SettingsContent cards — "not true dark". SenseEaseTheme.xaml
-         is merged view-locally below so the tokens resolve in Light mode;
-         ThemeManager merges Palette.Dark.xaml over it for Dark (Window.Loaded class
-         handler + TrackElement in the code-behind for live OS flips). Mirrors EventLogWindow. -->
+         Theme: the Window background is now Transparent (the acrylic + Surface card supply the
+         fill). SenseEaseTheme.xaml is merged view-locally so the tokens resolve in Light mode;
+         ThemeManager.TrackElement merges Palette.Dark.xaml over it for Dark (code-behind, incl.
+         live OS flips). Mirrors EventLogWindow. -->
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- Round translucent X close button — sits at the right of the title row. 32x32 hit
+                 area, 28x28 visible chip; reddens softly on hover. Glyph is a 12px-floor caption. -->
+            <Style x:Key="GlassCloseBtn" TargetType="Button">
+                <Setter Property="Width" Value="32"/>
+                <Setter Property="Height" Value="32"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
+                                        Background="{TemplateBinding Background}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="&#x2715;" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{TemplateBinding Foreground}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#22FF3B30"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#33FF3B30"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
-    <Grid Margin="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <views:SettingsContent x:Name="ContentHost" Grid.Row="0"/>
-        <Button Grid.Row="1"
-                Content="{loc:T Zh='關閉', En='Close'}"
-                HorizontalAlignment="Right"
-                Padding="18,8"
-                Margin="0,12,6,0"
-                Background="{DynamicResource Accent}"
-                Foreground="{DynamicResource TextOnComfort}"
-                BorderThickness="0"
-                FontSize="12"
-                FontWeight="SemiBold"
-                Cursor="Hand"
-                Click="OnCloseClicked"/>
+
+    <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
+        <!-- Rounded Surface slab — the glass card the acrylic frosts behind. -->
+        <Border Background="{DynamicResource Surface}"
+                BorderBrush="{DynamicResource CardBorder}"
+                BorderThickness="1"
+                CornerRadius="16"
+                Effect="{StaticResource Elev.3}">
+            <Grid Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Slim custom title row — the drag handle (MouseLeftButtonDown → DragMove). -->
+                <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,12"
+                      MouseLeftButtonDown="OnTitleBarMouseDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                               Style="{StaticResource Type.Heading}"
+                               Text="{loc:T Zh='設定', En='Settings'}"/>
+                    <Button Grid.Column="1"
+                            Style="{StaticResource GlassCloseBtn}"
+                            Click="OnCloseClicked"
+                            ToolTip="{loc:T Zh='關閉', En='Close'}"
+                            AutomationProperties.Name="{loc:T Zh='關閉', En='Close'}"/>
+                </Grid>
+
+                <views:SettingsContent x:Name="ContentHost" Grid.Row="1"/>
+
+                <Button Grid.Row="2"
+                        Content="{loc:T Zh='關閉', En='Close'}"
+                        HorizontalAlignment="Right"
+                        Padding="18,8"
+                        Margin="0,12,6,0"
+                        Background="{DynamicResource Accent}"
+                        Foreground="{DynamicResource TextOnComfort}"
+                        BorderThickness="0"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Cursor="Hand"
+                        Click="OnCloseClicked"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

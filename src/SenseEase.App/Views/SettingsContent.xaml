@@ -327,6 +327,72 @@
                                       Checked="OnToggleRunAtStartupChanged"
                                       Unchecked="OnToggleRunAtStartupChanged"/>
                         </StackPanel>
+
+                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
+
+                        <!-- ═══ TASK #7 · 喚出熱鍵 / Reveal hotkey ═══════════════════
+                             A system-wide hotkey (default Win+Alt+S, customisable) that
+                             reveals / toggles the glass popup bar even when SenseEase has no
+                             foreground window. The current gesture is shown read-only; 錄製 /
+                             Record arms a capture box (focused TextBox, PreviewKeyDown) that
+                             records the next modifier+key chord, persists it
+                             (UserPreferences.RevealHotkey) and asks the host to re-register the
+                             live Win32 hotkey (SetRevealHotkey). Modifier-only presses are
+                             ignored; Escape cancels. Fail-soft: an unregisterable chord just
+                             leaves no global hotkey — the edge-sidebar click still reveals. -->
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="{loc:T Zh='喚出熱鍵', En='Reveal hotkey'}"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       Margin="0,0,0,6"/>
+                            <TextBlock Text="{loc:T Zh='隨時按下此組合鍵即可喚出或收起浮動列。', En='Press this combination anytime to reveal or hide the floating bar.'}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextTertiary}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,10"/>
+                            <StackPanel Orientation="Horizontal">
+                                <!-- Current gesture, shown read-only. While recording, the
+                                     code-behind swaps this to a "press a combination…" prompt. -->
+                                <Border Background="{DynamicResource SurfaceMuted}"
+                                        BorderBrush="{DynamicResource CardBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="{StaticResource Radius.sm}"
+                                        Padding="12,7"
+                                        MinWidth="150"
+                                        VerticalAlignment="Center">
+                                    <TextBlock x:Name="RevealHotkeyDisplay"
+                                               Text="Win+Alt+S"
+                                               FontFamily="Consolas"
+                                               FontSize="13"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                                <!-- Invisible focus target that owns the key capture. A read-only
+                                     0-size TextBox is the simplest focusable element whose
+                                     PreviewKeyDown fires for chords; it never shows a caret or
+                                     accepts typed text. -->
+                                <TextBox x:Name="HotkeyCaptureBox"
+                                         Width="0" Height="0" Opacity="0"
+                                         IsReadOnly="True"
+                                         IsTabStop="False"
+                                         PreviewKeyDown="OnHotkeyCaptureKeyDown"
+                                         LostKeyboardFocus="OnHotkeyCaptureLostFocus"/>
+                                <Button x:Name="RecordHotkeyButton"
+                                        Content="{loc:T Zh='錄製', En='Record'}"
+                                        Margin="10,0,0,0"
+                                        Padding="14,7"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource TextPrimary}"
+                                        Background="{DynamicResource SurfaceMuted}"
+                                        BorderBrush="{DynamicResource CardBorder}"
+                                        BorderThickness="1"
+                                        Cursor="Hand"
+                                        VerticalAlignment="Center"
+                                        Click="OnRecordHotkeyClicked"
+                                        ToolTip="{loc:T Zh='點擊後按下新的組合鍵（需含 Ctrl / Alt / Shift / Win）；Esc 取消。', En='Click, then press a new combination (must include Ctrl / Alt / Shift / Win); Esc cancels.'}"/>
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

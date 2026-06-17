@@ -2,6 +2,8 @@ using System;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using SenseEase.App.Interop;
 using SenseEase.App.Localization;
 using SenseEase.App.Theme;
 using SenseEase.Infrastructure.Real;
@@ -55,12 +57,47 @@ public partial class SettingsWindow : Window
         ContentHost.HasVestibularDiagnosis  = hasVestibularDiagnosis ?? (() => false);
         ContentHost.PreferencesChanged     += (s, e) => PreferencesChanged?.Invoke(this, e);
 
-        // Dark-mode fix (2026-06-09): keep this window's OWN chrome (Canvas background +
+        // Dark-mode fix (2026-06-09): keep this window's OWN chrome (Surface card +
         // Accent Close button, declared with theme tokens in XAML) light/dark-correct,
         // including a live OS theme flip while the dialog is open. Mirrors EventLogWindow;
         // the hosted SettingsContent tracks itself separately.
         Loaded += (_, _) => ThemeManager.TrackElement(this);
         Closed += (_, _) => ThemeManager.UntrackElement(this);
+
+        // UI-reshape Task 9 (2026-06-17): frosted Win11 acrylic behind the rounded Surface card,
+        // applied once the HWND exists (mirrors NotificationCardWindow). The tint is THEME-AWARE —
+        // a dark slate scrim in Dark mode, a soft near-white scrim in Light — so the frameless
+        // glass holds together in either theme. ABGR order (0xAABBGGRR).
+        SourceInitialized += (_, _) => ApplyThemeAwareAcrylic();
+    }
+
+    /// <summary>UI-reshape Task 9: pick an acrylic scrim that suits the current theme so the
+    /// frameless glass reads correctly in Light and Dark (mirrors
+    /// <c>NotificationCardWindow.ApplyThemeAwareAcrylic</c>). The Surface token paints the actual
+    /// card fill on top of this frost; the scrim only governs what bleeds through the blur.</summary>
+    private void ApplyThemeAwareAcrylic()
+    {
+        uint tint = ThemeManager.ShouldUseDark()
+            ? 0xD9241E1Bu   // dark slate scrim
+            : 0xD9FFFFFFu;  // soft near-white scrim
+        AcrylicGlass.EnableAcrylic(this, tint);
+    }
+
+    /// <summary>UI-reshape Task 9: clip the window root to a rounded rect on every resize so the
+    /// acrylic never shows a square translucent peek behind the rounded card corners — the glass
+    /// reads as one clean rounded slab (same idea as <c>PopupBarWindow.OnRootSizeChanged</c>).</summary>
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+        => RootGrid.Clip = new RectangleGeometry(
+               new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 16, 16);
+
+    /// <summary>UI-reshape Task 9: the slim title row is the drag handle — a left-press on the bare
+    /// row (the title text / empty space, not the round close button which handles its own click)
+    /// moves the frameless window. DragMove throws if the button was already released (fast click);
+    /// that is harmless, so it is swallowed.</summary>
+    private void OnTitleBarMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        try { DragMove(); } catch { /* DragMove throws outside a left-button-down context — ignore */ }
     }
 
     /// <summary>Alpha-2 addendum: optional host wiring for the auto-profiling Settings
@@ -97,6 +134,17 @@ public partial class SettingsWindow : Window
     {
         get => ContentHost.SetGradedExposure;
         set => ContentHost.SetGradedExposure = value;
+    }
+    /// <summary>#7: forwards the reveal-hotkey picker delegates to the hosted SettingsContent.</summary>
+    public Func<string>? GetRevealHotkey
+    {
+        get => ContentHost.GetRevealHotkey;
+        set => ContentHost.GetRevealHotkey = value;
+    }
+    public Action<string>? SetRevealHotkey
+    {
+        get => ContentHost.SetRevealHotkey;
+        set => ContentHost.SetRevealHotkey = value;
     }
     /// <summary>Pass-through for the "open Event Log window" action (2026-06-07).
     /// Wired by the host that owns the MainViewModel (MainWindow); left unset on

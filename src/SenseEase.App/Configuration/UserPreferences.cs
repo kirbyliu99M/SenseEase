@@ -230,6 +230,15 @@ public sealed class UserPreferences
     [JsonPropertyName("anchor_grid_enabled")]
     public bool AnchorGridEnabled { get; set; } = true;
 
+    /// <summary>TASK #7 (UI-RESHAPE): the user-customisable global hotkey that reveals / toggles
+    /// the glass popup bar, as a "+"-joined gesture string (e.g. "Win+Alt+S"). Default "Win+Alt+S".
+    /// Parsed by <see cref="Services.GlobalHotkeyService.TryParse"/> and registered in
+    /// <see cref="App.ReRegisterRevealHotkey"/>; an unparseable / already-claimed value fails soft
+    /// (no hotkey that session — the edge-sidebar click still reveals the bar). Additive — old
+    /// files without the field load cleanly defaulting to "Win+Alt+S", so no schema bump.</summary>
+    [JsonPropertyName("reveal_hotkey")]
+    public string RevealHotkey { get; set; } = "Win+Alt+S";
+
     /// <summary>CW-7 (UX-12 ≡ FEAT-15): persists the always-on overlay baseline
     /// intensity level (1–12, native scale) paired with
     /// <see cref="PersistentOverlayEnabled"/>. Default <c>1</c> = 0% alpha at rest

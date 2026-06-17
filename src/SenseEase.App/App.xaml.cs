@@ -576,6 +576,11 @@ public partial class App : Application
     // UI-RESHAPE: the coexistence shell controller (App-lifetime; keeps the new surfaces alive).
     private SenseEase.App.Services.ShellController? _shell;
 
+    // TASK #7 (UI-RESHAPE): the system-wide reveal/toggle hotkey (App-lifetime). Created once the
+    // shell exists (StartShellIfNeeded); Pressed → ShellController.ToggleGlassPopupBar on the UI
+    // thread. Re-registered after a Settings change via ReRegisterRevealHotkey. Disposed in OnExit.
+    private SenseEase.App.Services.GlobalHotkeyService? _revealHotkey;
+
     /// <summary>Idempotent one-shot: create + start the <see cref="SenseEase.App.Services.ShellController"/>
     /// once the StartupUri MainWindow and its <see cref="ViewModels.MainViewModel"/> are available.
     /// Best-effort: a failure here must never block launch (the console host still works).</summary>
@@ -594,11 +599,84 @@ public partial class App : Application
             SenseEase.Infrastructure.Real.WgcDiagLog.Append(
                 $"[{DateTime.UtcNow:O}] [App.StartShell] failed: {ex.GetType().Name}: {ex.Message}");
         }
+
+        // TASK #7: stand up the system-wide reveal/toggle hotkey once the shell exists. Pressed
+        // marshals to the shell's dispatcher and toggles the glass popup bar. Fail-soft by
+        // construction — Register never throws; a missing/contended key just leaves no hotkey
+        // (the edge-sidebar click still reveals the bar), so this never blocks launch.
+        try
+        {
+            if (_revealHotkey is null)
+            {
+                _revealHotkey = new SenseEase.App.Services.GlobalHotkeyService();
+                _revealHotkey.Pressed += OnRevealHotkeyPressed;
+                _revealHotkey.Register(Configuration.UserPreferences.Current.RevealHotkey);
+            }
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.StartShell] reveal-hotkey wiring failed: " +
+                $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>TASK #7: the global reveal hotkey fired. Marshal to the shell's dispatcher and
+    /// toggle the glass popup bar (lazily created). Best-effort — a fault here (e.g. the shell
+    /// not yet built) is swallowed so a stray WM_HOTKEY never reaches an unhandled handler.</summary>
+    private void OnRevealHotkeyPressed(object? sender, EventArgs e)
+    {
+        try
+        {
+            // ShellController owns the popup; its dispatcher is the UI thread. The HwndSource hook
+            // already runs on the UI thread in normal operation, but marshal defensively so the
+            // toggle is always on the right thread regardless of where the message pump delivers it.
+            Dispatcher.BeginInvoke(new Action(() => _shell?.ToggleGlassPopupBar()));
+        }
+        catch { /* best-effort — a reveal-hotkey fault must never crash the app */ }
+    }
+
+    /// <summary>TASK #7: re-register the reveal hotkey from the current
+    /// <see cref="Configuration.UserPreferences"/> value. Called by Settings (via the
+    /// <c>SetRevealHotkey</c> host delegate) AFTER it persists a new gesture, so the live binding
+    /// matches the saved pref without a restart. Idempotent + fail-soft: a no-shell / no-service
+    /// state is a no-op, and the underlying Register never throws. Marshals to the UI thread
+    /// because RegisterHotKey must run on the thread that owns the message-sink window.</summary>
+    internal void ReRegisterRevealHotkey()
+    {
+        try
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(ReRegisterRevealHotkey));
+                return;
+            }
+            _revealHotkey?.Register(Configuration.UserPreferences.Current.RevealHotkey);
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.ReRegisterRevealHotkey] failed: " +
+                $"{ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         SafeShutdownActivityFilter();
+        // TASK #7: release the system-wide hotkey + dispose the message-sink window so the
+        // registration doesn't outlive the process. Best-effort — never throws on teardown.
+        try
+        {
+            if (_revealHotkey is not null)
+            {
+                _revealHotkey.Pressed -= OnRevealHotkeyPressed;
+                _revealHotkey.Unregister();
+                _revealHotkey.Dispose();
+            }
+        }
+        catch { /* best-effort */ }
+        _revealHotkey = null;
         try { _singleInstanceMutex?.ReleaseMutex(); } catch { }
         try { _singleInstanceMutex?.Dispose(); } catch { }
         _singleInstanceMutex = null;
