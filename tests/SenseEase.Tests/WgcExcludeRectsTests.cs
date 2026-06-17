@@ -14,7 +14,7 @@ public class WgcExcludeRectsTests
     [Fact]
     public void SetMonitorExcludeRects_RoundTrips()
     {
-        var p = new WgcSensingProvider();
+        using var p = new WgcSensingProvider();
         p.SetMonitorExcludeRects(new (int, int, int, int)[] { (10, 20, 30, 40), (100, 200, 8, 120) });
 
         var rects = p.CurrentExcludeRects;
@@ -26,7 +26,7 @@ public class WgcExcludeRectsTests
     [Fact]
     public void SetMonitorExcludeRects_DropsInvalidAndClears()
     {
-        var p = new WgcSensingProvider();
+        using var p = new WgcSensingProvider();
         p.SetMonitorExcludeRects(new (int, int, int, int)[] { (0, 0, 0, 50), (5, 5, 10, 10), (1, 1, 10, -1) });
         Assert.Single(p.CurrentExcludeRects); // only the valid (5,5,10,10) survives
 
@@ -40,7 +40,7 @@ public class WgcExcludeRectsTests
     [Fact]
     public void LegacySingleRect_IsIndependentOfMultiSlot()
     {
-        var p = new WgcSensingProvider();
+        using var p = new WgcSensingProvider();
         p.SetMonitorExcludeRect(1, 2, 3, 4);
         p.SetMonitorExcludeRects(new (int, int, int, int)[] { (9, 9, 9, 9) });
 

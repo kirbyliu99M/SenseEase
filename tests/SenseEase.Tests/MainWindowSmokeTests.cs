@@ -112,7 +112,7 @@ public class MainWindowSmokeTests
                 {
                     shutdownTimer.Stop();
 
-                    // ── Post-layout state assertions ──────────────────────────
+                    // ── Post-layout state assertions + deterministic teardown ──
                     // Captured on the UI thread where the VM is live; read by the
                     // outer thread after Join. Keep these cheap (property reads only).
                     // MainWindow.DataContext is the MainViewModel instance.
@@ -122,6 +122,23 @@ public class MainWindowSmokeTests
                         {
                             initialLiveness          = vm.LivenessState;
                             persistentOverlayDefault = vm.PersistentOverlayEnabled;
+
+                            // Deterministic teardown of the live WGC provider's timers.
+                            // MainWindow.OnClosing intercepts the window.Close() below and
+                            // cancels it (minimize-to-tray is the default pref), so the
+                            // production Closed→DisposeServices teardown never fires here —
+                            // the WgcSensingProvider's capture + liveness-watchdog timers
+                            // would leak. A leaked OnTick that fires AFTER this dispatcher
+                            // shuts down marshals a health-event log append back onto the
+                            // now-dead dispatcher (MainViewModel.cs:1020) → TaskCanceledException
+                            // on a ThreadPool thread → aborts the whole test-host process
+                            // mid-run (only in a full run that outlives the provider's 2 s
+                            // warmup; the smoke test alone exits before then). Disposing the
+                            // VM's services now — on the live dispatcher thread, before
+                            // BeginInvokeShutdown — stops + disposes both provider timers so
+                            // nothing can fire post-shutdown. Fail-soft + idempotent; mirrors
+                            // the production app-exit (tray Quit) teardown.
+                            vm.DisposeServices();
                         }
                     }
                     catch { /* best-effort: a null DataContext is a separate failure path */ }
