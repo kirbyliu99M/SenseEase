@@ -480,37 +480,9 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
-
-                        <!-- UX-08 (B1b): the follow-mode radios are now IsEnabled-bound
-                             to the head-tracking toggle, so they don't look live while
-                             tracking is off (an honesty fix — inert-looking-but-live
-                             controls misrepresent state). The 追蹤模式 label dims with
-                             them for a coherent disabled group. -->
-                        <StackPanel Orientation="Vertical"
-                                    IsEnabled="{Binding IsChecked, ElementName=ToggleHeadTrackingEnabled}">
-                            <TextBlock Text="{loc:T Zh='追蹤模式', En='Tracking mode'}"
-                                       FontSize="12" FontWeight="Bold"
-                                       Foreground="{DynamicResource TextPrimary}"
-                                       Margin="22,0,0,4"/>
-                            <RadioButton x:Name="FollowModeBalanced"
-                                         GroupName="HeadTrackingFollowMode"
-                                         Content="{loc:T Zh='平衡 (建議)', En='Balanced (recommended)'}"
-                                         Foreground="{DynamicResource TextPrimary}"
-                                         FontSize="13"
-                                         Margin="22,2,0,0"
-                                         Checked="OnFollowModeChanged"/>
-                            <RadioButton x:Name="FollowModeFull"
-                                         GroupName="HeadTrackingFollowMode"
-                                         Content="{loc:T Zh='完整追蹤（邊緣較完整）', En='Full tracking (more complete edges)'}"
-                                         Foreground="{DynamicResource TextPrimary}"
-                                         FontSize="13"
-                                         Margin="22,8,0,0"
-                                         Checked="OnFollowModeChanged"/>
-                        </StackPanel>
-
-                        <!-- 「啟用暫時透明」 escape-hatch section (toggle + description +
-                             vestibular note) removed entirely (2026-06-09, user request). -->
+                        <!-- Head-tracking follow mode is fixed to FULL-FOLLOW (the Balanced option +
+                             its radios were removed 2026-06-18, user request — no user choice). The
+                             mode is forced in App.OnStartup; OverlayWindow reads AppConfig.HeadTrackingFollowMode. -->
                     </StackPanel>
                 </Border>
 
@@ -731,20 +703,10 @@
                                    FontSize="11" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
                                    TextWrapping="Wrap" Margin="0,8,0,0"/>
 
-                        <!-- Raw per-check-in CSV export for the user's own long-term analysis
-                             (distinct from the de-identified clinician report above). -->
-                        <Border Background="{DynamicResource Separator}" Height="1" Margin="0,18,0,14"/>
-                        <TextBlock Text="{loc:T Zh='匯出原始紀錄（CSV）', En='Export raw data (CSV)'}"
-                                   Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
-                                   Margin="0,0,0,6"/>
-                        <TextBlock Text="{loc:T Zh='把你的每一筆感受紀錄（含時間與當時情境）匯出成 CSV，方便長期用試算表或統計工具分析。這是你自己的資料，僅在你主動匯出時才離開本機。', En='Export every one of your check-ins (with its timestamp and context) as a CSV for long-term analysis in a spreadsheet or stats tool. This is your own data; it only leaves this device when you choose to export it.'}"
-                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap" Margin="0,0,0,10"/>
-                        <Button x:Name="ExportSymptomCsvButton"
-                                Content="{loc:T Zh='匯出原始紀錄…', En='Export raw data…'}"
-                                HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
-                                Cursor="Hand" Click="OnExportSymptomCsvClicked"
-                                ToolTip="{loc:T Zh='把每一筆感受紀錄存成 CSV 檔。', En='Save every check-in as a CSV file.'}"/>
+                        <!-- Raw per-check-in CSV export REMOVED 2026-06-18 (user): raw data is
+                             LLM-access-only now — the user-facing export is the de-identified health
+                             report above (which gains an LLM report-writing pass). The symptom store
+                             stays on-device for the engine/LLM. -->
 
                         <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
                              "regret" toggle + the Reset that moved here from the console.
@@ -771,70 +733,8 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Phase 5 follow-up (v0.11, 2026-05-31): developer / QA test
-                     hotkey reference table. Per user request, labeled as "dev
-                     test usage" — this is not a normal-user feature. Lists the
-                     window-scoped hotkey the app currently registers so future
-                     testing has a single discoverable reference. TEMP UVHS
-                     scaffolds (F11 from Step 7, F12 from Step 3) are
-                     intentionally NOT listed — they were reverted before
-                     their respective commits.
-
-                     D-10 (2026-06-11): the double-tap-Ctrl overlay escape-hatch
-                     row was removed because the feature was retired entirely
-                     (OverlayWindow.TriggerEscapeHatch deleted,
-                     AppConfig.HeadTrackingEscapeHatchEnabled retired) — the row
-                     documented a hotkey that no longer exists.
-
-                     Hidden 2026-05-31: user reported the remaining listed hotkey
-                     (Ctrl+Shift+H mock head-pose sweep) is non-functional in
-                     current builds. Showing this table would mislead testers
-                     about a feature that doesn't actually work. Beta follow-up:
-                     diagnose why the Key.H branch of MainWindow.PreviewKeyDown
-                     doesn't fire end-to-end — the F11 UVHS-P5-7 scaffold worked
-                     from the same lambda, so PreviewKeyDown wiring itself is
-                     fine; the issue is downstream (key detection state machine,
-                     ViewModel command invocation, or the target method
-                     StartMockHeadPoseSweep itself). Once fixed, flip
-                     Visibility="Collapsed" back to Visible to re-expose the
-                     reference table. -->
-                <StackPanel Margin="0,8,0,0" Visibility="Collapsed">
-                    <TextBlock Text="{loc:T Zh='開發者測試快捷鍵', En='Developer Test Hotkeys'}"
-                               FontSize="14" FontWeight="Bold"
-                               Foreground="{DynamicResource TextPrimary}"
-                               Margin="0,0,0,6"/>
-                    <TextBlock Text="{loc:T Zh='以下快捷鍵為開發 / QA 測試用途，非一般使用流程的一部分。', En='These are for development / QA testing only, not part of the normal user flow.'}"
-                               FontSize="12"
-                               Foreground="{DynamicResource TextTertiary}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,10"/>
-                    <Border Background="{DynamicResource SurfaceMuted}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" CornerRadius="{StaticResource Radius.sm}" Padding="14,10">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="170"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/> <!-- header -->
-                                <RowDefinition Height="Auto"/> <!-- row 1: Ctrl+Shift+H -->
-                            </Grid.RowDefinitions>
-
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:T Zh='快捷鍵', En='Hotkey'}"
-                                       FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{loc:T Zh='作用', En='Effect'}"
-                                       FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Accent}" Margin="0,0,0,6"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + Shift + H"
-                                       FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource TextPrimary}" Margin="0,2,0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1"
-                                       Text="{loc:T Zh='觸發 20 秒模擬頭部姿勢掃描 (橫向→縱向→圓形→中心持住)。用於無 webcam 機器驗證 wiring 端到端，與 AppConfig.HeadTrackingEnabled 無關。', En='Triggers a 20-second mock head-pose sweep (horizontal→vertical→circular→hold centre). Used to verify wiring end-to-end on webcam-less machines. Independent of AppConfig.HeadTrackingEnabled.'}"
-                                       FontSize="12" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Margin="0,2,0,2"/>
-                        </Grid>
-                    </Border>
-                    <TextBlock Text="{loc:T Zh='提示：所有快捷鍵僅在主控台視窗有焦點時觸發 (PreviewKeyDown 範圍)。', En='Note: all hotkeys fire only when the main console window has focus.'}"
-                               FontSize="12" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
-                               TextWrapping="Wrap" Margin="0,8,0,0"/>
-                </StackPanel>
+                <!-- Developer test-hotkeys reference table REMOVED 2026-06-18 (Q6): it was
+                     permanently collapsed (the listed Ctrl+Shift+H sweep is non-functional) — dead UI. -->
             </StackPanel>
         </ScrollViewer>
     </Border>

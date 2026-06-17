@@ -272,12 +272,7 @@ public partial class SettingsContent : UserControl
             // row where no reader exists). Read-only consumption of the host reader.
             RefreshHeadTrackingHealth();
 
-            bool isFullFollow = string.Equals(
-                UserPreferences.Current.HeadTrackingFollowMode,
-                "FullFollow",
-                StringComparison.OrdinalIgnoreCase);
-            FollowModeBalanced.IsChecked = !isFullFollow;
-            FollowModeFull.IsChecked     =  isFullFollow;
+            // (Head-tracking follow mode is fixed to FullFollow now — no radios to hydrate.)
 
             // D-1 (CW-1 step 3, 2026-06-11): hydrate the 漸進適應 / Graded exposure toggle.
             // Prefer the host's live engine state (true = running, false = paused) when
@@ -443,47 +438,6 @@ public partial class SettingsContent : UserControl
                 LocalizationManager.Current.Pick(
                     "已匯出去識別化的健康報告（僅數字與類別）。",
                     "Exported a de-identified health report (numbers and categories only)."),
-                DialogKind.Info);
-        }
-        catch
-        {
-            ThemedDialog.Notify(
-                Window.GetWindow(this),
-                LocalizationManager.Current.Pick(
-                    "匯出失敗。請再試一次，或改存到其他位置（例如桌面）。",
-                    "Export failed. Please try again, or save to another location (such as your Desktop)."),
-                DialogKind.Error);
-        }
-    }
-
-    /// <summary>Export the RAW per-check-in data as CSV for the user's own long-term analysis
-    /// (spreadsheet / pandas / R). Unlike the de-identified clinician report, this keeps the
-    /// per-event UTC timestamp + coarse foreground key — it is the user's OWN on-device data. The
-    /// CSV rendering lives in <see cref="SymptomEventCsvExporter"/>; this handler runs the Save
-    /// dialog and surfaces success/failure (user-initiated → reported, not swallowed).</summary>
-    private void OnExportSymptomCsvClicked(object sender, RoutedEventArgs e)
-    {
-        var dlg = new Microsoft.Win32.SaveFileDialog
-        {
-            Title        = LocalizationManager.Current.Pick("匯出原始紀錄 (CSV)", "Export raw check-in data (CSV)"),
-            Filter       = "CSV (*.csv)|*.csv",
-            FileName     = $"senseease-checkins-{DateTime.UtcNow:yyyyMMdd}.csv",
-            AddExtension = true,
-            DefaultExt   = ".csv",
-        };
-        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
-
-        try
-        {
-            var events = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
-            string csv = SymptomEventCsvExporter.ToCsv(events);
-            // UTF-8 WITH BOM so Excel opens the CJK / unicode columns without mojibake.
-            System.IO.File.WriteAllText(dlg.FileName, csv, new System.Text.UTF8Encoding(true));
-            ThemedDialog.Notify(
-                Window.GetWindow(this),
-                LocalizationManager.Current.Pick(
-                    $"已匯出 {events.Count} 筆原始紀錄為 CSV。",
-                    $"Exported {events.Count} raw check-in row(s) as CSV."),
                 DialogKind.Info);
         }
         catch
@@ -674,18 +628,6 @@ public partial class SettingsContent : UserControl
         if (!_capturingHotkey) return;
         _capturingHotkey = false;
         RevealHotkeyDisplay.Text = GetRevealHotkey?.Invoke() ?? UserPreferences.Current.RevealHotkey;
-    }
-
-    private void OnFollowModeChanged(object sender, RoutedEventArgs e)
-    {
-        if (_wiring) return;
-        bool isFullFollow = FollowModeFull.IsChecked == true;
-        UserPreferences.Current.HeadTrackingFollowMode =
-            isFullFollow ? "FullFollow" : "Balanced";
-        UserPreferences.Current.Save();
-        AppConfig.HeadTrackingFollowMode = isFullFollow
-            ? HeadTrackingFollowModeKind.FullFollow
-            : HeadTrackingFollowModeKind.Balanced;
     }
 
     /// <summary>Appearance setting (2026-06-07): the 自動 / 淺色 / 深色 segmented

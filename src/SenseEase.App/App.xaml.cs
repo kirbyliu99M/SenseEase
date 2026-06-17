@@ -421,13 +421,9 @@ public partial class App : Application
             if (!IntegrityFailed)
                 Configuration.AppConfig.HeadTrackingEnabled =
                     Configuration.UserPreferences.Current.HeadTrackingEnabled;
-            Configuration.AppConfig.HeadTrackingFollowMode =
-                string.Equals(
-                    Configuration.UserPreferences.Current.HeadTrackingFollowMode,
-                    "FullFollow",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? Configuration.HeadTrackingFollowModeKind.FullFollow
-                    : Configuration.HeadTrackingFollowModeKind.Balanced;
+            // 2026-06-18 (user): follow mode is FIXED to FullFollow — the Balanced option + its
+            // Settings radios were removed (no user choice). Force it regardless of the saved pref.
+            Configuration.AppConfig.HeadTrackingFollowMode = Configuration.HeadTrackingFollowModeKind.FullFollow;
             // Beta-1 D-16: mirror the per-app attribution consent (default OFF,
             // STRICTLY opt-in) onto AppConfig BEFORE the MainViewModel ctor reads
             // it to seed WindowsActivityFilter.Instance.PerAppAttributionEnabled.
