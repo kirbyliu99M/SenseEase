@@ -1906,6 +1906,14 @@ public partial class MainWindow : Window
     /// without taking a direct dependency on the View layer.</summary>
     public bool IsPowerSaveActive => _powerSaveActive;
 
+    // ── UI-RESHAPE: thin internal wrappers so ShellController can drive the still-hosted
+    //    surfaces without taking a dependency on MainWindow's private members. These delegate
+    //    to the existing host methods; they retire with MainWindow in the deferred fuse plan. ──
+    internal void SetPowerSaveFromShell(bool on) => ApplyPowerSave(on);
+    internal void SurfaceConsoleFromShell() => SurfaceMainWindowFromTray();
+    internal void OpenSettingsFromShell() => ShowSettingsWindow();
+    internal void OpenLogsFromShell() => ShowEventLogWindow();
+
     /// <summary>overlay-bar-redesign D3: applies the Power Save flag across
     /// every dependent surface. Idempotent — a no-op if the state matches
     /// the current value. Pauses/Resumes the WGC capture, drops the bar

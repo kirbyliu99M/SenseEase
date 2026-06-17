@@ -103,6 +103,11 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
 
     private void OnProximityTick(object? sender, EventArgs e)
     {
+        // A tick already queued when the window closes still runs once after the timer is
+        // stopped; touching a closed window (GetDpi / SetWindowPos) then throws on the
+        // dispatcher. No-op once unloaded so teardown (incl. smoke tests) stays clean.
+        if (!IsLoaded) return;
+
         if (++_topmostTickCounter >= 12) { _topmostTickCounter = 0; ReassertTopmost(); }
 
         if (!GetCursorPos(out POINT physical)) return;

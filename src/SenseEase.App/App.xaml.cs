@@ -328,6 +328,11 @@ public partial class App : Application
             }
         }
 
+        // UI-RESHAPE: the dashboard console is no longer the launch surface — it stays the hidden
+        // engine/host. ALWAYS boot hidden-to-tray; the always-on edge sidebar (ShellController) is
+        // the entry point, and the console is reachable only on demand (tray / "Full settings").
+        StartMinimizedToTray = true;
+
         // Patch 8 (sub-bug #2): set AUMID BEFORE anything registers with the
         // shell (tray icons, taskbar grouping, toast notifications). Once a
         // process has registered any shell-integrated UI without an AUMID,
@@ -561,6 +566,34 @@ public partial class App : Application
                 ?.StartBackgroundUserModelAnalysis();
         }
         catch { /* background analysis is best-effort */ }
+
+        // UI-RESHAPE: stand up the coexistence shell (edge sidebar + popup) once the StartupUri
+        // MainWindow + its MainViewModel exist. Reuses this proven dual-hook (Activated + the
+        // ApplicationIdle BeginInvoke below) so it also fires on the hidden-to-tray boot.
+        StartShellIfNeeded();
+    }
+
+    // UI-RESHAPE: the coexistence shell controller (App-lifetime; keeps the new surfaces alive).
+    private SenseEase.App.Services.ShellController? _shell;
+
+    /// <summary>Idempotent one-shot: create + start the <see cref="SenseEase.App.Services.ShellController"/>
+    /// once the StartupUri MainWindow and its <see cref="ViewModels.MainViewModel"/> are available.
+    /// Best-effort: a failure here must never block launch (the console host still works).</summary>
+    private void StartShellIfNeeded()
+    {
+        if (_shell is not null) return;                                   // already started
+        if (MainWindow is not SenseEase.App.MainWindow win) return;       // window not ready yet
+        if (win.DataContext is not SenseEase.App.ViewModels.MainViewModel vm) return;
+        try
+        {
+            _shell = new SenseEase.App.Services.ShellController(win, vm);
+            _shell.Start();
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.StartShell] failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
