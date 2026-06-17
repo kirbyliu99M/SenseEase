@@ -159,13 +159,10 @@
                                                         <Setter Property="HorizontalAlignment" Value="Right"/>
                                                         <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
                                                     </DataTrigger>
-                                                    <DataTrigger Binding="{Binding IsSystemNotice}" Value="True">
-                                                        <Setter Property="Background" Value="#22024AD8"/>
-                                                    </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13">
+                                        <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
@@ -179,24 +176,21 @@
                                         </TextBlock>
                                     </Border>
 
-                                    <!-- Undo (B5 system-notice pattern) -->
-                                    <Button Content="{loc:T Zh='復原', En='Undo'}"
-                                            Command="{Binding UndoCommand}"
-                                            Style="{StaticResource GhostPanelBtn}"
-                                            HorizontalAlignment="Left" Margin="2,4,0,0"
-                                            Visibility="{Binding HasUndo, Converter={StaticResource BoolToVis}}"
-                                            AutomationProperties.Name="{loc:T Zh='復原這項變更', En='Undo this change'}"/>
-
-                                    <!-- Inline followup options (gated FMS / proposal answers) -->
-                                    <ItemsControl ItemsSource="{Binding Options}" Margin="2,4,0,0"
-                                                  Visibility="{Binding HasOptions, Converter={StaticResource BoolToVis}}">
+                                    <!-- Gated followup options: the FMS check-in / habituation-proposal
+                                         answers + B5 adaptation notices flow through the real
+                                         ChatbotViewModel into Messages, so they surface here automatically. -->
+                                    <ItemsControl ItemsSource="{Binding FollowupOptions}" Margin="2,6,0,0"
+                                                  Visibility="{Binding FollowupVisibility}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Button Content="{Binding Label}" Command="{Binding Command}"
-                                                        Style="{StaticResource GhostPanelBtn}" Margin="0,0,6,6"/>
+                                                <Button Content="{Binding}"
+                                                        Command="{Binding DataContext.SelectFollowupCommand,
+                                                                          RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource GhostPanelBtn}" Margin="0,0,6,6" MinHeight="36"/>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -213,7 +207,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox Grid.Column="0" VerticalContentAlignment="Center" Padding="8,6" FontSize="13"
-                             Text="{Binding Chat.Draft, UpdateSourceTrigger=PropertyChanged}"
+                             Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
                              Foreground="{StaticResource Popup.Ink1}"
                              AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
                     <Button Grid.Column="1" Margin="6,0,0,0" Width="34" Height="34"

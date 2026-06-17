@@ -83,7 +83,7 @@ public sealed class ShellController : IShellController
     {
         if (_popup is null)
         {
-            _popup = new PopupBarWindow(this);
+            _popup = new PopupBarWindow(this, _vm.ChatbotVm);
             _popup.ContentRendered += (_, _) => PositionPopup();
             _popup.SizeChanged += (_, _) => { PositionPopup(); _exclude.Update(); };
             _popup.LocationChanged += (_, _) => _exclude.Update();

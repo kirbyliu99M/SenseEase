@@ -28,12 +28,12 @@ public partial class PopupBarWindow : Window, IShellSurface
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_FORCE_TOPMOST = 0x0001 | 0x0002 | 0x0010 | 0x0200; // NOSIZE|NOMOVE|NOACTIVATE|NOOWNERZORDER
 
-    public PopupBarWindow() : this(null) { }
+    public PopupBarWindow() : this(null, null) { }
 
-    public PopupBarWindow(IShellController? controller)
+    public PopupBarWindow(IShellController? controller, ChatbotViewModel? chat)
     {
         InitializeComponent();
-        DataContext = new PopupBarViewModel(controller);
+        DataContext = new PopupBarViewModel(controller, chat);
         SourceInitialized += OnSourceInitialized;
     }
 

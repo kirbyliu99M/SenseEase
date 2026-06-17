@@ -25,11 +25,14 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
 
     private readonly IShellController? _controller;
 
-    public PopupChatViewModel Chat { get; } = new();
+    /// <summary>The REAL AI chat (NLU + B5 adaptation notices + gated FMS/proposal followups all
+    /// flow into its Messages). Null in design-time / tests; the chat panel binds Chat.* safely.</summary>
+    public ChatbotViewModel? Chat { get; }
 
-    public PopupBarViewModel(IShellController? controller = null)
+    public PopupBarViewModel(IShellController? controller = null, ChatbotViewModel? chat = null)
     {
         _controller = controller;
+        Chat = chat;
 
         PlayPauseCommand     = new RelayCommand(_ => PlayPause());
         StrongerCommand      = new RelayCommand(_ => Stronger());
