@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:SenseEase.App.Localization"
         xmlns:conv="clr-namespace:SenseEase.App.Converters"
+        xmlns:views="clr-namespace:SenseEase.App.Views"
         Title="SenseEase"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -12,7 +13,10 @@
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
         WindowStartupLocation="Manual"
-        AutomationProperties.Name="{loc:T Zh='SenseEase 控制列', En='SenseEase control bar'}">
+        AutomationProperties.Name="{loc:T Zh='SenseEase 控制列', En='SenseEase control bar'}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.BitmapScalingMode="HighQuality">
     <!-- UI-RESHAPE prep: the glass vertical function bar (col 1) with a slide-out AI
          chat panel (col 0). Native WPF translation of senseease-vertical-v1.html using
          the reference palette (PopupGlassTokens) over a Win11 acrylic window. NO XAML
@@ -123,11 +127,12 @@
         </Grid.ColumnDefinitions>
 
         <!-- ═══ Col 0 — AI chat panel (toggled) ═══ -->
-        <Border Grid.Column="0" Width="300" Margin="0,0,10,0"
+        <Border Grid.Column="0" Width="300" Margin="0,0,6,0"
                 Visibility="{Binding IsChatOpen, Converter={StaticResource BoolToVis}}"
                 Background="{StaticResource Popup.PanelBg}"
                 BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
-                CornerRadius="{StaticResource Radius.md}">
+                CornerRadius="{StaticResource Radius.md}"
+                Effect="{StaticResource Elev.3}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -175,18 +180,30 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <TextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsUser}" Value="True">
-                                                            <Setter Property="Foreground" Value="White"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
+                                        <Grid>
+                                            <!-- Selectable, marker-stripped content (reuses the proven
+                                                 MarkdownInlines source the console chat uses). Hidden while typing. -->
+                                            <TextBox Visibility="{Binding ContentVisibility}"
+                                                     views:MarkdownInlines.Source="{Binding Content}"
+                                                     IsReadOnly="True" IsReadOnlyCaretVisible="False" IsTabStop="False"
+                                                     BorderThickness="0" Background="Transparent" Padding="0"
+                                                     TextWrapping="Wrap" FontSize="13">
+                                                <TextBox.Style>
+                                                    <Style TargetType="TextBox">
+                                                        <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsUser}" Value="True">
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBox.Style>
+                                            </TextBox>
+                                            <!-- Static "thinking" indicator while generating — no animation
+                                                 (reduced-motion-safe by default for a motion-sickness app). -->
+                                            <TextBlock Visibility="{Binding TypingVisibility}"
+                                                       Text="• • •" FontSize="15" Foreground="{StaticResource Popup.Ink2}"/>
+                                        </Grid>
                                     </Border>
 
                                     <!-- Gated followup options: the FMS check-in / habituation-proposal
@@ -236,11 +253,12 @@
 
         <!-- settings flyout — in-window overlay (NOT a WPF Popup: a Popup hooks Application.Exit
              and mis-places over a topmost no-activate transparent window). Sits in col 0, left of the bar. -->
-        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="218" Margin="0,0,10,0"
+        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="218" Margin="0,0,6,0"
                 VerticalAlignment="Center" HorizontalAlignment="Right" Panel.ZIndex="10"
                 Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}"
                 Background="{StaticResource Popup.PanelBg}" BorderBrush="{StaticResource Popup.Bdr}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="12">
+                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="12"
+                Effect="{StaticResource Elev.3}">
             <StackPanel>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
                           Foreground="{StaticResource Popup.Ink1}" Margin="0,2"
@@ -264,6 +282,7 @@
                 Background="{StaticResource Popup.BarBg}"
                 BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
+                Effect="{StaticResource Elev.3}"
                 MouseLeftButtonDown="OnBarMouseDown">
             <StackPanel HorizontalAlignment="Center">
 
