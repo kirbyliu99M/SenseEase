@@ -945,6 +945,23 @@ public sealed class MistralChatbotService : IChatbotService
                 d.FollowupQuestion = null;
                 d.FollowupOptions = null;
             }
+            // Inverse of the promote: a discomfort report that names NO specific symptom is the
+            // card-policy "discomfort + unnamed symptom" case — ASK which sensation instead of actuating
+            // on a guess. Tester: "I don't know, but I feel weird with my eyes" silently cut the FOV. The
+            // lexicon fallback already does this via TryBuildFollowup Case 2; mirror it on the model path
+            // so a model that classifies vague unease as ReportDiscomfort is corrected before any delta.
+            else if (intent == "ReportDiscomfort"
+                && !FeedbackLexicon.MentionsSpecificSymptom(userText))
+            {
+                var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "ReportDiscomfort", severity);
+                if (clarifyQ is not null)
+                {
+                    intent = "FollowupRequest";
+                    d.FollowupQuestion = clarifyQ;
+                    d.FollowupOptions = clarifyOpts;
+                    d.Reply = clarifyQ; // the model's "I've adjusted…" reply no longer applies — ask, don't claim
+                }
+            }
 
             // Round-3 (Kirby item 5): feather is NOT part of the chatbot's adjustment
             // vocabulary anymore. The chatbot LLM path NEVER applies a feather delta —

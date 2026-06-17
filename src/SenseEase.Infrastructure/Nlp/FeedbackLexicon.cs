@@ -260,7 +260,18 @@ internal static class FeedbackLexicon
     private static readonly string[] DizzyMarkers   = { "暈", "晕", "dizz", "spin", "vertigo", "lightheaded", "woozy" };
     private static readonly string[] NauseaMarkers  = { "噁心", "恶心", "想吐", "puke", "vomit", "nausea", "queasy" };
     private static readonly string[] HeadacheMarkers = { "頭痛", "头痛", "headache", "migraine", "head pain", "head hurts" };
-    private static readonly string[] EyeMarkers     = { "眼", "eye", "vision", "blur", "視覺", "视觉" };
+    // Eye SYMPTOM descriptors only — NOT a bare body-location word ("眼" / "eye" / "vision"). The bare
+    // location made a vague "I feel weird with my eyes" match as a specific eye symptom → anySpecific=true
+    // → the clarify picker was skipped and the FOV silently cut (tester report 2026-06-17). Mirrors the
+    // HeadacheMarkers approach (which already required "head pain"/"head hurts", not bare "head"). A bare
+    // location + a vague sensation now falls through to the clarify picker (TryBuildFollowup Case 2).
+    private static readonly string[] EyeMarkers     =
+    {
+        "眼睛痛", "眼痛", "眼睛酸", "眼酸", "眼睛乾", "眼乾", "眼睛澀", "乾澀", "眼睛脹", "眼睛胀",
+        "眼睛疲勞", "眼疲勞", "眼疲劳", "視覺疲勞", "视觉疲劳", "眼睛刺", "眼睛灼熱",
+        "eye strain", "eyestrain", "eye fatigue", "eye pain", "eyes hurt", "sore eyes", "tired eyes",
+        "dry eyes", "eye dryness", "burning eyes", "blur", "double vision",
+    };
 
     // Vague-discomfort hints that on their own are too ambiguous to drive an
     // adjustment but DO warrant a follow-up question. "feel off", "怪怪的", etc.
