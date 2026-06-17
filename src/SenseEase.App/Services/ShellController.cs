@@ -39,8 +39,10 @@ public sealed class ShellController : IShellController
         _vm.StateChanged += OnVmStateChanged;
 
         _sidebar = new EdgeSidebarWindow();
-        _sidebar.Clicked += (_, _) => RevealPopup();
-        _sidebar.RevealRequested += (_, _) => RevealPopup();
+        // Side-panel reveal (handle click / edge-throw): cursor is right here, so a SHORTER 5 s
+        // cooldown before it vanishes is plenty (vs the tray's 10 s, where the cursor is far away).
+        _sidebar.Clicked += (_, _) => RevealPopup(SidePanelGraceMs);
+        _sidebar.RevealRequested += (_, _) => RevealPopup(SidePanelGraceMs);
         _sidebar.ContentRendered += (_, _) => _exclude.Register(_sidebar!);
         _sidebar.SizeChanged += (_, _) => _exclude.Update();
         _sidebar.LocationChanged += (_, _) => _exclude.Update();
@@ -79,25 +81,30 @@ public sealed class ShellController : IShellController
     }
 
     /// <summary>Reveal the glass popup bar (lazily created, condensed). Idempotent — a no-op if
-    /// already visible. Fired by the edge handle's proximity throw + click. <paramref name="graceFromAfar"/>
-    /// (tray / hotkey) keeps it open ~10 s so the user — whose cursor is far away — can reach it.</summary>
-    public void RevealPopup(bool graceFromAfar = false)
+    /// already visible. <paramref name="graceMs"/> = how long it stays open regardless of cursor
+    /// distance before the proximity auto-close can vanish it (the reveal "cooldown").</summary>
+    public void RevealPopup(int graceMs = 0)
     {
         EnsurePopup();
-        if (_popup!.IsVisible) { if (graceFromAfar) _popup.GraceAutoClose(RevealGraceMs); return; }
-        ShowPopup(graceFromAfar);
+        if (_popup!.IsVisible) { if (graceMs > 0) _popup.GraceAutoClose(graceMs); return; }
+        ShowPopup(graceMs);
     }
 
-    /// <summary>Hotkey toggle: hide the bar if shown, otherwise reveal it (with the from-afar grace —
-    /// a hotkey summon, like the tray, leaves the cursor away from the bar).</summary>
+    /// <summary>Tray single-click reveal — the cursor is at the tray, far from the bar, so use the
+    /// longer 10 s cooldown so the user has time to move to it.</summary>
+    public void RevealFromTray() => RevealPopup(TrayGraceMs);
+
+    /// <summary>Hotkey toggle: hide if shown, otherwise reveal with the tray-length cooldown (a
+    /// hotkey summon, like the tray, leaves the cursor away from the bar).</summary>
     public void ToggleGlassPopupBar()
     {
         EnsurePopup();
         if (_popup!.IsVisible) _popup.Hide();
-        else ShowPopup(graceFromAfar: true);
+        else ShowPopup(TrayGraceMs);
     }
 
-    private const int RevealGraceMs = 10_000;
+    private const int SidePanelGraceMs = 5_000;  // handle click / edge-throw — cursor is here
+    private const int TrayGraceMs      = 10_000; // tray / hotkey — cursor is far, give time to reach
 
     private void EnsurePopup()
     {
@@ -124,13 +131,13 @@ public sealed class ShellController : IShellController
         };
     }
 
-    private void ShowPopup(bool graceFromAfar = false)
+    private void ShowPopup(int graceMs = 0)
     {
         if (_popup is null) return;
         _popup.Show();
         PositionPopup();
         _popup.ReassertTopmost();
-        if (graceFromAfar) _popup.GraceAutoClose(RevealGraceMs);
+        if (graceMs > 0) _popup.GraceAutoClose(graceMs);
         // NOTE: do NOT Activate() here — revealing the bar must not steal focus from the user's
         // app/game (low-disturbance). The popup activates ONLY when the chat opens (typing needs
         // the caret), handled in PopupBarWindow on IsChatOpen. ShowActivated=False keeps Show()

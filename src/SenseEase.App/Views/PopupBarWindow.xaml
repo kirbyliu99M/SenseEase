@@ -317,15 +317,18 @@
              the pin. IsExpanded-bound blocks carry their OWN leading divider so no orphan dividers
              appear when collapsed. -->
         <Border x:Name="BarRoot" Grid.Column="1" Width="48" Padding="0,8"
-                VerticalAlignment="Center" Cursor="SizeNS"
+                VerticalAlignment="Center"
                 Background="{DynamicResource Popup.BarBg}"
                 BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
                 Effect="{StaticResource Elev.3}"
                 RenderTransformOrigin="1,0.5"
                 MouseLeftButtonDown="OnBarMouseDown">
-            <!-- SizeNS cursor over the bar background hints the vertical-only drag (buttons override
-                 to Hand). BarScale drives the unified fade+scale reveal (code-behind, deferred to settle). -->
+            <!-- The whole bar background is still a drag surface (OnBarMouseDown), but it no longer
+                 wears a SizeNS cursor — that over-implied EVERY control was drag-adjustable and
+                 confused the user. The vertical drag is now advertised by ONE explicit grip handle at
+                 the bottom (DragHandle, shown in both stages). BarScale drives the unified fade+scale
+                 reveal (code-behind, deferred to settle). -->
             <Border.RenderTransform><ScaleTransform x:Name="BarScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <StackPanel HorizontalAlignment="Center">
 
@@ -378,11 +381,9 @@
                 </Button>
 
                 <!-- FULL only: read-only 12-seg strength meter + nudge buttons (with its own
-                     leading divider so nothing is orphaned when condensed). -->
-                <!-- Cursor="Arrow" so the read-only meter does NOT inherit the bar's SizeNS drag-hint
-                     cursor — it was implying the level/segments are drag-adjustable, which they aren't.
-                     The +/- buttons keep their Hand cursor (BarIconBtn). -->
-                <StackPanel x:Name="MeterSection" HorizontalAlignment="Center" Cursor="Arrow"
+                     leading divider so nothing is orphaned when condensed). The +/- buttons carry
+                     their own Hand cursor (BarIconBtn); the meter itself stays the default arrow. -->
+                <StackPanel x:Name="MeterSection" HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                     <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Button Style="{StaticResource BarIconBtn}" Command="{Binding StrongerCommand}"
@@ -484,6 +485,34 @@
                         </Path.Style>
                     </Path>
                 </Button>
+
+                <!-- Drag handle — the single explicit grip for moving the bar up / down. Shown in
+                     BOTH the condensed and expanded stages (always visible — no IsExpanded gate). A
+                     press here is non-interactive, so it bubbles up to BarRoot.OnBarMouseDown and
+                     runs the vertical-only DragMove (mouse) / the window touch path (touch). This is
+                     the discoverable affordance that replaced the old whole-bar SizeNS cursor. -->
+                <Border x:Name="DragHandle" Cursor="SizeNS" Background="Transparent"
+                        HorizontalAlignment="Center" Margin="0,3,0,0" Padding="12,6"
+                        ToolTip="{loc:T Zh='拖曳調整上下位置', En='Drag to move up / down'}"
+                        AutomationProperties.Name="{loc:T Zh='拖曳調整工具列上下位置', En='Drag the bar up or down'}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Opacity" Value="0.55"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Opacity" Value="0.9"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <!-- two short parallel rules = the universal grab/handle affordance -->
+                    <StackPanel VerticalAlignment="Center">
+                        <Border Width="20" Height="2.5" CornerRadius="1.25"
+                                Background="{DynamicResource Popup.OnBarDim}"/>
+                        <Border Width="20" Height="2.5" CornerRadius="1.25" Margin="0,3,0,0"
+                                Background="{DynamicResource Popup.OnBarDim}"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Border>
     </Grid>
