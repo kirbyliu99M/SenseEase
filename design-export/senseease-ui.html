@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SenseEase UI — Figma export</title>
+<!--
+  SenseEase UI recreation for Figma (via the html.to.design plugin).
+  Every colour, radius, spacing and type value below is lifted verbatim from
+  Theme/SenseEaseTheme.xaml (light) and Theme/Palette.Dark.xaml (dark).
+  Flip the workspace Light/Dark toggle, then import; html.to.design captures
+  whatever theme is currently showing, so re-import after flipping for dark frames.
+-->
+<style>
+  /* ───────────────────────── DESIGN TOKENS (LIGHT) ───────────────────────── */
+  :root {
+    --canvas:#F3F4F7; --surface:#FFFFFF; --surface-muted:#EDEFF3;
+    --separator:#E3E6EC; --card-border:#ECEEF2; --header-surface:#FFFFFF;
+    --text-primary:#1B2333; --text-secondary:#5A6475; --text-tertiary:#636C7A;
+    --accent:#4B6EF5; --accent-hover:#3552D9; --text-on-comfort:#FFFFFF;
+
+    --comfort-steady:#2F7D6E; --comfort-steady-weak:#E2F0EC; --comfort-steady-text:#1F5249;
+    --comfort-rising:#9A6B22; --comfort-rising-weak:#F6ECD8; --comfort-rising-text:#7A4E16;
+    --comfort-high:#B65C4E;   --comfort-high-weak:#F6E2DE;   --comfort-high-text:#8A3A2E;
+
+    --radius-md:16px; --radius-sm:10px; --radius-pill:999px;
+    --pad-card:24px;
+    --elev-2:0 2px 10px rgba(0,0,0,0.06);
+    --elev-3:0 4px 18px rgba(0,0,0,0.09);
+
+    --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft JhengHei UI","Microsoft JhengHei","Noto Sans CJK TC",sans-serif;
+
+    --workspace:#DDE0E6; --workspace-label:#1B2333; --frame-outline:rgba(0,0,0,0.08);
+  }
+  /* ───────────────────────── DESIGN TOKENS (DARK) ────────────────────────── */
+  body.theme-dark {
+    --canvas:#16181D; --surface:#20242B; --surface-muted:#282D35;
+    --separator:#343A44; --card-border:#2E343D; --header-surface:#1B1E24;
+    --text-primary:#EAEDF2; --text-secondary:#AEB6C2; --text-tertiary:#8B95A2;
+    --accent:#7C8CF8; --accent-hover:#98A6FF; --text-on-comfort:#FFFFFF;
+
+    --comfort-steady:#3FA68F; --comfort-steady-weak:#1C3D37; --comfort-steady-text:#A4E4D3;
+    --comfort-rising:#C79A4E; --comfort-rising-weak:#3D311B; --comfort-rising-text:#ECCD8F;
+    --comfort-high:#D07A6B;   --comfort-high-weak:#3D2724;   --comfort-high-text:#F4BAAF;
+
+    --workspace:#0E0F12; --workspace-label:#EAEDF2; --frame-outline:rgba(255,255,255,0.08);
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { background:var(--workspace); font-family:var(--font-ui); }
+  body { padding:0 0 80px; }
+
+  /* workspace toolbar (not a design frame — ignore on import) */
+  .toolbar {
+    position:sticky; top:0; z-index:1000;
+    display:flex; align-items:center; gap:16px;
+    padding:14px 28px; background:var(--surface); border-bottom:1px solid var(--separator);
+    box-shadow:var(--elev-2);
+  }
+  .toolbar h1 { font-size:15px; font-weight:600; color:var(--text-primary); }
+  .toolbar .muted { font-size:12px; color:var(--text-tertiary); }
+  .toggle-btn {
+    margin-left:auto; cursor:pointer; border:1px solid var(--separator);
+    background:var(--surface-muted); color:var(--text-primary);
+    font:600 13px var(--font-ui); padding:8px 16px; border-radius:var(--radius-pill);
+  }
+
+  .group-title {
+    color:var(--workspace-label); font-size:13px; font-weight:700; letter-spacing:.08em;
+    text-transform:uppercase; opacity:.65; padding:36px 28px 4px;
+  }
+  .frame-wrap { padding:14px 28px; }
+  .frame-label { color:var(--workspace-label); font-size:13px; font-weight:600; margin-bottom:8px; opacity:.85; }
+  .frame { outline:1px solid var(--frame-outline); border-radius:4px; overflow:hidden; }
+
+  /* ───────────────────────── TYPE SCALE (from SenseEaseTheme) ────────────── */
+  .t-title    { font:600 20px/28px var(--font-ui); color:var(--text-primary); }
+  .t-heading  { font:600 16px/22px var(--font-ui); color:var(--text-primary); }
+  .t-body     { font:400 14px/20px var(--font-ui); color:var(--text-primary); }
+  .t-caption  { font:400 12px/16px var(--font-ui); color:var(--text-secondary); }
+  .label      { font:400 12px var(--font-ui); color:var(--text-tertiary); }
+  .value      { font:600 32px var(--font-ui); color:var(--text-primary); }
+  .section-title { font:600 14px var(--font-ui); color:var(--text-primary); }
+
+  /* ───────────────────────── SHARED COMPONENTS ──────────────────────────── */
+  .card {
+    background:var(--surface); border:1px solid var(--separator);
+    border-radius:var(--radius-md); padding:var(--pad-card); box-shadow:var(--elev-2);
+  }
+  .card-section { /* settings section card uses CardBorder hairline + tighter pad */
+    background:var(--surface); border:1px solid var(--card-border);
+    border-radius:var(--radius-md); padding:18px 20px; box-shadow:var(--elev-2);
+  }
+
+  .btn-primary {
+    background:var(--accent); color:#fff; font:600 13px var(--font-ui);
+    padding:10px 22px; border:none; border-radius:6px; cursor:pointer;
+  }
+  .btn-ghost {
+    background:var(--surface-muted); color:var(--accent-hover); font:600 13px var(--font-ui);
+    padding:10px 22px; border:none; border-radius:6px; cursor:pointer;
+  }
+  .btn-option {
+    background:var(--surface-muted); color:var(--text-primary); font:400 12px var(--font-ui);
+    border:1px solid var(--separator); border-radius:var(--radius-sm);
+    padding:8px 6px; cursor:pointer; text-align:center;
+  }
+  .pill {
+    background:var(--surface-muted); color:var(--accent); font:600 12px var(--font-ui);
+    border:1px solid var(--separator); border-radius:var(--radius-pill);
+    padding:6px 14px; min-height:30px; cursor:pointer; display:inline-flex;
+    align-items:center; justify-content:center;
+  }
+  .pill-accent {
+    background:var(--accent); color:#fff; font:600 12px var(--font-ui);
+    border:none; border-radius:var(--radius-pill); padding:8px 14px; cursor:pointer;
+  }
+
+  /* iOS-style toggle (SettingSwitch) */
+  .switch { display:flex; align-items:center; gap:10px; }
+  .track { width:40px; height:24px; border-radius:12px; background:var(--surface-muted);
+           border:1px solid var(--separator); position:relative; flex:none; }
+  .thumb { width:18px; height:18px; border-radius:9px; background:var(--text-on-comfort);
+           position:absolute; top:2px; left:3px; box-shadow:0 1px 2px rgba(0,0,0,.18); }
+  .switch.on .track { background:var(--accent); border-color:var(--accent); }
+  .switch.on .thumb { left:auto; right:3px; }
+  .switch .sw-label { font-size:13px; color:var(--text-primary); }
+
+  /* segmented control (Appearance / Language) */
+  .segmented { display:inline-flex; gap:0; background:var(--surface-muted);
+               border:1px solid var(--card-border); border-radius:var(--radius-md); padding:3px; }
+  .seg { min-height:36px; padding:0 18px; border-radius:var(--radius-sm); border:none;
+         background:transparent; color:var(--text-secondary); font:500 14px var(--font-ui);
+         display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .seg.sel { background:var(--accent); color:var(--text-on-comfort); font-weight:600; }
+
+  /* radio */
+  .radio { display:flex; align-items:center; gap:9px; font:400 13px var(--font-ui); color:var(--text-primary); }
+  .radio .dot { width:16px; height:16px; border-radius:50%; border:2px solid var(--text-tertiary); flex:none; position:relative; }
+  .radio.sel .dot { border-color:var(--accent); }
+  .radio.sel .dot::after { content:""; position:absolute; inset:3px; border-radius:50%; background:var(--accent); }
+
+  /* progress / meter */
+  .meter { height:6px; border-radius:3px; background:var(--surface-muted); overflow:hidden; }
+  .meter > span { display:block; height:100%; border-radius:3px; }
+  .bar-sm { height:4px; border-radius:2px; background:var(--surface-muted); overflow:hidden; }
+  .bar-sm > span { display:block; height:100%; }
+
+  .hairline { height:1px; background:var(--separator); }
+  .row { display:flex; }
+  .between { display:flex; justify-content:space-between; align-items:center; }
+
+  /* ───────────────────────── APP WINDOW CHROME ──────────────────────────── */
+  .win { width:1160px; background:var(--canvas); display:flex; flex-direction:column; }
+  .win-header {
+    background:var(--header-surface); border-bottom:1px solid var(--separator);
+    padding:14px 28px; display:flex; align-items:center; justify-content:space-between;
+  }
+  .wordmark { font:700 22px var(--font-ui); color:var(--text-primary); }
+  .hp-roundel { width:28px; height:28px; }
+  .tabbar { display:flex; background:var(--surface); border-bottom:1px solid var(--separator); }
+  .tab { padding:10px 20px; font:600 13px var(--font-ui); color:var(--text-tertiary);
+         border-bottom:2px solid transparent; cursor:pointer; }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .win-body { padding:20px 24px 24px; display:flex; flex-direction:column; gap:16px; }
+
+  .expander-head { display:flex; align-items:center; gap:8px; color:var(--text-secondary);
+                   font:400 14px var(--font-ui); cursor:pointer; }
+  .chev { color:var(--text-tertiary); font-size:11px; }
+
+  .mode-pill { background:var(--surface-muted); color:var(--text-secondary);
+               border-radius:var(--radius-pill); padding:5px 12px; font-size:12px; }
+
+  /* chat bubbles */
+  .bubble-bot { background:var(--surface-muted); border-radius:12px 12px 12px 2px;
+                padding:12px; max-width:62%; align-self:flex-start; }
+  .bubble-user{ background:var(--accent); border-radius:12px 12px 2px 12px;
+                padding:12px; max-width:62%; align-self:flex-end; color:#fff; }
+  .dot6 { width:6px; height:6px; border-radius:50%; background:var(--text-primary); display:inline-block; }
+
+  /* floating card surfaces */
+  .float-spike { background:var(--surface); border:1px solid var(--separator);
+                 border-radius:14px; padding:14px; max-width:360px;
+                 box-shadow:0 3px 14px rgba(0,0,0,.18); }
+  .hud { background:var(--surface); border:1px solid var(--card-border);
+         border-radius:var(--radius-md); padding:7px 14px; box-shadow:0 2px 18px rgba(0,0,0,.10); }
+  .round-pill { width:30px; height:30px; border-radius:50%; background:var(--surface);
+                border:1px solid var(--separator); color:var(--accent);
+                font:600 18px var(--font-ui); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .glyph-btn { color:var(--text-tertiary); background:none; border:none; cursor:pointer; font-size:16px; }
+
+  .scrim { background:rgba(0,0,0,.34); display:flex; align-items:center; justify-content:center; padding:60px; }
+</style>
+</head>
+
+<body>
+  <div class="toolbar">
+    <h1>SenseEase — UI export for Figma</h1>
+    <span class="muted">Tokens from SenseEaseTheme.xaml · flip theme, then import with html.to.design</span>
+    <button class="toggle-btn" onclick="document.body.classList.toggle('theme-dark')">◐ Toggle light / dark</button>
+  </div>
+
+  <!-- ════════════════════════ GROUP A · MAIN CONSOLE ════════════════════════ -->
+  <div class="group-title">A · Main console — 1160 × 820</div>
+
+  <!-- 1 · DASHBOARD ------------------------------------------------------------>
+  <div class="frame-wrap">
+    <div class="frame-label">1 · Dashboard tab</div>
+    <div class="frame win">
+      <div class="win-header">
+        <span class="wordmark">SenseEase</span>
+        <svg class="hp-roundel" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#0096D6"/><text x="14" y="19" font-family="Arial" font-size="12" font-style="italic" font-weight="700" fill="#fff" text-anchor="middle">hp</text></svg>
+      </div>
+      <div class="tabbar">
+        <div class="tab active">Dashboard</div><div class="tab">Eye Care</div>
+        <div class="tab">AI Assistant</div><div class="tab">Settings</div>
+      </div>
+      <div class="win-body">
+
+        <!-- Comfort hero -->
+        <div class="card">
+          <div class="row" style="align-items:center; gap:12px;">
+            <span class="t-title">Very calm</span>
+            <span class="mode-pill">Watching</span>
+          </div>
+          <div class="meter" style="margin-top:16px;"><span style="width:14%; background:var(--comfort-steady);"></span></div>
+          <div class="between" style="margin-top:4px;">
+            <span class="label">Low</span><span class="label">High</span>
+          </div>
+        </div>
+
+        <!-- Advanced expander (shown expanded so all telemetry cards are visible) -->
+        <div>
+          <div class="expander-head"><span class="chev">▾</span><span>Advanced</span></div>
+          <div class="label" style="margin-top:8px;">Raw diagnostic values — not needed for everyday use.</div>
+
+          <div class="row" style="gap:12px; margin-top:12px;">
+            <div class="card" style="flex:1; padding:18px;">
+              <div class="label">Optical Flow Index</div>
+              <div class="value">12.4</div>
+              <div class="bar-sm" style="margin-top:4px;"><span style="width:8%; background:var(--accent);"></span></div>
+              <div class="label" style="margin-top:2px;">/ 150</div>
+            </div>
+            <div class="card" style="flex:1; padding:18px;">
+              <div class="label">VIMS Pressure</div>
+              <div class="value">24.0</div>
+              <div class="bar-sm" style="margin-top:4px; background:var(--comfort-high-weak);"><span style="width:12%; background:var(--comfort-high);"></span></div>
+              <div class="label" style="margin-top:2px;">Leaky Integrator</div>
+            </div>
+            <div class="card" style="flex:1; padding:18px;">
+              <div class="label">FOV Radius</div>
+              <div class="value">62%</div>
+              <div class="bar-sm" style="margin-top:4px;"><span style="width:62%; background:var(--accent);"></span></div>
+              <div class="label" style="margin-top:2px;">Clear zone</div>
+            </div>
+            <div class="card" style="flex:1; padding:18px;">
+              <div class="label">Current Mode</div>
+              <div class="value">Passenger</div>
+              <div class="row" style="align-items:center; gap:6px; margin-top:6px;">
+                <span style="width:8px; height:8px; border-radius:50%; background:var(--separator);"></span>
+                <span class="label">Mask inactive</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--surface-muted); border-radius:var(--radius-sm); padding:8px 12px; margin-top:8px;">
+            <div class="row" style="align-items:center; gap:6px;">
+              <span class="label">Overlay: </span>
+              <span style="font:700 12px var(--font-ui); color:var(--text-primary);">Hidden</span>
+              <span style="width:9px; height:9px; border-radius:50%; background:var(--comfort-rising); margin-left:14px;"></span>
+              <span class="label">Idle</span>
+            </div>
+            <div class="label" style="margin-top:4px;">Detailed data — safe to ignore in everyday use.</div>
+          </div>
+        </div>
+
+        <!-- Overlay settings -->
+        <div class="card">
+          <div class="label" style="margin-bottom:8px;">Overlay Settings</div>
+          <div class="switch on"><span class="track"><span class="thumb"></span></span><span class="sw-label">Keep overlay visible</span></div>
+          <div class="label" style="margin:2px 0 0 54px;">Periphery stays dim; darkens on detected motion.</div>
+          <div class="row" style="align-items:center; gap:12px; margin-top:14px;">
+            <span class="label">Baseline intensity</span>
+            <div class="meter" style="flex:1;"><span style="width:35%; background:var(--accent);"></span></div>
+            <span style="font:700 13px var(--font-ui); color:var(--text-primary); width:36px; text-align:center;">Lv.4</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 · EYE CARE -------------------------------------------------------------->
+  <div class="frame-wrap">
+    <div class="frame-label">2 · Eye Care tab</div>
+    <div class="frame win">
+      <div class="win-header">
+        <span class="wordmark">SenseEase</span>
+        <svg class="hp-roundel" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#0096D6"/><text x="14" y="19" font-family="Arial" font-size="12" font-style="italic" font-weight="700" fill="#fff" text-anchor="middle">hp</text></svg>
+      </div>
+      <div class="tabbar">
+        <div class="tab">Dashboard</div><div class="tab active">Eye Care</div>
+        <div class="tab">AI Assistant</div><div class="tab">Settings</div>
+      </div>
+      <div class="win-body">
+
+        <!-- My check-ins -->
+        <div class="card">
+          <div class="section-title">My check-ins</div>
+          <div class="label" style="margin-bottom:14px;">This week you logged mostly “None” — comfortable overall.</div>
+
+          <div class="label" style="font-weight:600; margin-bottom:6px;">How are you feeling right now?</div>
+          <div class="row" style="gap:6px;">
+            <button class="btn-option" style="flex:1;">None</button>
+            <button class="btn-option" style="flex:1;">Slight</button>
+            <button class="btn-option" style="flex:1;">Moderate</button>
+            <button class="btn-option" style="flex:1;">Severe</button>
+            <button class="btn-option" style="flex:1;">Very severe</button>
+          </div>
+          <div class="t-caption" style="color:var(--text-tertiary); margin-top:8px;">A wellness check-in — not a medical assessment.</div>
+
+          <div class="hairline" style="margin:16px 0 12px;"></div>
+          <div class="label" style="font-weight:600; margin-bottom:6px;">Recent</div>
+          <div class="between" style="padding:6px 0;"><span class="t-caption" style="color:var(--text-primary);">Today · 14:30</span><span class="label">Slight</span></div>
+          <div class="between" style="padding:6px 0;"><span class="t-caption" style="color:var(--text-primary);">Today · 10:05</span><span class="label">None</span></div>
+          <div class="between" style="padding:6px 0;"><span class="t-caption" style="color:var(--text-primary);">Yesterday · 19:48</span><span class="label">Moderate</span></div>
+          <div class="t-caption" style="color:var(--text-tertiary); margin-top:12px;">For long-term analysis, export your raw data as CSV in Settings.</div>
+        </div>
+
+        <!-- Protection record chart -->
+        <div class="card">
+          <div class="section-title">Protection record</div>
+          <div class="label" style="margin-bottom:10px;">Live trace of screen motion and protection</div>
+          <div style="background:var(--surface-muted); border-radius:var(--radius-sm); padding:14px 10px; height:280px;">
+            <svg viewBox="0 0 1060 252" preserveAspectRatio="none" width="100%" height="100%">
+              <g stroke="var(--separator)" stroke-width="1" opacity=".7">
+                <line x1="0" y1="63" x2="1060" y2="63"/><line x1="0" y1="126" x2="1060" y2="126"/><line x1="0" y1="189" x2="1060" y2="189"/>
+              </g>
+              <line x1="0" y1="96" x2="1060" y2="96" stroke="var(--comfort-high)" stroke-width="2" stroke-dasharray="6 5"/>
+              <polyline fill="none" stroke="var(--text-tertiary)" stroke-width="2"
+                points="0,210 120,180 240,200 360,120 480,150 600,70 720,110 840,60 960,130 1060,150"/>
+              <polyline fill="none" stroke="var(--accent)" stroke-width="2.5"
+                points="0,230 120,225 240,210 360,170 480,180 600,120 720,140 840,100 960,160 1060,175"/>
+            </svg>
+          </div>
+          <div class="row" style="align-items:center; gap:6px; margin-top:10px;">
+            <span class="dot6" style="background:var(--text-tertiary);"></span><span class="label" style="margin-right:16px;">Motion</span>
+            <span class="dot6" style="background:var(--accent);"></span><span class="label" style="margin-right:16px;">Protection</span>
+            <span style="width:14px; height:2px; background:var(--comfort-high); display:inline-block;"></span><span class="label" style="margin-left:6px;">Activation</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 · AI ASSISTANT ---------------------------------------------------------->
+  <div class="frame-wrap">
+    <div class="frame-label">3 · AI Assistant tab</div>
+    <div class="frame win">
+      <div class="win-header">
+        <span class="wordmark">SenseEase</span>
+        <svg class="hp-roundel" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#0096D6"/><text x="14" y="19" font-family="Arial" font-size="12" font-style="italic" font-weight="700" fill="#fff" text-anchor="middle">hp</text></svg>
+      </div>
+      <div class="tabbar">
+        <div class="tab">Dashboard</div><div class="tab">Eye Care</div>
+        <div class="tab active">AI Assistant</div><div class="tab">Settings</div>
+      </div>
+      <div class="win-body">
+        <div class="card" style="padding:0;">
+          <div style="display:flex; flex-direction:column; gap:8px; padding:16px 12px;">
+            <div class="bubble-bot">
+              <div style="font:600 12px var(--font-ui); color:var(--accent); margin-bottom:4px;">SenseEase</div>
+              <div class="t-body">Hi! I can help you tune comfort settings or explain what the dashboard is showing. What’s on your mind?</div>
+              <div class="label" style="margin-top:4px;">10:02</div>
+            </div>
+            <div class="bubble-user">
+              <div style="font:400 14px var(--font-ui); color:#fff;">The periphery feels a little dim today.</div>
+              <div style="font-size:12px; color:rgba(255,255,255,.85); text-align:right; margin-top:4px;">10:03</div>
+            </div>
+            <div class="bubble-bot">
+              <div style="font:600 12px var(--font-ui); color:var(--accent); margin-bottom:4px;">SenseEase</div>
+              <div class="row" style="gap:3px; padding:2px 0;">
+                <span class="dot6"></span><span class="dot6"></span><span class="dot6"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- status bar -->
+        <div style="background:var(--surface); border:1px solid var(--separator); border-radius:var(--radius-sm); padding:7px 14px; box-shadow:var(--elev-2);">
+          <span class="label">Loading the on-device model…</span>
+        </div>
+
+        <!-- input row -->
+        <div class="row" style="gap:8px;">
+          <div style="flex:1; background:var(--surface); border:1px solid var(--separator); border-radius:var(--radius-sm); padding:10px; box-shadow:var(--elev-2); color:var(--text-tertiary); font:400 14px var(--font-ui);">Talk to SenseEase…</div>
+          <button class="btn-primary" style="min-height:44px;">Send</button>
+          <button class="btn-ghost" style="min-height:44px;">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 · SETTINGS -------------------------------------------------------------->
+  <div class="frame-wrap">
+    <div class="frame-label">4 · Settings tab</div>
+    <div class="frame win">
+      <div class="win-header">
+        <span class="wordmark">SenseEase</span>
+        <svg class="hp-roundel" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="#0096D6"/><text x="14" y="19" font-family="Arial" font-size="12" font-style="italic" font-weight="700" fill="#fff" text-anchor="middle">hp</text></svg>
+      </div>
+      <div class="tabbar">
+        <div class="tab">Dashboard</div><div class="tab">Eye Care</div>
+        <div class="tab">AI Assistant</div><div class="tab active">Settings</div>
+      </div>
+      <div class="win-body">
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:12px;">Appearance</div>
+          <div class="segmented"><span class="seg">Auto</span><span class="seg sel">Light</span><span class="seg">Dark</span></div>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:12px;">Language</div>
+          <div class="segmented"><span class="seg" style="min-width:84px;">繁體中文</span><span class="seg sel" style="min-width:84px;">English</span></div>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:14px;">Notifications &amp; display</div>
+          <div class="switch"><span class="track"><span class="thumb"></span></span><span class="sw-label">Let SenseEase remind me proactively</span></div>
+          <div class="label" style="margin:4px 0 0 22px;">Notifies automatically on moderate-or-higher discomfort.</div>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:14px;">Background mode</div>
+          <div class="switch on"><span class="track"><span class="thumb"></span></span><span class="sw-label">Minimise to the tray when the window closes (keep running)</span></div>
+          <div class="label" style="margin:4px 0 0 22px;">Pressing X just sends it to the tray; detection keeps running.</div>
+          <div class="hairline" style="margin:14px 0;"></div>
+          <div class="switch"><span class="track"><span class="thumb"></span></span><span class="sw-label">Start SenseEase automatically at startup</span></div>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:14px;">Head tracking &amp; privacy</div>
+          <div class="row" style="align-items:center; gap:10px;">
+            <div class="switch on"><span class="track"><span class="thumb"></span></span><span class="sw-label">Enable Head Tracking</span></div>
+            <span style="font:600 12px var(--font-ui); color:var(--comfort-rising-text); background:var(--comfort-rising-weak); border:1px solid var(--comfort-rising); border-radius:6px; padding:5px 10px;">Restart needed</span>
+          </div>
+          <div class="label" style="margin:4px 0 0 22px;">Uses your webcam; processed locally — never stored or uploaded.</div>
+          <div class="hairline" style="margin:14px 0;"></div>
+          <div class="label" style="font-weight:700; color:var(--text-primary); margin:0 0 6px 22px;">Tracking mode</div>
+          <div class="radio sel" style="margin:2px 0 0 22px;"><span class="dot"></span>Balanced (recommended)</div>
+          <div class="radio" style="margin:8px 0 0 22px;"><span class="dot"></span>Full tracking (more complete edges)</div>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:14px;">Graded exposure</div>
+          <div class="switch"><span class="track"><span class="thumb"></span></span><span class="sw-label">Enable graded exposure (slowly builds comfort)</span></div>
+          <div class="label" style="margin:4px 0 0 22px;">SenseEase gradually relaxes protection while you’re comfortable. Pause anytime.</div>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:12px;">Event Log</div>
+          <button class="btn-primary" style="font-size:12px; padding:7px 14px;">Open event log</button>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:14px;">Preferences</div>
+          <div class="label" style="margin-bottom:10px;">Restore appearance, language, toggles and card position to defaults. Your data is kept.</div>
+          <button class="pill" style="color:var(--text-primary); border-color:var(--card-border);">Reset preferences</button>
+        </div>
+
+        <div class="card-section">
+          <div class="t-heading" style="margin-bottom:14px;">Data &amp; privacy</div>
+          <div class="label" style="margin-bottom:10px;">Clear the behaviour log, analysis index, chat transcript and more. Graded-exposure progress and preferences are kept. This cannot be undone.</div>
+          <button style="font:600 12px var(--font-ui); color:var(--comfort-high-text); background:var(--comfort-high-weak); border:1px solid var(--comfort-high); border-radius:6px; padding:7px 14px; cursor:pointer;">Clear all my data and reset</button>
+          <div class="hairline" style="margin:18px 0 14px;"></div>
+          <label class="switch" style="gap:8px; align-items:flex-start;"><span class="track" style="margin-top:1px;"><span class="thumb"></span></span><span><span class="sw-label">Record which app I am using (helps personalisation)</span><div class="label" style="margin-top:6px;">On-device only — the app name is never uploaded.</div></span></label>
+          <div class="hairline" style="margin:18px 0 14px;"></div>
+          <div style="font:600 13px var(--font-ui); color:var(--text-primary); margin-bottom:6px;">Health report export</div>
+          <div class="label" style="margin-bottom:10px;">Export a de-identified numeric summary to share with a clinician.</div>
+          <button class="pill" style="color:var(--text-primary); border-color:var(--card-border);">Export health report…</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ GROUP B · MODALS & PROMPTS ════════════════════════ -->
+  <div class="group-title">B · Modals &amp; prompts (over the console)</div>
+
+  <!-- 5 · CHECK-IN OVERLAY -->
+  <div class="frame-wrap">
+    <div class="frame-label">5 · Proactive check-in overlay (Teams-style, centred over a scrim)</div>
+    <div class="frame scrim" style="width:1160px;">
+      <div style="background:var(--surface); border:1px solid var(--separator); border-radius:var(--radius-md); box-shadow:var(--elev-2); padding:28px; max-width:560px; min-width:440px;">
+        <div class="between" style="margin-bottom:14px;">
+          <span style="font:600 15px var(--font-ui); color:var(--accent);">Quick check-in</span>
+          <button class="glyph-btn" style="color:var(--text-secondary); font-size:15px;">✕</button>
+        </div>
+        <div style="font:400 16px var(--font-ui); color:var(--text-primary); margin-bottom:18px;">There was a lot of on-screen motion just now. How are you feeling?</div>
+        <div class="row" style="gap:6px;">
+          <button class="btn-option" style="flex:1;">None</button>
+          <button class="btn-option" style="flex:1;">Slight</button>
+          <button class="btn-option" style="flex:1;">Moderate</button>
+          <button class="btn-option" style="flex:1;">Severe</button>
+          <button class="btn-option" style="flex:1;">Very severe</button>
+        </div>
+        <div class="label" style="margin-top:16px;">Fully optional and rate-limited so it never nags. Stored on this device only.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6 · FIRST-RUN STRIP -->
+  <div class="frame-wrap">
+    <div class="frame-label">6 · First-run welcome strip (top of Dashboard)</div>
+    <div class="frame" style="width:1160px; background:var(--surface-muted); border-bottom:1px solid var(--separator); padding:16px 28px;">
+      <div class="between">
+        <div>
+          <div style="font:600 14px var(--font-ui); color:var(--text-primary);">Welcome to SenseEase — you are protected</div>
+          <div class="t-body" style="color:var(--text-secondary); margin-top:6px;">SenseEase watches screen motion in the background and gently dims the edges to ease visual discomfort.</div>
+          <div class="label" style="margin-top:6px;">Closing the window minimizes it to the tray and keeps running. All options live in the Settings tab.</div>
+        </div>
+        <button class="btn-primary" style="margin-left:20px; white-space:nowrap;">Get started</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 · VESTIBULAR PROMPT -->
+  <div class="frame-wrap">
+    <div class="frame-label">7 · Vestibular first-use prompt (bottom bar)</div>
+    <div class="frame" style="width:1160px; background:var(--surface-muted); border-top:1px solid var(--separator); padding:10px 24px;">
+      <div class="between">
+        <span class="label" style="color:var(--text-secondary);">Do you have a vestibular / dizziness-related diagnosis? (Optional — you can change this later in Settings.)</span>
+        <div class="row" style="gap:8px;">
+          <button class="pill-accent">Yes</button>
+          <button class="pill" style="background:var(--surface-muted); color:var(--text-secondary); border:none;">No / Skip</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ GROUP C · FLOATING WIDGETS ════════════════════════ -->
+  <div class="group-title">C · Floating widgets (topmost, frameless)</div>
+
+  <!-- 8 · SPIKE POPUP -->
+  <div class="frame-wrap">
+    <div class="frame-label">8 · VIMS spike pop-up card</div>
+    <div class="frame" style="display:inline-block; background:var(--workspace); padding:14px;">
+      <div class="float-spike">
+        <div class="between" style="margin-bottom:10px;">
+          <span style="font:700 12px var(--font-ui); color:var(--comfort-high-text);">● VIMS spike</span>
+          <button class="glyph-btn" style="color:var(--text-secondary);">×</button>
+        </div>
+        <div style="font:600 14px var(--font-ui); color:var(--text-primary); margin-bottom:12px;">A burst of motion was detected. How do your eyes feel?</div>
+        <div class="row" style="gap:8px; flex-wrap:wrap;">
+          <button class="btn-option" style="border:none; padding:8px 14px; border-radius:6px;">Fine</button>
+          <button class="btn-option" style="border:none; padding:8px 14px; border-radius:6px;">A little off</button>
+          <button class="btn-option" style="border:none; padding:8px 14px; border-radius:6px;">Uncomfortable</button>
+        </div>
+        <div class="label" style="color:var(--text-secondary); margin-top:8px;">Selected answer is sent to AI Assistant.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9 · NOTIFICATION HUD — main face (+ proposal) -->
+  <div class="frame-wrap">
+    <div class="frame-label">9 · Notification HUD card — main face (with “SenseEase suggests” proposal)</div>
+    <div class="frame" style="display:inline-block; background:var(--workspace); padding:16px;">
+      <div class="hud" style="width:680px;">
+        <!-- proposal panel -->
+        <div style="background:var(--surface-muted); border:1px solid var(--separator); border-radius:8px; padding:10px 12px; margin-bottom:10px;">
+          <div style="font:600 12px var(--font-ui); color:var(--accent); margin-bottom:6px;">SenseEase suggests</div>
+          <div style="font:600 13px var(--font-ui); color:var(--text-primary); margin-bottom:4px;">Ease the periphery a little while this video plays?</div>
+          <div style="font:italic 400 12px var(--font-ui); color:var(--text-secondary); margin-bottom:8px;">AI suggests · based on the current motion level</div>
+          <div class="between">
+            <div class="row" style="gap:6px;">
+              <button class="pill-accent">Accept</button>
+              <button class="pill" style="background:var(--surface-muted); color:var(--text-primary); border:none;">Decline</button>
+              <button class="pill" style="background:transparent; color:var(--text-secondary); border-color:var(--separator);">Later</button>
+            </div>
+            <span class="label" style="color:var(--text-secondary);">Expires in 20s</span>
+          </div>
+        </div>
+        <!-- the bar -->
+        <div class="between">
+          <div>
+            <div class="label">Current screen status</div>
+            <div style="font:600 20px var(--font-ui); color:var(--text-primary);">Very Calm</div>
+          </div>
+          <div>
+            <div class="label" style="margin-bottom:3px;">Intensity</div>
+            <div class="row" style="align-items:center; gap:6px;">
+              <span class="round-pill">−</span>
+              <span style="font:600 13px var(--font-ui); color:var(--accent); min-width:40px; text-align:center;">Lv.1</span>
+              <span class="round-pill">+</span>
+              <span style="width:1px; height:22px; background:var(--separator); margin:0 4px;"></span>
+              <span class="pill">Pause</span>
+              <span class="pill">Settings</span>
+              <span class="glyph-btn" style="font-size:13px;">↩</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10 · NOTIFICATION HUD — chat face -->
+  <div class="frame-wrap">
+    <div class="frame-label">10 · Notification HUD card — chat face (after flip)</div>
+    <div class="frame" style="display:inline-block; background:var(--workspace); padding:16px;">
+      <div class="hud" style="width:680px;">
+        <div class="label" style="margin-bottom:2px;">Chat</div>
+        <div class="row" style="gap:8px; align-items:center;">
+          <div style="flex:1; background:var(--surface-muted); border:1px solid var(--separator); border-radius:6px; padding:8px; color:var(--text-tertiary); font:400 12px var(--font-ui);">Talk to SenseEase</div>
+          <button class="pill-accent">Send</button>
+          <span class="glyph-btn" style="font-size:13px;">↩</span>
+        </div>
+        <div class="t-caption" style="color:var(--text-secondary); margin-top:8px;">I’ve eased the edges slightly. Let me know if that feels better.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 11 · PERSISTENT AMBIENT BAR -->
+  <div class="frame-wrap">
+    <div class="frame-label">11 · Persistent ambient bar — 80 × 4 (shown enlarged ×4, three tiers)</div>
+    <div class="frame" style="display:inline-block; background:var(--workspace); padding:24px;">
+      <div class="row" style="gap:28px; align-items:center;">
+        <div><div style="width:320px; height:16px; border-radius:8px; background:var(--comfort-steady);"></div><div class="label" style="margin-top:6px;">Calm</div></div>
+        <div><div style="width:320px; height:16px; border-radius:8px; background:var(--comfort-rising);"></div><div class="label" style="margin-top:6px;">Rising</div></div>
+        <div><div style="width:320px; height:16px; border-radius:8px; background:var(--comfort-high);"></div><div class="label" style="margin-top:6px;">High</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 13 · OVERLAY FOV MASK (conceptual) -->
+  <div class="frame-wrap">
+    <div class="frame-label">12 · FOV overlay mask (fullscreen, click-through) — radial dim + Chang-Hain grid</div>
+    <div class="frame" style="display:inline-block; padding:0; background:#000;">
+      <div style="width:760px; height:475px; position:relative; background:#222;">
+        <!-- faint grid -->
+        <svg width="760" height="475" style="position:absolute; inset:0; opacity:.5;">
+          <g stroke="#fff" stroke-width="1" opacity=".35">
+            <line x1="95" y1="0" x2="95" y2="475"/><line x1="285" y1="0" x2="285" y2="475"/>
+            <line x1="475" y1="0" x2="475" y2="475"/><line x1="665" y1="0" x2="665" y2="475"/>
+            <line x1="0" y1="95" x2="760" y2="95"/><line x1="0" y1="237" x2="760" y2="237"/><line x1="0" y1="380" x2="760" y2="380"/>
+          </g>
+        </svg>
+        <!-- radial dim: clear centre → dark edges -->
+        <div style="position:absolute; inset:0; background:radial-gradient(ellipse 42% 52% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,.78) 100%);"></div>
+        <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:rgba(255,255,255,.7); font:400 13px var(--font-ui); text-align:center;">clear centre (FOV)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ GROUP D · DIALOGS ════════════════════════════════ -->
+  <div class="group-title">D · Dialogs</div>
+
+  <!-- 12 · THEMED DIALOG -->
+  <div class="frame-wrap">
+    <div class="frame-label">13 · Themed dialog (confirm) — 430 wide</div>
+    <div class="frame" style="display:inline-block; background:var(--workspace); padding:24px;">
+      <div style="width:430px; background:var(--canvas); border-radius:var(--radius-md); box-shadow:var(--elev-3); padding:22px 24px;">
+        <div class="row" style="gap:12px;">
+          <span style="width:10px; height:10px; border-radius:50%; background:var(--accent); margin-top:5px; flex:none;"></span>
+          <div class="t-body">Clear all SenseEase data and reset? Your graded-exposure progress and preferences are kept. This cannot be undone.</div>
+        </div>
+        <div class="row" style="justify-content:flex-end; gap:10px; margin-top:22px;">
+          <button class="btn-primary" style="background:var(--surface-muted); color:var(--text-secondary); border-radius:var(--radius-sm); padding:8px 16px; min-width:88px;">Cancel</button>
+          <button class="btn-primary" style="border-radius:var(--radius-sm); padding:8px 16px; min-width:88px;">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

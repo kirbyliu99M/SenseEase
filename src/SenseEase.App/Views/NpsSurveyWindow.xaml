@@ -1,0 +1,122 @@
+<Window x:Class="SenseEase.App.Views.NpsSurveyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
+        Title="SenseEase"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual"
+        AutomationProperties.Name="{loc:T Zh='SenseEase 意見回饋', En='SenseEase feedback'}">
+    <!-- UI-RESHAPE prep: subtle Teams-style NPS survey, bottom-right, dark-glass.
+         Custom window (NOT a native toast) per the locked decision. DataContext =
+         NpsSurveyViewModel. No animation (no un-gated motion); a ReducedMotion-gated
+         fade is a later polish step. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="ScoreBtn" TargetType="Button">
+                <Setter Property="Width" Value="26"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Margin" Value="2"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="#1A024AD8" CornerRadius="8">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.Blue}"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="NpsPrimaryBtn" TargetType="Button">
+                <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="14,7"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="MinHeight" Value="32"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="16" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.BlueHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="NpsGhostBtn" TargetType="Button" BasedOn="{StaticResource NpsPrimaryBtn}">
+                <Setter Property="Background" Value="#1A061030"/>
+                <Setter Property="Foreground" Value="{StaticResource Popup.Ink2}"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Border Width="320" Background="{StaticResource Popup.PanelBg}"
+            BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
+            CornerRadius="{StaticResource Radius.md}" Padding="18">
+        <StackPanel>
+            <TextBlock Text="{Binding Prompt}" TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold"
+                       Foreground="{StaticResource Popup.Ink1}"/>
+
+            <ItemsControl ItemsSource="{Binding Scores}" Margin="0,12,0,0" HorizontalAlignment="Center"
+                          AutomationProperties.Name="{loc:T Zh='0 到 10 分', En='Score from 0 to 10'}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Style="{StaticResource ScoreBtn}" Content="{Binding}"
+                                CommandParameter="{Binding}"
+                                Command="{Binding DataContext.SelectScoreCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                AutomationProperties.Name="{Binding}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBox Margin="0,12,0,0" Padding="8,6" FontSize="13"
+                     Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
+                     Foreground="{StaticResource Popup.Ink1}"
+                     AutomationProperties.Name="{loc:T Zh='補充意見（選填）', En='Comment (optional)'}"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                <Button Content="{loc:T Zh='暫時不要', En='Not now'}" Style="{StaticResource NpsGhostBtn}"
+                        Command="{Binding DismissCommand}" Margin="0,0,8,0"
+                        AutomationProperties.Name="{loc:T Zh='暫時不要回饋', En='Dismiss feedback'}"/>
+                <Button Content="{loc:T Zh='送出', En='Submit'}" Style="{StaticResource NpsPrimaryBtn}"
+                        Command="{Binding SubmitCommand}"
+                        AutomationProperties.Name="{loc:T Zh='送出評分', En='Submit score'}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

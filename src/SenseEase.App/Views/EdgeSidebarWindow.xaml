@@ -1,0 +1,36 @@
+<Window x:Class="SenseEase.App.Views.EdgeSidebarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
+        Title="SenseEase"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        Width="16" Height="140"
+        WindowStartupLocation="Manual"
+        Focusable="False"
+        AutomationProperties.Name="{loc:T Zh='SenseEase 工具列 — 將游標移到螢幕右緣即可開啟', En='SenseEase bar — move the cursor to the right edge to reveal'}">
+    <!-- UI-RESHAPE prep: the near-invisible right-edge handle. At rest a ~4px strip
+         flush to the screen edge; a 60 Hz cursor-proximity poller (Win32 GetCursorPos,
+         like PersistentBarWindow) grows + brightens it and makes it clickable on
+         approach. Click raises Clicked → the host reveals the popup bar. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid>
+        <Border x:Name="Handle"
+                Width="4"
+                HorizontalAlignment="Right"
+                CornerRadius="3,0,0,3"
+                Background="{StaticResource Popup.Blue}"
+                Opacity="0.16"/>
+    </Grid>
+</Window>

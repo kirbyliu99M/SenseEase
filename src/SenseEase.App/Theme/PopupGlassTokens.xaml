@@ -1,0 +1,52 @@
+<!--
+  UI-RESHAPE prep — reference-HTML palette for the NEW discreet surfaces only
+  (EdgeSidebarWindow / PopupBarWindow / NpsSurveyWindow). Authored from
+  senseease-vertical-v1.html, USER-APPROVED to override the locked "Calm palette
+  only" rule FOR THESE NEW SURFACES (kirby, 2026-06-17): the reference colours read
+  as friendlier. The locked Theme/SenseEaseTheme.xaml is UNCHANGED — existing
+  windows + TokenContrastTests are untouched.
+
+  Pure ResourceDictionary (no x:Class) merged VIEW-LOCALLY via pack URI exactly like
+  SenseEaseTheme.xaml — NEVER App.Resources (MainWindowSmokeTests boots a bare
+  Application). The new windows merge BOTH this dictionary (Popup.* colours) AND
+  SenseEaseTheme.xaml (Radius/Type/FocusVisible/SettingSwitch/Elev structural tokens).
+
+  Bar surface = light-blue glass painted over a Win11 acrylic blur; over the dark
+  desktop the blur reads dark, so BAR text/glyphs use the white Popup.OnBar ramp.
+  PANELS (chat / dropdown) are more opaque light glass → dark Popup.Ink ramp.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Accent (reference royal blue) -->
+    <SolidColorBrush x:Key="Popup.Blue"      Color="#FF024AD8"/>
+    <SolidColorBrush x:Key="Popup.BlueHover" Color="#FF0340C0"/>
+
+    <!-- 3-state pulse status (reference green / amber / red) -->
+    <SolidColorBrush x:Key="Popup.Low"  Color="#FF22C55E"/>
+    <SolidColorBrush x:Key="Popup.Mid"  Color="#FFF59E0B"/>
+    <SolidColorBrush x:Key="Popup.High" Color="#FFEF4444"/>
+
+    <!-- Glass fills. BarBg rgba(210,224,255,0.52); PanelBg rgba(215,228,252,0.82) -->
+    <SolidColorBrush x:Key="Popup.BarBg"   Color="#85D2E0FF"/>
+    <SolidColorBrush x:Key="Popup.PanelBg" Color="#D1D7E4FC"/>
+    <SolidColorBrush x:Key="Popup.Bdr"     Color="#9EFFFFFF"/>
+
+    <!-- Ink ramp on PANELS (dark text on light glass) — rgba(6,16,48,a) -->
+    <SolidColorBrush x:Key="Popup.Ink1" Color="#E0061030"/>
+    <SolidColorBrush x:Key="Popup.Ink2" Color="#85061030"/>
+    <SolidColorBrush x:Key="Popup.Ink3" Color="#4D061030"/>
+
+    <!-- Text/glyph ON the bar (white ramp — bar reads dark over the desktop) -->
+    <SolidColorBrush x:Key="Popup.OnBar"    Color="#F2FFFFFF"/>
+    <SolidColorBrush x:Key="Popup.OnBarDim" Color="#C2FFFFFF"/>
+
+    <!-- 12-segment strength meter -->
+    <SolidColorBrush x:Key="Popup.SegOff" Color="#38FFFFFF"/>
+    <SolidColorBrush x:Key="Popup.SegOn"  Color="#FF024AD8"/>
+
+    <!-- Hover/press wash for bar icon buttons (white film) -->
+    <SolidColorBrush x:Key="Popup.BtnHover" Color="#2EFFFFFF"/>
+    <SolidColorBrush x:Key="Popup.BtnPress" Color="#21FFFFFF"/>
+
+</ResourceDictionary>
