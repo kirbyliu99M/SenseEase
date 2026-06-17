@@ -26,11 +26,18 @@
         </ResourceDictionary>
     </Window.Resources>
     <Grid>
-        <Border x:Name="Handle"
-                Width="4"
-                HorizontalAlignment="Right"
-                CornerRadius="3,0,0,3"
-                Background="{StaticResource Popup.Blue}"
-                Opacity="0.16"/>
+        <!-- Discreet right-edge handle: a dark-grey ~40% trapezoid (short left edge → long right
+             edge, flush to the screen). Neutral (no tier colour). A proximity poller scales it out
+             from the edge + raises its opacity on cursor approach. -->
+        <Path x:Name="Handle"
+              HorizontalAlignment="Right"
+              Fill="#3A3A3A"
+              Opacity="0.18"
+              Data="M16,0 L16,140 L6,104 L6,36 Z"
+              RenderTransformOrigin="1,0.5">
+            <Path.RenderTransform>
+                <ScaleTransform x:Name="HandleScale" ScaleX="0.55"/>
+            </Path.RenderTransform>
+        </Path>
     </Grid>
 </Window>

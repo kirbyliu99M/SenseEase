@@ -94,25 +94,54 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
     public bool IsChatOpen
     {
         get => _isChatOpen;
-        set { if (_isChatOpen != value) { _isChatOpen = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isChatOpen == value) return;
+            _isChatOpen = value;
+            if (value) IsSettingsOpen = false; // mutually exclusive — only one panel open at a time
+            OnPropertyChanged();
+        }
     }
 
     private bool _isSettingsOpen;
     public bool IsSettingsOpen
     {
         get => _isSettingsOpen;
-        set { if (_isSettingsOpen != value) { _isSettingsOpen = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isSettingsOpen == value) return;
+            _isSettingsOpen = value;
+            if (value) IsChatOpen = false; // mutually exclusive
+            OnPropertyChanged();
+        }
     }
 
-    // Settings-dropdown toggles (local UI state for now; wired to engine prefs post-B5).
-    private bool _fovMaskOn = true;
-    public bool FovMaskOn { get => _fovMaskOn; set { if (_fovMaskOn != value) { _fovMaskOn = value; OnPropertyChanged(); } } }
-
+    // Quick-settings toggles — wired to the engine through the controller (錨點格線 / 漸進適應 /
+    // 常駐遮罩). The getters read LIVE engine state so the switches reflect reality on open; with no
+    // controller (design-time / tests) they fall back to local state so the UI still works.
     private bool _anchorGridOn = true;
-    public bool AnchorGridOn { get => _anchorGridOn; set { if (_anchorGridOn != value) { _anchorGridOn = value; OnPropertyChanged(); } } }
+    public bool AnchorGridOn
+    {
+        get => _controller?.AnchorGridEnabled ?? _anchorGridOn;
+        set { if (AnchorGridOn == value) return; _anchorGridOn = value; if (_controller is not null) _controller.AnchorGridEnabled = value; OnPropertyChanged(); }
+    }
 
-    private bool _autoAdjustOn = true;
-    public bool AutoAdjustOn { get => _autoAdjustOn; set { if (_autoAdjustOn != value) { _autoAdjustOn = value; OnPropertyChanged(); } } }
+    private bool _gradedExposureOn = true;
+    public bool GradedExposureOn
+    {
+        get => _controller?.GradedExposureEnabled ?? _gradedExposureOn;
+        set { if (GradedExposureOn == value) return; _gradedExposureOn = value; if (_controller is not null) _controller.GradedExposureEnabled = value; OnPropertyChanged(); }
+    }
+
+    private bool _persistentMaskOn;
+    public bool PersistentMaskOn
+    {
+        get => _controller?.PersistentMaskEnabled ?? _persistentMaskOn;
+        set { if (PersistentMaskOn == value) return; _persistentMaskOn = value; if (_controller is not null) _controller.PersistentMaskEnabled = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>True when the local chat LLM is loaded + available (drives the chat-header dot).</summary>
+    public bool IsLlmOnline => _controller?.IsLlmOnline ?? (Chat?.IsLlmOnline ?? false);
 
     public string ProfileName => LocalizationManager.Current.Pick("一般設定檔", "Typical profile");
 

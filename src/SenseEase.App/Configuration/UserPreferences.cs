@@ -223,6 +223,13 @@ public sealed class UserPreferences
     [JsonPropertyName("persistent_overlay_enabled")]
     public bool PersistentOverlayEnabled { get; set; } = false;
 
+    /// <summary>UI-RESHAPE quick-settings — 錨點格線 (Chang-Hain anchor-grid lines) on/off. Read each
+    /// frame by <see cref="Views.OverlayWindow"/>'s grid pass; off forces grid opacity to 0. Default
+    /// on (the grid is part of the protection; the toggle lets sensitive users hide the lines).
+    /// Additive — old files without the field load cleanly defaulting to on.</summary>
+    [JsonPropertyName("anchor_grid_enabled")]
+    public bool AnchorGridEnabled { get; set; } = true;
+
     /// <summary>CW-7 (UX-12 ≡ FEAT-15): persists the always-on overlay baseline
     /// intensity level (1–12, native scale) paired with
     /// <see cref="PersistentOverlayEnabled"/>. Default <c>1</c> = 0% alpha at rest

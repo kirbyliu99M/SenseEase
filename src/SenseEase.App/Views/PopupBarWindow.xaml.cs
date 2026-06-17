@@ -35,14 +35,45 @@ public partial class PopupBarWindow : Window, IShellSurface
         InitializeComponent();
         DataContext = new PopupBarViewModel(controller, chat);
         SourceInitialized += OnSourceInitialized;
+        Deactivated += OnDeactivated;
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
-        // Buttons must remain clickable, but the bar must never steal foreground focus
-        // from the user's app — NoActivate (NOT the transparent click-through variant).
-        ClickThrough.EnableNoActivate(this);
+        // UI-RESHAPE iter: the popup is now an ACTIVATABLE flyout (NoActivate removed) so the chat
+        // input is typable. ShellController calls Activate() on show; clicking any other window or
+        // the desktop fires Deactivated → the popup hides itself (close-on-click-away). Topmost +
+        // ShowInTaskbar=false keep it unobtrusive; acrylic provides the glass.
         AcrylicGlass.EnableAcrylic(this, BarAcrylicTint);
+    }
+
+    private void OnDeactivated(object? sender, EventArgs e)
+    {
+        // Close-on-click-away: focus left the popup (the user clicked another window / the desktop),
+        // so collapse the whole UI back to the discreet edge handle and reset the panels so the next
+        // reveal opens clean. The edge sidebar stays; this only hides the expanded popup.
+        if (DataContext is PopupBarViewModel vm) { vm.IsChatOpen = false; vm.IsSettingsOpen = false; }
+        Hide();
+    }
+
+    private void OnChatInputVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        // When the chat panel reveals, put the caret in the input so the user can type at once
+        // (the window is active, so keyboard focus lands here).
+        if (e.NewValue is true && sender is System.Windows.Controls.TextBox tb)
+            Dispatcher.BeginInvoke(
+                new Action(() => { tb.Focus(); System.Windows.Input.Keyboard.Focus(tb); }),
+                System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void OnChatInputKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        if (DataContext is PopupBarViewModel { Chat: { } chat } && chat.SendCommand.CanExecute(null))
+        {
+            chat.SendCommand.Execute(null);
+            e.Handled = true;
+        }
     }
 
     private void OnBarMouseDown(object sender, MouseButtonEventArgs e)

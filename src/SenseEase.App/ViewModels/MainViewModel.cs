@@ -282,6 +282,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 CurrentState);
         }
     }
+
+    /// <summary>錨點格線 — user on/off for the Chang-Hain anchor-grid LINES in the overlay
+    /// (UI-RESHAPE quick-settings). Persisted; OverlayWindow.ApplyGridIntensity reads the pref each
+    /// frame and forces grid opacity to 0 when off (EMA + cell-fill stay alive so re-enabling
+    /// resumes seamlessly). Default on.</summary>
+    public bool AnchorGridEnabled
+    {
+        get => UserPreferences.Current.AnchorGridEnabled;
+        set
+        {
+            if (AnchorGridEnabled == value) return;
+            UserPreferences.Current.AnchorGridEnabled = value;
+            UserPreferences.Current.Save();
+            UpdateFromState(_engine.Current); // re-apply so the grid hides/shows within a frame
+            OnPropertyChanged(nameof(AnchorGridEnabled));
+            AppendLog("AnchorGrid",
+                value ? Loc("已啟用錨點格線。", "Anchor grid enabled.")
+                      : Loc("已關閉錨點格線。", "Anchor grid hidden."),
+                CurrentState);
+        }
+    }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
     // B2: nominal FOV-equivalent (pp) charged to the habituation caution per manual level nudge —
     // ~one tier's FOV step (15-100 range / 12 tiers). Logged under the "LevelNudge" parameter.

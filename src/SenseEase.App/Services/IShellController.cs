@@ -57,4 +57,14 @@ public interface IShellController
 
     /// <summary>Unregister a surface (called on its Closed).</summary>
     void UnregisterSurface(IShellSurface surface);
+
+    // ── UI-RESHAPE iter — quick-settings (two-way, persisted) + LLM status ──
+    /// <summary>錨點格線 — the Chang-Hain anchor-grid overlay lines on/off.</summary>
+    bool AnchorGridEnabled { get; set; }
+    /// <summary>漸進適應 — graded-exposure / habituation on/off.</summary>
+    bool GradedExposureEnabled { get; set; }
+    /// <summary>常駐遮罩 — the always-on resting overlay mask on/off.</summary>
+    bool PersistentMaskEnabled { get; set; }
+    /// <summary>True when the local chat LLM is loaded + available (drives the chat-header dot).</summary>
+    bool IsLlmOnline { get; }
 }

@@ -44,7 +44,6 @@ public sealed class ShellController : IShellController
         _sidebar.SizeChanged += (_, _) => _exclude.Update();
         _sidebar.LocationChanged += (_, _) => _exclude.Update();
         _sidebar.Show();
-        _sidebar.SetTier(_vm.VimsTier);
 
         // NPS KPI: count this session, then surface the subtle survey only if the gate allows
         // (≥3 sessions, 30-day cooldown, first-run complete, not recently dismissed). Dormant by
@@ -87,24 +86,30 @@ public sealed class ShellController : IShellController
             _popup.ContentRendered += (_, _) => PositionPopup();
             _popup.SizeChanged += (_, _) => { PositionPopup(); _exclude.Update(); };
             _popup.LocationChanged += (_, _) => _exclude.Update();
-            _popup.Show();
-            _exclude.Register(_popup);
-            _popup.ReassertTopmost();
+            // Exclude registration follows VISIBILITY, so a Deactivated-driven self-hide
+            // (the click-away close) also clears the WGC rect — not just an explicit toggle.
+            _popup.IsVisibleChanged += (_, e) =>
+            {
+                if ((bool)e.NewValue) _exclude.Register(_popup!);
+                else _exclude.Unregister(_popup!);
+            };
+            ShowPopup();
             return;
         }
 
-        if (_popup.IsVisible)
-        {
-            _exclude.Unregister(_popup);
-            _popup.Hide();
-        }
-        else
-        {
-            _popup.Show();
-            PositionPopup();
-            _exclude.Register(_popup);
-            _popup.ReassertTopmost();
-        }
+        if (_popup.IsVisible) _popup.Hide();
+        else ShowPopup();
+    }
+
+    private void ShowPopup()
+    {
+        if (_popup is null) return;
+        _popup.Show();
+        PositionPopup();
+        _popup.ReassertTopmost();
+        // Take focus so the chat input is typable; clicking any other window/desktop then
+        // fires Deactivated → the popup hides itself (the "close on click-away" behaviour).
+        _popup.Activate();
     }
 
     private void PositionPopup()
@@ -124,7 +129,8 @@ public sealed class ShellController : IShellController
             bar.Dispatcher.BeginInvoke(new Action(() => OnVmStateChanged(sender, e)));
             return;
         }
-        _sidebar?.SetTier(_vm.VimsTier);
+        // The edge handle is now a neutral, discreet trapezoid (no tier tint) — only the
+        // popup pulse reflects screen-motion, via StateChanged → PopupBarViewModel.ApplyState.
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -156,4 +162,22 @@ public sealed class ShellController : IShellController
 
     public void RegisterSurface(IShellSurface surface) => _exclude.Register(surface);
     public void UnregisterSurface(IShellSurface surface) => _exclude.Unregister(surface);
+
+    // ── UI-RESHAPE iter — quick-settings + LLM status (bridge to the VM) ──
+    public bool AnchorGridEnabled
+    {
+        get => _vm.AnchorGridEnabled;
+        set => _vm.AnchorGridEnabled = value;
+    }
+    public bool GradedExposureEnabled
+    {
+        get => _vm.GradedExposureEnabled;
+        set => _vm.GradedExposureEnabled = value;
+    }
+    public bool PersistentMaskEnabled
+    {
+        get => _vm.PersistentOverlayEnabled;
+        set => _vm.PersistentOverlayEnabled = value;
+    }
+    public bool IsLlmOnline => _vm.ChatbotVm?.IsLlmOnline ?? false;
 }

@@ -34,11 +34,12 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
 
     /// <summary>Distance from the window rect (dip) inside which the handle reveals.</summary>
     public double HoverProximityDip { get; set; } = 140.0;
-    /// <summary>Revealed handle width (dip). Resting width is the XAML 4 dip.</summary>
-    public double RevealedWidthDip { get; set; } = 12.0;
-    public double RestWidthDip { get; set; } = 4.0;
-    public double RestOpacity { get; set; } = 0.16;
-    public double RevealedOpacity { get; set; } = 0.85;
+    /// <summary>Resting horizontal scale of the trapezoid (tucked toward the edge).</summary>
+    public double RestScaleX { get; set; } = 0.55;
+    /// <summary>Resting opacity — near-invisible.</summary>
+    public double RestOpacity { get; set; } = 0.18;
+    /// <summary>Revealed opacity — the dark-grey handle reads at ~40%.</summary>
+    public double RevealedOpacity { get; set; } = 0.42;
 
     private readonly DispatcherTimer _proximityTimer;
     private bool _isHovered;
@@ -96,10 +97,9 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_FORCE_TOPMOST);
     }
 
-    /// <summary>Tint the handle by the live status (low/mid/high) — readiness hook for
-    /// the host's StateChanged fan-out.</summary>
-    public void SetTier(int tier)
-        => Handle.Background = PopupStatus.BrushForIndex(PopupStatus.IndexFor(tier));
+    /// <summary>UI-RESHAPE iter: the edge handle is now a NEUTRAL discreet trapezoid (no tier
+    /// tint) — kept as a no-op for the host's StateChanged fan-out contract.</summary>
+    public void SetTier(int tier) { /* neutral handle — intentionally no tier colour */ }
 
     private void OnProximityTick(object? sender, EventArgs e)
     {
@@ -128,20 +128,22 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
 
     private void AnimateReveal(bool reveal)
     {
-        double targetWidth = reveal ? RevealedWidthDip : RestWidthDip;
         double targetOpacity = reveal ? RevealedOpacity : RestOpacity;
+        double targetScale = reveal ? 1.0 : RestScaleX;
 
         if (AccessibilityHelper.ReducedMotion())
         {
-            Handle.BeginAnimation(WidthProperty, null);
             Handle.BeginAnimation(OpacityProperty, null);
-            Handle.Width = targetWidth;
+            HandleScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
             Handle.Opacity = targetOpacity;
+            HandleScale.ScaleX = targetScale;
             return;
         }
-        var dur = new Duration(TimeSpan.FromMilliseconds(140));
-        Handle.BeginAnimation(WidthProperty, new DoubleAnimation(targetWidth, dur));
-        Handle.BeginAnimation(OpacityProperty, new DoubleAnimation(targetOpacity, dur));
+        // Apple-grade: ease-out on enter, transform/opacity only, ~160 ms.
+        var dur = new Duration(TimeSpan.FromMilliseconds(160));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        Handle.BeginAnimation(OpacityProperty, new DoubleAnimation(targetOpacity, dur) { EasingFunction = ease });
+        HandleScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(targetScale, dur) { EasingFunction = ease });
     }
 
     /// <summary>Monitor-coordinate physical-pixel footprint for the WGC exclude mask.</summary>

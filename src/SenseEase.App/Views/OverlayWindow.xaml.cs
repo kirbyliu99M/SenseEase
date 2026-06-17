@@ -551,6 +551,11 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // (ceiling 0 ⇒ computed 0) is preserved (min(0, cap) = 0).
         double target       = Math.Min(computed, SenseDefaults.GridOpacityCap);
 
+        // 錨點格線 (anchor grid) user toggle (UI-RESHAPE quick-settings): force the grid LINES hidden
+        // when the user turned the anchor grid off. The EMA + cell-fill above stay alive, so only the
+        // rendered line opacity is gated — re-enabling resumes seamlessly on the next tick.
+        if (!Configuration.UserPreferences.Current.AnchorGridEnabled) target = 0.0;
+
         // Round-10 hysteretic re-aim gate (audit finding: the only un-deadbanded noise
         // follower left). Re-aim the 280 ms animation ONLY when a discrete input changed
         // (tier / gv / steady — a deliberate or protection-relevant step, never noise) or the

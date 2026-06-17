@@ -341,6 +341,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         return _modelInitTask;
     }
 
+    /// <summary>UI-RESHAPE — true when the local chat LLM is loaded AND available. Drives the popup
+    /// chat-header status dot (green = online, grey = offline). Raised once model init completes.</summary>
+    public bool IsLlmOnline => _chatbot.IsModelLoaded && _chatbot.IsModelAvailable;
+
     private async Task InitModelAsync()
     {
         try
@@ -358,6 +362,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 // "unavailable" copy — NOT the GGUF probe path (which leaks the username);
                 // that diagnostic went to the Event Log above instead.
                 StatusText = loaded ? string.Empty : AssistantUnavailableText();
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLlmOnline)));
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
         }
