@@ -30,6 +30,15 @@ namespace SenseEase.Infrastructure.Nlp;
 /// </summary>
 internal static class NluComplianceGate
 {
+    /// <summary>Which decision engine formed the proposal. Almost every rule applies to both
+    /// uniformly; the ONE source-specific rule is the "Unknown → offer a symptom picker"
+    /// Case-1 clarify, which is a <see cref="Lexicon"/>-only DECISION (when the dumb fallback
+    /// can't classify, asking is its best move). The <see cref="Model"/> handles Unknown by
+    /// replying conversationally, so applying Case 1 there would wrongly discard its answer.
+    /// All SAFETY rules (demote, clamps, non-actuating zeroing, the question-guard) are
+    /// source-agnostic.</summary>
+    internal enum DecisionSource { Model, Lexicon }
+
     /// <summary>
     /// A raw, untrusted NLU proposal from either decision engine. The actuating deltas are
     /// NULLABLE on purpose: <c>null</c> means "the engine did not propose this axis" (vs an
@@ -46,7 +55,8 @@ internal static class NluComplianceGate
         double? MaskDepthDelta,
         double? GridVisibilityDelta,
         string? FollowupQuestion,
-        string[]? FollowupOptions);
+        string[]? FollowupOptions,
+        DecisionSource Source = DecisionSource.Model);
 
     /// <summary>
     /// Run the untrusted proposal through every deterministic compliance rule and return the
@@ -93,6 +103,22 @@ internal static class NluComplianceGate
                 followupQuestion = clarifyQ;
                 followupOptions = clarifyOpts;
                 reply = clarifyQ; // the model's "I've adjusted…" reply no longer applies — ask, don't claim
+            }
+        }
+        // Case 1 (LEXICON source only): the lexicon couldn't classify the input → offer a
+        // symptom picker instead of a useless generic reply. This is the lexicon engine's
+        // DECISION, not a compliance check: the model handles Unknown by replying, so applying
+        // it to the model path would discard the model's answer. Folding it here gives the
+        // single TryBuildFollowup call site (BuildFallbackResult no longer calls it itself).
+        else if (d.Source == DecisionSource.Lexicon && intent == "Unknown")
+        {
+            var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity);
+            if (clarifyQ is not null)
+            {
+                intent = "FollowupRequest";
+                followupQuestion = clarifyQ;
+                followupOptions = clarifyOpts;
+                reply = clarifyQ;
             }
         }
 

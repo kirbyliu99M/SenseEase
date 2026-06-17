@@ -14,8 +14,9 @@ public class NluComplianceGateTests
     private static NluComplianceGate.RawNluDecision Raw(
         string intent, int severity = 3, string? reply = "ok",
         int? fov = null, double? md = null, double? gv = null,
-        string? followupQ = null, string[]? followupOpts = null)
-        => new(intent, severity, reply, fov, md, gv, followupQ, followupOpts);
+        string? followupQ = null, string[]? followupOpts = null,
+        NluComplianceGate.DecisionSource source = NluComplianceGate.DecisionSource.Model)
+        => new(intent, severity, reply, fov, md, gv, followupQ, followupOpts, source);
 
     [Fact]
     public void Promote_FollowupWithNamedSymptom_BecomesReportDiscomfort_NoCard()
@@ -76,5 +77,36 @@ public class NluComplianceGateTests
         Assert.Equal(0, r.FovDelta);
         Assert.Equal(0.0, r.MaskDepthDelta, 6);
         Assert.Equal(0.0, r.GridVisibilityDelta, 6);
+    }
+
+    // ── Stage B: the source-gated Case-1 clarify ────────────────────────────────────────
+
+    [Fact]
+    public void LexiconSource_UnknownVagueInput_OffersSymptomPicker()
+    {
+        // The lexicon couldn't classify "I feel off" → it ASKS (Case 1) rather than reply generically.
+        var r = NluComplianceGate.Check(
+            Raw("Unknown", reply: null, source: NluComplianceGate.DecisionSource.Lexicon),
+            "I feel off");
+
+        Assert.Equal("FollowupRequest", r.Intent);
+        Assert.NotNull(r.FollowupOptions);
+        Assert.InRange(r.FollowupOptions!.Length, 2, 4);
+        Assert.Equal(0, r.FovDelta); // non-actuating
+    }
+
+    [Fact]
+    public void ModelSource_Unknown_KeepsReply_NoPicker()
+    {
+        // The model handles Unknown by replying — Case 1 must NOT fire for the model path, or
+        // its conversational answer would be discarded for a symptom picker.
+        var r = NluComplianceGate.Check(
+            Raw("Unknown", reply: "SenseEase reduces visual motion.",
+                source: NluComplianceGate.DecisionSource.Model),
+            "what is SenseEase?");
+
+        Assert.Equal("Unknown", r.Intent);
+        Assert.Null(r.FollowupOptions);
+        Assert.Equal("SenseEase reduces visual motion.", r.Response);
     }
 }

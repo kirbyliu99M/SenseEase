@@ -940,7 +940,8 @@ public sealed class MistralChatbotService : IChatbotService
                     MaskDepthDelta: d.MaskDepthDelta,
                     GridVisibilityDelta: d.GridVisibilityDelta,
                     FollowupQuestion: d.FollowupQuestion,
-                    FollowupOptions: d.FollowupOptions),
+                    FollowupOptions: d.FollowupOptions,
+                    Source: NluComplianceGate.DecisionSource.Model),
                 userText);
             return true;
         }
@@ -952,38 +953,27 @@ public sealed class MistralChatbotService : IChatbotService
 
     private static NluResult BuildFallbackResult(string userText)
     {
+        // The lexicon DECIDES (intent + severity) when the LLM is down/loading; the SAME
+        // NluComplianceGate then disposes — so the fallback inherits every compliance rule
+        // (reset-upgrade, demote, the Case-1 "Unknown → ask" clarify, the severity-bucket
+        // DeriveAdjustments defaults, the empty-reply BuildFallbackResponse, the followup
+        // sanitize). Deltas cross as NULL (the lexicon is never "engaged" with explicit
+        // deltas), so the gate takes its DeriveAdjustments branch exactly as before. The
+        // Lexicon source unlocks the gate's Case-1 picker (the model handles Unknown itself).
         var (intent, _) = FeedbackLexicon.Classify(userText);
-        var (_, _, _, reset) = FeedbackLexicon.ClassifyShaderHints(userText);
-        if (reset) intent = "ResetRequest";
         int severity = FeedbackLexicon.SeverityBucket(userText);
-        var (fov, md, gv, fw) = FeedbackLexicon.DeriveAdjustments(intent, severity, userText);
-
-        // Belt-and-suspenders: if the input is too vague to apply confidently,
-        // the lexicon can offer a follow-up picker instead of guessing. When a
-        // followup is offered we ALSO suppress the deltas — confirming first is
-        // safer than half-applying an adjustment for an unconfirmed symptom.
-        var (followupQ, followupOpts) = FeedbackLexicon.TryBuildFollowup(userText, intent, severity);
-        if (followupQ is not null)
-        {
-            return new NluResult
-            {
-                Intent = "FollowupRequest",
-                FovDelta = 0, MaskDepthDelta = 0, GridVisibilityDelta = 0, FeatherWidthDelta = 0,
-                Response = followupQ,
-                FollowupQuestion = followupQ,
-                FollowupOptions = followupOpts,
-            };
-        }
-
-        return new NluResult
-        {
-            Intent = intent,
-            FovDelta = fov,
-            MaskDepthDelta = md,
-            GridVisibilityDelta = gv,
-            FeatherWidthDelta = fw,
-            Response = FeedbackLexicon.BuildFallbackResponse(userText, intent),
-        };
+        return NluComplianceGate.Check(
+            new NluComplianceGate.RawNluDecision(
+                Intent: intent,
+                Severity: severity,
+                Reply: null, // gate fills via BuildFallbackResponse when empty
+                FovDelta: null,
+                MaskDepthDelta: null,
+                GridVisibilityDelta: null,
+                FollowupQuestion: null,
+                FollowupOptions: null,
+                Source: NluComplianceGate.DecisionSource.Lexicon),
+            userText);
     }
 
     private static string NormalizeIntent(string? intent)
