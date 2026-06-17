@@ -33,6 +33,28 @@ public partial class PopupBarWindow : Window, IShellSurface
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
 
+    // Foreground-window class check — lets click-away tell a REAL app apart from a click on the
+    // BLANK desktop (which shifts focus to the desktop shell: Progman / WorkerW). A desktop click
+    // must NOT dismiss the bar; only switching to another app (or the cursor leaving) should.
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+    private static bool ForegroundIsDesktopShell()
+    {
+        try
+        {
+            IntPtr fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero) return false;
+            var sb = new System.Text.StringBuilder(256);
+            GetClassName(fg, sb, sb.Capacity);
+            // Progman = the classic desktop; WorkerW = the wallpaper/icon layer that takes
+            // foreground on a blank-desktop click on Win10/11.
+            return sb.ToString() is "Progman" or "WorkerW";
+        }
+        catch { return false; } // on error, fall through to the normal click-away close
+    }
+
     // ── #5 proximity auto-close ─────────────────────────────────────────────────
     // The bar would otherwise stay open forever (it shows non-activating, so Deactivated may
     // never fire). A light cursor-proximity poll collapses it back to the edge handle once the
@@ -182,7 +204,7 @@ public partial class PopupBarWindow : Window, IShellSurface
     private void FadeInSections()
     {
         bool rm = AccessibilityHelper.ReducedMotion();
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
         foreach (var s in new FrameworkElement[] { MeterSection, ToolsSection })
         {
             if (s is null) continue;
@@ -196,10 +218,12 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     // Unified "Windows flyout" motion: fade + a subtle scale-up from the trigger edge. ONE easing,
     // ONE pair of durations — the bar reveal AND the chat / quick-settings cards all pop out the same
-    // way (the user asked for a single consistent, calm, Windows-card feel). ReducedMotion snaps.
-    private static readonly Duration CardOpenDur  = new(TimeSpan.FromMilliseconds(220));
-    private static readonly Duration CardCloseDur = new(TimeSpan.FromMilliseconds(140));
-    private const double CardScaleFrom = 0.975; // subtler scale travel = smoother settle
+    // way (the user asked for a single consistent, calm, Windows-card feel). QuinticEase.EaseOut gives
+    // a swift, confident start that then decelerates smoothly into rest — CubicEase's flatter start
+    // read as a hesitant, "clumsy and deliberate" fade. ReducedMotion snaps.
+    private static readonly Duration CardOpenDur  = new(TimeSpan.FromMilliseconds(230));
+    private static readonly Duration CardCloseDur = new(TimeSpan.FromMilliseconds(145));
+    private const double CardScaleFrom = 0.975; // subtler scale travel = smoother settle (kept low — minimal motion)
 
     private void AnimateCard(FrameworkElement card, ScaleTransform scale, bool open, Func<bool>? stillOpen)
     {
@@ -217,7 +241,7 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (open)
         {
             card.Visibility = Visibility.Visible;
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
             card.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, CardOpenDur) { EasingFunction = ease });
             var s = new DoubleAnimation(CardScaleFrom, 1, CardOpenDur) { EasingFunction = ease };
             scale.BeginAnimation(ScaleTransform.ScaleXProperty, s);
@@ -225,7 +249,7 @@ public partial class PopupBarWindow : Window, IShellSurface
         }
         else
         {
-            var ease = new CubicEase { EasingMode = EasingMode.EaseIn }; // exit a touch quicker
+            var ease = new QuinticEase { EasingMode = EasingMode.EaseIn }; // exit a touch quicker
             var fade = new DoubleAnimation(0, CardCloseDur) { EasingFunction = ease };
             if (stillOpen != null) fade.Completed += (_, _) => { if (!stillOpen()) card.Visibility = Visibility.Collapsed; };
             card.BeginAnimation(OpacityProperty, fade);
@@ -286,6 +310,10 @@ public partial class PopupBarWindow : Window, IShellSurface
     {
         // Click-away close — but a PINNED bar stays put (that is the point of the pin).
         if (DataContext is PopupBarViewModel { IsPinned: true }) return;
+        // A click on the BLANK desktop shifts focus to the desktop shell (Progman/WorkerW) and fires
+        // Deactivated, but it is NOT a real click-away — keep the bar up. Switching to another app
+        // still collapses it; so does the proximity poll once the cursor actually leaves.
+        if (ForegroundIsDesktopShell()) return;
         CollapseToHandle();
     }
 
