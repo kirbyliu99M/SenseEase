@@ -51,7 +51,12 @@ public partial class PopupBarWindow : Window, IShellSurface
     {
         if (DataContext is not PopupBarViewModel vm) return;
         if (e.PropertyName == nameof(PopupBarViewModel.IsChatOpen))
+        {
+            // Activate ONLY when the chat opens, so the input can take keyboard focus — the bar
+            // itself is shown non-activating (ShowActivated=False) to avoid stealing focus.
+            if (vm.IsChatOpen) Activate();
             AnimatePanel(ChatPanel, ChatXform, isX: true, open: vm.IsChatOpen, isOpenNow: () => vm.IsChatOpen);
+        }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsSettingsOpen))
             AnimatePanel(SettingsFlyout, SettingsXform, isX: false, open: vm.IsSettingsOpen, isOpenNow: () => vm.IsSettingsOpen);
     }

@@ -107,9 +107,10 @@ public sealed class ShellController : IShellController
         _popup.Show();
         PositionPopup();
         _popup.ReassertTopmost();
-        // Take focus so the chat input is typable; clicking any other window/desktop then
-        // fires Deactivated → the popup hides itself (the "close on click-away" behaviour).
-        _popup.Activate();
+        // NOTE: do NOT Activate() here — revealing the bar must not steal focus from the user's
+        // app/game (low-disturbance). The popup activates ONLY when the chat opens (typing needs
+        // the caret), handled in PopupBarWindow on IsChatOpen. ShowActivated=False keeps Show()
+        // from grabbing focus.
     }
 
     private void PositionPopup()
