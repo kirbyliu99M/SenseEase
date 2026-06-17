@@ -56,6 +56,13 @@ public sealed class NpsService
     /// <summary>Minimum app sessions before the FIRST ask — don't survey a brand-new user.</summary>
     public int MinSessions { get; set; } = 3;
 
+    /// <summary>The survey scale's max (2026-06-18: the UI moved 0–10 → a 1–5 "five-point QA"). Each
+    /// logged row is stamped with this; <see cref="ReadLoggedScores"/> counts ONLY current-scale rows
+    /// so a pre-rescale 0–10 row can't pollute the KPI when mixed with 1–5 rows. (The KPI METRIC for
+    /// 1–5 — see <see cref="BucketFor"/>/<see cref="ComputeNps"/>, still 0–10 NPS semantics — is a
+    /// dormant, separately-tracked recalibration; this guard only keeps the DATA clean for it.)</summary>
+    private const int ScaleMax = 5;
+
     /// <summary>Production ctor: data under %LOCALAPPDATA%\SenseEase\, first-run via AppConfig.</summary>
     public NpsService(Func<DateTime>? utcClock = null) : this(null, utcClock) { }
 
@@ -105,12 +112,12 @@ public sealed class NpsService
         Save();
     }
 
-    /// <summary>Record a 0–10 score (+ optional one-line comment). Appends a row to
-    /// survey_log.jsonl and clears any dismiss-suppression (engagement is the opposite
-    /// signal). Out-of-range scores are ignored.</summary>
+    /// <summary>Record a 1–5 satisfaction score (+ optional one-line comment). Appends a
+    /// row to survey_log.jsonl and clears any dismiss-suppression (engagement is the
+    /// opposite signal). Out-of-range scores are ignored.</summary>
     public void RecordResponse(int score, string? comment)
     {
-        if (score < 0 || score > 10) return;
+        if (score < 1 || score > 5) return;
         _state.LastScore = score;
         _state.DismissedUntilUtc = null;
         Save();
@@ -124,11 +131,13 @@ public sealed class NpsService
         Save();
     }
 
-    /// <summary>NPS bucket for a 0–10 score: 0–6 Detractor, 7–8 Passive, 9–10 Promoter.</summary>
+    /// <summary>NPS-style bucket for a 1–5 satisfaction score: 1–3 Detractor, 4 Passive,
+    /// 5 Promoter. (Top-box = Promoter; the neutral 4 is Passive; everything at or below
+    /// the midpoint is a Detractor.)</summary>
     public static NpsBucket BucketFor(int score) => score switch
     {
-        <= 6 => NpsBucket.Detractor,
-        <= 8 => NpsBucket.Passive,
+        <= 3 => NpsBucket.Detractor,
+        4    => NpsBucket.Passive,
         _    => NpsBucket.Promoter,
     };
 
@@ -180,6 +189,7 @@ public sealed class NpsService
             {
                 ts = _clock().ToString("O", CultureInfo.InvariantCulture),
                 score,
+                scaleMax = ScaleMax, // self-describing scale so mixed-scale rows can't corrupt the KPI
                 comment,
                 appVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0",
                 lang = LocalizationManager.Current.IsEnglish ? "en" : "zh",
@@ -201,8 +211,12 @@ public sealed class NpsService
                 try
                 {
                     using var doc = JsonDocument.Parse(line);
-                    if (doc.RootElement.TryGetProperty("score", out var s) && s.TryGetInt32(out var v))
-                        scores.Add(v);
+                    if (!doc.RootElement.TryGetProperty("score", out var s) || !s.TryGetInt32(out var v))
+                        continue;
+                    // Count ONLY current-scale rows. A legacy 0–10 row has no scaleMax (→ treated as
+                    // the old 10) and is skipped, so 0–10 and 1–5 rows never mix in the KPI.
+                    int rowScale = doc.RootElement.TryGetProperty("scaleMax", out var sm) && sm.TryGetInt32(out var smv) ? smv : 10;
+                    if (rowScale == ScaleMax) scores.Add(v);
                 }
                 catch { /* skip malformed line */ }
             }

@@ -29,13 +29,12 @@ public sealed class NpsServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, NpsBucket.Detractor)]
-    [InlineData(6, NpsBucket.Detractor)]
-    [InlineData(7, NpsBucket.Passive)]
-    [InlineData(8, NpsBucket.Passive)]
-    [InlineData(9, NpsBucket.Promoter)]
-    [InlineData(10, NpsBucket.Promoter)]
-    public void BucketFor_SplitsAtNpsBoundaries(int score, NpsBucket expected)
+    [InlineData(1, NpsBucket.Detractor)]
+    [InlineData(2, NpsBucket.Detractor)]
+    [InlineData(3, NpsBucket.Detractor)]
+    [InlineData(4, NpsBucket.Passive)]
+    [InlineData(5, NpsBucket.Promoter)]
+    public void BucketFor_SplitsAtFivePointBoundaries(int score, NpsBucket expected)
         => Assert.Equal(expected, NpsService.BucketFor(score));
 
     [Fact]
@@ -97,9 +96,9 @@ public sealed class NpsServiceTests : IDisposable
 
         Assert.Null(svc.ComputeNps());                  // no responses yet
 
-        svc.RecordResponse(10, "love it");              // promoter
-        svc.RecordResponse(5, null);                    // detractor
-        svc.RecordResponse(8, null);                    // passive
+        svc.RecordResponse(5, "love it");               // promoter
+        svc.RecordResponse(2, null);                    // detractor
+        svc.RecordResponse(4, null);                    // passive
 
         // (1 promoter − 1 detractor) / 3 * 100 = 0
         Assert.Equal(0.0, svc.ComputeNps()!.Value, 3);
@@ -114,9 +113,29 @@ public sealed class NpsServiceTests : IDisposable
     {
         DateTime now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var svc = new NpsService(NewDir(), () => now, isFirstRun: () => false);
-        svc.RecordResponse(11, null);
+        svc.RecordResponse(0, null);                    // just below the 1–5 range
+        svc.RecordResponse(6, null);                    // just above the 1–5 range
         svc.RecordResponse(-1, null);
         Assert.Null(svc.ComputeNps());                  // nothing logged
+    }
+
+    [Fact]
+    public void ComputeNps_OnlyCountsCurrentScaleRows_LegacyRowsIgnored()
+    {
+        // Scale guard (2026-06-18): a pre-rescale 0–10 row (no scaleMax / an explicit older scale)
+        // must NOT be mixed into the 1–5 KPI. Seed the log with two legacy rows, then a current one.
+        var dir = NewDir();
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "survey_log.jsonl"),
+            "{\"ts\":\"2026-01-01T00:00:00Z\",\"score\":9}\n" +                 // legacy 0–10, no scaleMax
+            "{\"ts\":\"2026-01-02T00:00:00Z\",\"score\":7,\"scaleMax\":10}\n"); // explicit old scale
+        DateTime now = new(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc);
+        var svc = new NpsService(dir, () => now, isFirstRun: () => false);
+
+        Assert.Null(svc.ComputeNps());                  // only old-scale rows → none counted
+
+        svc.RecordResponse(5, null);                    // current 1–5 row (stamped scaleMax=5) → Promoter
+        Assert.Equal(100.0, svc.ComputeNps()!.Value, 3); // 1 promoter, 0 detractors; legacy rows ignored
     }
 
     [Fact]
