@@ -165,6 +165,44 @@ public partial class PopupBarWindow : Window, IShellSurface
         {
             AnimatePanel(SettingsFlyout, SettingsXform, isX: false, open: vm.IsSettingsOpen, isOpenNow: () => vm.IsSettingsOpen);
         }
+        else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded) && vm.IsExpanded)
+        {
+            // #2: fade the newly-revealed sections in so expand reads as a soft reveal, not a pop.
+            // (The bar frame still resizes via SizeToContent; the centre-anchor keeps it from
+            // shifting, and the content fade removes the "flash".) ReducedMotion snaps.
+            FadeInSections();
+        }
+    }
+
+    /// <summary>#2: gentle opacity fade-in for the meter + tools sections on expand.</summary>
+    private void FadeInSections()
+    {
+        bool rm = AccessibilityHelper.ReducedMotion();
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        foreach (var s in new FrameworkElement[] { MeterSection, ToolsSection })
+        {
+            if (s is null) continue;
+            if (rm) { s.BeginAnimation(OpacityProperty, null); s.Opacity = 1; continue; }
+            s.Opacity = 0;
+            s.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(150))) { EasingFunction = ease });
+        }
+    }
+
+    /// <summary>#2: a gentle slide-in-from-edge + fade for the bar itself on reveal, instead of an
+    /// instant pop. ReducedMotion snaps.</summary>
+    private void AnimateReveal()
+    {
+        if (AccessibilityHelper.ReducedMotion())
+        {
+            BarXform.BeginAnimation(TranslateTransform.XProperty, null);
+            BarRoot.BeginAnimation(OpacityProperty, null);
+            BarXform.X = 0; BarRoot.Opacity = 1;
+            return;
+        }
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        BarRoot.Opacity = 0;
+        BarRoot.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(160))) { EasingFunction = ease });
+        BarXform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(14, 0, new Duration(TimeSpan.FromMilliseconds(180))) { EasingFunction = ease });
     }
 
     private void AnimatePanel(FrameworkElement panel, TranslateTransform xform, bool isX, bool open, Func<bool> isOpenNow)
@@ -204,7 +242,7 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
     {
-        if (IsVisible) { _farTicks = 0; _autoClose.Start(); }
+        if (IsVisible) { _farTicks = 0; _autoClose.Start(); AnimateReveal(); }
         else _autoClose.Stop();
     }
 
@@ -247,11 +285,17 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnChatInputVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        // When the chat panel reveals, put the caret in the input so the user can type at once
-        // (the window is active, so keyboard focus lands here).
+        // When the chat panel reveals, put the caret in the input so the user can type at once.
+        // TOUCH: the on-screen keyboard only appears for an ACTIVE window with keyboard focus, so
+        // activate first (defensive — IsChatOpen already activates) and re-assert focus after layout.
         if (e.NewValue is true && sender is System.Windows.Controls.TextBox tb)
             Dispatcher.BeginInvoke(
-                new Action(() => { tb.Focus(); System.Windows.Input.Keyboard.Focus(tb); }),
+                new Action(() =>
+                {
+                    if (!IsActive) Activate();
+                    tb.Focus();
+                    System.Windows.Input.Keyboard.Focus(tb);
+                }),
                 System.Windows.Threading.DispatcherPriority.Input);
     }
 
@@ -265,45 +309,57 @@ public partial class PopupBarWindow : Window, IShellSurface
         }
     }
 
-    // ── #3 vertical-only drag + persist ─────────────────────────────────────────
+    // ── #3 vertical-only drag (with a small threshold) + centre persist ─────────────
+    private const double DragThresholdDip = 4.0;
+    private bool _dragArmed;
+
     private void OnBarMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
         if (IsInteractive(e.OriginalSource as DependencyObject)) return; // let buttons/inputs win
         _dragStartTop = Top;
         _dragStartCursorY = CursorYDip();
-        _dragging = true;
+        _dragArmed = true;   // armed, but not actually dragging until past the threshold
+        _dragging = false;
         CaptureMouse();
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (!_dragging) return;
+        if (!_dragArmed) return;
+        double dy = CursorYDip() - _dragStartCursorY;
+        if (!_dragging)
+        {
+            if (Math.Abs(dy) < DragThresholdDip) return; // ignore a plain click / micro-jitter
+            _dragging = true;
+        }
         // Move on the Y axis ONLY — the bar stays pinned to the right edge.
-        double newTop = _dragStartTop + (CursorYDip() - _dragStartCursorY);
         var work = SystemParameters.WorkArea;
-        Top = Math.Max(work.Top, Math.Min(work.Bottom - ActualHeight, newTop));
+        Top = Math.Max(work.Top, Math.Min(work.Bottom - ActualHeight, _dragStartTop + dy));
     }
 
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
-        if (e.ChangedButton != MouseButton.Left || !_dragging) return;
+        if (e.ChangedButton != MouseButton.Left) return;
+        bool wasDragging = _dragging;
+        _dragArmed = false;
         _dragging = false;
-        ReleaseMouseCapture();
-        PersistTop();
+        if (IsMouseCaptured) ReleaseMouseCapture();
+        if (wasDragging) PersistCentre();
     }
 
     private double CursorYDip()
         => GetCursorPos(out POINT p) ? p.Y / VisualTreeHelper.GetDpi(this).DpiScaleY : Top;
 
-    /// <summary>Remember the dragged vertical position so the bar (and its reveal) returns here.</summary>
-    private void PersistTop()
+    /// <summary>Remember the dragged vertical CENTRE so the bar returns here AND stays put when it
+    /// grows/shrinks (the centre is resize-invariant, unlike the top).</summary>
+    private void PersistCentre()
     {
         try
         {
-            Configuration.UserPreferences.Current.PopupBarTop = Top;
+            Configuration.UserPreferences.Current.PopupBarCenterY = Top + (ActualHeight / 2.0);
             Configuration.UserPreferences.Current.Save();
         }
         catch { /* best-effort */ }

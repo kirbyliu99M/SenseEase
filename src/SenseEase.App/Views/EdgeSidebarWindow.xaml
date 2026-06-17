@@ -10,7 +10,7 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         SizeToContent="Manual"
-        Width="16" Height="140"
+        Width="18" Height="104"
         WindowStartupLocation="Manual"
         Focusable="False"
         AutomationProperties.Name="{loc:T Zh='SenseEase 工具列 — 將游標移到螢幕右緣即可開啟', En='SenseEase bar — move the cursor to the right edge to reveal'}">
@@ -32,8 +32,8 @@
         <Path x:Name="Handle"
               HorizontalAlignment="Right"
               Fill="#3A3A3A"
-              Opacity="0.18"
-              Data="M16,0 L16,140 L6,104 L6,36 Z"
+              Opacity="0.28"
+              Data="M18,0 L18,104 L7,78 L7,26 Z"
               RenderTransformOrigin="1,0.5">
             <Path.RenderTransform>
                 <ScaleTransform x:Name="HandleScale" ScaleX="0.55"/>

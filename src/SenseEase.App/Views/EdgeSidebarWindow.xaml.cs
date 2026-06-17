@@ -37,10 +37,11 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     public double HoverProximityDip { get; set; } = 140.0;
     /// <summary>Resting horizontal scale of the trapezoid (tucked toward the edge).</summary>
     public double RestScaleX { get; set; } = 0.55;
-    /// <summary>Resting opacity — near-invisible.</summary>
-    public double RestOpacity { get; set; } = 0.18;
-    /// <summary>Revealed opacity — the dark-grey handle reads at ~40%.</summary>
-    public double RevealedOpacity { get; set; } = 0.42;
+    /// <summary>Resting opacity — discreet but findable (a touch user can't hover to discover it,
+    /// so it must be perceptible enough to tap at rest).</summary>
+    public double RestOpacity { get; set; } = 0.28;
+    /// <summary>Revealed opacity — the dark-grey handle brightens on mouse approach.</summary>
+    public double RevealedOpacity { get; set; } = 0.52;
 
     private readonly DispatcherTimer _proximityTimer;
     private bool _isHovered;
@@ -61,7 +62,12 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         Loaded += OnLoaded;
         Closed += OnClosed;
         MouseLeftButtonUp += (_, _) => Clicked?.Invoke(this, EventArgs.Empty);
-        IsHitTestVisible = false; // click-through until revealed
+        // TOUCH FIX: the handle is ALWAYS hit-test-visible (it used to be click-through until a
+        // mouse HOVER set it true via the proximity poller — but a touch user has no hovering
+        // cursor, so the handle never became tappable and the bar could never be opened). Now a
+        // direct tap/click always reveals it; the proximity poller only adds the mouse hover-brighten
+        // + edge-throw niceties on top. Trade-off: it claims a thin right-edge strip from mouse
+        // edge-clicks (a standard edge-launcher cost); kept narrow + short + ReassertTopmost.
 
         _proximityTimer = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
         _proximityTimer.Tick += OnProximityTick;
@@ -204,7 +210,8 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         bool nowHovered = dist <= HoverProximityDip;
         if (nowHovered == _isHovered) return;
         _isHovered = nowHovered;
-        IsHitTestVisible = nowHovered;
+        // (IsHitTestVisible stays TRUE always now — see ctor; the poller only drives the visual
+        // hover-brighten for mouse users.)
         AnimateReveal(nowHovered);
     }
 

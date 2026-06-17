@@ -239,12 +239,14 @@ public sealed class UserPreferences
     [JsonPropertyName("reveal_hotkey")]
     public string RevealHotkey { get; set; } = "Win+Alt+S";
 
-    /// <summary>UI-RESHAPE iter-4: the popup bar's remembered vertical position (dip — the top-left
-    /// Y of the bar window on its monitor's work area). Null = default (vertically centred). The bar
-    /// is locked to the right edge; the user can only drag it up/down, and it returns here on the
-    /// next reveal. Additive — old files default to null (centred).</summary>
-    [JsonPropertyName("popup_bar_top")]
-    public double? PopupBarTop { get; set; }
+    /// <summary>UI-RESHAPE: the popup bar's remembered vertical CENTRE (dip — the bar's mid-Y on its
+    /// monitor's work area). Null = default (vertically centred). The bar is locked to the right edge;
+    /// the user can only drag it up/down. Stored as the CENTRE (not the top) so the bar stays put when
+    /// it grows/shrinks — expanding or opening the chat extends symmetrically instead of shifting the
+    /// always-on anchor (involuntary motion is bad for a motion-sickness tool). Additive — old files
+    /// default to null (centred).</summary>
+    [JsonPropertyName("popup_bar_center_y")]
+    public double? PopupBarCenterY { get; set; }
 
     /// <summary>CW-7 (UX-12 ≡ FEAT-15): persists the always-on overlay baseline
     /// intensity level (1–12, native scale) paired with

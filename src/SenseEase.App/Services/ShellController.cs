@@ -134,16 +134,17 @@ public sealed class ShellController : IShellController
         const double edgeGap = 4.0;
         _popup.Left = Math.Max(work.Left, work.Right - _popup.ActualWidth - edgeGap);
 
-        // #3: honour the user's remembered vertical position (drag up/down); default = centred.
-        // Clamp so the (possibly taller, when expanded) window stays on the work area.
-        double centred = work.Top + (work.Height - _popup.ActualHeight) / 2.0;
-        double top = TryGetSavedBarTop() ?? centred;
+        // #3/#5: anchor by the bar's CENTRE (drag up/down; default = screen centre). Deriving Top
+        // from the centre each time means a resize (expand / chat-open) extends symmetrically and
+        // the always-on bar does NOT shift — it stays where the user left it.
+        double centreY = TryGetSavedBarCentreY() ?? (work.Top + work.Height / 2.0);
+        double top = centreY - (_popup.ActualHeight / 2.0);
         _popup.Top = Math.Max(work.Top, Math.Min(work.Bottom - _popup.ActualHeight, top));
     }
 
-    private static double? TryGetSavedBarTop()
+    private static double? TryGetSavedBarCentreY()
     {
-        try { return Configuration.UserPreferences.Current.PopupBarTop; }
+        try { return Configuration.UserPreferences.Current.PopupBarCenterY; }
         catch { return null; }
     }
 

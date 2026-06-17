@@ -37,17 +37,19 @@
             <conv:SegmentFillConverter            x:Key="SegFill"/>
             <BooleanToVisibilityConverter         x:Key="BoolToVis"/>
 
-            <!-- Round transparent glyph button on the bar (dense: 38 hit / 28 chip) -->
+            <!-- Round transparent glyph button: 44 HIT area / 28 visible chip. The hit area is the
+                 44pt touch-target floor (the tester uses a touch laptop); the small chip keeps the
+                 dense look the user asked for — visual stays minimal, tap target stays accessible. -->
             <Style x:Key="BarIconBtn" TargetType="Button">
-                <Setter Property="Width" Value="38"/>
-                <Setter Property="Height" Value="38"/>
+                <Setter Property="Width" Value="44"/>
+                <Setter Property="Height" Value="44"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <!-- 38×38 hit area; 28×28 visible chip centred. -->
+                            <!-- 44×44 hit area; 28×28 visible chip centred. -->
                             <Border Background="Transparent">
                                 <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
                                         Background="{TemplateBinding Background}"
@@ -68,17 +70,17 @@
                 </Setter>
             </Style>
 
-            <!-- Filled blue primary (play/pause) — dense: 38 hit / 32 circle -->
+            <!-- Filled blue primary (play/pause): 44 HIT / 32 visible circle (see BarIconBtn note) -->
             <Style x:Key="BarPrimaryBtn" TargetType="Button">
-                <Setter Property="Width" Value="38"/>
-                <Setter Property="Height" Value="38"/>
+                <Setter Property="Width" Value="44"/>
+                <Setter Property="Height" Value="44"/>
                 <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <!-- 38×38 hit area; 32×32 visible filled circle centred. -->
+                            <!-- 44×44 hit area; 32×32 visible filled circle centred. -->
                             <Border Background="Transparent">
                                 <Border x:Name="bd" Width="32" Height="32" CornerRadius="16"
                                         Background="{TemplateBinding Background}"
@@ -272,11 +274,13 @@
         <!-- quick-settings card — a small individual card (NOT the chat's template), floats at the
              lower-left near the gear. In-window overlay, NOT a WPF Popup (a Popup hooks
              Application.Exit + mis-places over a topmost no-activate transparent window). -->
-        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="192" Margin="0,0,8,12"
+        <!-- Distinct from the chat card: uses the BAR's glass (not the chat's PanelBg), is
+             narrower, a smaller pill radius, and a compact toggle list — a different "template". -->
+        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="190" Margin="0,0,8,12"
                 VerticalAlignment="Bottom" HorizontalAlignment="Right" Panel.ZIndex="10"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,1"
-                Background="{DynamicResource Popup.PanelBg}" BorderBrush="{DynamicResource Popup.Bdr}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="11,11,11,11"
+                Background="{DynamicResource Popup.BarBg}" BorderBrush="{DynamicResource Popup.Bdr}"
+                BorderThickness="1" CornerRadius="{StaticResource Radius.sm}" Padding="11,11,11,11"
                 Effect="{StaticResource Elev.3}">
             <Border.RenderTransform><TranslateTransform x:Name="SettingsXform" Y="18"/></Border.RenderTransform>
             <StackPanel>
@@ -302,12 +306,16 @@
              the pin. IsExpanded-bound blocks carry their OWN leading divider so no orphan dividers
              appear when collapsed. -->
         <Border x:Name="BarRoot" Grid.Column="1" Width="48" Padding="0,8"
-                VerticalAlignment="Center"
+                VerticalAlignment="Center" Cursor="SizeNS"
                 Background="{DynamicResource Popup.BarBg}"
                 BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
                 Effect="{StaticResource Elev.3}"
+                RenderTransformOrigin="1,0.5"
                 MouseLeftButtonDown="OnBarMouseDown">
+            <!-- SizeNS cursor over the bar background hints the vertical-only drag (buttons override
+                 to Hand). BarXform drives the gentle slide-in-from-edge reveal (code-behind). -->
+            <Border.RenderTransform><TranslateTransform x:Name="BarXform"/></Border.RenderTransform>
             <StackPanel HorizontalAlignment="Center">
 
                 <!-- pulse status (colour + dot + word) — CONDENSED + FULL -->
@@ -324,7 +332,7 @@
                                Text="{Binding VimsTier, Converter={StaticResource StatusWord}}"/>
                 </StackPanel>
 
-                <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
+                <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- on/off switch — a power symbol; BRIGHT blue when running, muted GREY "off" when
                      paused (reads as a switch position, not a disabled/dimmed control). CONDENSED + FULL -->
@@ -347,9 +355,9 @@
 
                 <!-- FULL only: read-only 12-seg strength meter + nudge buttons (with its own
                      leading divider so nothing is orphaned when condensed). -->
-                <StackPanel HorizontalAlignment="Center"
+                <StackPanel x:Name="MeterSection" HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
-                    <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
+                    <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Button Style="{StaticResource BarIconBtn}" Command="{Binding StrongerCommand}"
                             ToolTip="{loc:T Zh='加強保護（提高遮罩強度）', En='Stronger protection'}"
                             AutomationProperties.Name="{loc:T Zh='加強保護', En='Stronger protection'}">
@@ -359,8 +367,20 @@
                                   AutomationProperties.Name="{Binding LevelText}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="20" Height="4" Margin="0,1" CornerRadius="2"
-                                        Background="{Binding Converter={StaticResource SegFill}}"/>
+                                <!-- Themed via DynamicResource (not the frozen-literal SegFill converter)
+                                     so the lit run uses the THEME accent and flips with Light↔Dark. -->
+                                <Border Width="20" Height="4" Margin="0,1" CornerRadius="2">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="{DynamicResource Popup.SegOff}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding}" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource Popup.SegOn}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -373,7 +393,7 @@
                     </Button>
                 </StackPanel>
 
-                <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
+                <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- chat — CONDENSED + FULL -->
                 <Button Style="{StaticResource BarIconBtn}" Command="{Binding ToggleChatCommand}"
@@ -384,7 +404,7 @@
 
                 <!-- FULL only: quick-settings gear + pin. The gear's dropdown is the in-window
                      SettingsFlyout card. Pin lights up blue while active. -->
-                <StackPanel HorizontalAlignment="Center"
+                <StackPanel x:Name="ToolsSection" HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                     <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
                             ToolTip="{loc:T Zh='快速設定', En='Quick settings'}"
@@ -407,7 +427,7 @@
                     </Button>
                 </StackPanel>
 
-                <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
+                <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- expand / collapse chevron — hidden while pinned (a pinned bar can't be
                      collapsed; the pin toggle in the FULL set is then always reachable to un-pin) -->
