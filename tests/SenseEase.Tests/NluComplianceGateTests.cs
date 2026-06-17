@@ -1,3 +1,4 @@
+using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Nlp;
 using Xunit;
 
@@ -146,5 +147,53 @@ public class NluComplianceGateTests
 
         Assert.True(r.FovDelta != 0);
         Assert.False(r.SuppressedAsQuestion);
+    }
+
+    // ── Stage D: convergence — the SAME deterministic floor governs BOTH decision engines ──
+    //    The model PROPOSES actuation; the lexicon proposes nothing. For "ask, don't guess"
+    //    and "don't answer a question by acting" inputs, the one gate must zero the actuation
+    //    for BOTH sources. The lexicon path is run exactly as BuildFallbackResult does it
+    //    (Classify + SeverityBucket → gate, deltas null, Source=Lexicon).
+
+    private static NluResult ViaModel(string utterance) => NluComplianceGate.Check(
+        Raw("ReportDiscomfort", fov: -10, md: 0.2, gv: 0.1,
+            source: NluComplianceGate.DecisionSource.Model),
+        utterance);
+
+    private static NluResult ViaLexicon(string utterance)
+    {
+        var (intent, _) = FeedbackLexicon.Classify(utterance);
+        int severity = FeedbackLexicon.SeverityBucket(utterance);
+        return NluComplianceGate.Check(
+            Raw(intent, severity: severity, reply: null,
+                source: NluComplianceGate.DecisionSource.Lexicon),
+            utterance);
+    }
+
+    [Theory]
+    [InlineData("do you think I'm dizzy now?")] // interrogative → question-guard zeroes
+    [InlineData("你覺得我現在頭暈嗎?")]
+    [InlineData("I feel weird with my eyes")]   // vague discomfort, no named symptom → demote
+    public void Convergence_MustNotActuate_BothSourcesZeroDeltas(string utterance)
+    {
+        var model = ViaModel(utterance);
+        var lexicon = ViaLexicon(utterance);
+
+        Assert.Equal(0, model.FovDelta);
+        Assert.Equal(0.0, model.MaskDepthDelta, 6);
+        Assert.Equal(0.0, model.GridVisibilityDelta, 6);
+
+        Assert.Equal(0, lexicon.FovDelta);
+        Assert.Equal(0.0, lexicon.MaskDepthDelta, 6);
+        Assert.Equal(0.0, lexicon.GridVisibilityDelta, 6);
+    }
+
+    [Theory]
+    [InlineData("I'm dizzy")] // a clearly-named symptom report → BOTH engines actuate (no over-suppression)
+    [InlineData("頭暈")]
+    public void Convergence_GenuineReport_BothSourcesActuate(string utterance)
+    {
+        Assert.True(ViaModel(utterance).FovDelta < 0,   "model path should actuate a real report");
+        Assert.True(ViaLexicon(utterance).FovDelta < 0, "lexicon path should actuate a real report");
     }
 }
