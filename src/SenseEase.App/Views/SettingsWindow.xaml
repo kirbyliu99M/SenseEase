@@ -91,7 +91,8 @@
 
                 <!-- Slim custom title row — the drag handle (MouseLeftButtonDown → DragMove). -->
                 <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,12"
-                      MouseLeftButtonDown="OnTitleBarMouseDown">
+                      MouseLeftButtonDown="OnTitleBarMouseDown"
+                      TouchDown="OnTitleBarTouchDown" TouchMove="OnTitleBarTouchMove" TouchUp="OnTitleBarTouchUp">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>

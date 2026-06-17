@@ -100,6 +100,40 @@ public partial class SettingsWindow : Window
         try { DragMove(); } catch { /* DragMove throws outside a left-button-down context — ignore */ }
     }
 
+    // TOUCH: DragMove() needs a held mouse button and is unreliable under touch, so move the
+    // frameless dialog explicitly on touch. Absolute screen coords (PointToScreen) stay stable as
+    // the window moves; e.Handled suppresses the unreliable mouse promotion of the same gesture.
+    private TouchDevice? _moveTouch;
+    private Point _moveStartScreenPx;
+    private double _moveStartLeft, _moveStartTop;
+
+    private void OnTitleBarTouchDown(object sender, TouchEventArgs e)
+    {
+        _moveTouch = e.TouchDevice;
+        _moveStartScreenPx = PointToScreen(e.GetTouchPoint(this).Position);
+        _moveStartLeft = Left; _moveStartTop = Top;
+        try { ((UIElement)sender).CaptureTouch(e.TouchDevice); } catch { }
+        e.Handled = true;
+    }
+
+    private void OnTitleBarTouchMove(object sender, TouchEventArgs e)
+    {
+        if (_moveTouch is null || e.TouchDevice != _moveTouch) return;
+        var nowPx = PointToScreen(e.GetTouchPoint(this).Position);
+        var dpi = VisualTreeHelper.GetDpi(this);
+        Left = _moveStartLeft + (nowPx.X - _moveStartScreenPx.X) / dpi.DpiScaleX;
+        Top  = _moveStartTop  + (nowPx.Y - _moveStartScreenPx.Y) / dpi.DpiScaleY;
+        e.Handled = true;
+    }
+
+    private void OnTitleBarTouchUp(object sender, TouchEventArgs e)
+    {
+        if (_moveTouch is null || e.TouchDevice != _moveTouch) return;
+        try { ((UIElement)sender).ReleaseTouchCapture(e.TouchDevice); } catch { }
+        _moveTouch = null;
+        e.Handled = true;
+    }
+
     /// <summary>Alpha-2 addendum: optional host wiring for the auto-profiling Settings
     /// group (vestibular "regret" toggle + moved Reset). Forward to the hosted
     /// <see cref="SettingsContent"/>. Set by the host AFTER construction (before Show) when

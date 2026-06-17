@@ -310,48 +310,122 @@ public partial class PopupBarWindow : Window, IShellSurface
     }
 
     // ── #3 vertical-only drag (with a small threshold) + centre persist ─────────────
+    // Mouse AND touch are handled explicitly. Touch→mouse promotion is unreliable for a drag, so
+    // the touch path handles the gesture itself and sets e.Handled (which suppresses promotion) —
+    // _dragTouch guards the mouse path from also firing on the same gesture (no double-drag).
     private const double DragThresholdDip = 4.0;
     private bool _dragArmed;
+    private TouchDevice? _dragTouch; // non-null while a TOUCH owns the gesture
 
+    // Mouse path
     private void OnBarMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left) return;
+        if (e.ChangedButton != MouseButton.Left || _dragTouch is not null) return;
         if (IsInteractive(e.OriginalSource as DependencyObject)) return; // let buttons/inputs win
-        _dragStartTop = Top;
-        _dragStartCursorY = CursorYDip();
-        _dragArmed = true;   // armed, but not actually dragging until past the threshold
-        _dragging = false;
+        BeginDrag(CursorYDip());
         CaptureMouse();
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (!_dragArmed) return;
-        double dy = CursorYDip() - _dragStartCursorY;
-        if (!_dragging)
-        {
-            if (Math.Abs(dy) < DragThresholdDip) return; // ignore a plain click / micro-jitter
-            _dragging = true;
-        }
-        // Move on the Y axis ONLY — the bar stays pinned to the right edge.
-        var work = SystemParameters.WorkArea;
-        Top = Math.Max(work.Top, Math.Min(work.Bottom - ActualHeight, _dragStartTop + dy));
+        if (_dragTouch is null && _dragArmed) UpdateDrag(CursorYDip());
     }
 
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
-        if (e.ChangedButton != MouseButton.Left) return;
+        if (e.ChangedButton != MouseButton.Left || _dragTouch is not null) return;
+        EndDrag();
+        if (IsMouseCaptured) ReleaseMouseCapture();
+    }
+
+    // Touch path (explicit — see note above)
+    protected override void OnTouchDown(TouchEventArgs e)
+    {
+        base.OnTouchDown(e);
+        // Window-level event: only the BAR is the drag handle. A touch on the chat/settings card
+        // (e.g. to scroll messages or tap a control) must NOT start a window drag — let it through.
+        var src = e.OriginalSource as DependencyObject;
+        if (!IsWithinBar(src) || IsInteractive(src)) return; // buttons/inputs/panels keep the touch
+        _dragTouch = e.TouchDevice;
+        BeginDrag(TouchScreenY(e));
+        try { CaptureTouch(e.TouchDevice); } catch { }
+        e.Handled = true; // suppress mouse promotion so the gesture isn't double-handled
+    }
+
+    /// <summary>True if <paramref name="d"/> is the bar Border or a descendant of it (the bar is the
+    /// only drag handle; the chat/settings cards in col 0 must keep their own touches).</summary>
+    private bool IsWithinBar(DependencyObject? d)
+    {
+        while (d is not null)
+        {
+            if (ReferenceEquals(d, BarRoot)) return true;
+            d = d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : null;
+        }
+        return false;
+    }
+
+    protected override void OnTouchMove(TouchEventArgs e)
+    {
+        base.OnTouchMove(e);
+        if (_dragTouch is null || e.TouchDevice != _dragTouch) return;
+        UpdateDrag(TouchScreenY(e));
+        e.Handled = true;
+    }
+
+    protected override void OnTouchUp(TouchEventArgs e)
+    {
+        base.OnTouchUp(e);
+        if (_dragTouch is null || e.TouchDevice != _dragTouch) return;
+        EndDrag();
+        try { ReleaseTouchCapture(e.TouchDevice); } catch { }
+        _dragTouch = null;
+        e.Handled = true;
+    }
+
+    // Shared vertical-drag core (Y-only; the bar stays pinned to the right edge)
+    private void BeginDrag(double startScreenY)
+    {
+        _dragStartTop = Top;
+        _dragStartCursorY = startScreenY;
+        _dragArmed = true;   // armed, but not actually dragging until past the threshold
+        _dragging = false;
+    }
+
+    private void UpdateDrag(double currentScreenY)
+    {
+        if (!_dragArmed) return;
+        double dy = currentScreenY - _dragStartCursorY;
+        if (!_dragging)
+        {
+            if (Math.Abs(dy) < DragThresholdDip) return; // ignore a plain tap/click / micro-jitter
+            _dragging = true;
+        }
+        var work = SystemParameters.WorkArea;
+        Top = Math.Max(work.Top, Math.Min(work.Bottom - ActualHeight, _dragStartTop + dy));
+    }
+
+    private void EndDrag()
+    {
         bool wasDragging = _dragging;
         _dragArmed = false;
         _dragging = false;
-        if (IsMouseCaptured) ReleaseMouseCapture();
         if (wasDragging) PersistCentre();
     }
 
     private double CursorYDip()
         => GetCursorPos(out POINT p) ? p.Y / VisualTreeHelper.GetDpi(this).DpiScaleY : Top;
+
+    /// <summary>The finger's ABSOLUTE screen Y in DIP — stable as the window moves during the drag:
+    /// the window-relative point through PointToScreen recovers the absolute physical point
+    /// regardless of the current Top, then we convert physical→DIP.</summary>
+    private double TouchScreenY(TouchEventArgs e)
+    {
+        var winPt = e.GetTouchPoint(this).Position;   // window-relative DIP
+        var screenPx = PointToScreen(winPt);          // absolute physical px (accounts for current Top)
+        return screenPx.Y / VisualTreeHelper.GetDpi(this).DpiScaleY;
+    }
 
     /// <summary>Remember the dragged vertical CENTRE so the bar returns here AND stays put when it
     /// grows/shrinks (the centre is resize-invariant, unlike the top).</summary>

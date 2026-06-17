@@ -160,6 +160,7 @@
 
                 <!-- messages — sizes to content up to a cap (no fixed-height blank) -->
                 <ScrollViewer Grid.Row="1" Margin="8,0" MaxHeight="300" VerticalScrollBarVisibility="Auto"
+                              PanningMode="VerticalOnly"
                               Style="{DynamicResource AutoHideScroll}">
                     <ItemsControl ItemsSource="{Binding Chat.Messages}">
                         <ItemsControl.ItemTemplate>

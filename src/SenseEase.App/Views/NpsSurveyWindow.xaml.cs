@@ -128,6 +128,15 @@ public partial class NpsSurveyWindow : Window, IShellSurface
         AcrylicGlass.EnableAcrylic(this, dark ? PanelAcrylicTintDark : PanelAcrylicTintLight);
     }
 
+    /// <summary>TOUCH: the on-screen keyboard needs an ACTIVE window. The survey is shown
+    /// non-activating (ClickThrough.EnableNoActivate) so it never steals focus when it appears —
+    /// but a deliberate tap on the (optional) comment field is explicit intent, so activate then
+    /// so the touch keyboard can surface. Best-effort; the score-only path needs no keyboard.</summary>
+    private void OnCommentFocus(object sender, RoutedEventArgs e)
+    {
+        if (!IsActive) Activate();
+    }
+
     private void AnchorBottomRight()
     {
         var work = SystemParameters.WorkArea;

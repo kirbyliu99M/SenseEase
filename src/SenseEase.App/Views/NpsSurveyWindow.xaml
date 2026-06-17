@@ -154,7 +154,7 @@
 
             <TextBlock Text="{Binding CommentLabel}" Margin="2,14,0,4" FontSize="12"
                        Foreground="{DynamicResource Popup.Ink2}"/>
-            <TextBox Padding="8,6" FontSize="13"
+            <TextBox Padding="8,6" FontSize="13" GotFocus="OnCommentFocus"
                      Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
                      Foreground="{DynamicResource Popup.Ink1}"
                      AutomationProperties.Name="{Binding CommentLabel}"/>
