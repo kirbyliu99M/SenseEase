@@ -32,10 +32,10 @@
     <SolidColorBrush x:Key="Popup.Mid"  Color="#FFFBBF24"/>
     <SolidColorBrush x:Key="Popup.High" Color="#FFFF6B6B"/>
 
-    <!-- Glass fills. Neutral near-black grey: BarBg ~80%, PanelBg ~90% (near-opaque so the
-         chat/dropdown text sits on solid Game-Bar grey). -->
-    <SolidColorBrush x:Key="Popup.BarBg"   Color="#CC1B1B1D"/>
-    <SolidColorBrush x:Key="Popup.PanelBg" Color="#E61F1F22"/>
+    <!-- Card fills (no window-wide acrylic blur now — iter-4 — so the alpha is bumped up for
+         readability over the desktop): neutral near-black grey BarBg ~93%, PanelBg ~96%. -->
+    <SolidColorBrush x:Key="Popup.BarBg"   Color="#ED1B1B1D"/>
+    <SolidColorBrush x:Key="Popup.PanelBg" Color="#F51F1F22"/>
     <!-- Soft light hairline rim (Game Bar's faint grey edge). -->
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#33FFFFFF"/>
 

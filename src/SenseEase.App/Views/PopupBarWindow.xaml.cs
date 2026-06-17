@@ -7,7 +7,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using SenseEase.App.Accessibility;
-using SenseEase.App.Interop;
 using SenseEase.App.Services;
 using SenseEase.App.Theme;
 using SenseEase.App.ViewModels;
@@ -15,23 +14,17 @@ using SenseEase.App.ViewModels;
 namespace SenseEase.App.Views;
 
 /// <summary>
-/// UI-RESHAPE prep — the glass popup bar window. Frosted via Win11 acrylic
-/// (<see cref="AcrylicGlass"/>, light-blue tint) and never steals focus
-/// (<see cref="ClickThrough.EnableNoActivate"/>, so its buttons stay clickable). Draggable
-/// by its bar background. Binds a <see cref="PopupBarViewModel"/>; the future
-/// <c>ShellController</c> passes a live <see cref="IShellController"/> so the engine owns
-/// the tier. Implements <see cref="IShellSurface"/> for the WGC-exclude + topmost contract.
+/// UI-RESHAPE — the popup bar window. Renders as clean translucent rounded cards (NO window-wide
+/// acrylic: ACCENT_ENABLE_ACRYLICBLURBEHIND frosts the WHOLE window rect, which painted a "massive"
+/// frosted rectangle in the empty area around a short flyout — iter-4 fix). Empty window area is
+/// transparent (the RootGrid has no fill), so only the actual cards show. The Popup.* colour brushes
+/// are referenced via DynamicResource so a live Light↔Dark toggle re-themes the cards (StaticResource
+/// resolved once at load and never updated — the "dark mode doesn't change" bug, iter-4 fix).
+/// Binds a <see cref="PopupBarViewModel"/>; the <c>ShellController</c> passes a live
+/// <see cref="IShellController"/> so the engine owns the tier. Implements <see cref="IShellSurface"/>.
 /// </summary>
 public partial class PopupBarWindow : Window, IShellSurface
 {
-    // Theme-aware bar acrylic tint (ABGR 0xAABBGGRR). After the 2026-06-17 palette swap the
-    // DEFAULT (light) is the slate glass and Dark is the neutral Game-Bar black/grey:
-    //   Light → Popup.BarBg #B3232A36 (slate);  Dark → Popup.BarBg #CC1B1B1D (near-black).
-    // The Popup.* token brushes paint the actual surface on top of this frost; the tint only
-    // governs what bleeds through the blur. Mirrors NotificationCardWindow.ApplyThemeAwareAcrylic.
-    private const uint BarAcrylicTintLight = 0xB3362A23u; // ARGB #B3232A36 → ABGR (slate)
-    private const uint BarAcrylicTintDark  = 0xCC1D1B1Bu; // ARGB #CC1B1B1D → ABGR (Game-Bar black)
-
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     private static readonly IntPtr HWND_TOPMOST = new(-1);
@@ -52,6 +45,12 @@ public partial class PopupBarWindow : Window, IShellSurface
     /// <summary>Consecutive far ticks (×50 ms) before auto-collapse — a short grace.</summary>
     public int CloseGraceTicks { get; set; } = 8;
 
+    // ── #3 vertical-only drag (the bar is locked to the right edge; it can only move up/down,
+    //    and remembers where it was put via UserPreferences.PopupBarTop). ──
+    private bool _dragging;
+    private double _dragStartCursorY;
+    private double _dragStartTop;
+
     public PopupBarWindow() : this(null, null) { }
 
     public PopupBarWindow(IShellController? controller, ChatbotViewModel? chat)
@@ -59,11 +58,10 @@ public partial class PopupBarWindow : Window, IShellSurface
         InitializeComponent();
         DataContext = new PopupBarViewModel(controller, chat);
         if (DataContext is INotifyPropertyChanged inpc) inpc.PropertyChanged += OnVmPropertyChanged;
-        SourceInitialized += OnSourceInitialized;
         Deactivated += OnDeactivated;
         IsVisibleChanged += OnVisibleChanged;
-        // TASK #6: track Auto/Light/Dark so the glass adapts instead of being fixed
-        // light-blue (fixes white-on-light-glass contrast in Windows dark mode).
+        // Track Auto/Light/Dark so the cards re-theme live (the DynamicResource Popup.* brushes
+        // re-resolve when PopupGlassTokens.Dark.xaml is merged/un-merged here).
         Loaded += OnThemeLoaded;
         Closed += OnThemeClosed;
 
@@ -72,14 +70,13 @@ public partial class PopupBarWindow : Window, IShellSurface
         _autoClose.Tick += OnAutoCloseTick;
     }
 
-    // ── TASK #6: dark-variant theming for the popup glass ───────────────────────
-    // The window merges the LIGHT Popup.* tokens (PopupGlassTokens.xaml) view-locally
-    // in XAML. On dark we merge PopupGlassTokens.Dark.xaml ABOVE it (same idempotent
-    // merge ThemeManager uses for Palette.Dark) so the Popup.* keys flip to their dark
-    // values, and we re-pick the acrylic tint. We listen to BOTH theme signals exactly
-    // as ThemeManager does: UserPreferences.Changed (the Settings → Appearance picker /
-    // forced Light↔Dark) and the OS light/dark flip (Auto mode). Guarded so the window
-    // is still constructible headless (no Application / unsourced HWND just no-op).
+    // ── Light/Dark theming for the popup cards ──────────────────────────────────
+    // The window merges the DEFAULT Popup.* tokens (PopupGlassTokens.xaml = slate) view-locally in
+    // XAML. On dark we merge PopupGlassTokens.Dark.xaml (Game-Bar black/grey) ABOVE it; the
+    // DynamicResource Popup.* refs then re-resolve to the dark values. We listen to BOTH theme
+    // signals exactly as ThemeManager does: UserPreferences.Changed (the Settings → Appearance
+    // picker / forced Light↔Dark) and the OS light/dark flip (Auto mode). Guarded so the window is
+    // still constructible headless.
 
     /// <summary>Pack URI for the dark popup-token override (Page-compiled pure
     /// ResourceDictionary, no x:Class — pack-URI-mergeable like Palette.Dark).</summary>
@@ -88,9 +85,6 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnThemeLoaded(object? sender, RoutedEventArgs e)
     {
-        // Also track the GLOBAL dark palette (Palette.Dark) so any SenseEaseTheme.xaml
-        // structural brushes this window borrows stay light/dark-correct, matching the
-        // rest of the app's windows.
         try { ThemeManager.TrackElement(this); } catch { /* no Application in headless tests */ }
         ApplyPopupTheme();
         try { Configuration.UserPreferences.Changed += OnThemePrefsChanged; } catch { }
@@ -107,23 +101,20 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnThemePrefsChanged(object? sender, EventArgs e)
     {
-        // SetMode persists via UserPreferences.Save() → Changed. Re-apply on the UI thread.
         if (Dispatcher.CheckAccess()) ApplyPopupTheme();
         else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
     }
 
     private void OnThemeSystemChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
     {
-        // Only the General category carries the light/dark personalization flip, and only
-        // Auto follows the OS (Light/Dark forced modes ignore it — cheap idempotent re-run).
         if (e.Category != Microsoft.Win32.UserPreferenceCategory.General) return;
         if (Dispatcher.CheckAccess()) ApplyPopupTheme();
         else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
     }
 
-    /// <summary>Idempotently bring the Popup.* tokens + acrylic frost into sync with the
-    /// effective theme: merge PopupGlassTokens.Dark.xaml when dark (add only if absent),
-    /// remove it when light, and re-pick the acrylic tint. Never throws.</summary>
+    /// <summary>Idempotently bring the Popup.* tokens into sync with the effective theme: merge
+    /// PopupGlassTokens.Dark.xaml when dark (add only if absent), remove it when light. The
+    /// DynamicResource brush refs in the XAML re-resolve automatically. Never throws.</summary>
     private void ApplyPopupTheme()
     {
         bool dark;
@@ -143,7 +134,7 @@ public partial class PopupBarWindow : Window, IShellSurface
 
             if (dark)
             {
-                // Added LAST so it sits ABOVE the light PopupGlassTokens.xaml merged in XAML.
+                // Added LAST so it sits ABOVE the default PopupGlassTokens.xaml merged in XAML.
                 if (existing is null)
                     merged.Add(new ResourceDictionary { Source = new Uri(DarkPopupTokensUri, UriKind.Absolute) });
             }
@@ -152,17 +143,13 @@ public partial class PopupBarWindow : Window, IShellSurface
                 merged.Remove(existing);
             }
         }
-        catch { /* dictionary merge failed → leave on light default */ }
-
-        // Re-pick the blur-behind tint (no-op until the HWND exists; re-run from
-        // OnSourceInitialized once it does).
-        AcrylicGlass.EnableAcrylic(this, dark ? BarAcrylicTintDark : BarAcrylicTintLight);
+        catch { /* dictionary merge failed → leave on default */ }
     }
 
-    // ── #2/#6: magnetic expand/collapse — the chat panel slides in from the bar and the
-    //    settings flyout slides UP from the gear (decelerate-settle on open, quick ease-in on
-    //    close), instead of an instant pop. Reduced-motion snaps. Driven by the VM's open flags. ──
-    private const double PanelSlideOffset = 28.0;
+    // ── #2 reveal motion — chat/settings cards fade+slide in, subtly. A gentle ease-out (no
+    //    overshoot, no clip churn) keeps it understated for a motion-sickness tool; ReducedMotion
+    //    snaps. Driven by the VM's open flags. ──
+    private const double PanelSlideOffset = 18.0;
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -173,18 +160,10 @@ public partial class PopupBarWindow : Window, IShellSurface
             // itself is shown non-activating (ShowActivated=False) to avoid stealing focus.
             if (vm.IsChatOpen) Activate();
             AnimatePanel(ChatPanel, ChatXform, isX: true, open: vm.IsChatOpen, isOpenNow: () => vm.IsChatOpen);
-            UpdateClusterChrome();
         }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsSettingsOpen))
         {
             AnimatePanel(SettingsFlyout, SettingsXform, isX: false, open: vm.IsSettingsOpen, isOpenNow: () => vm.IsSettingsOpen);
-            UpdateClusterChrome();
-        }
-        else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded))
-        {
-            // Growing/shrinking the bar fires OnRootSizeChanged (SizeToContent) which re-clips,
-            // but nudge it too so the chrome is right even if the size is unchanged.
-            UpdateClusterChrome();
         }
     }
 
@@ -205,102 +184,27 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (open)
         {
             panel.Visibility = Visibility.Visible;
-            // Magnetic settle: decelerate with a slight pull-into-place (BackEase ease-out).
-            var slide = new DoubleAnimation(PanelSlideOffset, 0, new Duration(TimeSpan.FromMilliseconds(240)))
-            { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 } };
-            var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(190)))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-            // Re-clip once the slide settles to X=0 (the silhouette bounds move with the slide).
-            slide.Completed += (_, _) => UpdateClusterChrome();
-            xform.BeginAnimation(prop, slide);
-            panel.BeginAnimation(OpacityProperty, fade);
+            // Understated settle: a short ease-out glide + fade. No overshoot (BackEase read as
+            // "flashy"); transform/opacity only.
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            xform.BeginAnimation(prop, new DoubleAnimation(PanelSlideOffset, 0, new Duration(TimeSpan.FromMilliseconds(150))) { EasingFunction = ease });
+            panel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(130))) { EasingFunction = ease });
         }
         else
         {
-            // Retract faster (≈60% of enter), ease-in toward the trigger.
-            var slide = new DoubleAnimation(PanelSlideOffset, new Duration(TimeSpan.FromMilliseconds(150)))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-            var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(140)))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-            // Collapse only once fully closed AND still closed (interruptible: a re-open cancels it),
-            // then re-clip so the window silhouette drops the now-hidden panel.
-            fade.Completed += (_, _) => { if (!isOpenNow()) { panel.Visibility = Visibility.Collapsed; UpdateClusterChrome(); } };
-            xform.BeginAnimation(prop, slide);
+            // Retract faster (≈70% of enter), ease-in toward the trigger.
+            var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+            var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(100))) { EasingFunction = ease };
+            // Collapse only once fully closed AND still closed (interruptible: a re-open cancels it).
+            fade.Completed += (_, _) => { if (!isOpenNow()) panel.Visibility = Visibility.Collapsed; };
+            xform.BeginAnimation(prop, new DoubleAnimation(PanelSlideOffset, new Duration(TimeSpan.FromMilliseconds(110))) { EasingFunction = ease });
             panel.BeginAnimation(OpacityProperty, fade);
         }
-    }
-
-    private void OnSourceInitialized(object? sender, EventArgs e)
-    {
-        // UI-RESHAPE iter: the popup is now an ACTIVATABLE flyout (NoActivate removed) so the chat
-        // input is typable. ShellController calls Activate() on show; clicking any other window or
-        // the desktop fires Deactivated → the popup hides itself (close-on-click-away). Topmost +
-        // ShowInTaskbar=false keep it unobtrusive; acrylic provides the glass. TASK #6:
-        // pick the theme-matching tint now that the HWND exists (re-applied on theme flips
-        // via ApplyPopupTheme).
-        bool dark;
-        try { dark = ThemeManager.ShouldUseDark(); } catch { dark = false; }
-        AcrylicGlass.EnableAcrylic(this, dark ? BarAcrylicTintDark : BarAcrylicTintLight);
-    }
-
-    private const double ClusterRadius = 16.0; // matches Theme Radius.md
-
-    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e) => UpdateClusterChrome();
-
-    /// <summary>#2/#6: keep the bar↔panel cluster reading as ONE glass slab AND stop the acrylic
-    /// from frosting empty window area. Squares the bar's panel-facing corners while a panel is
-    /// docked, and clips the window to the union of the VISIBLE content rects — so the empty
-    /// region above a short, bottom-aligned settings flyout is no longer a floating frosted
-    /// rectangle (the "massive background" report), and the bar alone reads as a clean rounded
-    /// slab (no square acrylic peek).</summary>
-    private void UpdateClusterChrome()
-    {
-        if (!IsLoaded) return;
-        // Only the full-height CHAT panel fuses into the bar as one slab; the short settings
-        // flyout is a separate floating popover (small gap, fully rounded) so it never leaves a
-        // tall empty region to fuse around.
-        bool chatDocked = ChatPanel.Visibility == Visibility.Visible;
-
-        BarRoot.CornerRadius = chatDocked
-            ? new CornerRadius(0, ClusterRadius, ClusterRadius, 0)  // square the docked (left) edge
-            : new CornerRadius(ClusterRadius);
-
-        try
-        {
-            if (RootGrid.ActualWidth <= 0 || RootGrid.ActualHeight <= 0) return;
-
-            // Extend the bar's clip rect LEFTWARD by the radius when the chat is docked, so the
-            // bar's rounded left corners fall inside the panel overlap — the union then has no
-            // concave notch at the seam and reads as one continuous slab.
-            Rect bar = RectInRoot(BarRoot);
-            if (bar.IsEmpty) return;
-            if (chatDocked) bar = new Rect(bar.X - ClusterRadius, bar.Y, bar.Width + ClusterRadius, bar.Height);
-
-            Geometry clip = new RectangleGeometry(bar, ClusterRadius, ClusterRadius);
-            if (ChatPanel.Visibility == Visibility.Visible)      clip = Union(clip, RectInRoot(ChatPanel));
-            if (SettingsFlyout.Visibility == Visibility.Visible) clip = Union(clip, RectInRoot(SettingsFlyout));
-            clip.Freeze();
-            RootGrid.Clip = clip;
-        }
-        catch { /* layout not ready — keep the prior clip */ }
-    }
-
-    private static Geometry Union(Geometry acc, Rect r)
-    {
-        if (r.IsEmpty || r.Width <= 0 || r.Height <= 0) return acc;
-        return Geometry.Combine(acc, new RectangleGeometry(r, ClusterRadius, ClusterRadius),
-                                GeometryCombineMode.Union, null);
-    }
-
-    private Rect RectInRoot(FrameworkElement el)
-    {
-        if (el.ActualWidth <= 0 || el.ActualHeight <= 0) return Rect.Empty;
-        return el.TransformToAncestor(RootGrid).TransformBounds(new Rect(0, 0, el.ActualWidth, el.ActualHeight));
     }
 
     private void OnVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
     {
-        if (IsVisible) { _farTicks = 0; _autoClose.Start(); UpdateClusterChrome(); }
+        if (IsVisible) { _farTicks = 0; _autoClose.Start(); }
         else _autoClose.Stop();
     }
 
@@ -361,11 +265,48 @@ public partial class PopupBarWindow : Window, IShellSurface
         }
     }
 
+    // ── #3 vertical-only drag + persist ─────────────────────────────────────────
     private void OnBarMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
         if (IsInteractive(e.OriginalSource as DependencyObject)) return; // let buttons/inputs win
-        try { DragMove(); } catch { /* DragMove throws if not in a left-button-down context */ }
+        _dragStartTop = Top;
+        _dragStartCursorY = CursorYDip();
+        _dragging = true;
+        CaptureMouse();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!_dragging) return;
+        // Move on the Y axis ONLY — the bar stays pinned to the right edge.
+        double newTop = _dragStartTop + (CursorYDip() - _dragStartCursorY);
+        var work = SystemParameters.WorkArea;
+        Top = Math.Max(work.Top, Math.Min(work.Bottom - ActualHeight, newTop));
+    }
+
+    protected override void OnMouseUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.ChangedButton != MouseButton.Left || !_dragging) return;
+        _dragging = false;
+        ReleaseMouseCapture();
+        PersistTop();
+    }
+
+    private double CursorYDip()
+        => GetCursorPos(out POINT p) ? p.Y / VisualTreeHelper.GetDpi(this).DpiScaleY : Top;
+
+    /// <summary>Remember the dragged vertical position so the bar (and its reveal) returns here.</summary>
+    private void PersistTop()
+    {
+        try
+        {
+            Configuration.UserPreferences.Current.PopupBarTop = Top;
+            Configuration.UserPreferences.Current.Save();
+        }
+        catch { /* best-effort */ }
     }
 
     private static bool IsInteractive(DependencyObject? d)

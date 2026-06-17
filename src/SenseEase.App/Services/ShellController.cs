@@ -133,7 +133,18 @@ public sealed class ShellController : IShellController
         // needed for it); a few px of breathing room lets the Elev.3 glass shadow show.
         const double edgeGap = 4.0;
         _popup.Left = Math.Max(work.Left, work.Right - _popup.ActualWidth - edgeGap);
-        _popup.Top = Math.Max(work.Top, work.Top + (work.Height - _popup.ActualHeight) / 2.0);
+
+        // #3: honour the user's remembered vertical position (drag up/down); default = centred.
+        // Clamp so the (possibly taller, when expanded) window stays on the work area.
+        double centred = work.Top + (work.Height - _popup.ActualHeight) / 2.0;
+        double top = TryGetSavedBarTop() ?? centred;
+        _popup.Top = Math.Max(work.Top, Math.Min(work.Bottom - _popup.ActualHeight, top));
+    }
+
+    private static double? TryGetSavedBarTop()
+    {
+        try { return Configuration.UserPreferences.Current.PopupBarTop; }
+        catch { return null; }
     }
 
     private void OnVmStateChanged(object? sender, SenseState e)

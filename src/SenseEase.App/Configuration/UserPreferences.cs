@@ -239,6 +239,13 @@ public sealed class UserPreferences
     [JsonPropertyName("reveal_hotkey")]
     public string RevealHotkey { get; set; } = "Win+Alt+S";
 
+    /// <summary>UI-RESHAPE iter-4: the popup bar's remembered vertical position (dip — the top-left
+    /// Y of the bar window on its monitor's work area). Null = default (vertically centred). The bar
+    /// is locked to the right edge; the user can only drag it up/down, and it returns here on the
+    /// next reveal. Additive — old files default to null (centred).</summary>
+    [JsonPropertyName("popup_bar_top")]
+    public double? PopupBarTop { get; set; }
+
     /// <summary>CW-7 (UX-12 ≡ FEAT-15): persists the always-on overlay baseline
     /// intensity level (1–12, native scale) paired with
     /// <see cref="PersistentOverlayEnabled"/>. Default <c>1</c> = 0% alpha at rest

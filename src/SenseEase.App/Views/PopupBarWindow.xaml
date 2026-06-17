@@ -18,12 +18,11 @@
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
         RenderOptions.BitmapScalingMode="HighQuality">
-    <!-- UI-RESHAPE prep: the glass vertical function bar (col 1) with a slide-out AI
-         chat panel (col 0). Native WPF translation of senseease-vertical-v1.html using
-         the reference palette (PopupGlassTokens) over a Win11 acrylic window. NO XAML
-         storyboards in this skeleton (pulse + reveal are static) so it is smoke-clean
-         and free of un-gated motion; ReducedMotion-gated polish animations land in
-         code-behind later. DataContext = PopupBarViewModel. -->
+    <!-- UI-RESHAPE: a dense vertical function bar (col 1) + the chat / quick-settings as
+         separate floating rounded cards (col 0). NO window-wide acrylic — empty window area is
+         transparent so only the cards show (iter-4: acrylic frosted the whole rect, painting a
+         "massive" blank). Popup.* colour brushes are DynamicResource so Light↔Dark re-themes
+         live. DataContext = PopupBarViewModel. -->
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -38,19 +37,19 @@
             <conv:SegmentFillConverter            x:Key="SegFill"/>
             <BooleanToVisibilityConverter         x:Key="BoolToVis"/>
 
-            <!-- Round transparent glyph button on the bar -->
+            <!-- Round transparent glyph button on the bar (dense: 38 hit / 28 chip) -->
             <Style x:Key="BarIconBtn" TargetType="Button">
-                <Setter Property="Width" Value="44"/>
-                <Setter Property="Height" Value="44"/>
+                <Setter Property="Width" Value="38"/>
+                <Setter Property="Height" Value="38"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <!-- 44×44 hit area (touch-target floor); 34×34 visible chip centred. -->
+                            <!-- 38×38 hit area; 28×28 visible chip centred. -->
                             <Border Background="Transparent">
-                                <Border x:Name="bd" Width="34" Height="34" CornerRadius="17"
+                                <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
                                         Background="{TemplateBinding Background}"
                                         HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -58,10 +57,10 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.BtnHover}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnHover}"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.BtnPress}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnPress}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -69,19 +68,19 @@
                 </Setter>
             </Style>
 
-            <!-- Filled blue primary (play/pause) -->
+            <!-- Filled blue primary (play/pause) — dense: 38 hit / 32 circle -->
             <Style x:Key="BarPrimaryBtn" TargetType="Button">
-                <Setter Property="Width" Value="44"/>
-                <Setter Property="Height" Value="44"/>
-                <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                <Setter Property="Width" Value="38"/>
+                <Setter Property="Height" Value="38"/>
+                <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <!-- 44×44 hit area; 38×38 visible filled circle centred. -->
+                            <!-- 38×38 hit area; 32×32 visible filled circle centred. -->
                             <Border Background="Transparent">
-                                <Border x:Name="bd" Width="38" Height="38" CornerRadius="19"
+                                <Border x:Name="bd" Width="32" Height="32" CornerRadius="16"
                                         Background="{TemplateBinding Background}"
                                         HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -89,7 +88,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.BlueHover}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -97,25 +96,25 @@
                 </Setter>
             </Style>
 
-            <!-- Calm pill button used on the light panels (chat options, undo, full-settings, send) -->
+            <!-- Calm pill button used on the cards (chat options, undo, full-settings, send) -->
             <Style x:Key="PanelBtn" TargetType="Button">
-                <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
                 <Setter Property="Foreground" Value="White"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Padding" Value="12,6"/>
-                <Setter Property="MinHeight" Value="32"/>
+                <Setter Property="MinHeight" Value="30"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="16"
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="14"
                                     Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.BlueHover}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -123,49 +122,48 @@
                 </Setter>
             </Style>
 
-            <!-- Ghost pill for secondary panel actions (undo / followup options) -->
+            <!-- Ghost pill for secondary card actions (undo / followup options) -->
             <Style x:Key="GhostPanelBtn" TargetType="Button" BasedOn="{StaticResource PanelBtn}">
                 <Setter Property="Background" Value="#1A024AD8"/>
-                <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
+    <Grid x:Name="RootGrid">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ═══ Col 0 — AI chat panel (toggled) ═══ -->
-        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Margin="0"
+        <!-- ═══ Col 0 — AI chat card (toggled, floats left of the bar, hugs its content) ═══ -->
+        <Border x:Name="ChatPanel" Grid.Column="0" Width="264" Margin="0,0,8,0"
+                VerticalAlignment="Center"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,0.5"
-                Background="{StaticResource Popup.PanelBg}"
-                BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1,1,0,1"
-                CornerRadius="16,0,0,16"
+                Background="{DynamicResource Popup.PanelBg}"
+                BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
+                CornerRadius="{StaticResource Radius.md}"
                 Effect="{StaticResource Elev.3}">
-            <Border.RenderTransform><TranslateTransform x:Name="ChatXform" X="28"/></Border.RenderTransform>
+            <Border.RenderTransform><TranslateTransform x:Name="ChatXform" X="18"/></Border.RenderTransform>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="320"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- header -->
-                <StackPanel Orientation="Horizontal" Margin="14,12,14,8">
-                    <TextBlock Text="SenseEase AI" VerticalAlignment="Center"
-                               FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Popup.Ink1}"/>
-                </StackPanel>
+                <TextBlock Text="SenseEase AI" Margin="14,11,14,6"
+                           FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
 
-                <!-- messages -->
-                <ScrollViewer Grid.Row="1" Margin="8,0" VerticalScrollBarVisibility="Auto"
+                <!-- messages — sizes to content up to a cap (no fixed-height blank) -->
+                <ScrollViewer Grid.Row="1" Margin="8,0" MaxHeight="300" VerticalScrollBarVisibility="Auto"
                               Style="{DynamicResource AutoHideScroll}">
                     <ItemsControl ItemsSource="{Binding Chat.Messages}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="6,4">
-                                    <Border CornerRadius="12" Padding="9,7" MaxWidth="244">
+                                <StackPanel Margin="6,3">
+                                    <Border CornerRadius="11" Padding="9,7" MaxWidth="212">
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -173,7 +171,7 @@
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsUser}" Value="True">
                                                         <Setter Property="HorizontalAlignment" Value="Right"/>
-                                                        <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                                                        <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -188,7 +186,7 @@
                                                      TextWrapping="Wrap" FontSize="13">
                                                 <TextBox.Style>
                                                     <Style TargetType="TextBox">
-                                                        <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
+                                                        <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IsUser}" Value="True">
                                                                 <Setter Property="Foreground" Value="White"/>
@@ -200,7 +198,7 @@
                                             <!-- Static "thinking" indicator while generating — no animation
                                                  (reduced-motion-safe by default for a motion-sickness app). -->
                                             <TextBlock Visibility="{Binding TypingVisibility}"
-                                                       Text="• • •" FontSize="15" Foreground="{StaticResource Popup.Ink2}"/>
+                                                       Text="• • •" FontSize="15" Foreground="{DynamicResource Popup.Ink2}"/>
                                         </Grid>
                                     </Border>
 
@@ -218,7 +216,7 @@
                                                         Command="{Binding DataContext.SelectFollowupCommand,
                                                                           RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
                                                         CommandParameter="{Binding}"
-                                                        Style="{StaticResource GhostPanelBtn}" Margin="0,0,6,6" MinHeight="36"/>
+                                                        Style="{StaticResource GhostPanelBtn}" Margin="0,0,6,6" MinHeight="34"/>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -229,14 +227,14 @@
                 </ScrollViewer>
 
                 <!-- input row -->
-                <Grid Grid.Row="2" Margin="12,8,12,12">
+                <Grid Grid.Row="2" Margin="10,8,10,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox Grid.Column="0" x:Name="ChatInput" VerticalContentAlignment="Center" Padding="8,6" FontSize="13"
                              Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
-                             Foreground="{StaticResource Popup.Ink1}"
+                             Foreground="{DynamicResource Popup.Ink1}"
                              IsVisibleChanged="OnChatInputVisibleChanged" KeyDown="OnChatInputKeyDown"
                              AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
                     <Button Grid.Column="1" Margin="6,0,0,0"
@@ -254,7 +252,7 @@
                                 </Style.Triggers>
                             </Style>
                         </Button.Style>
-                        <Path Width="14" Height="14" Stretch="Uniform" Fill="White">
+                        <Path Width="13" Height="13" Stretch="Uniform" Fill="White">
                             <Path.Style>
                                 <Style TargetType="Path">
                                     <Setter Property="Data" Value="{StaticResource Icon.Send}"/>
@@ -271,26 +269,27 @@
             </Grid>
         </Border>
 
-        <!-- settings flyout — in-window overlay (NOT a WPF Popup: a Popup hooks Application.Exit
-             and mis-places over a topmost no-activate transparent window). Sits in col 0, left of the bar. -->
-        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="208" Margin="0,0,8,14"
+        <!-- quick-settings card — a small individual card (NOT the chat's template), floats at the
+             lower-left near the gear. In-window overlay, NOT a WPF Popup (a Popup hooks
+             Application.Exit + mis-places over a topmost no-activate transparent window). -->
+        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="192" Margin="0,0,8,12"
                 VerticalAlignment="Bottom" HorizontalAlignment="Right" Panel.ZIndex="10"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,1"
-                Background="{StaticResource Popup.BarBg}" BorderBrush="{StaticResource Popup.Bdr}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="12,12,12,12"
+                Background="{DynamicResource Popup.PanelBg}" BorderBrush="{DynamicResource Popup.Bdr}"
+                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="11,11,11,11"
                 Effect="{StaticResource Elev.3}">
-            <Border.RenderTransform><TranslateTransform x:Name="SettingsXform" Y="28"/></Border.RenderTransform>
+            <Border.RenderTransform><TranslateTransform x:Name="SettingsXform" Y="18"/></Border.RenderTransform>
             <StackPanel>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
-                          Foreground="{StaticResource Popup.Ink1}" Margin="0,2"
+                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
                           Content="{loc:T Zh='錨點格線', En='Anchor grid'}"/>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding GradedExposureOn}"
-                          Foreground="{StaticResource Popup.Ink1}" Margin="0,2"
+                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
                           Content="{loc:T Zh='漸進適應', En='Graded exposure'}"/>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding PersistentMaskOn}"
-                          Foreground="{StaticResource Popup.Ink1}" Margin="0,2"
+                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
                           Content="{loc:T Zh='常駐遮罩', En='Persistent mask'}"/>
-                <Border Height="1" Background="{StaticResource Popup.Ink3}" Margin="0,10,0,8" Opacity="0.4"/>
+                <Border Height="1" Background="{DynamicResource Popup.Ink3}" Margin="0,9,0,7" Opacity="0.4"/>
                 <Button Content="{loc:T Zh='完整設定頁面', En='Full settings'}" Style="{StaticResource PanelBtn}"
                         HorizontalAlignment="Stretch" Command="{Binding OpenFullSettingsCommand}"
                         AutomationProperties.Name="{loc:T Zh='開啟完整設定頁面', En='Open full settings'}"/>
@@ -298,13 +297,14 @@
         </Border>
 
         <!-- ═══ Col 1 — the bar ═══ -->
-        <!-- Two-stage reveal (iter 3): the bar reveals CONDENSED — status · power · chat ·
-             expand-chevron. The chevron grows it to FULL, adding the ±strength meter, the
-             quick-settings gear, and the pin. IsExpanded-bound blocks carry their OWN leading
-             divider so no orphan dividers appear when collapsed. -->
-        <Border x:Name="BarRoot" Grid.Column="1" Width="56" Padding="0,12"
-                Background="{StaticResource Popup.BarBg}"
-                BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
+        <!-- Two-stage reveal: the bar reveals CONDENSED — status · power · chat · expand-chevron.
+             The chevron grows it to FULL, adding the ±strength meter, the quick-settings gear, and
+             the pin. IsExpanded-bound blocks carry their OWN leading divider so no orphan dividers
+             appear when collapsed. -->
+        <Border x:Name="BarRoot" Grid.Column="1" Width="48" Padding="0,8"
+                VerticalAlignment="Center"
+                Background="{DynamicResource Popup.BarBg}"
+                BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
                 Effect="{StaticResource Elev.3}"
                 MouseLeftButtonDown="OnBarMouseDown">
@@ -313,18 +313,18 @@
                 <!-- pulse status (colour + dot + word) — CONDENSED + FULL -->
                 <StackPanel HorizontalAlignment="Center"
                             AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource StatusWord}}">
-                    <!-- Screen-motion status — a clean solid dot (no checkmark/glyph, no halo).
+                    <!-- Screen-motion status — a clean solid dot (no glyph, no halo).
                          The 低/中/高 word below keeps it dual-coded for accessibility. -->
-                    <Grid Width="26" Height="26" HorizontalAlignment="Center">
-                        <Ellipse Width="16" Height="16"
+                    <Grid Width="20" Height="20" HorizontalAlignment="Center">
+                        <Ellipse Width="13" Height="13"
                                  Fill="{Binding VimsTier, Converter={StaticResource StatusBrush}}"/>
                     </Grid>
-                    <TextBlock Margin="0,3,0,0" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{StaticResource Popup.OnBar}"
+                    <TextBlock Margin="0,2,0,0" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Popup.OnBar}"
                                Text="{Binding VimsTier, Converter={StaticResource StatusWord}}"/>
                 </StackPanel>
 
-                <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
+                <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- on/off switch — a power symbol; BRIGHT blue when running, muted GREY "off" when
                      paused (reads as a switch position, not a disabled/dimmed control). CONDENSED + FULL -->
@@ -340,7 +340,7 @@
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
-                    <Path Data="{StaticResource Icon.Power}" Width="16" Height="16" Stretch="Uniform"
+                    <Path Data="{StaticResource Icon.Power}" Width="15" Height="15" Stretch="Uniform"
                           Stroke="White" StrokeThickness="2"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                 </Button>
@@ -349,47 +349,47 @@
                      leading divider so nothing is orphaned when condensed). -->
                 <StackPanel HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
-                    <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
+                    <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Button Style="{StaticResource BarIconBtn}" Command="{Binding StrongerCommand}"
                             ToolTip="{loc:T Zh='加強保護（提高遮罩強度）', En='Stronger protection'}"
                             AutomationProperties.Name="{loc:T Zh='加強保護', En='Stronger protection'}">
-                        <Path Data="{StaticResource Icon.Plus}" Fill="{StaticResource Popup.OnBar}" Width="14" Height="14" Stretch="Uniform"/>
+                        <Path Data="{StaticResource Icon.Plus}" Fill="{DynamicResource Popup.OnBar}" Width="13" Height="13" Stretch="Uniform"/>
                     </Button>
-                    <ItemsControl ItemsSource="{Binding Segments}" Margin="0,5" HorizontalAlignment="Center"
+                    <ItemsControl ItemsSource="{Binding Segments}" Margin="0,4" HorizontalAlignment="Center"
                                   AutomationProperties.Name="{Binding LevelText}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="24" Height="5" Margin="0,1" CornerRadius="2.5"
+                                <Border Width="20" Height="4" Margin="0,1" CornerRadius="2"
                                         Background="{Binding Converter={StaticResource SegFill}}"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <TextBlock Text="{Binding LevelText}" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{StaticResource Popup.OnBar}"/>
+                               Foreground="{DynamicResource Popup.OnBar}"/>
                     <Button Style="{StaticResource BarIconBtn}" Command="{Binding GentlerCommand}"
                             ToolTip="{loc:T Zh='減弱保護（降低遮罩強度）', En='Gentler protection'}"
                             AutomationProperties.Name="{loc:T Zh='減弱保護', En='Gentler protection'}">
-                        <Path Data="{StaticResource Icon.Minus}" Fill="{StaticResource Popup.OnBar}" Width="14" Height="14" Stretch="Uniform"/>
+                        <Path Data="{StaticResource Icon.Minus}" Fill="{DynamicResource Popup.OnBar}" Width="13" Height="13" Stretch="Uniform"/>
                     </Button>
                 </StackPanel>
 
-                <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
+                <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- chat — CONDENSED + FULL -->
                 <Button Style="{StaticResource BarIconBtn}" Command="{Binding ToggleChatCommand}"
                         ToolTip="{loc:T Zh='與 SenseEase AI 對話', En='Chat with SenseEase AI'}"
                         AutomationProperties.Name="{loc:T Zh='開啟對話', En='Open chat'}">
-                    <Path Data="{StaticResource Icon.Chat}" Fill="{StaticResource Popup.OnBar}" Width="16" Height="16" Stretch="Uniform"/>
+                    <Path Data="{StaticResource Icon.Chat}" Fill="{DynamicResource Popup.OnBar}" Width="15" Height="15" Stretch="Uniform"/>
                 </Button>
 
                 <!-- FULL only: quick-settings gear + pin. The gear's dropdown is the in-window
-                     SettingsFlyout (NOT a WPF Popup). Pin lights up blue while active. -->
+                     SettingsFlyout card. Pin lights up blue while active. -->
                 <StackPanel HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                     <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
                             ToolTip="{loc:T Zh='快速設定', En='Quick settings'}"
                             AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}">
-                        <Path Data="{StaticResource Icon.Settings}" Fill="{StaticResource Popup.OnBar}" Width="16" Height="16" Stretch="Uniform"/>
+                        <Path Data="{StaticResource Icon.Settings}" Fill="{DynamicResource Popup.OnBar}" Width="15" Height="15" Stretch="Uniform"/>
                     </Button>
                     <Button Command="{Binding TogglePinCommand}"
                             ToolTip="{loc:T Zh='釘選工具列（保持顯示）', En='Pin the bar (keep open)'}"
@@ -398,16 +398,16 @@
                             <Style TargetType="Button" BasedOn="{StaticResource BarIconBtn}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                        <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                                        <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Button.Style>
-                        <Path Data="{StaticResource Icon.Pin}" Fill="{StaticResource Popup.OnBar}" Width="15" Height="15" Stretch="Uniform"/>
+                        <Path Data="{StaticResource Icon.Pin}" Fill="{DynamicResource Popup.OnBar}" Width="14" Height="14" Stretch="Uniform"/>
                     </Button>
                 </StackPanel>
 
-                <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
+                <Border Height="1" Width="22" Margin="0,7" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- expand / collapse chevron — hidden while pinned (a pinned bar can't be
                      collapsed; the pin toggle in the FULL set is then always reachable to un-pin) -->
@@ -423,7 +423,7 @@
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
-                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{StaticResource Popup.OnBar}" StrokeThickness="2"
+                    <Path Width="14" Height="14" Stretch="Uniform" Stroke="{DynamicResource Popup.OnBar}" StrokeThickness="2"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
                         <Path.Style>
                             <Style TargetType="Path">

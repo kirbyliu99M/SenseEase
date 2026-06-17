@@ -35,7 +35,7 @@
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FontSize" Value="16"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
                 <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -45,11 +45,11 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.Blue}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.Blue}"/>
                                     <Setter Property="Foreground" Value="White"/>
                                 </Trigger>
                                 <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.Blue}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.Blue}"/>
                                     <Setter Property="Foreground" Value="White"/>
                                 </DataTrigger>
                             </ControlTemplate.Triggers>
@@ -59,7 +59,7 @@
             </Style>
 
             <Style x:Key="NpsPrimaryBtn" TargetType="Button">
-                <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
                 <Setter Property="Foreground" Value="White"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Padding" Value="14,7"/>
@@ -74,7 +74,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Popup.BlueHover}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.4"/>
@@ -91,7 +91,7 @@
                  its contrast in both themes. -->
             <Style x:Key="NpsGhostBtn" TargetType="Button">
                 <Setter Property="Background" Value="#1FFFFFFF"/>
-                <Setter Property="Foreground" Value="{StaticResource Popup.Ink1}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Padding" Value="14,7"/>
                 <Setter Property="FontSize" Value="13"/>
@@ -115,12 +115,12 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Border Width="320" Background="{StaticResource Popup.PanelBg}"
-            BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
+    <Border Width="320" Background="{DynamicResource Popup.PanelBg}"
+            BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
             CornerRadius="{StaticResource Radius.md}" Padding="18">
         <StackPanel>
             <TextBlock Text="{Binding Prompt}" TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold"
-                       Foreground="{StaticResource Popup.Ink1}"/>
+                       Foreground="{DynamicResource Popup.Ink1}"/>
 
             <ItemsControl ItemsSource="{Binding Scores}" Margin="0,14,0,0" HorizontalAlignment="Center"
                           AutomationProperties.Name="{loc:T Zh='1 到 5 分', En='Score from 1 to 5'}">
@@ -147,16 +147,16 @@
             <!-- scale anchors so 1↔5 direction is unambiguous -->
             <Grid Margin="6,6,6,0">
                 <TextBlock Text="{Binding ScaleLowLabel}"  HorizontalAlignment="Left"
-                           FontSize="11" Foreground="{StaticResource Popup.Ink3}"/>
+                           FontSize="11" Foreground="{DynamicResource Popup.Ink3}"/>
                 <TextBlock Text="{Binding ScaleHighLabel}" HorizontalAlignment="Right"
-                           FontSize="11" Foreground="{StaticResource Popup.Ink3}"/>
+                           FontSize="11" Foreground="{DynamicResource Popup.Ink3}"/>
             </Grid>
 
             <TextBlock Text="{Binding CommentLabel}" Margin="2,14,0,4" FontSize="12"
-                       Foreground="{StaticResource Popup.Ink2}"/>
+                       Foreground="{DynamicResource Popup.Ink2}"/>
             <TextBox Padding="8,6" FontSize="13"
                      Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
-                     Foreground="{StaticResource Popup.Ink1}"
+                     Foreground="{DynamicResource Popup.Ink1}"
                      AutomationProperties.Name="{Binding CommentLabel}"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">

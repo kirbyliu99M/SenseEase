@@ -32,10 +32,10 @@
     <SolidColorBrush x:Key="Popup.Mid"  Color="#FFFBBF24"/>
     <SolidColorBrush x:Key="Popup.High" Color="#FFF87171"/>
 
-    <!-- Glass fills. Slate glass: BarBg ~70% over the desktop blur, PanelBg ~82% so the
-         chat/dropdown text sits on a near-opaque slate. -->
-    <SolidColorBrush x:Key="Popup.BarBg"   Color="#B3232A36"/>
-    <SolidColorBrush x:Key="Popup.PanelBg" Color="#D11D232E"/>
+    <!-- Card fills (no window-wide acrylic blur now — iter-4 — so the alpha is bumped up for
+         readability over the desktop): BarBg ~90%, PanelBg ~95%. Slate. -->
+    <SolidColorBrush x:Key="Popup.BarBg"   Color="#E6232A36"/>
+    <SolidColorBrush x:Key="Popup.PanelBg" Color="#F21D232E"/>
     <!-- Soft light rim on the dark glass. -->
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#26FFFFFF"/>
 
