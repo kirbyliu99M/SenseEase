@@ -923,156 +923,25 @@ public sealed class MistralChatbotService : IChatbotService
             string intent = NormalizeIntent(d.Intent);
             if (intent is not ("ReportDiscomfort" or "ReportComfort" or "ResetRequest"
                 or "AnalyzeRequest" or "FollowupRequest" or "Unknown"))
-                return false;
+                return false; // parse-failure signal → caller routes to BuildFallbackResult
 
-            int severity = Math.Clamp(d.Severity, 1, 5);
-
-            // Belt-and-suspenders: if lexicon detects reset cue, upgrade intent.
-            var (_, _, _, reset) = FeedbackLexicon.ClassifyShaderHints(userText);
-            if (reset && intent != "ResetRequest") intent = "ResetRequest";
-
-            // FollowupRequest veto: if the user already named a specific symptom
-            // (headache / dizzy / nausea / eye strain), asking "which symptom?"
-            // is the wrong move. Promote to ReportDiscomfort so the actuator
-            // path applies deltas; suppress the card payload so the UI doesn't
-            // show option chips on top of an actionable input. Keep the model's
-            // reply text — it usually still reads sensibly once stripped of the
-            // "which one?" framing because the model already saw the symptom.
-            if (intent == "FollowupRequest"
-                && FeedbackLexicon.MentionsSpecificSymptom(userText))
-            {
-                intent = "ReportDiscomfort";
-                d.FollowupQuestion = null;
-                d.FollowupOptions = null;
-            }
-            // Inverse of the promote: a discomfort report that names NO specific symptom is the
-            // card-policy "discomfort + unnamed symptom" case — ASK which sensation instead of actuating
-            // on a guess. Tester: "I don't know, but I feel weird with my eyes" silently cut the FOV. The
-            // lexicon fallback already does this via TryBuildFollowup Case 2; mirror it on the model path
-            // so a model that classifies vague unease as ReportDiscomfort is corrected before any delta.
-            else if (intent == "ReportDiscomfort"
-                && !FeedbackLexicon.MentionsSpecificSymptom(userText))
-            {
-                var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "ReportDiscomfort", severity);
-                if (clarifyQ is not null)
-                {
-                    intent = "FollowupRequest";
-                    d.FollowupQuestion = clarifyQ;
-                    d.FollowupOptions = clarifyOpts;
-                    d.Reply = clarifyQ; // the model's "I've adjusted…" reply no longer applies — ask, don't claim
-                }
-            }
-
-            // Round-3 (Kirby item 5): feather is NOT part of the chatbot's adjustment
-            // vocabulary anymore. The chatbot LLM path NEVER applies a feather delta —
-            // any stray feather_width_delta the model emits is ignored (fw stays 0). The
-            // /feather slash command, the engine knob and the A2 renderer wiring are
-            // unaffected (those don't go through this NLU path).
-            const double fw = 0.0;
-
-            // AnalyzeRequest / FollowupRequest are non-actuating — never derive deltas.
-            int fov; double md, gv;
-            if (intent == "AnalyzeRequest" || intent == "FollowupRequest")
-            {
-                fov = 0; md = 0; gv = 0;
-            }
-            else
-            {
-                // Personalized path: when the model emitted explicit deltas, trust
-                // them (clamped to safe ranges); otherwise fall back to the lexicon's
-                // severity-bucket defaults. Any one ACTUATING field being non-null counts
-                // as "model engaged", at which point we apply ALL model values (missing
-                // ones implicitly 0) — mixing model+lexicon per-field would produce
-                // incoherent combinations. (feather_width_delta is intentionally NOT a
-                // "model engaged" signal — it is ignored entirely.)
-                bool modelProvidedDeltas = d.FovDelta.HasValue
-                    || d.MaskDepthDelta.HasValue
-                    || d.GridVisibilityDelta.HasValue;
-
-                // v0.9.1 hotfix: belt-and-suspenders for the Phase 6d prompt
-                // regression. Mistral 3B, when the [habituation_state] block
-                // is present, began emitting intent=ReportDiscomfort with ALL
-                // FOUR deltas explicitly set to 0 — i.e. "engaged" per the
-                // check above but the values are all zero so nothing actuates.
-                // Treat that as model-didn't-engage and fall back to the
-                // lexicon's severity-bucket defaults. The conditions are
-                // narrow (only ReportDiscomfort, only when ALL four are
-                // exactly 0, only when severity ≥ 2) so legitimate
-                // "tiny nudge" responses where the model deliberately
-                // chooses zeros aren't accidentally amplified.
-                bool reportedDiscomfortWithAllZeros =
-                    intent == "ReportDiscomfort"
-                    && severity >= 2
-                    && modelProvidedDeltas
-                    && (d.FovDelta            ?? 0) == 0
-                    && (d.MaskDepthDelta      ?? 0) == 0.0
-                    && (d.GridVisibilityDelta ?? 0) == 0.0;
-
-                if (modelProvidedDeltas && !reportedDiscomfortWithAllZeros)
-                {
-                    fov = Math.Clamp(d.FovDelta ?? 0,            -30, 0);
-                    md  = Math.Clamp(d.MaskDepthDelta ?? 0,      -0.3, 0.3);
-                    gv  = Math.Clamp(d.GridVisibilityDelta ?? 0, -0.3, 0.3);
-                    // fw intentionally NOT set from the model — feather is dropped.
-                }
-                else
-                {
-                    // DeriveAdjustments already returns feather=0 (chatbot vocabulary
-                    // dropped it), so discard its 4th component.
-                    (fov, md, gv, _) = FeedbackLexicon.DeriveAdjustments(intent, severity, userText);
-                }
-            }
-
-            string response = (d.Reply ?? string.Empty).Trim();
-            if (response.Length == 0)
-                response = FeedbackLexicon.BuildFallbackResponse(userText, intent);
-
-            // Sanitize followup payload: trust the model only if it gave both a
-            // question AND 2-4 short options when intent is FollowupRequest.
-            // If the model claimed FollowupRequest but failed to populate options,
-            // fall back to the lexicon-built picker so the UI never sees a stuck
-            // "no options, no progress" state.
-            string? followupQ = null;
-            string[]? followupOpts = null;
-            if (intent == "FollowupRequest")
-            {
-                if (!string.IsNullOrWhiteSpace(d.FollowupQuestion) &&
-                    d.FollowupOptions is { Length: >= 2 and <= 4 })
-                {
-                    followupQ = d.FollowupQuestion!.Trim();
-                    followupOpts = Array.ConvertAll(d.FollowupOptions,
-                        o => (o ?? string.Empty).Trim());
-                }
-                else
-                {
-                    var (q, opts) = FeedbackLexicon.TryBuildFollowup(userText, intent, severity);
-                    if (q is null)
-                    {
-                        // Model claimed FollowupRequest on input the lexicon can't
-                        // justify clarifying — downgrade to Unknown rather than ship a
-                        // broken card. Keeps the visible reply but drops the picker.
-                        intent = "Unknown";
-                    }
-                    else
-                    {
-                        followupQ = q;
-                        followupOpts = opts;
-                        if (string.IsNullOrWhiteSpace(response)) response = q;
-                    }
-                }
-            }
-
-            result = new NluResult
-            {
-                Intent = intent,
-                FovDelta = fov,
-                MaskDepthDelta = md,
-                GridVisibilityDelta = gv,
-                FeatherWidthDelta = fw,
-                Response = response,
-                FollowupQuestion = followupQ,
-                FollowupOptions = followupOpts,
-            };
+            // The model proposed; the single NluComplianceGate disposes. Every
+            // deterministic compliance rule (reset-upgrade, promote/demote, non-actuating
+            // zeroing, the model-engaged + all-zeros delta policy, the clamps, the reply
+            // fallback, the followup sanitize/downgrade) now lives in ONE pure place the
+            // lexicon fallback also passes through. The actuating deltas are carried as
+            // NULLABLE so the gate keeps the "model omitted vs model set 0" distinction.
+            result = NluComplianceGate.Check(
+                new NluComplianceGate.RawNluDecision(
+                    Intent: intent,
+                    Severity: d.Severity,
+                    Reply: d.Reply,
+                    FovDelta: d.FovDelta,
+                    MaskDepthDelta: d.MaskDepthDelta,
+                    GridVisibilityDelta: d.GridVisibilityDelta,
+                    FollowupQuestion: d.FollowupQuestion,
+                    FollowupOptions: d.FollowupOptions),
+                userText);
             return true;
         }
         catch
