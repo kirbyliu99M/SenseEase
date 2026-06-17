@@ -33,6 +33,7 @@
 
             <conv:TierToPopupStatusBrushConverter x:Key="StatusBrush"/>
             <conv:TierToPopupStatusWordConverter  x:Key="StatusWord"/>
+            <conv:TierToPopupStatusWordMultiConverter x:Key="StatusWordML"/>
             <conv:TierToPopupStatusGlyphConverter x:Key="StatusGlyph"/>
             <conv:SegmentFillConverter            x:Key="SegFill"/>
             <BooleanToVisibilityConverter         x:Key="BoolToVis"/>
@@ -139,14 +140,14 @@
         </Grid.ColumnDefinitions>
 
         <!-- ═══ Col 0 — AI chat card (toggled, floats left of the bar, hugs its content) ═══ -->
-        <Border x:Name="ChatPanel" Grid.Column="0" Width="264" Margin="0,0,8,0"
+        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Margin="0,0,8,0"
                 VerticalAlignment="Center"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,0.5"
                 Background="{DynamicResource Popup.PanelBg}"
                 BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
                 Effect="{StaticResource Elev.3}">
-            <Border.RenderTransform><TranslateTransform x:Name="ChatXform" X="18"/></Border.RenderTransform>
+            <Border.RenderTransform><ScaleTransform x:Name="ChatScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -155,18 +156,18 @@
                 </Grid.RowDefinitions>
 
                 <!-- header -->
-                <TextBlock Text="SenseEase AI" Margin="14,11,14,6"
-                           FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
+                <TextBlock Text="SenseEase AI" Margin="16,13,16,8"
+                           FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
 
                 <!-- messages — sizes to content up to a cap (no fixed-height blank) -->
-                <ScrollViewer Grid.Row="1" Margin="8,0" MaxHeight="300" VerticalScrollBarVisibility="Auto"
+                <ScrollViewer Grid.Row="1" Margin="10,0" MaxHeight="340" VerticalScrollBarVisibility="Auto"
                               PanningMode="VerticalOnly"
                               Style="{DynamicResource AutoHideScroll}">
                     <ItemsControl ItemsSource="{Binding Chat.Messages}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="6,3">
-                                    <Border CornerRadius="11" Padding="9,7" MaxWidth="212">
+                                <StackPanel Margin="6,4">
+                                    <Border CornerRadius="12" Padding="10,8" MaxWidth="246">
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -230,7 +231,7 @@
                 </ScrollViewer>
 
                 <!-- input row -->
-                <Grid Grid.Row="2" Margin="10,8,10,10">
+                <Grid Grid.Row="2" Margin="12,10,12,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -283,7 +284,7 @@
                 Background="{DynamicResource Popup.BarBg}" BorderBrush="{DynamicResource Popup.Bdr}"
                 BorderThickness="1" CornerRadius="{StaticResource Radius.sm}" Padding="11,11,11,11"
                 Effect="{StaticResource Elev.3}">
-            <Border.RenderTransform><TranslateTransform x:Name="SettingsXform" Y="18"/></Border.RenderTransform>
+            <Border.RenderTransform><ScaleTransform x:Name="SettingsScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <StackPanel>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
                           Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
@@ -315,22 +316,35 @@
                 RenderTransformOrigin="1,0.5"
                 MouseLeftButtonDown="OnBarMouseDown">
             <!-- SizeNS cursor over the bar background hints the vertical-only drag (buttons override
-                 to Hand). BarXform drives the gentle slide-in-from-edge reveal (code-behind). -->
-            <Border.RenderTransform><TranslateTransform x:Name="BarXform"/></Border.RenderTransform>
+                 to Hand). BarScale drives the unified fade+scale reveal (code-behind, deferred to settle). -->
+            <Border.RenderTransform><ScaleTransform x:Name="BarScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <StackPanel HorizontalAlignment="Center">
 
                 <!-- pulse status (colour + dot + word) — CONDENSED + FULL -->
-                <StackPanel HorizontalAlignment="Center"
-                            AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource StatusWord}}">
+                <StackPanel HorizontalAlignment="Center">
+                    <AutomationProperties.Name>
+                        <MultiBinding Converter="{StaticResource StatusWordML}">
+                            <Binding Path="VimsTier"/>
+                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                        </MultiBinding>
+                    </AutomationProperties.Name>
                     <!-- Screen-motion status — a clean solid dot (no glyph, no halo).
                          The 低/中/高 word below keeps it dual-coded for accessibility. -->
                     <Grid Width="20" Height="20" HorizontalAlignment="Center">
                         <Ellipse Width="13" Height="13"
                                  Fill="{Binding VimsTier, Converter={StaticResource StatusBrush}}"/>
                     </Grid>
+                    <!-- The word re-picks on a language flip via the MultiBinding's Language value
+                         (a plain VimsTier binding stayed stale — "低" in English). -->
                     <TextBlock Margin="0,2,0,0" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Popup.OnBar}"
-                               Text="{Binding VimsTier, Converter={StaticResource StatusWord}}"/>
+                               Foreground="{DynamicResource Popup.OnBar}">
+                        <TextBlock.Text>
+                            <MultiBinding Converter="{StaticResource StatusWordML}">
+                                <Binding Path="VimsTier"/>
+                                <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
                 </StackPanel>
 
                 <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>

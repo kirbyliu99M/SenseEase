@@ -661,6 +661,15 @@ public partial class App : Application
         }
     }
 
+    /// <summary>Reveal the new edge/popup panel — the tray single-click entry point (replaces the
+    /// legacy notification card). Idempotent (a no-op if already shown); marshals to the UI thread
+    /// because it creates/shows the popup window.</summary>
+    internal void RevealShellPanel()
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(RevealShellPanel)); return; }
+        _shell?.RevealPopup();
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         SafeShutdownActivityFilter();

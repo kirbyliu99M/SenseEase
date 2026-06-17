@@ -35,6 +35,9 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
 
     /// <summary>Distance from the window rect (dip) inside which the handle reveals.</summary>
     public double HoverProximityDip { get; set; } = 140.0;
+    /// <summary>Hysteresis: once revealed, the handle only re-hides past this LARGER distance, so a
+    /// cursor sitting right at the enter threshold can't flip-flop the reveal animation (the tremble).</summary>
+    public double HoverExitDip { get; set; } = 172.0;
     /// <summary>Resting horizontal scale of the trapezoid (tucked toward the edge).</summary>
     public double RestScaleX { get; set; } = 0.55;
     /// <summary>Resting opacity — discreet but findable (a touch user can't hover to discover it,
@@ -207,7 +210,9 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         }
         else if (dist > 4.0) _revealFired = false;
 
-        bool nowHovered = dist <= HoverProximityDip;
+        // Hysteresis: enter at HoverProximityDip, only exit past the larger HoverExitDip — no
+        // flip-flop tremble when the cursor lingers at the boundary.
+        bool nowHovered = _isHovered ? dist <= HoverExitDip : dist <= HoverProximityDip;
         if (nowHovered == _isHovered) return;
         _isHovered = nowHovered;
         // (IsHitTestVisible stays TRUE always now — see ctor; the poller only drives the visual

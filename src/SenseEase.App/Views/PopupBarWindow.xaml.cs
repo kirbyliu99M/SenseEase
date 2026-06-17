@@ -146,11 +146,8 @@ public partial class PopupBarWindow : Window, IShellSurface
         catch { /* dictionary merge failed → leave on default */ }
     }
 
-    // ── #2 reveal motion — chat/settings cards fade+slide in, subtly. A gentle ease-out (no
-    //    overshoot, no clip churn) keeps it understated for a motion-sickness tool; ReducedMotion
-    //    snaps. Driven by the VM's open flags. ──
-    private const double PanelSlideOffset = 18.0;
-
+    // ── #2/#4 reveal motion — see AnimateCard: one unified fade+scale "Windows flyout" pop for the
+    //    bar reveal AND the chat/settings cards. Driven by the VM's open flags. ReducedMotion snaps. ──
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (DataContext is not PopupBarViewModel vm) return;
@@ -159,11 +156,11 @@ public partial class PopupBarWindow : Window, IShellSurface
             // Activate ONLY when the chat opens, so the input can take keyboard focus — the bar
             // itself is shown non-activating (ShowActivated=False) to avoid stealing focus.
             if (vm.IsChatOpen) Activate();
-            AnimatePanel(ChatPanel, ChatXform, isX: true, open: vm.IsChatOpen, isOpenNow: () => vm.IsChatOpen);
+            AnimateCard(ChatPanel, ChatScale, vm.IsChatOpen, () => vm.IsChatOpen);
         }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsSettingsOpen))
         {
-            AnimatePanel(SettingsFlyout, SettingsXform, isX: false, open: vm.IsSettingsOpen, isOpenNow: () => vm.IsSettingsOpen);
+            AnimateCard(SettingsFlyout, SettingsScale, vm.IsSettingsOpen, () => vm.IsSettingsOpen);
         }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded) && vm.IsExpanded)
         {
@@ -174,7 +171,9 @@ public partial class PopupBarWindow : Window, IShellSurface
         }
     }
 
-    /// <summary>#2: gentle opacity fade-in for the meter + tools sections on expand.</summary>
+    /// <summary>#2: gentle opacity fade-in for the in-bar meter + tools sections on expand (a fade,
+    /// not a scale — scaling a vertical sub-section reads as squashing). Same easing/duration rhythm
+    /// as the card pop so the whole UI feels unified. ReducedMotion snaps.</summary>
     private void FadeInSections()
     {
         bool rm = AccessibilityHelper.ReducedMotion();
@@ -184,65 +183,64 @@ public partial class PopupBarWindow : Window, IShellSurface
             if (s is null) continue;
             if (rm) { s.BeginAnimation(OpacityProperty, null); s.Opacity = 1; continue; }
             s.Opacity = 0;
-            s.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(150))) { EasingFunction = ease });
+            s.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, CardOpenDur) { EasingFunction = ease });
         }
     }
 
-    /// <summary>#2: a gentle slide-in-from-edge + fade for the bar itself on reveal, instead of an
-    /// instant pop. ReducedMotion snaps.</summary>
-    private void AnimateReveal()
+    private void AnimateReveal() => AnimateCard(BarRoot, BarScale, open: true, stillOpen: null);
+
+    // Unified "Windows flyout" motion: fade + a subtle scale-up from the trigger edge. ONE easing,
+    // ONE pair of durations — the bar reveal AND the chat / quick-settings cards all pop out the same
+    // way (the user asked for a single consistent, calm, Windows-card feel). ReducedMotion snaps.
+    private static readonly Duration CardOpenDur  = new(TimeSpan.FromMilliseconds(190));
+    private static readonly Duration CardCloseDur = new(TimeSpan.FromMilliseconds(130));
+    private const double CardScaleFrom = 0.96;
+
+    private void AnimateCard(FrameworkElement card, ScaleTransform scale, bool open, Func<bool>? stillOpen)
     {
         if (AccessibilityHelper.ReducedMotion())
         {
-            BarXform.BeginAnimation(TranslateTransform.XProperty, null);
-            BarRoot.BeginAnimation(OpacityProperty, null);
-            BarXform.X = 0; BarRoot.Opacity = 1;
-            return;
-        }
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        BarRoot.Opacity = 0;
-        BarRoot.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(160))) { EasingFunction = ease });
-        BarXform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(14, 0, new Duration(TimeSpan.FromMilliseconds(180))) { EasingFunction = ease });
-    }
-
-    private void AnimatePanel(FrameworkElement panel, TranslateTransform xform, bool isX, bool open, Func<bool> isOpenNow)
-    {
-        var prop = isX ? TranslateTransform.XProperty : TranslateTransform.YProperty;
-
-        if (AccessibilityHelper.ReducedMotion())
-        {
-            xform.BeginAnimation(prop, null);
-            panel.BeginAnimation(OpacityProperty, null);
-            xform.X = 0; xform.Y = 0;
-            panel.Opacity = open ? 1.0 : 0.0;
-            panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            card.BeginAnimation(OpacityProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            scale.ScaleX = scale.ScaleY = 1.0;
+            card.Opacity = open ? 1.0 : 0.0;
+            card.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
             return;
         }
 
         if (open)
         {
-            panel.Visibility = Visibility.Visible;
-            // Understated settle: a short ease-out glide + fade. No overshoot (BackEase read as
-            // "flashy"); transform/opacity only.
+            card.Visibility = Visibility.Visible;
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            xform.BeginAnimation(prop, new DoubleAnimation(PanelSlideOffset, 0, new Duration(TimeSpan.FromMilliseconds(150))) { EasingFunction = ease });
-            panel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(130))) { EasingFunction = ease });
+            card.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, CardOpenDur) { EasingFunction = ease });
+            var s = new DoubleAnimation(CardScaleFrom, 1, CardOpenDur) { EasingFunction = ease };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, s);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, s);
         }
         else
         {
-            // Retract faster (≈70% of enter), ease-in toward the trigger.
-            var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
-            var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(100))) { EasingFunction = ease };
-            // Collapse only once fully closed AND still closed (interruptible: a re-open cancels it).
-            fade.Completed += (_, _) => { if (!isOpenNow()) panel.Visibility = Visibility.Collapsed; };
-            xform.BeginAnimation(prop, new DoubleAnimation(PanelSlideOffset, new Duration(TimeSpan.FromMilliseconds(110))) { EasingFunction = ease });
-            panel.BeginAnimation(OpacityProperty, fade);
+            var ease = new CubicEase { EasingMode = EasingMode.EaseIn }; // exit a touch quicker
+            var fade = new DoubleAnimation(0, CardCloseDur) { EasingFunction = ease };
+            if (stillOpen != null) fade.Completed += (_, _) => { if (!stillOpen()) card.Visibility = Visibility.Collapsed; };
+            card.BeginAnimation(OpacityProperty, fade);
+            var s = new DoubleAnimation(CardScaleFrom, CardCloseDur) { EasingFunction = ease };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, s);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, s);
         }
     }
 
     private void OnVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
     {
-        if (IsVisible) { _farTicks = 0; _autoClose.Start(); AnimateReveal(); }
+        if (IsVisible)
+        {
+            _farTicks = 0; _autoClose.Start();
+            // #2 (tremble): keep the bar invisible, then DEFER the reveal fade one layout pass so
+            // SizeToContent has settled the window position — otherwise it visibly jitters as it sizes.
+            BarRoot.BeginAnimation(OpacityProperty, null);
+            BarRoot.Opacity = 0;
+            Dispatcher.BeginInvoke(new Action(AnimateReveal), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
         else _autoClose.Stop();
     }
 

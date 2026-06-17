@@ -954,13 +954,12 @@ public partial class MainWindow : Window
             });
         SafeLog("[StartTrayIcon] TrayIconService constructed OK");
 
-        // Task 4: tray left-click opens the notification card for the
-        // current tier (user-initiated → bypasses mute per spec).
-        _trayIcon.LeftClicked += (_, _) => ShowNotificationCardForCurrentTier(userInitiated: true, allowSetMoveSurface: true);
+        // 2026-06-18: tray single-click now calls out the NEW edge/popup panel (matured), replacing
+        // the legacy notification card. The card path stays for the spike/proposal flows until it is
+        // retired (see the demolition plan). Double-click still surfaces the console; the tray service
+        // debounces so the single action waits out a possible double-click.
+        _trayIcon.LeftClicked += (_, _) => (Application.Current as App)?.RevealShellPanel();
 
-        // 2026-06-08: single click opens the pop-up card (above); double click opens the
-        // main console. The tray service debounces so the single action waits out a
-        // possible double-click.
         _trayIcon.DoubleClicked += (_, _) => SurfaceMainWindowFromTray();
 
         // Task 5: Settings menu opens the dedicated SettingsWindow.

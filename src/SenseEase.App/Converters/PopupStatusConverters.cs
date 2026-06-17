@@ -5,6 +5,8 @@ using System.Windows.Media;
 using SenseEase.App.Localization;
 using SenseEase.App.Views;
 
+// (TierToPopupStatusWordMultiConverter is defined at the bottom of this file.)
+
 namespace SenseEase.App.Converters;
 
 /// <summary>
@@ -133,4 +135,25 @@ public sealed class SegmentFillConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => Binding.DoNothing;
+}
+
+/// <summary>VimsTier → localized pulse word (低/中/高 · Calm/Moderate/Dynamic), but as a
+/// MULTI-binding: values[0] = VimsTier, values[1] = the live UI language. The language value is
+/// only there to RE-TRIGGER the conversion when the user flips language — a plain VimsTier binding
+/// stayed stale ("低" shown in English) because the tier doesn't change on a language switch. OneWay.</summary>
+public sealed class TierToPopupStatusWordMultiConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        int tier = values is { Length: > 0 } && values[0] is int t ? t : 0;
+        return PopupStatus.IndexFor(tier) switch
+        {
+            0 => LocalizationManager.Current.Pick("低", "Calm"),
+            1 => LocalizationManager.Current.Pick("中", "Moderate"),
+            _ => LocalizationManager.Current.Pick("高", "Dynamic"),
+        };
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
 }
