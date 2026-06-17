@@ -1766,16 +1766,14 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    /// <summary>B5 accessor: the engine's current effective trigger (base + auto delta). Used by the
-    /// App to derive the base trigger (= this − <see cref="AutoAdaptTriggerDeltaPp"/>) for MeasuredState.</summary>
+    /// <summary>B5 test/diagnostics accessor: the engine's current effective trigger (base + auto delta).
+    /// The App reads adaptation state via <see cref="SnapshotForAdaptation"/> (atomic), so this getter is
+    /// consumed only by the AutoAdaptTriggerChannel tests.</summary>
     public double EffectiveTrigger => _habituation.EffectiveTrigger;
 
-    /// <summary>B5 accessor: the current auto-adaptation channel contribution (pp; negative = tighten).</summary>
+    /// <summary>B5 test/diagnostics accessor: the current auto-adaptation channel contribution
+    /// (pp; negative = tighten). Production reads it via <see cref="SnapshotForAdaptation"/>.</summary>
     public double AutoAdaptTriggerDeltaPp => _autoAdaptTriggerDeltaPp;
-
-    /// <summary>B5 accessor: the user/load personal pressure scale (the gate's hint derivation compares a
-    /// chatbot-proposed scale against this current value to pick a direction).</summary>
-    public double PersonalPressureScale => _personalPressureScale;
 
     private static bool TryUnwrapDouble(object value, out double result)
     {
