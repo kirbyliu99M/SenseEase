@@ -20,8 +20,11 @@ public sealed class ShellController : IShellController
     private readonly MainWindow _console;
     private readonly SurfaceExcludeCoordinator _exclude;
 
+    private readonly NpsService _nps = new();
+
     private EdgeSidebarWindow? _sidebar;
     private PopupBarWindow? _popup;
+    private NpsSurveyWindow? _npsWindow;
 
     public ShellController(MainWindow console, MainViewModel vm)
     {
@@ -42,6 +45,37 @@ public sealed class ShellController : IShellController
         _sidebar.LocationChanged += (_, _) => _exclude.Update();
         _sidebar.Show();
         _sidebar.SetTier(_vm.VimsTier);
+
+        // NPS KPI: count this session, then surface the subtle survey only if the gate allows
+        // (≥3 sessions, 30-day cooldown, first-run complete, not recently dismissed). Dormant by
+        // default — a fresh install never sees it.
+        _nps.RecordSessionStart();
+        MaybeShowNpsSurvey();
+    }
+
+    private void MaybeShowNpsSurvey()
+    {
+        if (_npsWindow is not null || !_nps.ShouldAsk()) return;
+        var vm = new NpsSurveyViewModel(
+            onSubmit: (score, comment) => { _nps.RecordResponse(score, comment); CloseNpsSurvey(); },
+            onDismiss: () => { _nps.RecordDismissed(); CloseNpsSurvey(); });
+        _npsWindow = new NpsSurveyWindow(vm);
+        _npsWindow.ContentRendered += (_, _) => _exclude.Register(_npsWindow!);
+        _npsWindow.LocationChanged += (_, _) => _exclude.Update();
+        _npsWindow.SizeChanged += (_, _) => _exclude.Update();
+        _npsWindow.Closed += (_, _) => { if (_npsWindow is { } w) _exclude.Unregister(w); _npsWindow = null; };
+        _nps.RecordShown();
+        _npsWindow.Show();
+        _npsWindow.ReassertTopmost();
+    }
+
+    private void CloseNpsSurvey()
+    {
+        if (_npsWindow is null) return;
+        var w = _npsWindow;
+        _npsWindow = null;
+        _exclude.Unregister(w);
+        w.Close();
     }
 
     /// <summary>Reveal / hide the glass popup bar (lazily created), positioned just left of the sidebar.</summary>
