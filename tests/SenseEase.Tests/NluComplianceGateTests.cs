@@ -46,6 +46,22 @@ public class NluComplianceGateTests
     }
 
     [Fact]
+    public void Followup_WithUnusableOptions_RebuildsCase1Picker_NotDeadEndUnknown()
+    {
+        // Finding #3: a FollowupRequest with no usable options must rebuild the Case-1
+        // "Unknown → symptom picker" (the sanitize passes "Unknown" to TryBuildFollowup) rather than
+        // dead-ending to a pickerless Unknown — TryBuildFollowup never builds one for "FollowupRequest".
+        var r = NluComplianceGate.Check(
+            Raw("FollowupRequest", followupQ: "?", followupOpts: new[] { "only one option" }), // <2 → unusable
+            "hmm, not really sure what's going on"); // vague, no specific symptom, non-empty
+
+        Assert.Equal("FollowupRequest", r.Intent);          // stays a clarify, not a dead-end Unknown
+        Assert.NotNull(r.FollowupQuestion);
+        Assert.NotNull(r.FollowupOptions);
+        Assert.InRange(r.FollowupOptions!.Length, 2, 4);    // a real picker was rebuilt
+    }
+
+    [Fact]
     public void AllZeros_ReportedDiscomfort_FallsBackToLexiconDefaults()
     {
         // v0.9.1 hotfix: ReportDiscomfort + severity>=2 + all-zero explicit deltas is treated

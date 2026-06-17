@@ -222,12 +222,17 @@ internal static class NluComplianceGate
             }
             else
             {
-                var (q, opts) = FeedbackLexicon.TryBuildFollowup(userText, intent, severity);
+                // #3 fix (2026-06-18): rebuild via the Case-1 "Unknown → symptom picker" path by
+                // passing "Unknown" — NOT intent (="FollowupRequest"), which TryBuildFollowup never
+                // builds a picker for (it only handles Unknown / ReportDiscomfort), so it ALWAYS
+                // returned null here and EVERY options-less FollowupRequest dead-ended to a pickerless
+                // Unknown. Passing "Unknown" lets the lexicon offer the generic symptom picker; only
+                // genuinely empty / over-long input still downgrades.
+                var (q, opts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity);
                 if (q is null)
                 {
-                    // Claimed FollowupRequest on input the lexicon can't justify
-                    // clarifying — downgrade to Unknown rather than ship a broken
-                    // card. Keeps the visible reply but drops the picker.
+                    // Nothing the lexicon can clarify (empty / 200+ chars) — keep the visible
+                    // reply but drop the picker.
                     intent = "Unknown";
                 }
                 else
