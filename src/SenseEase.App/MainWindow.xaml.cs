@@ -975,10 +975,10 @@ public partial class MainWindow : Window
             Application.Current.Shutdown();
         };
 
-        // Path Z UX iter 5: tray menu now also exposes "Open Dashboard" so
-        // users who closed the MainWindow to the tray have an explicit
-        // path back. Wired below via OpenDashboardRequested.
-        _trayIcon.OpenDashboardRequested += (_, _) => SurfaceMainWindowFromTray();
+        // 2026-06-18: the status/pause-resume tray item toggles power-save (ApplyPowerSave updates
+        // the tray indicator in turn). Replaces the removed "Open Dashboard" item; the console stays
+        // reachable by double-clicking the tray icon (DoubleClicked → SurfaceMainWindowFromTray).
+        _trayIcon.PauseResumeRequested += (_, _) => ApplyPowerSave(!IsPowerSaveActive);
 
         SafeLog("[StartTrayIcon] exit OK");
     }

@@ -236,12 +236,21 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0" x:Name="ChatInput" VerticalContentAlignment="Center" Padding="8,6" FontSize="13"
-                             Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
-                             Foreground="{DynamicResource Popup.Ink1}"
-                             IsVisibleChanged="OnChatInputVisibleChanged" KeyDown="OnChatInputKeyDown"
-                             AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
-                    <Button Grid.Column="1" Margin="6,0,0,0"
+                    <!-- #1: dark, themed, auto-expanding input (was a default WHITE box → invisible
+                         white-on-white text in dark). Recessed dark field + light caret/ink; one line
+                         at rest, wraps + grows to ~3 lines then scrolls. -->
+                    <Border Grid.Column="0" Background="#33000000" BorderBrush="{DynamicResource Popup.Bdr}"
+                            BorderThickness="1" CornerRadius="9" VerticalAlignment="Bottom">
+                        <TextBox x:Name="ChatInput" Background="Transparent" BorderThickness="0"
+                                 Padding="9,6" FontSize="13" MinHeight="20" MaxHeight="84"
+                                 TextWrapping="Wrap" AcceptsReturn="False" VerticalContentAlignment="Center"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Foreground="{DynamicResource Popup.Ink1}" CaretBrush="{DynamicResource Popup.Ink1}"
+                                 Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
+                                 IsVisibleChanged="OnChatInputVisibleChanged" KeyDown="OnChatInputKeyDown"
+                                 AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
+                    </Border>
+                    <Button Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Bottom"
                             AutomationProperties.Name="{loc:T Zh='傳送或停止', En='Send or stop'}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource BarPrimaryBtn}">
@@ -370,7 +379,10 @@
 
                 <!-- FULL only: read-only 12-seg strength meter + nudge buttons (with its own
                      leading divider so nothing is orphaned when condensed). -->
-                <StackPanel x:Name="MeterSection" HorizontalAlignment="Center"
+                <!-- Cursor="Arrow" so the read-only meter does NOT inherit the bar's SizeNS drag-hint
+                     cursor — it was implying the level/segments are drag-adjustable, which they aren't.
+                     The +/- buttons keep their Hand cursor (BarIconBtn). -->
+                <StackPanel x:Name="MeterSection" HorizontalAlignment="Center" Cursor="Arrow"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                     <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Button Style="{StaticResource BarIconBtn}" Command="{Binding StrongerCommand}"

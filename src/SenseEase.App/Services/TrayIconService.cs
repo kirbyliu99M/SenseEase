@@ -61,7 +61,6 @@ public sealed class TrayIconService : IDisposable
     private readonly Action<bool> _setBarVisible;
     private readonly MenuItem _statusItem;
     private readonly MenuItem _toggleBarItem;
-    private readonly MenuItem _openDashboardItem;
     // UX-04: promoted from ctor locals to fields so RefreshLanguageDependentLabels
     // can re-pick their headers on a live EN / 繁體中文 flip — the menu's other items
     // already re-pick; these two were the last hardcoded-zh strays.
@@ -102,11 +101,10 @@ public sealed class TrayIconService : IDisposable
     /// fall back to opening the dashboard.</summary>
     public event EventHandler? SettingsRequested;
 
-    /// <summary>Path Z UX iter 5: raised when the user clicks the "Open
-    /// Dashboard" tray menu item. Host surfaces MainWindow — this is the
-    /// primary way back to the dashboard once the user has hidden it via
-    /// the close button (which now minimizes to tray by default).</summary>
-    public event EventHandler? OpenDashboardRequested;
+    /// <summary>Raised when the user clicks the status / pause-resume menu item — the host toggles
+    /// power-save (pause ⇄ resume protection). 2026-06-18: replaces the old display-only status line
+    /// (which read "tap to resume" while disabled) + the removed "Open Dashboard" item.</summary>
+    public event EventHandler? PauseResumeRequested;
 
     /// <summary>Raised when the user clicks the Quit menu item. Host is
     /// expected to call <c>Application.Current.Shutdown()</c>.</summary>
@@ -129,7 +127,10 @@ public sealed class TrayIconService : IDisposable
         _isBarVisible  = isBarVisible  ?? throw new ArgumentNullException(nameof(isBarVisible));
         _setBarVisible = setBarVisible ?? throw new ArgumentNullException(nameof(setBarVisible));
 
-        _statusItem    = new MenuItem { IsEnabled = false };  // disabled = display-only
+        // Status + pause/resume in one item: shows the live status AND toggles power-save when
+        // clicked (honest now — it used to read "tap to resume" while DISABLED, i.e. untappable).
+        _statusItem    = new MenuItem();
+        _statusItem.Click += (_, _) => PauseResumeRequested?.Invoke(this, EventArgs.Empty);
         _toggleBarItem = new MenuItem();
         _toggleBarItem.Click += (_, _) =>
         {
@@ -138,17 +139,8 @@ public sealed class TrayIconService : IDisposable
             RefreshToggleBarLabel();
         };
 
-        // Path Z UX iter 5: explicit "Open Dashboard" entry. Once the user
-        // closes the MainWindow (which now minimizes to tray by default),
-        // the tray icon is the only path back to the dashboard. The
-        // notification card's Open Dashboard button works too, but a
-        // direct tray-menu route is the canonical pattern users expect
-        // from tray-resident apps.
-        _openDashboardItem = new MenuItem
-        {
-            Header = LocalizationManager.Current.Pick("顯示主視窗", "Open Dashboard"),
-        };
-        _openDashboardItem.Click += (_, _) => OpenDashboardRequested?.Invoke(this, EventArgs.Empty);
+        // "Open Dashboard" tray item REMOVED 2026-06-18 (user: leave only status/pause-resume,
+        // settings, close). The console is still reachable by double-clicking the tray icon.
 
         // UX-04: both headers now localized via LocalizationManager.Pick and re-picked
         // in RefreshLanguageDependentLabels — no more hardcoded-zh menu strays.
@@ -161,7 +153,6 @@ public sealed class TrayIconService : IDisposable
         var menu = new ContextMenu();
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Separator());
-        menu.Items.Add(_openDashboardItem);
         // Only surface the "toggle bar" item when the persistent-bar feature is on.
         // With AppConfig.PersistentBarEnabled=false (default) the bar is never created,
         // so the item would be a no-op that reads as a broken menu entry — hide it.
@@ -363,9 +354,7 @@ public sealed class TrayIconService : IDisposable
     // RefreshLabels (UX-04 closed the formerly-hardcoded-zh strays).
     private void RefreshLanguageDependentLabels()
     {
-        _openDashboardItem.Header = LocalizationManager.Current.Pick("顯示主視窗", "Open Dashboard");
-        // UX-04: re-pick the two formerly-hardcoded-zh menu items on a language flip,
-        // like the other items.
+        // UX-04: re-pick the formerly-hardcoded-zh menu items on a language flip, like the others.
         _settingsItem.Header = LocalizationManager.Current.Pick("設定", "Settings");
         _quitItem.Header     = LocalizationManager.Current.Pick("退出 SenseEase", "Quit SenseEase");
 

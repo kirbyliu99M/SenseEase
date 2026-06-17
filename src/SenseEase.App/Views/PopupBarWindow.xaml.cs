@@ -40,10 +40,15 @@ public partial class PopupBarWindow : Window, IShellSurface
     // mid-interaction; only an explicit click-away closes those).
     private readonly System.Windows.Threading.DispatcherTimer _autoClose;
     private int _farTicks;
+    private long _graceUntilTick; // Environment.TickCount64 deadline; no auto-close before it
     /// <summary>Cursor must be more than this (dip) outside the bar rect to start closing.</summary>
     public double CloseMarginDip { get; set; } = 96.0;
     /// <summary>Consecutive far ticks (×50 ms) before auto-collapse — a short grace.</summary>
     public int CloseGraceTicks { get; set; } = 8;
+
+    /// <summary>Keep the bar open for <paramref name="ms"/> ms regardless of cursor distance —
+    /// used when revealed from AFAR (tray / hotkey) so the user has time to move to it.</summary>
+    public void GraceAutoClose(int ms) => _graceUntilTick = Environment.TickCount64 + ms;
 
     // ── #3 vertical-only drag (the bar is locked to the right edge; it can only move up/down,
     //    and remembers where it was put via UserPreferences.PopupBarTop). ──
@@ -192,9 +197,9 @@ public partial class PopupBarWindow : Window, IShellSurface
     // Unified "Windows flyout" motion: fade + a subtle scale-up from the trigger edge. ONE easing,
     // ONE pair of durations — the bar reveal AND the chat / quick-settings cards all pop out the same
     // way (the user asked for a single consistent, calm, Windows-card feel). ReducedMotion snaps.
-    private static readonly Duration CardOpenDur  = new(TimeSpan.FromMilliseconds(190));
-    private static readonly Duration CardCloseDur = new(TimeSpan.FromMilliseconds(130));
-    private const double CardScaleFrom = 0.96;
+    private static readonly Duration CardOpenDur  = new(TimeSpan.FromMilliseconds(220));
+    private static readonly Duration CardCloseDur = new(TimeSpan.FromMilliseconds(140));
+    private const double CardScaleFrom = 0.975; // subtler scale travel = smoother settle
 
     private void AnimateCard(FrameworkElement card, ScaleTransform scale, bool open, Func<bool>? stillOpen)
     {
@@ -252,6 +257,9 @@ public partial class PopupBarWindow : Window, IShellSurface
         // Never auto-close while pinned or mid-interaction (a panel open). Reset the grace so a
         // brief excursion while interacting doesn't collapse the moment the panel closes.
         if (vm.IsPinned || vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
+
+        // Reveal-from-afar grace (tray / hotkey): stay open a fixed window so the user can reach it.
+        if (Environment.TickCount64 < _graceUntilTick) { _farTicks = 0; return; }
 
         if (!GetCursorPos(out POINT p)) return;
         var dpi = VisualTreeHelper.GetDpi(this);

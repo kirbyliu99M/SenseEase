@@ -79,21 +79,25 @@ public sealed class ShellController : IShellController
     }
 
     /// <summary>Reveal the glass popup bar (lazily created, condensed). Idempotent — a no-op if
-    /// already visible. Fired by the edge handle's proximity throw + click.</summary>
-    public void RevealPopup()
+    /// already visible. Fired by the edge handle's proximity throw + click. <paramref name="graceFromAfar"/>
+    /// (tray / hotkey) keeps it open ~10 s so the user — whose cursor is far away — can reach it.</summary>
+    public void RevealPopup(bool graceFromAfar = false)
     {
         EnsurePopup();
-        if (_popup!.IsVisible) return;
-        ShowPopup();
+        if (_popup!.IsVisible) { if (graceFromAfar) _popup.GraceAutoClose(RevealGraceMs); return; }
+        ShowPopup(graceFromAfar);
     }
 
-    /// <summary>Hotkey toggle: hide the bar if shown, otherwise reveal it.</summary>
+    /// <summary>Hotkey toggle: hide the bar if shown, otherwise reveal it (with the from-afar grace —
+    /// a hotkey summon, like the tray, leaves the cursor away from the bar).</summary>
     public void ToggleGlassPopupBar()
     {
         EnsurePopup();
         if (_popup!.IsVisible) _popup.Hide();
-        else ShowPopup();
+        else ShowPopup(graceFromAfar: true);
     }
+
+    private const int RevealGraceMs = 10_000;
 
     private void EnsurePopup()
     {
@@ -109,16 +113,24 @@ public sealed class ShellController : IShellController
         _popup.IsVisibleChanged += (_, e) =>
         {
             if ((bool)e.NewValue) { _exclude.Register(_popup!); _sidebar?.Hide(); }
-            else { _exclude.Unregister(_popup!); _sidebar?.Show(); }
+            else
+            {
+                _exclude.Unregister(_popup!);
+                // #4: re-anchor the edge handle to the popup's remembered centre so the handle and
+                // the bar line up (the handle reveals where the bar was last left), then show it.
+                _sidebar?.ReanchorToSavedCentre();
+                _sidebar?.Show();
+            }
         };
     }
 
-    private void ShowPopup()
+    private void ShowPopup(bool graceFromAfar = false)
     {
         if (_popup is null) return;
         _popup.Show();
         PositionPopup();
         _popup.ReassertTopmost();
+        if (graceFromAfar) _popup.GraceAutoClose(RevealGraceMs);
         // NOTE: do NOT Activate() here — revealing the bar must not steal focus from the user's
         // app/game (low-disturbance). The popup activates ONLY when the chat opens (typing needs
         // the caret), handled in PopupBarWindow on IsChatOpen. ShowActivated=False keeps Show()

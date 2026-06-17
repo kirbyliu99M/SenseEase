@@ -166,7 +166,20 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     {
         var work = SystemParameters.WorkArea;
         Left = work.Right - Width;                       // flush to the right edge
-        Top = work.Top + (work.Height - Height) / 2.0;   // vertically centred
+        // #4: align the handle's CENTRE with the popup's remembered centre (where the user left the
+        // bar), so the handle and the bar move together; default = vertically centred.
+        double centreY;
+        try { centreY = Configuration.UserPreferences.Current.PopupBarCenterY ?? (work.Top + (work.Height / 2.0)); }
+        catch { centreY = work.Top + (work.Height / 2.0); }
+        Top = Math.Max(work.Top, Math.Min(work.Bottom - Height, centreY - (Height / 2.0)));
+    }
+
+    /// <summary>#4: re-read the popup's remembered centre and re-anchor (called by the host when the
+    /// handle is re-shown after the bar collapses, so they stay aligned). Never throws.</summary>
+    public void ReanchorToSavedCentre()
+    {
+        if (Dispatcher.CheckAccess()) { try { RepositionForWorkArea(); ReassertTopmost(); } catch { } }
+        else Dispatcher.BeginInvoke(new Action(ReanchorToSavedCentre));
     }
 
     public void ReassertTopmost()

@@ -663,7 +663,7 @@ public partial class App : Application
     internal void RevealShellPanel()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(RevealShellPanel)); return; }
-        _shell?.RevealPopup();
+        _shell?.RevealPopup(graceFromAfar: true); // tray reveal: cursor is far → keep it open ~10 s
     }
 
     protected override void OnExit(ExitEventArgs e)
