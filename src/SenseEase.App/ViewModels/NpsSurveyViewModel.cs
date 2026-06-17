@@ -27,15 +27,20 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
         DismissCommand = new RelayCommand(_ => _onDismiss?.Invoke());
     }
 
-    /// <summary>The 0–10 likelihood-to-recommend scale.</summary>
-    public int[] Scores { get; } = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    /// <summary>The 5-point satisfaction scale (1 = poor … 5 = great). Iter 3 (kirby):
+    /// the survey is now a "five-point QA", not the 0–10 NPS scale.</summary>
+    public int[] Scores { get; } = { 1, 2, 3, 4, 5 };
 
     public string Prompt => LocalizationManager.Current.Pick(
-        "喜歡 SenseEase 嗎？您有多大可能推薦給朋友？",
-        "Enjoying SenseEase? How likely are you to recommend it?");
+        "您對 SenseEase 的整體感受如何？",
+        "How would you rate your experience with SenseEase?");
 
-    public string CommentPlaceholder => LocalizationManager.Current.Pick(
-        "想多說一點嗎？（選填）", "Anything to add? (optional)");
+    /// <summary>Low/high anchors shown under the 1–5 row so the scale direction is unambiguous.</summary>
+    public string ScaleLowLabel  => LocalizationManager.Current.Pick("1 = 不滿意", "1 = poor");
+    public string ScaleHighLabel => LocalizationManager.Current.Pick("5 = 非常滿意", "5 = great");
+
+    /// <summary>Free-text label for the comment field (kirby: the fill bar is "其他建議").</summary>
+    public string CommentLabel => LocalizationManager.Current.Pick("其他建議（選填）", "Other suggestions (optional)");
 
     private int? _selectedScore;
     public int? SelectedScore

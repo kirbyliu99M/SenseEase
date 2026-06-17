@@ -39,7 +39,8 @@ public sealed class ShellController : IShellController
         _vm.StateChanged += OnVmStateChanged;
 
         _sidebar = new EdgeSidebarWindow();
-        _sidebar.Clicked += (_, _) => ToggleGlassPopupBar();
+        _sidebar.Clicked += (_, _) => RevealPopup();
+        _sidebar.RevealRequested += (_, _) => RevealPopup();
         _sidebar.ContentRendered += (_, _) => _exclude.Register(_sidebar!);
         _sidebar.SizeChanged += (_, _) => _exclude.Update();
         _sidebar.LocationChanged += (_, _) => _exclude.Update();
@@ -77,28 +78,39 @@ public sealed class ShellController : IShellController
         w.Close();
     }
 
-    /// <summary>Reveal / hide the glass popup bar (lazily created), positioned just left of the sidebar.</summary>
+    /// <summary>Reveal the glass popup bar (lazily created, condensed). Idempotent — a no-op if
+    /// already visible. Fired by the edge handle's proximity throw + click.</summary>
+    public void RevealPopup()
+    {
+        EnsurePopup();
+        if (_popup!.IsVisible) return;
+        ShowPopup();
+    }
+
+    /// <summary>Hotkey toggle: hide the bar if shown, otherwise reveal it.</summary>
     public void ToggleGlassPopupBar()
     {
-        if (_popup is null)
-        {
-            _popup = new PopupBarWindow(this, _vm.ChatbotVm);
-            _popup.ContentRendered += (_, _) => PositionPopup();
-            _popup.SizeChanged += (_, _) => { PositionPopup(); _exclude.Update(); };
-            _popup.LocationChanged += (_, _) => _exclude.Update();
-            // Exclude registration follows VISIBILITY, so a Deactivated-driven self-hide
-            // (the click-away close) also clears the WGC rect — not just an explicit toggle.
-            _popup.IsVisibleChanged += (_, e) =>
-            {
-                if ((bool)e.NewValue) _exclude.Register(_popup!);
-                else _exclude.Unregister(_popup!);
-            };
-            ShowPopup();
-            return;
-        }
-
-        if (_popup.IsVisible) _popup.Hide();
+        EnsurePopup();
+        if (_popup!.IsVisible) _popup.Hide();
         else ShowPopup();
+    }
+
+    private void EnsurePopup()
+    {
+        if (_popup is not null) return;
+        _popup = new PopupBarWindow(this, _vm.ChatbotVm);
+        _popup.ContentRendered += (_, _) => PositionPopup();
+        _popup.SizeChanged += (_, _) => { PositionPopup(); _exclude.Update(); };
+        _popup.LocationChanged += (_, _) => _exclude.Update();
+        // Exclude registration + the edge-handle swap both follow VISIBILITY, so a self-hide
+        // (proximity auto-close or click-away) clears the WGC rect AND brings the handle back —
+        // not just an explicit toggle. While the bar is up the handle hides (the bar covers the
+        // edge); when it collapses the discreet handle returns to anchor the next reveal.
+        _popup.IsVisibleChanged += (_, e) =>
+        {
+            if ((bool)e.NewValue) { _exclude.Register(_popup!); _sidebar?.Hide(); }
+            else { _exclude.Unregister(_popup!); _sidebar?.Show(); }
+        };
     }
 
     private void ShowPopup()
@@ -117,8 +129,10 @@ public sealed class ShellController : IShellController
     {
         if (_popup is null) return;
         var work = SystemParameters.WorkArea;
-        const double sidebarGap = 22.0; // sidebar width (16) + a small gap
-        _popup.Left = Math.Max(work.Left, work.Right - _popup.ActualWidth - sidebarGap);
+        // The bar docks near the right edge (the handle is hidden while it is up, so no gap is
+        // needed for it); a few px of breathing room lets the Elev.3 glass shadow show.
+        const double edgeGap = 4.0;
+        _popup.Left = Math.Max(work.Left, work.Right - _popup.ActualWidth - edgeGap);
         _popup.Top = Math.Max(work.Top, work.Top + (work.Height - _popup.ActualHeight) / 2.0);
     }
 
@@ -158,7 +172,7 @@ public sealed class ShellController : IShellController
 
     public void OpenChat()
     {
-        if (_popup is null || !_popup.IsVisible) ToggleGlassPopupBar();
+        if (_popup is null || !_popup.IsVisible) RevealPopup();
         if (_popup?.DataContext is PopupBarViewModel vm) vm.IsChatOpen = true;
     }
 

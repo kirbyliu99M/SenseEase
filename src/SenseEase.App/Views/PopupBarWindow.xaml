@@ -138,11 +138,11 @@
         </Grid.ColumnDefinitions>
 
         <!-- ═══ Col 0 — AI chat panel (toggled) ═══ -->
-        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Margin="0,0,6,0"
+        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Margin="0"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,0.5"
                 Background="{StaticResource Popup.PanelBg}"
-                BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
-                CornerRadius="{StaticResource Radius.md}"
+                BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1,1,0,1"
+                CornerRadius="16,0,0,16"
                 Effect="{StaticResource Elev.3}">
             <Border.RenderTransform><TranslateTransform x:Name="ChatXform" X="28"/></Border.RenderTransform>
             <Grid>
@@ -273,11 +273,11 @@
 
         <!-- settings flyout — in-window overlay (NOT a WPF Popup: a Popup hooks Application.Exit
              and mis-places over a topmost no-activate transparent window). Sits in col 0, left of the bar. -->
-        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="218" Margin="0,0,6,14"
+        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="208" Margin="0,0,8,14"
                 VerticalAlignment="Bottom" HorizontalAlignment="Right" Panel.ZIndex="10"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,1"
-                Background="{StaticResource Popup.PanelBg}" BorderBrush="{StaticResource Popup.Bdr}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="12"
+                Background="{StaticResource Popup.BarBg}" BorderBrush="{StaticResource Popup.Bdr}"
+                BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="12,12,12,12"
                 Effect="{StaticResource Elev.3}">
             <Border.RenderTransform><TranslateTransform x:Name="SettingsXform" Y="28"/></Border.RenderTransform>
             <StackPanel>
@@ -290,8 +290,7 @@
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding PersistentMaskOn}"
                           Foreground="{StaticResource Popup.Ink1}" Margin="0,2"
                           Content="{loc:T Zh='常駐遮罩', En='Persistent mask'}"/>
-                <Border Height="1" Background="{StaticResource Popup.Ink3}" Margin="0,8" Opacity="0.4"/>
-                <TextBlock Text="{Binding ProfileName}" FontSize="12" Foreground="{StaticResource Popup.Ink2}" Margin="2,0,0,8"/>
+                <Border Height="1" Background="{StaticResource Popup.Ink3}" Margin="0,10,0,8" Opacity="0.4"/>
                 <Button Content="{loc:T Zh='完整設定頁面', En='Full settings'}" Style="{StaticResource PanelBtn}"
                         HorizontalAlignment="Stretch" Command="{Binding OpenFullSettingsCommand}"
                         AutomationProperties.Name="{loc:T Zh='開啟完整設定頁面', En='Open full settings'}"/>
@@ -299,6 +298,10 @@
         </Border>
 
         <!-- ═══ Col 1 — the bar ═══ -->
+        <!-- Two-stage reveal (iter 3): the bar reveals CONDENSED — status · power · chat ·
+             expand-chevron. The chevron grows it to FULL, adding the ±strength meter, the
+             quick-settings gear, and the pin. IsExpanded-bound blocks carry their OWN leading
+             divider so no orphan dividers appear when collapsed. -->
         <Border x:Name="BarRoot" Grid.Column="1" Width="56" Padding="0,12"
                 Background="{StaticResource Popup.BarBg}"
                 BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
@@ -307,7 +310,7 @@
                 MouseLeftButtonDown="OnBarMouseDown">
             <StackPanel HorizontalAlignment="Center">
 
-                <!-- pulse status (colour + glyph + word) -->
+                <!-- pulse status (colour + dot + word) — CONDENSED + FULL -->
                 <StackPanel HorizontalAlignment="Center"
                             AutomationProperties.Name="{Binding VimsTier, Converter={StaticResource StatusWord}}">
                     <!-- Screen-motion status — a clean solid dot (no checkmark/glyph, no halo).
@@ -324,7 +327,7 @@
                 <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
 
                 <!-- on/off switch — a power symbol; BRIGHT blue when running, muted GREY "off" when
-                     paused (reads as a switch position, not a disabled/dimmed control) -->
+                     paused (reads as a switch position, not a disabled/dimmed control). CONDENSED + FULL -->
                 <Button Command="{Binding PlayPauseCommand}"
                         ToolTip="{loc:T Zh='開啟／暫停保護', En='Toggle protection on / off'}"
                         AutomationProperties.Name="{loc:T Zh='開啟或暫停保護', En='Toggle protection on/off'}">
@@ -342,10 +345,11 @@
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                 </Button>
 
-                <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
-
-                <!-- strength: read-only 12-seg meter + nudge buttons -->
-                <StackPanel HorizontalAlignment="Center">
+                <!-- FULL only: read-only 12-seg strength meter + nudge buttons (with its own
+                     leading divider so nothing is orphaned when condensed). -->
+                <StackPanel HorizontalAlignment="Center"
+                            Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                    <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Button Style="{StaticResource BarIconBtn}" Command="{Binding StrongerCommand}"
                             ToolTip="{loc:T Zh='加強保護（提高遮罩強度）', En='Stronger protection'}"
                             AutomationProperties.Name="{loc:T Zh='加強保護', En='Stronger protection'}">
@@ -371,18 +375,67 @@
 
                 <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
 
-                <!-- chat -->
+                <!-- chat — CONDENSED + FULL -->
                 <Button Style="{StaticResource BarIconBtn}" Command="{Binding ToggleChatCommand}"
                         ToolTip="{loc:T Zh='與 SenseEase AI 對話', En='Chat with SenseEase AI'}"
                         AutomationProperties.Name="{loc:T Zh='開啟對話', En='Open chat'}">
                     <Path Data="{StaticResource Icon.Chat}" Fill="{StaticResource Popup.OnBar}" Width="16" Height="16" Stretch="Uniform"/>
                 </Button>
 
-                <!-- settings (the dropdown is the in-window SettingsFlyout below, NOT a WPF Popup) -->
-                <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
-                        ToolTip="{loc:T Zh='快速設定', En='Quick settings'}"
-                        AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}">
-                    <Path Data="{StaticResource Icon.Settings}" Fill="{StaticResource Popup.OnBar}" Width="16" Height="16" Stretch="Uniform"/>
+                <!-- FULL only: quick-settings gear + pin. The gear's dropdown is the in-window
+                     SettingsFlyout (NOT a WPF Popup). Pin lights up blue while active. -->
+                <StackPanel HorizontalAlignment="Center"
+                            Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                    <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
+                            ToolTip="{loc:T Zh='快速設定', En='Quick settings'}"
+                            AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}">
+                        <Path Data="{StaticResource Icon.Settings}" Fill="{StaticResource Popup.OnBar}" Width="16" Height="16" Stretch="Uniform"/>
+                    </Button>
+                    <Button Command="{Binding TogglePinCommand}"
+                            ToolTip="{loc:T Zh='釘選工具列（保持顯示）', En='Pin the bar (keep open)'}"
+                            AutomationProperties.Name="{loc:T Zh='釘選工具列', En='Pin the bar'}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource BarIconBtn}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource Popup.Blue}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <Path Data="{StaticResource Icon.Pin}" Fill="{StaticResource Popup.OnBar}" Width="15" Height="15" Stretch="Uniform"/>
+                    </Button>
+                </StackPanel>
+
+                <Border Height="1" Width="28" Margin="0,10" Background="{StaticResource Popup.OnBarDim}" Opacity="0.30"/>
+
+                <!-- expand / collapse chevron — hidden while pinned (a pinned bar can't be
+                     collapsed; the pin toggle in the FULL set is then always reachable to un-pin) -->
+                <Button Command="{Binding ToggleExpandCommand}"
+                        ToolTip="{loc:T Zh='展開／收合工具列', En='Expand / collapse'}"
+                        AutomationProperties.Name="{loc:T Zh='展開或收合工具列', En='Expand or collapse the bar'}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource BarIconBtn}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{StaticResource Popup.OnBar}" StrokeThickness="2"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Data" Value="{StaticResource Icon.ChevronDown}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                        <Setter Property="Data" Value="{StaticResource Icon.ChevronUp}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
                 </Button>
             </StackPanel>
         </Border>

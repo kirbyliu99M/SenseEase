@@ -44,10 +44,16 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
 
     private readonly DispatcherTimer _proximityTimer;
     private bool _isHovered;
+    private bool _revealFired;
     private int _topmostTickCounter;
 
     /// <summary>Raised on left-click while revealed — the host opens the popup bar.</summary>
     public event EventHandler? Clicked;
+
+    /// <summary>Raised when the cursor reaches the screen's right edge within the handle's
+    /// vertical band — a deliberate "throw to the edge" gesture the host treats as a reveal
+    /// (the two-stage flow: edge → condensed bar). Fires once per edge entry.</summary>
+    public event EventHandler? RevealRequested;
 
     public EdgeSidebarWindow()
     {
@@ -183,6 +189,17 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         double dx = Math.Max(0, Math.Max(Left - cx, cx - (Left + ActualWidth)));
         double dy = Math.Max(0, Math.Max(Top - cy, cy - (Top + ActualHeight)));
         double dist = Math.Sqrt((dx * dx) + (dy * dy));
+
+        // Deliberate "throw cursor to the right edge" opens the bar (in addition to a click on
+        // the visible handle). Gate to the handle's vertical band so hitting the edge elsewhere
+        // (a maximized app's close button, the top-right corner) does not summon it. Fire once
+        // per edge entry; rearm only once the cursor has clearly left the handle.
+        bool atEdge = cx >= (Left + ActualWidth - 2.0) && cy >= Top && cy <= (Top + ActualHeight);
+        if (atEdge)
+        {
+            if (!_revealFired) { _revealFired = true; RevealRequested?.Invoke(this, EventArgs.Empty); }
+        }
+        else if (dist > 4.0) _revealFired = false;
 
         bool nowHovered = dist <= HoverProximityDip;
         if (nowHovered == _isHovered) return;

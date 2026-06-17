@@ -24,19 +24,33 @@ namespace SenseEase.App.Views;
 /// </summary>
 public partial class PopupBarWindow : Window, IShellSurface
 {
-    // Theme-aware bar acrylic tint (ABGR 0xAABBGGRR). Light: from Popup.BarBg #B3D2E0FF
-    // (the light-blue glass). Dark: from PopupGlassTokens.Dark's Popup.BarBg #B3232A36 — a
-    // deep slate scrim so the bar reads as one dark glass piece instead of a blue smear in
-    // Windows dark mode. The Popup.* token brushes paint the actual surface on top of this
-    // frost; the tint only governs what bleeds through the blur. Mirrors
-    // NotificationCardWindow.ApplyThemeAwareAcrylic.
-    private const uint BarAcrylicTintLight = 0xB3FFE0D2u; // ARGB #B3D2E0FF → ABGR
-    private const uint BarAcrylicTintDark  = 0xB3362A23u; // ARGB #B3232A36 → ABGR
+    // Theme-aware bar acrylic tint (ABGR 0xAABBGGRR). After the 2026-06-17 palette swap the
+    // DEFAULT (light) is the slate glass and Dark is the neutral Game-Bar black/grey:
+    //   Light → Popup.BarBg #B3232A36 (slate);  Dark → Popup.BarBg #CC1B1B1D (near-black).
+    // The Popup.* token brushes paint the actual surface on top of this frost; the tint only
+    // governs what bleeds through the blur. Mirrors NotificationCardWindow.ApplyThemeAwareAcrylic.
+    private const uint BarAcrylicTintLight = 0xB3362A23u; // ARGB #B3232A36 → ABGR (slate)
+    private const uint BarAcrylicTintDark  = 0xCC1D1B1Bu; // ARGB #CC1B1B1D → ABGR (Game-Bar black)
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_FORCE_TOPMOST = 0x0001 | 0x0002 | 0x0010 | 0x0200; // NOSIZE|NOMOVE|NOACTIVATE|NOOWNERZORDER
+
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
+
+    // ── #5 proximity auto-close ─────────────────────────────────────────────────
+    // The bar would otherwise stay open forever (it shows non-activating, so Deactivated may
+    // never fire). A light cursor-proximity poll collapses it back to the edge handle once the
+    // cursor leaves — UNLESS it is pinned or a panel (chat/settings) is open (the user is
+    // mid-interaction; only an explicit click-away closes those).
+    private readonly System.Windows.Threading.DispatcherTimer _autoClose;
+    private int _farTicks;
+    /// <summary>Cursor must be more than this (dip) outside the bar rect to start closing.</summary>
+    public double CloseMarginDip { get; set; } = 96.0;
+    /// <summary>Consecutive far ticks (×50 ms) before auto-collapse — a short grace.</summary>
+    public int CloseGraceTicks { get; set; } = 8;
 
     public PopupBarWindow() : this(null, null) { }
 
@@ -47,10 +61,15 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (DataContext is INotifyPropertyChanged inpc) inpc.PropertyChanged += OnVmPropertyChanged;
         SourceInitialized += OnSourceInitialized;
         Deactivated += OnDeactivated;
+        IsVisibleChanged += OnVisibleChanged;
         // TASK #6: track Auto/Light/Dark so the glass adapts instead of being fixed
         // light-blue (fixes white-on-light-glass contrast in Windows dark mode).
         Loaded += OnThemeLoaded;
         Closed += OnThemeClosed;
+
+        _autoClose = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Input)
+        { Interval = TimeSpan.FromMilliseconds(50) };
+        _autoClose.Tick += OnAutoCloseTick;
     }
 
     // ── TASK #6: dark-variant theming for the popup glass ───────────────────────
@@ -80,6 +99,7 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnThemeClosed(object? sender, EventArgs e)
     {
+        _autoClose.Stop();
         try { ThemeManager.UntrackElement(this); } catch { }
         try { Configuration.UserPreferences.Changed -= OnThemePrefsChanged; } catch { }
         try { Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnThemeSystemChanged; } catch { }
@@ -153,9 +173,19 @@ public partial class PopupBarWindow : Window, IShellSurface
             // itself is shown non-activating (ShowActivated=False) to avoid stealing focus.
             if (vm.IsChatOpen) Activate();
             AnimatePanel(ChatPanel, ChatXform, isX: true, open: vm.IsChatOpen, isOpenNow: () => vm.IsChatOpen);
+            UpdateClusterChrome();
         }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsSettingsOpen))
+        {
             AnimatePanel(SettingsFlyout, SettingsXform, isX: false, open: vm.IsSettingsOpen, isOpenNow: () => vm.IsSettingsOpen);
+            UpdateClusterChrome();
+        }
+        else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded))
+        {
+            // Growing/shrinking the bar fires OnRootSizeChanged (SizeToContent) which re-clips,
+            // but nudge it too so the chrome is right even if the size is unchanged.
+            UpdateClusterChrome();
+        }
     }
 
     private void AnimatePanel(FrameworkElement panel, TranslateTransform xform, bool isX, bool open, Func<bool> isOpenNow)
@@ -180,6 +210,8 @@ public partial class PopupBarWindow : Window, IShellSurface
             { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 } };
             var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(190)))
             { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            // Re-clip once the slide settles to X=0 (the silhouette bounds move with the slide).
+            slide.Completed += (_, _) => UpdateClusterChrome();
             xform.BeginAnimation(prop, slide);
             panel.BeginAnimation(OpacityProperty, fade);
         }
@@ -190,8 +222,9 @@ public partial class PopupBarWindow : Window, IShellSurface
             { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
             var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(140)))
             { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-            // Collapse only once fully closed AND still closed (interruptible: a re-open cancels it).
-            fade.Completed += (_, _) => { if (!isOpenNow()) panel.Visibility = Visibility.Collapsed; };
+            // Collapse only once fully closed AND still closed (interruptible: a re-open cancels it),
+            // then re-clip so the window silhouette drops the now-hidden panel.
+            fade.Completed += (_, _) => { if (!isOpenNow()) { panel.Visibility = Visibility.Collapsed; UpdateClusterChrome(); } };
             xform.BeginAnimation(prop, slide);
             panel.BeginAnimation(OpacityProperty, fade);
         }
@@ -210,21 +243,102 @@ public partial class PopupBarWindow : Window, IShellSurface
         AcrylicGlass.EnableAcrylic(this, dark ? BarAcrylicTintDark : BarAcrylicTintLight);
     }
 
-    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+    private const double ClusterRadius = 16.0; // matches Theme Radius.md
+
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e) => UpdateClusterChrome();
+
+    /// <summary>#2/#6: keep the bar↔panel cluster reading as ONE glass slab AND stop the acrylic
+    /// from frosting empty window area. Squares the bar's panel-facing corners while a panel is
+    /// docked, and clips the window to the union of the VISIBLE content rects — so the empty
+    /// region above a short, bottom-aligned settings flyout is no longer a floating frosted
+    /// rectangle (the "massive background" report), and the bar alone reads as a clean rounded
+    /// slab (no square acrylic peek).</summary>
+    private void UpdateClusterChrome()
     {
-        // #8 (liquid glass): clip the window to a rounded slab so the acrylic NEVER shows a
-        // square translucent peek behind the rounded content corners — the glass reads as one
-        // clean rounded liquid-glass piece instead of a translucent box.
-        RootGrid.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 18, 18);
+        if (!IsLoaded) return;
+        // Only the full-height CHAT panel fuses into the bar as one slab; the short settings
+        // flyout is a separate floating popover (small gap, fully rounded) so it never leaves a
+        // tall empty region to fuse around.
+        bool chatDocked = ChatPanel.Visibility == Visibility.Visible;
+
+        BarRoot.CornerRadius = chatDocked
+            ? new CornerRadius(0, ClusterRadius, ClusterRadius, 0)  // square the docked (left) edge
+            : new CornerRadius(ClusterRadius);
+
+        try
+        {
+            if (RootGrid.ActualWidth <= 0 || RootGrid.ActualHeight <= 0) return;
+
+            // Extend the bar's clip rect LEFTWARD by the radius when the chat is docked, so the
+            // bar's rounded left corners fall inside the panel overlap — the union then has no
+            // concave notch at the seam and reads as one continuous slab.
+            Rect bar = RectInRoot(BarRoot);
+            if (bar.IsEmpty) return;
+            if (chatDocked) bar = new Rect(bar.X - ClusterRadius, bar.Y, bar.Width + ClusterRadius, bar.Height);
+
+            Geometry clip = new RectangleGeometry(bar, ClusterRadius, ClusterRadius);
+            if (ChatPanel.Visibility == Visibility.Visible)      clip = Union(clip, RectInRoot(ChatPanel));
+            if (SettingsFlyout.Visibility == Visibility.Visible) clip = Union(clip, RectInRoot(SettingsFlyout));
+            clip.Freeze();
+            RootGrid.Clip = clip;
+        }
+        catch { /* layout not ready — keep the prior clip */ }
+    }
+
+    private static Geometry Union(Geometry acc, Rect r)
+    {
+        if (r.IsEmpty || r.Width <= 0 || r.Height <= 0) return acc;
+        return Geometry.Combine(acc, new RectangleGeometry(r, ClusterRadius, ClusterRadius),
+                                GeometryCombineMode.Union, null);
+    }
+
+    private Rect RectInRoot(FrameworkElement el)
+    {
+        if (el.ActualWidth <= 0 || el.ActualHeight <= 0) return Rect.Empty;
+        return el.TransformToAncestor(RootGrid).TransformBounds(new Rect(0, 0, el.ActualWidth, el.ActualHeight));
+    }
+
+    private void OnVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible) { _farTicks = 0; _autoClose.Start(); UpdateClusterChrome(); }
+        else _autoClose.Stop();
+    }
+
+    private void OnAutoCloseTick(object? sender, EventArgs e)
+    {
+        if (!IsVisible) { _autoClose.Stop(); return; }
+        if (DataContext is not PopupBarViewModel vm) return;
+
+        // Never auto-close while pinned or mid-interaction (a panel open). Reset the grace so a
+        // brief excursion while interacting doesn't collapse the moment the panel closes.
+        if (vm.IsPinned || vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
+
+        if (!GetCursorPos(out POINT p)) return;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        double cx = p.X / dpi.DpiScaleX, cy = p.Y / dpi.DpiScaleY;
+        double dx = Math.Max(0, Math.Max(Left - cx, cx - (Left + ActualWidth)));
+        double dy = Math.Max(0, Math.Max(Top - cy, cy - (Top + ActualHeight)));
+        double dist = Math.Sqrt((dx * dx) + (dy * dy));
+
+        if (dist <= CloseMarginDip) { _farTicks = 0; return; }
+        if (++_farTicks >= CloseGraceTicks) { _farTicks = 0; CollapseToHandle(); }
+    }
+
+    /// <summary>Collapse the popup back to the discreet edge handle and reset the panels +
+    /// expand state so the next reveal opens clean. ShellController re-shows the sidebar on the
+    /// resulting IsVisibleChanged.</summary>
+    private void CollapseToHandle()
+    {
+        if (DataContext is PopupBarViewModel vm)
+        { vm.IsChatOpen = false; vm.IsSettingsOpen = false; vm.IsExpanded = false; }
+        Hide();
     }
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
-        // Close-on-click-away: focus left the popup (the user clicked another window / the desktop),
-        // so collapse the whole UI back to the discreet edge handle and reset the panels so the next
-        // reveal opens clean. The edge sidebar stays; this only hides the expanded popup.
-        if (DataContext is PopupBarViewModel vm) { vm.IsChatOpen = false; vm.IsSettingsOpen = false; }
-        Hide();
+        // Click-away close — but a PINNED bar stays put (that is the point of the pin).
+        if (DataContext is PopupBarViewModel { IsPinned: true }) return;
+        CollapseToHandle();
     }
 
     private void OnChatInputVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)

@@ -2,7 +2,6 @@ using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using SenseEase.App.Localization;
 using SenseEase.App.Services;
 
 namespace SenseEase.App.ViewModels;
@@ -39,6 +38,8 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         GentlerCommand       = new RelayCommand(_ => Gentler());
         ToggleChatCommand    = new RelayCommand(_ => ToggleChat());
         ToggleSettingsCommand = new RelayCommand(_ => IsSettingsOpen = !IsSettingsOpen);
+        ToggleExpandCommand  = new RelayCommand(_ => IsExpanded = !IsExpanded);
+        TogglePinCommand     = new RelayCommand(_ => IsPinned = !IsPinned);
         OpenLogsCommand      = new RelayCommand(_ => _controller?.OpenLogs());
         OpenFullSettingsCommand = new RelayCommand(_ => _controller?.OpenSettings());
 
@@ -116,6 +117,39 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         }
     }
 
+    // ── Two-stage reveal (iter 3) ──────────────────────────────────────────────
+    // The bar reveals CONDENSED (status · power · chat); the expand chevron grows it to
+    // FULL (adds the ±strength meter, settings gear, pin). Click-to-expand — no auto-expand
+    // timer (an unpredictable size change = involuntary motion, bad for a motion-sickness tool).
+    private bool _isExpanded;
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value) return;
+            _isExpanded = value;
+            if (!value) IsSettingsOpen = false; // the gear leaves with the expanded set
+            OnPropertyChanged();
+        }
+    }
+
+    // Pin keeps the full bar parked (no proximity auto-close, no click-away close) until the
+    // user un-pins. Pinning forces FULL; the collapse chevron is hidden while pinned so the
+    // pin toggle (which lives in the full set) is always reachable to un-pin.
+    private bool _isPinned;
+    public bool IsPinned
+    {
+        get => _isPinned;
+        set
+        {
+            if (_isPinned == value) return;
+            _isPinned = value;
+            if (value) IsExpanded = true;
+            OnPropertyChanged();
+        }
+    }
+
     // Quick-settings toggles — wired to the engine through the controller (錨點格線 / 漸進適應 /
     // 常駐遮罩). The getters read LIVE engine state so the switches reflect reality on open; with no
     // controller (design-time / tests) they fall back to local state so the UI still works.
@@ -143,14 +177,14 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
     /// <summary>True when the local chat LLM is loaded + available (drives the chat-header dot).</summary>
     public bool IsLlmOnline => _controller?.IsLlmOnline ?? (Chat?.IsLlmOnline ?? false);
 
-    public string ProfileName => LocalizationManager.Current.Pick("一般設定檔", "Typical profile");
-
     // ── Commands ─────────────────────────────────────────────────────────────
     public ICommand PlayPauseCommand { get; }
     public ICommand StrongerCommand { get; }
     public ICommand GentlerCommand { get; }
     public ICommand ToggleChatCommand { get; }
     public ICommand ToggleSettingsCommand { get; }
+    public ICommand ToggleExpandCommand { get; }
+    public ICommand TogglePinCommand { get; }
     public ICommand OpenLogsCommand { get; }
     public ICommand OpenFullSettingsCommand { get; }
 
