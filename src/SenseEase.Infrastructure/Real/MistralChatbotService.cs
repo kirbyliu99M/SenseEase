@@ -181,7 +181,13 @@ public sealed class MistralChatbotService : IChatbotService
         "  AnalyzeRequest — user asks about past sessions / causes / patterns. Cite concrete numbers from [RecentAdjustments] / [RecentEvents]. Zero deltas.\n" +
         "  FollowupRequest — only per the card policy above.\n" +
         "  Unknown — greetings, off-topic chat, unclear non-discomfort. Friendly short reply. Zero deltas.\n" +
-        "Never accumulate severity from history — current message only.\n\n" +
+        "Never accumulate severity from history — current message only.\n" +
+        "  ⚠ A QUESTION IS NOT A REPORT. Asking ABOUT a symptom is never ReportDiscomfort: \"do you think I'm dizzy?\", " +
+        "\"am I dizzy now?\", \"你覺得我頭暈嗎?\", \"是不是頭暈?\", hypotheticals (\"would I get dizzy if…\") and definitions are " +
+        "QUESTIONS — classify Unknown (or AnalyzeRequest if it asks about the user's own state / history), ANSWER them, and " +
+        "emit ZERO deltas. ReportDiscomfort needs a first-person PRESENT-TENSE STATEMENT (\"I'm dizzy\", \"I feel dizzy now\", " +
+        "\"頭暈\"). If you cannot tell whether a message is a question or a report, treat it as a question and emit zero deltas — " +
+        "NEVER actuate on a maybe.\n\n" +
 
         // ── HABITUATION STATE (M2 Phase 6d, hotfixed v0.9.1) ──
         "HABITUATION STATE CONTEXT (background only):\n" +
@@ -322,6 +328,11 @@ public sealed class MistralChatbotService : IChatbotService
         "{\"intent\":\"ResetRequest\",\"severity\":1,\"reply\":\"Done — overlay settings restored to default.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: I felt dizzy during last session, do you know what causes it?\n" +
         "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Looking at recent events, pressure spiked above 220 around 21:10 and the FOV mask activated; the dizziness most likely came from high peripheral optical flow during that window.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: do you think I'm dizzy now?\n" +
+        "(a QUESTION about the user's state — NOT a discomfort report; answer it and change NOTHING)\n" +
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"I can't sense that for you — only you can tell. If you do feel dizzy, just say so and I'll ease the visuals; for now I've left everything as-is.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: 你覺得我現在會頭暈嗎?\n" +
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"這只有您能感受到喔。如果真的覺得暈，告訴我一聲我就會調整畫面；目前我沒有變更任何設定。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: I feel off\n" +
         "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: 怪怪的\n" +

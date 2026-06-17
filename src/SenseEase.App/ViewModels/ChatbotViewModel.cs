@@ -1088,6 +1088,25 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 "（開啟 Overlay 以查看）", " (open the overlay to see it)");
         }
 
+        // Safety guard (tester-reported 2026-06-17): a QUESTION is never a current-discomfort REPORT, so
+        // it must NEVER silently actuate a protection change. A tester asked "do you think I'm dizzy now?"
+        // and the small model classified it ReportDiscomfort and adjusted the overlay unsolicited. If the
+        // turn is interrogative yet came back as a discomfort report with actuating deltas, drop the
+        // actuation — the model's reply still answers the question. (Prompt-side, the model is now told a
+        // question is not a report; this is the deterministic net for when the 3B model still slips.)
+        bool questionSuppressedActuation =
+            result.Intent == "ReportDiscomfort"
+            && InterrogativeDetector.IsSymptomInquiry(utterance)
+            && (result.FovDelta != 0 || result.MaskDepthDelta != 0.0
+                || result.GridVisibilityDelta != 0.0 || result.FeatherWidthDelta != 0.0);
+        if (questionSuppressedActuation)
+        {
+            result.FovDelta = 0;
+            result.MaskDepthDelta = 0.0;
+            result.GridVisibilityDelta = 0.0;
+            result.FeatherWidthDelta = 0.0;
+        }
+
         // Each tuple: (label, formatted-change-string). Only populated for non-zero
         // deltas so the resulting pseudo-table never contains "no change" rows.
         var rows = new System.Collections.Generic.List<(string Label, string Change)>();
@@ -1165,7 +1184,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
         AdjustmentApplied?.Invoke(this, EventArgs.Empty);
 
-        if (rows.Count == 0) return string.Empty;
+        if (rows.Count == 0)
+            return questionSuppressedActuation
+                ? LocalizationManager.Current.Pick(
+                    "（這看起來像是一個問題，所以我沒有變更任何設定；若想調整，直接告訴我即可。）",
+                    "(That looked like a question, so I didn't change any settings — just tell me if you'd like an adjustment.)")
+                : string.Empty;
 
         // MarkdownInlines (Views/MarkdownInlines.cs) only supports bold / italic /
         // inline-code / bullets / linebreaks — it does NOT render markdown tables.
