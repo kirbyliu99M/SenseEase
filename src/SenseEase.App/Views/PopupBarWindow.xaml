@@ -120,19 +120,20 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid>
+    <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
         <!-- ═══ Col 0 — AI chat panel (toggled) ═══ -->
-        <Border Grid.Column="0" Width="300" Margin="0,0,6,0"
-                Visibility="{Binding IsChatOpen, Converter={StaticResource BoolToVis}}"
+        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Margin="0,0,6,0"
+                Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,0.5"
                 Background="{StaticResource Popup.PanelBg}"
                 BorderBrush="{StaticResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
                 Effect="{StaticResource Elev.3}">
+            <Border.RenderTransform><TranslateTransform x:Name="ChatXform" X="28"/></Border.RenderTransform>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -254,12 +255,13 @@
 
         <!-- settings flyout — in-window overlay (NOT a WPF Popup: a Popup hooks Application.Exit
              and mis-places over a topmost no-activate transparent window). Sits in col 0, left of the bar. -->
-        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="218" Margin="0,0,6,0"
-                VerticalAlignment="Center" HorizontalAlignment="Right" Panel.ZIndex="10"
-                Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}"
+        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="218" Margin="0,0,6,14"
+                VerticalAlignment="Bottom" HorizontalAlignment="Right" Panel.ZIndex="10"
+                Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,1"
                 Background="{StaticResource Popup.PanelBg}" BorderBrush="{StaticResource Popup.Bdr}"
                 BorderThickness="1" CornerRadius="{StaticResource Radius.md}" Padding="12"
                 Effect="{StaticResource Elev.3}">
+            <Border.RenderTransform><TranslateTransform x:Name="SettingsXform" Y="28"/></Border.RenderTransform>
             <StackPanel>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
                           Foreground="{StaticResource Popup.Ink1}" Margin="0,2"

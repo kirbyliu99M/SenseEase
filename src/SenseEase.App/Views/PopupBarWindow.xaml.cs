@@ -1,9 +1,12 @@
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using SenseEase.App.Accessibility;
 using SenseEase.App.Interop;
 using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
@@ -34,8 +37,62 @@ public partial class PopupBarWindow : Window, IShellSurface
     {
         InitializeComponent();
         DataContext = new PopupBarViewModel(controller, chat);
+        if (DataContext is INotifyPropertyChanged inpc) inpc.PropertyChanged += OnVmPropertyChanged;
         SourceInitialized += OnSourceInitialized;
         Deactivated += OnDeactivated;
+    }
+
+    // ── #2/#6: magnetic expand/collapse — the chat panel slides in from the bar and the
+    //    settings flyout slides UP from the gear (decelerate-settle on open, quick ease-in on
+    //    close), instead of an instant pop. Reduced-motion snaps. Driven by the VM's open flags. ──
+    private const double PanelSlideOffset = 28.0;
+
+    private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (DataContext is not PopupBarViewModel vm) return;
+        if (e.PropertyName == nameof(PopupBarViewModel.IsChatOpen))
+            AnimatePanel(ChatPanel, ChatXform, isX: true, open: vm.IsChatOpen, isOpenNow: () => vm.IsChatOpen);
+        else if (e.PropertyName == nameof(PopupBarViewModel.IsSettingsOpen))
+            AnimatePanel(SettingsFlyout, SettingsXform, isX: false, open: vm.IsSettingsOpen, isOpenNow: () => vm.IsSettingsOpen);
+    }
+
+    private void AnimatePanel(FrameworkElement panel, TranslateTransform xform, bool isX, bool open, Func<bool> isOpenNow)
+    {
+        var prop = isX ? TranslateTransform.XProperty : TranslateTransform.YProperty;
+
+        if (AccessibilityHelper.ReducedMotion())
+        {
+            xform.BeginAnimation(prop, null);
+            panel.BeginAnimation(OpacityProperty, null);
+            xform.X = 0; xform.Y = 0;
+            panel.Opacity = open ? 1.0 : 0.0;
+            panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+
+        if (open)
+        {
+            panel.Visibility = Visibility.Visible;
+            // Magnetic settle: decelerate with a slight pull-into-place (BackEase ease-out).
+            var slide = new DoubleAnimation(PanelSlideOffset, 0, new Duration(TimeSpan.FromMilliseconds(240)))
+            { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 } };
+            var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(190)))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            xform.BeginAnimation(prop, slide);
+            panel.BeginAnimation(OpacityProperty, fade);
+        }
+        else
+        {
+            // Retract faster (≈60% of enter), ease-in toward the trigger.
+            var slide = new DoubleAnimation(PanelSlideOffset, new Duration(TimeSpan.FromMilliseconds(150)))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+            var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(140)))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+            // Collapse only once fully closed AND still closed (interruptible: a re-open cancels it).
+            fade.Completed += (_, _) => { if (!isOpenNow()) panel.Visibility = Visibility.Collapsed; };
+            xform.BeginAnimation(prop, slide);
+            panel.BeginAnimation(OpacityProperty, fade);
+        }
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -45,6 +102,14 @@ public partial class PopupBarWindow : Window, IShellSurface
         // the desktop fires Deactivated → the popup hides itself (close-on-click-away). Topmost +
         // ShowInTaskbar=false keep it unobtrusive; acrylic provides the glass.
         AcrylicGlass.EnableAcrylic(this, BarAcrylicTint);
+    }
+
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // #8 (liquid glass): clip the window to a rounded slab so the acrylic NEVER shows a
+        // square translucent peek behind the rounded content corners — the glass reads as one
+        // clean rounded liquid-glass piece instead of a translucent box.
+        RootGrid.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 18, 18);
     }
 
     private void OnDeactivated(object? sender, EventArgs e)
