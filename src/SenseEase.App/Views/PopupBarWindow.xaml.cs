@@ -20,8 +20,8 @@ namespace SenseEase.App.Views;
 /// </summary>
 public partial class PopupBarWindow : Window, IShellSurface
 {
-    // Light-blue glass acrylic tint (ABGR 0xAABBGGRR), from Popup.BarBg #85D2E0FF.
-    private const uint BarAcrylicTint = 0x85FFE0D2;
+    // Light-blue glass acrylic tint (ABGR 0xAABBGGRR), from Popup.BarBg #B3D2E0FF (70% opacity).
+    private const uint BarAcrylicTint = 0xB3FFE0D2;
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);

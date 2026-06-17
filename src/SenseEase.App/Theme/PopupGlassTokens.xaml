@@ -27,8 +27,8 @@
     <SolidColorBrush x:Key="Popup.Mid"  Color="#FFF59E0B"/>
     <SolidColorBrush x:Key="Popup.High" Color="#FFEF4444"/>
 
-    <!-- Glass fills. BarBg rgba(210,224,255,0.52); PanelBg rgba(215,228,252,0.82) -->
-    <SolidColorBrush x:Key="Popup.BarBg"   Color="#85D2E0FF"/>
+    <!-- Glass fills. BarBg rgba(210,224,255,0.70); PanelBg rgba(215,228,252,0.82) -->
+    <SolidColorBrush x:Key="Popup.BarBg"   Color="#B3D2E0FF"/>
     <SolidColorBrush x:Key="Popup.PanelBg" Color="#D1D7E4FC"/>
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#9EFFFFFF"/>
 

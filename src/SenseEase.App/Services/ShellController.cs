@@ -135,7 +135,9 @@ public sealed class ShellController : IShellController
     }
 
     // ── IShellController ────────────────────────────────────────────────────
-    public int CurrentTier => _vm.VimsTier;
+    // The popup meter shows the DISPLAYED level (engine tier floored by the always-on
+    // baseline), so the +/- nudge is visibly reflected — not the raw engine tier.
+    public int CurrentTier => _vm.CurrentState is { } s ? _vm.ResolveDisplayedTier(s.VimsTier) : _vm.VimsTier;
     public bool IsPaused => _console.IsPowerSaveActive;
     public event EventHandler? StateChanged;
 
@@ -147,8 +149,11 @@ public sealed class ShellController : IShellController
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void NudgeStronger() => _vm.EaseView();
-    public void NudgeGentler() => _vm.WidenView();
+    // The mask level +/- ride the 1–12 always-on baseline (MainViewModel.NudgeIntensityLevel),
+    // which produces an IMMEDIATE VISIBLE change in both directions and is what the meter reads —
+    // unlike EaseView/WidenView (FOV-only), which left the meter frozen (the "+/- not working" bug).
+    public void NudgeStronger() { _vm.NudgeIntensityLevel(1); StateChanged?.Invoke(this, EventArgs.Empty); }
+    public void NudgeGentler() { _vm.NudgeIntensityLevel(-1); StateChanged?.Invoke(this, EventArgs.Empty); }
 
     public void OpenChat()
     {
