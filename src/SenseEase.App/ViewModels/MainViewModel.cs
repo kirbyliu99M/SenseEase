@@ -1746,7 +1746,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // episode, with a ~10-min cooldown after a decline. All state is touched only on the UI thread
     // (MainWindow.OnStateChanged + the bubble callbacks), so no locking is needed.
     private readonly SenseEase.App.Services.OverlayConsentGovernor _overlayConsent = new();
-    private bool _lastEngineMaskActive;
+    // The overlay alpha is TIER-driven (OverlayWindow.VimsLevels): L1 = 0 alpha (invisible),
+    // L2+ is visible. So "the mask is becoming visible" = tier >= 2 — NOT state.MaskActive (which
+    // the engine only flips at the higher pressure>=trigger threshold; the dimming shows earlier).
+    // Gating on MaskActive let the early dimming through un-consented (the reported bug).
+    private const int MaskVisibleTierThreshold = 2;
+    private bool _lastWantedMask;
     private bool _maskConsentGranted;
     private bool _consentPending;
 
@@ -1759,23 +1764,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public event EventHandler? OverlayConsentDismissRequested;
 
     /// <summary>Item 1 — called on the UI thread from <c>MainWindow.OnStateChanged</c> with the
-    /// ENGINE's natural tier + mask intent. Returns true while the visible mask must be HELD OFF
-    /// (clamped to L1) pending the user's agreement. Safe with no event subscriber (headless tests).</summary>
-    public bool ShouldHoldMaskForConsent(int naturalTier, bool engineMaskActive)
+    /// ENGINE's natural (pre-baseline) tier. Returns true while the visible mask must be HELD OFF
+    /// (clamped to L1) pending the user's agreement. Keyed on the VISIBLE-TIER threshold (tier >= 2),
+    /// not state.MaskActive — the dimming becomes visible from L2, before the engine flips MaskActive.
+    /// Safe with no event subscriber (headless tests).</summary>
+    public bool ShouldHoldMaskForConsent(int naturalTier)
     {
+        bool wantsVisibleMask = naturalTier >= MaskVisibleTierThreshold;
+
         // User already opted into an always-on baseline → deliberate; never gate, treat as consented
         // (so toggling it off mid-episode doesn't suddenly re-ask).
         if (PersistentOverlayEnabled)
         {
             _maskConsentGranted = true;
             _consentPending = false;
-            _lastEngineMaskActive = engineMaskActive;
+            _lastWantedMask = wantsVisibleMask;
             return false;
         }
 
-        bool rising  = engineMaskActive && !_lastEngineMaskActive;
-        bool falling = !engineMaskActive && _lastEngineMaskActive;
-        _lastEngineMaskActive = engineMaskActive;
+        bool rising  = wantsVisibleMask && !_lastWantedMask;
+        bool falling = !wantsVisibleMask && _lastWantedMask;
+        _lastWantedMask = wantsVisibleMask;
 
         if (falling)
         {
@@ -1785,7 +1794,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        if (!engineMaskActive) return false; // engine isn't asking for the mask
+        if (!wantsVisibleMask) return false; // tier still at L1 → nothing visible to gate
         if (_maskConsentGranted) return false; // already agreed this episode
 
         if (rising && !_consentPending && _overlayConsent.ShouldAsk())

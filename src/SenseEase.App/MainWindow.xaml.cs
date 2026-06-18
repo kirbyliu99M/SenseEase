@@ -2265,7 +2265,7 @@ public partial class MainWindow : Window
             // mask invisible by clamping the displayed tier to L1 (0 alpha). The engine keeps
             // sensing; this is a forward-only display override (same pattern as the baseline floor
             // below). The bubble is raised inside ShouldHoldMaskForConsent (UI thread).
-            if (_viewModel.ShouldHoldMaskForConsent(original, state.MaskActive))
+            if (_viewModel.ShouldHoldMaskForConsent(original))
             {
                 state.VimsTier = 1;
                 state.MaskPeakAlphaOverride = 0.0;

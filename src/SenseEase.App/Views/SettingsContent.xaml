@@ -99,502 +99,237 @@
                 <Setter Property="MinHeight" Value="36"/>
                 <Setter Property="MinWidth" Value="60"/>
             </Style>
+
+            <!-- ONE-PIECE GLASS REDESIGN (2026-06-18): the small-caps-weight group header.
+                 Replaces the per-section 16px Type.Heading — a 12px SemiBold tertiary label is
+                 the macOS/iOS grouped-list section header, the single biggest "tighter/less
+                 blank" lever (drops a 16px+22px-line title per group to 12px+inline). The
+                 window's "Settings" title (16px) carries the one top-level heading. -->
+            <Style x:Key="GroupHeader" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
+                <Setter Property="Margin" Value="2,0,0,8"/>
+            </Style>
+
+            <!-- ONE-PIECE GLASS REDESIGN: the calm inter-group seam. A faint GroupDivider
+                 hairline so the scroll reads as one continuous frosted list (not stacked
+                 tiles). Groups that can collapse (EventLogCard) carry their OWN leading
+                 divider INSIDE the group so no orphan hairline is left behind. -->
+            <Style x:Key="GroupSeam" TargetType="Border">
+                <Setter Property="Height" Value="1"/>
+                <Setter Property="Background" Value="{DynamicResource GroupDivider}"/>
+                <Setter Property="Margin" Value="0,18"/>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
-    <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): shared settings UI
-         hosted by BOTH the main console's "設定" tab and the topmost
-         SettingsWindow opened from the tray menu / Pop-up Card gear. State
-         sharing is automatic — every toggle writes through to the static
-         UserPreferences.Current + AppConfig.* singletons, and the
-         UserPreferences.Changed event re-hydrates peer instances.
 
-         Phase 1.5 polish (post-smoke-test, user feedback):
-           • Fully token-driven palette — every card surface, text, border,
-             separator, toggle track and accent resolves via {DynamicResource}
-             from the merged theme tokens (Surface / CardBorder / Separator /
-             TextPrimary / TextSecondary / TextTertiary / Accent …), so the
-             whole panel tracks BOTH light and dark. Dark-mode correctness
-             relies on ThemeManager.TrackElement(this) (see code-behind):
-             this UserControl merges the light theme into its OWN Resources for
-             the non-colour StaticResource tokens, which would otherwise shadow
-             the Window-level dark palette, so the dark override is merged into
-             this control's own resources too.
-           • "需重新啟動" badge replaced with an actual "立即重啟" Button
-             that restarts the app via a delayed cmd handoff (releases
-             single-instance mutex before relaunching).
-           • Close button (in SettingsWindow.xaml) restyled to light.
+    <!-- UI Consolidation Sprint M-Phase-1 (2026-05-30): shared settings UI hosted by the
+         topmost SettingsWindow (tray menu / popup-bar gear). State sharing is automatic —
+         every toggle writes through to the static UserPreferences.Current + AppConfig.*
+         singletons, and the UserPreferences.Changed event re-hydrates peer instances.
 
-         The Close button intentionally stays in SettingsWindow.xaml because
-         it's window-chrome; the Settings tab has no Close affordance. -->
-    <Border Background="{DynamicResource Canvas}"
-            CornerRadius="{StaticResource Radius.md}"
-            Effect="{StaticResource Elev.3}"
-            Padding="24" Margin="6">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}">
-            <!-- M3 regroup (2026-06-06): the formerly flat single scroll is now
-                 organised into three visually-grouped {StaticResource Surface}
-                 section cards (Radius.md + Elev.2), each opened by a
-                 {StaticResource Type.Heading} title and using {StaticResource
-                 Separator} hairlines to divide its rows. The long bilingual
-                 helper paragraphs keep one concise line inline and tuck the
-                 remainder behind a small collapsed "了解更多 / Learn more"
-                 Expander. RESTYLE/REGROUP only — every x:Name, handler and
-                 binding is byte-identical to the previous flat layout. -->
+         ONE-PIECE GLASS REDESIGN (2026-06-18): the former "card of cards" — a transparent
+         Elev.3 outer Border wrapping ~9 raised Surface+Elev.2 section tiles with 16px gaps —
+         collapses to a SINGLE flat list. The host window's rounded Surface slab over the Win11
+         acrylic (SettingsWindow.xaml) is now the ONE glass piece; this control is chrome-light
+         content inside it. Sections are flat groups with a 12px GroupHeader, divided by faint
+         GroupSeam hairlines — the popup's "one frosted panel, internal facets" idiom
+         (PopupBarWindow ChatPanel), not stacked Material cards. Controls keep their own glass
+         facets: the segmented tracks (SurfaceMuted), the recessed hotkey field (RecessField =
+         the popup ChatInput), the Comfort* destructive buttons. This is a container / material /
+         spacing reshape ONLY — every x:Name, Checked/Unchecked/Click handler, binding, loc:T
+         string and FontSize is byte-identical to the previous tiled layout. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}"
+                  Padding="0,0,8,0">
+        <StackPanel>
+
+            <!-- ═══ Appearance ═══════════════════════════════════════════════════
+                 3-segment selector (自動 / 淺色 / 深色) wired to ThemeManager.SetMode via
+                 OnThemeModeChanged. The SurfaceMuted track is the control's own recessed
+                 facet on the slab; the selected pill fills Accent. Hydrated from
+                 UserPreferences.ThemeMode in RefreshFromPreferences (guarded by _wiring). -->
             <StackPanel>
-                <!-- ═══ Section 0 · 外觀 / Appearance ═══════════════════════════
-                     Appearance setting (2026-06-07): user theme choice.
-                     A 3-segment selector (自動 / 淺色 / 深色) wired to
-                     ThemeManager.SetMode via OnThemeModeChanged. The whole
-                     selector sits in a SurfaceMuted "track" so the three pills
-                     read as one grouped control; the selected pill fills Accent.
-                     Hydrated from UserPreferences.ThemeMode in
-                     RefreshFromPreferences (guarded by _wiring like the rest). -->
-                <Border Background="{DynamicResource Surface}"
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='外觀', En='Appearance'}"/>
+                <Border Background="{DynamicResource SurfaceMuted}"
                         BorderBrush="{DynamicResource CardBorder}"
                         BorderThickness="1"
                         CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='外觀', En='Appearance'}"
-                                   Margin="0,0,0,12"/>
-
-                        <!-- Segmented control: one SurfaceMuted track wrapping
-                             three equal-width RadioButton segments. The track is
-                             Radius.md (12) so the inner segments' Radius.sm (8)
-                             nest cleanly inside the 3px padding. -->
-                        <Border Background="{DynamicResource SurfaceMuted}"
-                                BorderBrush="{DynamicResource CardBorder}"
-                                BorderThickness="1"
-                                CornerRadius="{StaticResource Radius.md}"
-                                Padding="3"
-                                HorizontalAlignment="Left">
-                            <UniformGrid Rows="1" Columns="3">
-                                <RadioButton x:Name="ThemeAuto"
-                                             Style="{StaticResource ThemeSegmentTight}"
-                                             GroupName="ThemeMode"
-                                             Content="{loc:T Zh='自動', En='Auto'}"
-                                             ToolTip="{loc:T Zh='跟隨 Windows 系統的淺色 / 深色設定', En='Follow the Windows system light / dark setting'}"
-                                             Checked="OnThemeModeChanged"/>
-                                <RadioButton x:Name="ThemeLight"
-                                             Style="{StaticResource ThemeSegmentTight}"
-                                             GroupName="ThemeMode"
-                                             Content="{loc:T Zh='淺色', En='Light'}"
-                                             ToolTip="{loc:T Zh='永遠使用淺色主題', En='Always use the light theme'}"
-                                             Checked="OnThemeModeChanged"/>
-                                <RadioButton x:Name="ThemeDark"
-                                             Style="{StaticResource ThemeSegmentTight}"
-                                             GroupName="ThemeMode"
-                                             Content="{loc:T Zh='深色', En='Dark'}"
-                                             ToolTip="{loc:T Zh='永遠使用深色主題', En='Always use the dark theme'}"
-                                             Checked="OnThemeModeChanged"/>
-                            </UniformGrid>
-                        </Border>
-                    </StackPanel>
+                        Padding="3"
+                        HorizontalAlignment="Left">
+                    <UniformGrid Rows="1" Columns="3">
+                        <RadioButton x:Name="ThemeAuto"
+                                     Style="{StaticResource ThemeSegmentTight}"
+                                     GroupName="ThemeMode"
+                                     Content="{loc:T Zh='自動', En='Auto'}"
+                                     ToolTip="{loc:T Zh='跟隨 Windows 系統的淺色 / 深色設定', En='Follow the Windows system light / dark setting'}"
+                                     Checked="OnThemeModeChanged"/>
+                        <RadioButton x:Name="ThemeLight"
+                                     Style="{StaticResource ThemeSegmentTight}"
+                                     GroupName="ThemeMode"
+                                     Content="{loc:T Zh='淺色', En='Light'}"
+                                     ToolTip="{loc:T Zh='永遠使用淺色主題', En='Always use the light theme'}"
+                                     Checked="OnThemeModeChanged"/>
+                        <RadioButton x:Name="ThemeDark"
+                                     Style="{StaticResource ThemeSegmentTight}"
+                                     GroupName="ThemeMode"
+                                     Content="{loc:T Zh='深色', En='Dark'}"
+                                     ToolTip="{loc:T Zh='永遠使用深色主題', En='Always use the dark theme'}"
+                                     Checked="OnThemeModeChanged"/>
+                    </UniformGrid>
                 </Border>
+            </StackPanel>
 
-                <!-- ═══ Section 0.5 · 語言 / Language ═══════════════════════════
-                     Language setting (2026-06-07): live UI-language toggle,
-                     modelled byte-for-byte on the Appearance segmented control
-                     above (same Border/UniformGrid/ThemeSegment chrome). Two
-                     segments (繁體中文 / English) wired to OnLanguageModeChanged,
-                     which sets LocalizationManager.Current.Language AND persists
-                     UserPreferences.LanguageModeRaw. Hydrated from the persisted
-                     language in RefreshFromPreferences (guarded by _wiring like
-                     the rest), so re-checking a segment during hydration doesn't
-                     loop back. The whole UI re-picks its {loc:T} text live on
-                     toggle — no restart needed for the language switch itself. -->
-                <Border Background="{DynamicResource Surface}"
+            <!-- ═══ Language ═══════════════════════════════════════════════════════
+                 Two segments (繁體中文 / English) wired to OnLanguageModeChanged, which sets
+                 LocalizationManager.Current.Language AND persists LanguageModeRaw. Hydrated in
+                 RefreshFromPreferences (guarded by _wiring). The UI re-picks its {loc:T} text
+                 live on toggle — no restart needed for the language switch. -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='語言', En='Language'}"/>
+                <Border Background="{DynamicResource SurfaceMuted}"
                         BorderBrush="{DynamicResource CardBorder}"
                         BorderThickness="1"
                         CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='語言', En='Language'}"
-                                   Margin="0,0,0,12"/>
-
-                        <!-- Segmented control: one SurfaceMuted track wrapping
-                             two equal-width RadioButton segments, mirroring the
-                             Appearance selector exactly. -->
-                        <Border Background="{DynamicResource SurfaceMuted}"
-                                BorderBrush="{DynamicResource CardBorder}"
-                                BorderThickness="1"
-                                CornerRadius="{StaticResource Radius.md}"
-                                Padding="3"
-                                HorizontalAlignment="Left">
-                            <UniformGrid Rows="1" Columns="2">
-                                <RadioButton x:Name="LanguageChinese"
-                                             Style="{StaticResource ThemeSegment}"
-                                             GroupName="LanguageMode"
-                                             Content="繁體中文"
-                                             ToolTip="{loc:T Zh='以繁體中文顯示介面', En='Show the interface in Traditional Chinese'}"
-                                             Checked="OnLanguageModeChanged"/>
-                                <RadioButton x:Name="LanguageEnglish"
-                                             Style="{StaticResource ThemeSegment}"
-                                             GroupName="LanguageMode"
-                                             Content="English"
-                                             ToolTip="{loc:T Zh='以英文顯示介面', En='Show the interface in English'}"
-                                             Checked="OnLanguageModeChanged"/>
-                            </UniformGrid>
-                        </Border>
-                    </StackPanel>
+                        Padding="3"
+                        HorizontalAlignment="Left">
+                    <UniformGrid Rows="1" Columns="2">
+                        <RadioButton x:Name="LanguageChinese"
+                                     Style="{StaticResource ThemeSegment}"
+                                     GroupName="LanguageMode"
+                                     Content="繁體中文"
+                                     ToolTip="{loc:T Zh='以繁體中文顯示介面', En='Show the interface in Traditional Chinese'}"
+                                     Checked="OnLanguageModeChanged"/>
+                        <RadioButton x:Name="LanguageEnglish"
+                                     Style="{StaticResource ThemeSegment}"
+                                     GroupName="LanguageMode"
+                                     Content="English"
+                                     ToolTip="{loc:T Zh='以英文顯示介面', En='Show the interface in English'}"
+                                     Checked="OnLanguageModeChanged"/>
+                    </UniformGrid>
                 </Border>
+            </StackPanel>
 
-                <!-- ═══ Section 1 · 通知與顯示 / Notifications & display ═══ -->
-                <Border Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='通知與顯示', En='Notifications &amp; display'}"
-                                   Margin="0,0,0,14"/>
+            <!-- ═══ Notifications & display ═══════════════════════════════════════ -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='通知與顯示', En='Notifications &amp; display'}"/>
+                <StackPanel Orientation="Vertical">
+                    <CheckBox x:Name="ToggleAuto"
+                              Style="{StaticResource SettingSwitch}"
+                              Content="{loc:T Zh='讓 SenseEase 主動提醒', En='Let SenseEase remind me proactively'}"
+                              Foreground="{DynamicResource TextPrimary}"
+                              FontSize="13"
+                              Checked="OnToggleAutoChanged"
+                              Unchecked="OnToggleAutoChanged"/>
+                    <TextBlock Text="{loc:T Zh='偵測到中度以上不適時自動通知', En='Notifies automatically on moderate-or-higher discomfort.'}"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextTertiary}"
+                               TextWrapping="Wrap"
+                               Margin="22,4,0,0"/>
+                </StackPanel>
+            </StackPanel>
 
-                        <!-- Toggle A: auto-expand notifications -->
-                        <StackPanel Orientation="Vertical">
-                            <CheckBox x:Name="ToggleAuto"
-                                      Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='讓 SenseEase 主動提醒', En='Let SenseEase remind me proactively'}"
-                                      Foreground="{DynamicResource TextPrimary}"
-                                      FontSize="13"
-                                      Checked="OnToggleAutoChanged"
-                                      Unchecked="OnToggleAutoChanged"/>
-                            <TextBlock Text="{loc:T Zh='偵測到中度以上不適時自動通知', En='Notifies automatically on moderate-or-higher discomfort.'}"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                        </StackPanel>
+            <!-- ═══ Background mode ═══════════════════════════════════════════════ -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='背景模式', En='Background mode'}"/>
 
-                        <!-- Bar/Tray colour toggle removed (2026-06-09, user request).
-                             D-10 (2026-06-11): UserPreferences.BarTrayColorEnabled
-                             (Toggle B) was deleted along with its tray/bar colour
-                             consumers — the band signal is now always the calm
-                             non-colour treatment. -->
-                    </StackPanel>
-                </Border>
-
-                <!-- ═══ Section 2 · 背景常駐 / Background & startup ═══ -->
-                <Border Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='背景模式', En='Background mode'}"
-                                   Margin="0,0,0,14"/>
-
-                        <StackPanel Orientation="Vertical">
-                            <CheckBox x:Name="ToggleMinimizeToTray"
-                                      Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='關閉視窗時最小化到系統匣 (不結束程式)', En='Minimise to the tray when the window closes (keep running)'}"
-                                      Foreground="{DynamicResource TextPrimary}"
-                                      FontSize="13"
-                                      Checked="OnToggleMinimizeToTrayChanged"
-                                      Unchecked="OnToggleMinimizeToTrayChanged"/>
-                            <TextBlock Text="{loc:T Zh='按下主視窗的 X 只會收到系統匣，背景持續偵測。', En='Pressing X on the main window just sends it to the tray; detection keeps running in the background.'}"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                            <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
-                                      FontSize="12"
-                                      Foreground="{DynamicResource TextTertiary}"
-                                      IsExpanded="False"
-                                      Margin="22,2,0,0">
-                                <TextBlock Text="{loc:T Zh='開啟時，按下主視窗的 X 只會把視窗收到右下角的系統匣，SenseEase 持續在背景偵測。要完全結束請用系統匣選單的「退出 SenseEase」。', En='When on, pressing X on the main window sends it to the system tray (bottom-right) and SenseEase keeps detecting in the background. To quit completely, use Quit SenseEase in the tray menu.'}"
-                                           FontSize="12"
-                                           Foreground="{DynamicResource TextTertiary}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,4,0,0"/>
-                            </Expander>
-                        </StackPanel>
-
-                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
-
-                        <StackPanel Orientation="Vertical">
-                            <CheckBox x:Name="ToggleRunAtStartup"
-                                      Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='開機時自動啟動 SenseEase', En='Start SenseEase automatically at startup'}"
-                                      Foreground="{DynamicResource TextPrimary}"
-                                      FontSize="13"
-                                      Checked="OnToggleRunAtStartupChanged"
-                                      Unchecked="OnToggleRunAtStartupChanged"/>
-                        </StackPanel>
-
-                        <Border Height="1" Background="{DynamicResource Separator}" Margin="0,14"/>
-
-                        <!-- ═══ TASK #7 · 喚出熱鍵 / Reveal hotkey ═══════════════════
-                             A system-wide hotkey (default Win+Alt+S, customisable) that
-                             reveals / toggles the glass popup bar even when SenseEase has no
-                             foreground window. The current gesture is shown read-only; 錄製 /
-                             Record arms a capture box (focused TextBox, PreviewKeyDown) that
-                             records the next modifier+key chord, persists it
-                             (UserPreferences.RevealHotkey) and asks the host to re-register the
-                             live Win32 hotkey (SetRevealHotkey). Modifier-only presses are
-                             ignored; Escape cancels. Fail-soft: an unregisterable chord just
-                             leaves no global hotkey — the edge-sidebar click still reveals. -->
-                        <StackPanel Orientation="Vertical">
-                            <TextBlock Text="{loc:T Zh='喚出熱鍵', En='Reveal hotkey'}"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimary}"
-                                       Margin="0,0,0,6"/>
-                            <TextBlock Text="{loc:T Zh='隨時按下此組合鍵即可喚出或收起浮動列。', En='Press this combination anytime to reveal or hide the floating bar.'}"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,10"/>
-                            <StackPanel Orientation="Horizontal">
-                                <!-- Current gesture, shown read-only. While recording, the
-                                     code-behind swaps this to a "press a combination…" prompt. -->
-                                <Border Background="{DynamicResource SurfaceMuted}"
-                                        BorderBrush="{DynamicResource CardBorder}"
-                                        BorderThickness="1"
-                                        CornerRadius="{StaticResource Radius.sm}"
-                                        Padding="12,7"
-                                        MinWidth="150"
-                                        VerticalAlignment="Center">
-                                    <TextBlock x:Name="RevealHotkeyDisplay"
-                                               Text="Win+Alt+S"
-                                               FontFamily="Consolas"
-                                               FontSize="13"
-                                               Foreground="{DynamicResource TextPrimary}"
-                                               VerticalAlignment="Center"/>
-                                </Border>
-                                <!-- Invisible focus target that owns the key capture. A read-only
-                                     0-size TextBox is the simplest focusable element whose
-                                     PreviewKeyDown fires for chords; it never shows a caret or
-                                     accepts typed text. -->
-                                <TextBox x:Name="HotkeyCaptureBox"
-                                         Width="0" Height="0" Opacity="0"
-                                         IsReadOnly="True"
-                                         IsTabStop="False"
-                                         PreviewKeyDown="OnHotkeyCaptureKeyDown"
-                                         LostKeyboardFocus="OnHotkeyCaptureLostFocus"/>
-                                <Button x:Name="RecordHotkeyButton"
-                                        Content="{loc:T Zh='錄製', En='Record'}"
-                                        Margin="10,0,0,0"
-                                        Padding="14,7"
-                                        FontSize="12"
-                                        FontWeight="SemiBold"
-                                        Foreground="{DynamicResource TextPrimary}"
-                                        Background="{DynamicResource SurfaceMuted}"
-                                        BorderBrush="{DynamicResource CardBorder}"
-                                        BorderThickness="1"
-                                        Cursor="Hand"
-                                        VerticalAlignment="Center"
-                                        Click="OnRecordHotkeyClicked"
-                                        ToolTip="{loc:T Zh='點擊後按下新的組合鍵（需含 Ctrl / Alt / Shift / Win）；Esc 取消。', En='Click, then press a new combination (must include Ctrl / Alt / Shift / Win); Esc cancels.'}"/>
-                            </StackPanel>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- ═══ Section 3 · 頭部追蹤與隱私 / Head tracking & privacy ═══ -->
-                <Border Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='頭部追蹤與隱私', En='Head tracking &amp; privacy'}"
-                                   Margin="0,0,0,14"/>
-
-                        <StackPanel Orientation="Vertical">
-                            <StackPanel Orientation="Horizontal">
-                                <CheckBox x:Name="ToggleHeadTrackingEnabled"
-                                          Style="{StaticResource SettingSwitch}"
-                                          Content="{loc:T Zh='啟用頭部追蹤', En='Enable Head Tracking'}"
-                                          Foreground="{DynamicResource TextPrimary}"
-                                          FontSize="13"
-                                          VerticalAlignment="Center"
-                                          Checked="OnToggleHeadTrackingEnabledChanged"
-                                          Unchecked="OnToggleHeadTrackingEnabledChanged"/>
-                                <!-- Phase 1.5 user feedback: badge replaced with a
-                                     real Button that restarts the app. Click prompts
-                                     confirmation, then spawns a delayed cmd handoff
-                                     (timeout 2 → start) so the current process can
-                                     release the single-instance mutex before the new
-                                     instance launches. -->
-                                <!-- UX-08 (B1b): the chip is now SHOWN ONLY when the
-                                     toggle differs from the app-start value (pending
-                                     restart). Default Collapsed; code-behind
-                                     (UpdateRestartChip) flips it. It no longer lies on
-                                     every Settings open. -->
-                                <Button x:Name="RestartButton"
-                                        Visibility="Collapsed"
-                                        Content="{loc:T Zh='需重新啟動', En='Restart needed'}"
-                                        Margin="10,0,0,0"
-                                        Padding="10,5"
-                                        FontSize="12"
-                                        FontWeight="SemiBold"
-                                        Foreground="{DynamicResource ComfortRisingText}"
-                                        Background="{DynamicResource ComfortRisingWeak}"
-                                        BorderBrush="{DynamicResource ComfortRising}"
-                                        BorderThickness="1"
-                                        Cursor="Hand"
-                                        Click="OnRestartClicked"
-                                        ToolTip="{loc:T Zh='點擊立即重啟 SenseEase 以套用頭部追蹤變更', En='Click to restart SenseEase now and apply head-tracking changes'}"/>
-                            </StackPanel>
-
-                            <!-- UX-08 (B1b) B1 consent copy at the point of decision:
-                                 the webcam / local-only line the 頭部追蹤與隱私 group was
-                                 missing. ≥12px caption; wording is the locked B1
-                                 invariant. -->
-                            <TextBlock Text="{loc:T Zh='開啟後會使用視訊鏡頭，影像僅在本機處理，不會儲存或上傳。', En='Uses your webcam; processed locally — never stored or uploaded.'}"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-
-                            <!-- FEAT-08 (CW-10, B1b UI half): one-line head-tracking
-                                 health status from the B1a SidecarHeadPoseReader health
-                                 API (Healthy / NoFrames / Dead). Status is NOT colour-
-                                 only — a leading glyph + a plain-language word carry the
-                                 meaning ("never colour alone"). Hidden until the host
-                                 wires GetHeadTrackingHealth (the no-MainViewModel popup
-                                 path has no reader); code-behind sets text + glyph +
-                                 token in RefreshHeadTrackingHealth. -->
-                            <StackPanel x:Name="HeadTrackingHealthRow"
-                                        Orientation="Horizontal"
-                                        Visibility="Collapsed"
-                                        Margin="22,6,0,0">
-                                <TextBlock x:Name="HeadTrackingHealthGlyph"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,6,0"/>
-                                <TextBlock x:Name="HeadTrackingHealthText"
-                                           FontSize="12"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- Head-tracking follow mode is fixed to FULL-FOLLOW (the Balanced option +
-                             its radios were removed 2026-06-18, user request — no user choice). The
-                             mode is forced in App.OnStartup; OverlayWindow reads AppConfig.HeadTrackingFollowMode. -->
-                    </StackPanel>
-                </Border>
-
-                <!-- ═══ Section 3.4 · 漸進適應 / Graded exposure (D-1) ═══════════
-                     D-1 (CW-1 step 3, 2026-06-11): the graded-exposure (habituation)
-                     opt-in reinstated as a Settings toggle. Graded exposure defaults
-                     PAUSED; the old dashboard toggle was removed 2026-06-09, so this
-                     is the only user-intent path that resumes/pauses the program.
-                     Mirrors the head-tracking group's chrome + SettingSwitch toggle
-                     + ≥12px caption exactly. Hydrated from the host's live engine
-                     state (or the persisted pref on the no-MainViewModel popup) in
-                     RefreshFromPreferences, guarded by _wiring. Copy is §6-compliant:
-                     describes the APP relaxing protection while the user is
-                     comfortable — no 耐受/tolerance/therapy/recovery claims. -->
-                <Border Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='漸進適應', En='Graded exposure'}"
-                                   Margin="0,0,0,14"/>
-
-                        <StackPanel Orientation="Vertical">
-                            <CheckBox x:Name="ToggleGradedExposure"
-                                      Style="{StaticResource SettingSwitch}"
-                                      Content="{loc:T Zh='啟用漸進適應（緩慢提高舒適度）', En='Enable graded exposure (slowly builds comfort)'}"
-                                      Foreground="{DynamicResource TextPrimary}"
-                                      FontSize="13"
-                                      Checked="OnToggleGradedExposureChanged"
-                                      Unchecked="OnToggleGradedExposureChanged"/>
-                            <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap"
-                                       Margin="22,4,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- ═══ Section 3.5 · 事件記錄 / Event Log ═══════════════════════
-                     UI/UX fine-tune (2026-06-07): the former top-level 事件記錄 tab
-                     became a button here that opens the dedicated EventLogWindow —
-                     declutters the primary nav and keeps the log full-page in its own
-                     window. Grouped near 資料與隱私 (both are records/diagnostics).
-                     Hidden unless the host wired OpenEventLog (code-behind OnLoaded). -->
-                <Border x:Name="EventLogCard"
-                        Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='事件記錄', En='Event Log'}"
-                                   Margin="0,0,0,12"/>
-                        <Button x:Name="OpenEventLogButton"
-                                Content="{loc:T Zh='開啟事件記錄', En='Open event log'}"
-                                HorizontalAlignment="Left"
-                                Padding="14,7"
-                                FontSize="12"
-                                FontWeight="SemiBold"
-                                Foreground="{DynamicResource TextOnComfort}"
-                                Background="{DynamicResource Accent}"
-                                BorderThickness="0"
-                                Cursor="Hand"
-                                Click="OnOpenEventLogClicked"
-                                ToolTip="{loc:T Zh='在獨立視窗開啟事件／診斷紀錄', En='Open the event / diagnostic log in its own window'}"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- ═══ Section 3.6 · 偏好設定 / Preferences (D-15) ═══════════════
-                     D-15 (2026-06-11): "重設偏好設定 / Reset preferences" — wires the
-                     existing UserPreferences.ResetToDefaults() to a Settings action
-                     behind a ThemedDialog confirm that plainly enumerates what resets
-                     (theme, language, the notification / background toggles, and the
-                     saved HUD-card position). Deliberately kept in its OWN card,
-                     APART from the 資料與隱私 "Clear all my data" button below and
-                     with a distinct caption, so the two never read as the same action:
-                     this resets PREFERENCES; that clears DATA. Q4.5-safe — it touches
-                     only the preferences file, never the earned habituation offset.
-                     After reset the visible controls re-hydrate and the theme / language
-                     re-apply immediately (see OnResetPreferencesClicked). -->
-                <Border Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='偏好設定', En='Preferences'}"
-                                   Margin="0,0,0,14"/>
-                        <TextBlock Text="{loc:T Zh='把外觀、語言、通知與背景開關，以及通知卡片的位置還原成預設值。不會刪除你的資料或漸進適應進度。', En='Restore appearance, language, the notification &amp; background toggles, and the notification-card position to their defaults. This does not delete your data or graded-exposure progress.'}"
+                <StackPanel Orientation="Vertical">
+                    <CheckBox x:Name="ToggleMinimizeToTray"
+                              Style="{StaticResource SettingSwitch}"
+                              Content="{loc:T Zh='關閉視窗時最小化到系統匣 (不結束程式)', En='Minimise to the tray when the window closes (keep running)'}"
+                              Foreground="{DynamicResource TextPrimary}"
+                              FontSize="13"
+                              Checked="OnToggleMinimizeToTrayChanged"
+                              Unchecked="OnToggleMinimizeToTrayChanged"/>
+                    <TextBlock Text="{loc:T Zh='按下主視窗的 X 只會收到系統匣，背景持續偵測。', En='Pressing X on the main window just sends it to the tray; detection keeps running in the background.'}"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextTertiary}"
+                               TextWrapping="Wrap"
+                               Margin="22,4,0,0"/>
+                    <Expander Header="{loc:T Zh='了解更多', En='Learn more'}"
+                              FontSize="12"
+                              Foreground="{DynamicResource TextTertiary}"
+                              IsExpanded="False"
+                              Margin="22,2,0,0">
+                        <TextBlock Text="{loc:T Zh='開啟時，按下主視窗的 X 只會把視窗收到右下角的系統匣，SenseEase 持續在背景偵測。要完全結束請用系統匣選單的「退出 SenseEase」。', En='When on, pressing X on the main window sends it to the system tray (bottom-right) and SenseEase keeps detecting in the background. To quit completely, use Quit SenseEase in the tray menu.'}"
                                    FontSize="12"
                                    Foreground="{DynamicResource TextTertiary}"
                                    TextWrapping="Wrap"
-                                   Margin="0,0,0,10"/>
-                        <Button x:Name="ResetPreferencesButton"
-                                Content="{loc:T Zh='重設偏好設定', En='Reset preferences'}"
-                                HorizontalAlignment="Left"
+                                   Margin="0,4,0,0"/>
+                    </Expander>
+                </StackPanel>
+
+                <Border Height="1" Background="{DynamicResource Separator}" Margin="0,12"/>
+
+                <StackPanel Orientation="Vertical">
+                    <CheckBox x:Name="ToggleRunAtStartup"
+                              Style="{StaticResource SettingSwitch}"
+                              Content="{loc:T Zh='開機時自動啟動 SenseEase', En='Start SenseEase automatically at startup'}"
+                              Foreground="{DynamicResource TextPrimary}"
+                              FontSize="13"
+                              Checked="OnToggleRunAtStartupChanged"
+                              Unchecked="OnToggleRunAtStartupChanged"/>
+                </StackPanel>
+
+                <Border Height="1" Background="{DynamicResource Separator}" Margin="0,12"/>
+
+                <!-- ═══ TASK #7 · 喚出熱鍵 / Reveal hotkey ═══════════════════
+                     A system-wide hotkey (default Win+Alt+S, customisable) that
+                     reveals / toggles the glass popup bar even when SenseEase has no
+                     foreground window. The current gesture is shown read-only; 錄製 /
+                     Record arms a capture box (focused TextBox, PreviewKeyDown) that
+                     records the next modifier+key chord, persists it
+                     (UserPreferences.RevealHotkey) and asks the host to re-register the
+                     live Win32 hotkey (SetRevealHotkey). Modifier-only presses are
+                     ignored; Escape cancels. Fail-soft: an unregisterable chord just
+                     leaves no global hotkey — the edge-sidebar click still reveals.
+                     The chip + Record button use the RecessField dark inset so they
+                     read as the popup's recessed ChatInput, not a foreign card. -->
+                <StackPanel Orientation="Vertical">
+                    <!-- #9: label renamed to 側欄快捷鍵 / Sidebar shortcut; description line removed. -->
+                    <TextBlock Text="{loc:T Zh='側欄快捷鍵', En='Sidebar shortcut'}"
+                               FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}"
+                               Margin="0,0,0,10"/>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Current gesture, shown read-only. While recording, the
+                             code-behind swaps this to a "press a combination…" prompt. -->
+                        <Border Background="{DynamicResource RecessField}"
+                                BorderBrush="{DynamicResource CardBorder}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource Radius.sm}"
+                                Padding="12,7"
+                                MinWidth="150"
+                                VerticalAlignment="Center">
+                            <TextBlock x:Name="RevealHotkeyDisplay"
+                                       Text="Win+Alt+S"
+                                       FontFamily="Consolas"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <!-- Invisible focus target that owns the key capture. A read-only
+                             0-size TextBox is the simplest focusable element whose
+                             PreviewKeyDown fires for chords; it never shows a caret or
+                             accepts typed text. -->
+                        <TextBox x:Name="HotkeyCaptureBox"
+                                 Width="0" Height="0" Opacity="0"
+                                 IsReadOnly="True"
+                                 IsTabStop="False"
+                                 PreviewKeyDown="OnHotkeyCaptureKeyDown"
+                                 LostKeyboardFocus="OnHotkeyCaptureLostFocus"/>
+                        <Button x:Name="RecordHotkeyButton"
+                                Content="{loc:T Zh='錄製', En='Record'}"
+                                Margin="10,0,0,0"
                                 Padding="14,7"
                                 FontSize="12"
                                 FontWeight="SemiBold"
@@ -603,144 +338,278 @@
                                 BorderBrush="{DynamicResource CardBorder}"
                                 BorderThickness="1"
                                 Cursor="Hand"
-                                Click="OnResetPreferencesClicked"
-                                ToolTip="{loc:T Zh='把外觀、語言、通知與背景開關及通知卡片位置還原成預設值；不影響你的資料或漸進適應進度。', En='Restore appearance, language, notification &amp; background toggles, and the notification-card position to defaults; your data and graded-exposure progress are unaffected.'}"/>
+                                VerticalAlignment="Center"
+                                Click="OnRecordHotkeyClicked"
+                                ToolTip="{loc:T Zh='點擊後按下新的組合鍵（需含 Ctrl / Alt / Shift / Win）；Esc 取消。', En='Click, then press a new combination (must include Ctrl / Alt / Shift / Win); Esc cancels.'}"/>
                     </StackPanel>
-                </Border>
+                </StackPanel>
+            </StackPanel>
 
-                <!-- ═══ Section 4 · 資料與隱私 / Data & privacy (H24) ═══ -->
-                <Border Background="{DynamicResource Surface}"
-                        BorderBrush="{DynamicResource CardBorder}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18"
-                        Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Type.Heading}"
-                                   Text="{loc:T Zh='資料與隱私', En='Data &amp; privacy'}"
-                                   Margin="0,0,0,14"/>
-                        <!-- UX-09 + FEAT-13 (B1b): the label said "all my data" but the
-                             clear path used to skip the two content-bearing PII files
-                             (chat transcript + legacy calibration history). The clear
-                             path now includes both; this caption + the confirm dialog
-                             plainly enumerate everything deleted and everything kept, so
-                             the label no longer overstates its scope. ≥12px caption. -->
-                        <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, and legacy calibration history SenseEase has built about you. Your graded-exposure progress and preferences are kept. This cannot be undone.'}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,0,0,10"/>
-                        <Button x:Name="ClearAllDataButton"
-                                Content="{loc:T Zh='清除所有資料並重設', En='Clear all my data and reset'}"
-                                HorizontalAlignment="Left"
-                                Padding="14,7"
+            <!-- ═══ Head tracking & privacy ═══════════════════════════════════════ -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='頭部追蹤與隱私', En='Head tracking &amp; privacy'}"/>
+
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="ToggleHeadTrackingEnabled"
+                                  Style="{StaticResource SettingSwitch}"
+                                  Content="{loc:T Zh='啟用頭部追蹤', En='Enable Head Tracking'}"
+                                  Foreground="{DynamicResource TextPrimary}"
+                                  FontSize="13"
+                                  VerticalAlignment="Center"
+                                  Checked="OnToggleHeadTrackingEnabledChanged"
+                                  Unchecked="OnToggleHeadTrackingEnabledChanged"/>
+                        <!-- UX-08 (B1b): the chip is SHOWN ONLY when the toggle differs
+                             from the app-start value (pending restart). Default Collapsed;
+                             code-behind (UpdateRestartChip) flips it. -->
+                        <Button x:Name="RestartButton"
+                                Visibility="Collapsed"
+                                Content="{loc:T Zh='需重新啟動', En='Restart needed'}"
+                                Margin="10,0,0,0"
+                                Padding="10,5"
                                 FontSize="12"
                                 FontWeight="SemiBold"
-                                Foreground="{DynamicResource ComfortHighText}"
-                                Background="{DynamicResource ComfortHighWeak}"
-                                BorderBrush="{DynamicResource ComfortHigh}"
+                                Foreground="{DynamicResource ComfortRisingText}"
+                                Background="{DynamicResource ComfortRisingWeak}"
+                                BorderBrush="{DynamicResource ComfortRising}"
                                 BorderThickness="1"
                                 Cursor="Hand"
-                                Click="OnClearAllDataClicked"
-                                ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察、模型追蹤、對話紀錄與舊版校正紀錄；保留漸進適應進度與偏好設定。', En='Deletes the behaviour log, analysis index, longitudinal observations, model trace, chat transcript, and legacy calibration history; keeps your graded-exposure progress and preferences.'}"/>
-
-                        <!-- Beta-1 D-16 (2026-06-14): per-app attribution consent.
-                             OFF by default; flipping ON lets SenseEase record which
-                             foreground app + coarse category was active when a comfort
-                             event fires, so personalisation can learn per-app triggers.
-                             STRICTLY on-device (D-16) — the app name never leaves the
-                             machine. Runtime-changeable: WindowsActivityFilter reads the
-                             live flag each foreground change (no restart needed). -->
-                        <Border Background="{DynamicResource Separator}" Height="1" Margin="0,18,0,14"/>
-                        <CheckBox x:Name="TogglePerAppAttribution"
-                                  Content="{loc:T Zh='記錄使用中的應用程式（協助個人化）', En='Record which app I am using (helps personalisation)'}"
-                                  Foreground="{DynamicResource TextPrimary}" FontSize="12"
-                                  Checked="OnTogglePerAppAttributionChanged"
-                                  Unchecked="OnTogglePerAppAttributionChanged"/>
-                        <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會在不適發生時記錄你正在使用哪個應用程式及其類別，用來學習個別的觸發來源。所有資料僅在本機處理，應用程式名稱永遠不會上傳。', En='When on, SenseEase records which app (and its category) was active when discomfort occurs, to learn your individual triggers. All data stays on this device — the app name is never uploaded.'}"
-                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
-
-                        <!-- Phase-1 (2026-06-16): opt-in for the event-driven contextual check-in. -->
-                        <CheckBox x:Name="ToggleProactiveCheckIns"
-                                  Content="{loc:T Zh='動態較多時順手問我的感受（事件提醒）', En='Check in on how I feel after intense motion (event prompts)'}"
-                                  Foreground="{DynamicResource TextPrimary}" FontSize="12"
-                                  Margin="0,14,0,0"
-                                  Checked="OnToggleProactiveCheckInsChanged"
-                                  Unchecked="OnToggleProactiveCheckInsChanged"/>
-                        <TextBlock Text="{loc:T Zh='開啟後，偵測到大量畫面動態時會出現一個可一鍵回應的小提醒，詢問你的不適程度。完全選用、可隨時關閉，並有頻率限制以避免打擾；資料僅存於本機。', En='When on, a one-tap prompt appears after a burst of on-screen motion, asking how you feel. Fully optional, dismissible, rate-limited so it never nags, and stored on this device only.'}"
-                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
-
-                        <!-- B5 (2026-06-17): opt-in for the deterministic auto-adaptation tuner. -->
-                        <CheckBox x:Name="ToggleAdaptiveAutoTune"
-                                  Content="{loc:T Zh='讓 SenseEase 依我的回報自動微調防護強度', En='Let SenseEase auto-tune protection strength from my reports'}"
-                                  Foreground="{DynamicResource TextPrimary}" FontSize="12"
-                                  Margin="0,14,0,0"
-                                  Checked="OnToggleAdaptiveAutoTuneChanged"
-                                  Unchecked="OnToggleAdaptiveAutoTuneChanged"/>
-                        <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會依你最近的感受回報與使用情況，自動且小幅地調整防護強度（每次幅度有上限、可隨時在設定中重置）。每次調整都會在對話中告知你。完全選用、預設關閉；所有判斷皆在本機進行。', En='When on, SenseEase makes small automatic adjustments to protection strength based on your recent check-ins and usage (each step is capped and can be reset anytime). Every change is announced in the chat. Fully optional, off by default; all decisions happen on this device.'}"
-                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
-
-                        <!-- Beta-1 D-17 (2026-06-14): de-identified clinical export. Builds a
-                             numbers-and-categories-only aggregate (measured vs estimated kept
-                             separate) to share with a clinician — never a raw app name, an
-                             utterance, or a finer-than-date timestamp. OnExportClinicalClicked
-                             → ClinicalExportService.WriteJson. -->
-                        <Border Background="{DynamicResource Separator}" Height="1" Margin="0,18,0,14"/>
-                        <TextBlock Text="{loc:T Zh='健康報告匯出', En='Health report export'}"
-                                   Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
-                                   Margin="0,0,0,6"/>
-                        <TextBlock Text="{loc:T Zh='匯出一份去識別化的數據摘要（僅數字與類別，不含應用程式名稱或對話內容），可提供給醫療人員參考。測量值與估計值會分開呈現。', En='Export a de-identified numeric summary (numbers and categories only — no app names or conversation text) to share with a clinician. Measured and estimated values are shown separately.'}"
-                                   FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                                   TextWrapping="Wrap" Margin="0,0,0,10"/>
-                        <Button x:Name="ExportClinicalButton"
-                                Content="{loc:T Zh='匯出健康報告…', En='Export health report…'}"
-                                HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
-                                Cursor="Hand" Click="OnExportClinicalClicked"
-                                ToolTip="{loc:T Zh='把去識別化的數值摘要存成 JSON 檔。', En='Save a de-identified numeric summary as a JSON file.'}"/>
-                        <!-- D-redesign: not-a-medical-device disclaimer on the health export.
-                             Wording is checked against the §6 BannedPhraseLint medical-claim
-                             vocabulary (describes the tool, not the user's clinical state). -->
-                        <TextBlock Text="{loc:T Zh='SenseEase 為健康輔助工具，並非醫療器材。這些自評數值僅供您與醫療人員參考，並非臨床評估。', En='SenseEase is a wellness tool, not a medical device. These self-reported values are for reference by you and your clinician only — not a clinical assessment.'}"
-                                   FontSize="11" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
-                                   TextWrapping="Wrap" Margin="0,8,0,0"/>
-
-                        <!-- Raw per-check-in CSV export REMOVED 2026-06-18 (user): raw data is
-                             LLM-access-only now — the user-facing export is the de-identified health
-                             report above (which gains an LLM report-writing pass). The symptom store
-                             stays on-device for the engine/LLM. -->
-
-                        <!-- Alpha-2 addendum (auto-profiling world only): the vestibular
-                             "regret" toggle + the Reset that moved here from the console.
-                             Hidden unless AppConfig.AutoProfilingEnabled (set in OnLoaded). -->
-                        <StackPanel x:Name="AutoProfilingDataGroup" Visibility="Collapsed" Margin="0,18,0,0">
-                            <Border Background="{DynamicResource Separator}" Height="1" Margin="0,0,0,14"/>
-                            <CheckBox x:Name="VestibularProtectionToggle"
-                                      Content="{loc:T Zh='暈眩防護（敏感模式）', En='Dizziness protection (sensitive mode)'}"
-                                      Foreground="{DynamicResource TextPrimary}" FontSize="12"
-                                      Checked="OnVestibularProtectionChanged"
-                                      Unchecked="OnVestibularProtectionChanged"/>
-                            <TextBlock Text="{loc:T Zh='若您感到暈眩或不適，可開啟此防護。', En='If you feel dizzy or uncomfortable, you can enable this protection.'}"
-                                       FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                                       TextWrapping="Wrap" Margin="0,6,0,14"/>
-                            <Button x:Name="ResetStateButton"
-                                    Content="{loc:T Zh='重設個人化狀態', En='Reset personalisation state'}"
-                                    HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
-                                    Foreground="{DynamicResource ComfortHighText}"
-                                    Background="{DynamicResource ComfortHighWeak}"
-                                    BorderBrush="{DynamicResource ComfortHigh}" BorderThickness="1" Cursor="Hand"
-                                    Click="OnResetStateClicked"
-                                    ToolTip="{loc:T Zh='清除暫時的個人化（遮罩微調），保留你已養成的習慣化進度。', En='Clears transient personalisation (shader tweaks); keeps your earned habituation progress.'}"/>
-                        </StackPanel>
+                                Click="OnRestartClicked"
+                                ToolTip="{loc:T Zh='點擊立即重啟 SenseEase 以套用頭部追蹤變更', En='Click to restart SenseEase now and apply head-tracking changes'}"/>
                     </StackPanel>
-                </Border>
 
-                <!-- Developer test-hotkeys reference table REMOVED 2026-06-18 (Q6): it was
-                     permanently collapsed (the listed Ctrl+Shift+H sweep is non-functional) — dead UI. -->
+                    <!-- UX-08 (B1b) B1 consent copy at the point of decision: the webcam /
+                         local-only line. ≥12px caption; wording is the locked B1 invariant. -->
+                    <TextBlock Text="{loc:T Zh='開啟後會使用視訊鏡頭，影像僅在本機處理，不會儲存或上傳。', En='Uses your webcam; processed locally — never stored or uploaded.'}"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextTertiary}"
+                               TextWrapping="Wrap"
+                               Margin="22,4,0,0"/>
+
+                    <!-- FEAT-08 (CW-10, B1b UI half): one-line head-tracking health from the
+                         B1a SidecarHeadPoseReader health API. Status is NOT colour-only — a
+                         leading glyph + a plain-language word carry the meaning. Hidden until
+                         the host wires GetHeadTrackingHealth; code-behind sets text + glyph +
+                         token in RefreshHeadTrackingHealth. -->
+                    <StackPanel x:Name="HeadTrackingHealthRow"
+                                Orientation="Horizontal"
+                                Visibility="Collapsed"
+                                Margin="22,6,0,0">
+                        <TextBlock x:Name="HeadTrackingHealthGlyph"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,6,0"/>
+                        <TextBlock x:Name="HeadTrackingHealthText"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Head-tracking follow mode is fixed to FULL-FOLLOW (the Balanced option +
+                     its radios were removed 2026-06-18, user request — no user choice). The
+                     mode is forced in App.OnStartup; OverlayWindow reads AppConfig.HeadTrackingFollowMode. -->
             </StackPanel>
-        </ScrollViewer>
-    </Border>
+
+            <!-- ═══ Graded exposure (D-1) ═════════════════════════════════════════
+                 The graded-exposure (habituation) opt-in. Defaults PAUSED; this is the only
+                 user-intent path that resumes/pauses the program. Hydrated from the host's
+                 live engine state (or the persisted pref on the no-MainViewModel popup) in
+                 RefreshFromPreferences, guarded by _wiring. -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='漸進適應', En='Graded exposure'}"/>
+                <StackPanel Orientation="Vertical">
+                    <CheckBox x:Name="ToggleGradedExposure"
+                              Style="{StaticResource SettingSwitch}"
+                              Content="{loc:T Zh='啟用漸進適應（緩慢提高舒適度）', En='Enable graded exposure (slowly builds comfort)'}"
+                              Foreground="{DynamicResource TextPrimary}"
+                              FontSize="13"
+                              Checked="OnToggleGradedExposureChanged"
+                              Unchecked="OnToggleGradedExposureChanged"/>
+                    <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextTertiary}"
+                               TextWrapping="Wrap"
+                               Margin="22,4,0,0"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- ═══ Event Log ═════════════════════════════════════════════════════
+                 The former top-level 事件記錄 tab became a button that opens the dedicated
+                 EventLogWindow. The whole group (incl. its leading GroupSeam) carries the
+                 x:Name="EventLogCard" so code-behind can collapse it as ONE unit — when
+                 hidden (no OpenEventLog wired), no orphan hairline is left behind. -->
+            <StackPanel x:Name="EventLogCard">
+                <Border Style="{StaticResource GroupSeam}"/>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='事件記錄', En='Event Log'}"/>
+                <Button x:Name="OpenEventLogButton"
+                        Content="{loc:T Zh='開啟事件記錄', En='Open event log'}"
+                        HorizontalAlignment="Left"
+                        Padding="14,7"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Foreground="{DynamicResource TextOnComfort}"
+                        Background="{DynamicResource Accent}"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        Click="OnOpenEventLogClicked"
+                        ToolTip="{loc:T Zh='在獨立視窗開啟事件／診斷紀錄', En='Open the event / diagnostic log in its own window'}"/>
+            </StackPanel>
+
+            <!-- ═══ Preferences (D-15) ════════════════════════════════════════════
+                 "重設偏好設定 / Reset preferences" — wires UserPreferences.ResetToDefaults()
+                 behind a ThemedDialog confirm. Deliberately APART from the "Clear all my data"
+                 button below: this resets PREFERENCES; that clears DATA. Q4.5-safe — touches
+                 only the preferences file, never the earned habituation offset. -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='偏好設定', En='Preferences'}"/>
+                <TextBlock Text="{loc:T Zh='把外觀、語言、通知與背景開關，以及通知卡片的位置還原成預設值。不會刪除你的資料或漸進適應進度。', En='Restore appearance, language, the notification &amp; background toggles, and the notification-card position to their defaults. This does not delete your data or graded-exposure progress.'}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"/>
+                <Button x:Name="ResetPreferencesButton"
+                        Content="{loc:T Zh='重設偏好設定', En='Reset preferences'}"
+                        HorizontalAlignment="Left"
+                        Padding="14,7"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Foreground="{DynamicResource TextPrimary}"
+                        Background="{DynamicResource SurfaceMuted}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        Cursor="Hand"
+                        Click="OnResetPreferencesClicked"
+                        ToolTip="{loc:T Zh='把外觀、語言、通知與背景開關及通知卡片位置還原成預設值；不影響你的資料或漸進適應進度。', En='Restore appearance, language, notification &amp; background toggles, and the notification-card position to defaults; your data and graded-exposure progress are unaffected.'}"/>
+            </StackPanel>
+
+            <!-- ═══ Data & privacy (H24) ══════════════════════════════════════════ -->
+            <Border Style="{StaticResource GroupSeam}"/>
+            <StackPanel>
+                <TextBlock Style="{StaticResource GroupHeader}"
+                           Text="{loc:T Zh='資料與隱私', En='Data &amp; privacy'}"/>
+                <!-- UX-09 + FEAT-13 (B1b): the caption + confirm dialog plainly enumerate
+                     everything deleted and everything kept, so the label never overstates. -->
+                <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, and legacy calibration history SenseEase has built about you. Your graded-exposure progress and preferences are kept. This cannot be undone.'}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"/>
+                <Button x:Name="ClearAllDataButton"
+                        Content="{loc:T Zh='清除所有資料並重設', En='Clear all my data and reset'}"
+                        HorizontalAlignment="Left"
+                        Padding="14,7"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Foreground="{DynamicResource ComfortHighText}"
+                        Background="{DynamicResource ComfortHighWeak}"
+                        BorderBrush="{DynamicResource ComfortHigh}"
+                        BorderThickness="1"
+                        Cursor="Hand"
+                        Click="OnClearAllDataClicked"
+                        ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察、模型追蹤、對話紀錄與舊版校正紀錄；保留漸進適應進度與偏好設定。', En='Deletes the behaviour log, analysis index, longitudinal observations, model trace, chat transcript, and legacy calibration history; keeps your graded-exposure progress and preferences.'}"/>
+
+                <!-- Beta-1 D-16 (2026-06-14): per-app attribution consent. OFF by default;
+                     flipping ON lets SenseEase record which foreground app + coarse category
+                     was active when a comfort event fires. STRICTLY on-device — the app name
+                     never leaves the machine. Runtime-changeable (no restart). -->
+                <Border Background="{DynamicResource Separator}" Height="1" Margin="0,14,0,12"/>
+                <CheckBox x:Name="TogglePerAppAttribution"
+                          Style="{StaticResource SettingSwitch}"
+                          Content="{loc:T Zh='記錄使用中的應用程式（協助個人化）', En='Record which app I am using (helps personalisation)'}"
+                          Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                          Checked="OnTogglePerAppAttributionChanged"
+                          Unchecked="OnTogglePerAppAttributionChanged"/>
+                <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會在不適發生時記錄你正在使用哪個應用程式及其類別，用來學習個別的觸發來源。所有資料僅在本機處理，應用程式名稱永遠不會上傳。', En='When on, SenseEase records which app (and its category) was active when discomfort occurs, to learn your individual triggers. All data stays on this device — the app name is never uploaded.'}"
+                           FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap" Margin="22,6,0,0"/>
+
+                <!-- Phase-1 (2026-06-16): opt-in for the event-driven contextual check-in. -->
+                <CheckBox x:Name="ToggleProactiveCheckIns"
+                          Style="{StaticResource SettingSwitch}"
+                          Content="{loc:T Zh='動態較多時順手問我的感受（事件提醒）', En='Check in on how I feel after intense motion (event prompts)'}"
+                          Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                          Margin="0,14,0,0"
+                          Checked="OnToggleProactiveCheckInsChanged"
+                          Unchecked="OnToggleProactiveCheckInsChanged"/>
+                <TextBlock Text="{loc:T Zh='開啟後，偵測到大量畫面動態時會出現一個可一鍵回應的小提醒，詢問你的不適程度。完全選用、可隨時關閉，並有頻率限制以避免打擾；資料僅存於本機。', En='When on, a one-tap prompt appears after a burst of on-screen motion, asking how you feel. Fully optional, dismissible, rate-limited so it never nags, and stored on this device only.'}"
+                           FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap" Margin="22,6,0,0"/>
+
+                <!-- B5 (2026-06-17): opt-in for the deterministic auto-adaptation tuner. -->
+                <CheckBox x:Name="ToggleAdaptiveAutoTune"
+                          Style="{StaticResource SettingSwitch}"
+                          Content="{loc:T Zh='讓 SenseEase 依我的回報自動微調防護強度', En='Let SenseEase auto-tune protection strength from my reports'}"
+                          Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                          Margin="0,14,0,0"
+                          Checked="OnToggleAdaptiveAutoTuneChanged"
+                          Unchecked="OnToggleAdaptiveAutoTuneChanged"/>
+                <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會依你最近的感受回報與使用情況，自動且小幅地調整防護強度（每次幅度有上限、可隨時在設定中重置）。每次調整都會在對話中告知你。完全選用、預設關閉；所有判斷皆在本機進行。', En='When on, SenseEase makes small automatic adjustments to protection strength based on your recent check-ins and usage (each step is capped and can be reset anytime). Every change is announced in the chat. Fully optional, off by default; all decisions happen on this device.'}"
+                           FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap" Margin="22,6,0,0"/>
+
+                <!-- Beta-1 D-17 (2026-06-14): de-identified clinical export. Numbers-and-
+                     categories-only aggregate (measured vs estimated kept separate) — never a
+                     raw app name, an utterance, or a finer-than-date timestamp. -->
+                <Border Background="{DynamicResource Separator}" Height="1" Margin="0,14,0,12"/>
+                <TextBlock Text="{loc:T Zh='健康報告匯出', En='Health report export'}"
+                           Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
+                           Margin="0,0,0,6"/>
+                <TextBlock Text="{loc:T Zh='匯出一份去識別化的數據摘要（僅數字與類別，不含應用程式名稱或對話內容），可提供給醫療人員參考。測量值與估計值會分開呈現。', En='Export a de-identified numeric summary (numbers and categories only — no app names or conversation text) to share with a clinician. Measured and estimated values are shown separately.'}"
+                           FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                           TextWrapping="Wrap" Margin="0,0,0,10"/>
+                <Button x:Name="ExportClinicalButton"
+                        Content="{loc:T Zh='匯出健康報告…', En='Export health report…'}"
+                        HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
+                        Foreground="{DynamicResource TextPrimary}"
+                        Background="{DynamicResource SurfaceMuted}"
+                        BorderBrush="{DynamicResource CardBorder}"
+                        BorderThickness="1"
+                        Cursor="Hand" Click="OnExportClinicalClicked"
+                        ToolTip="{loc:T Zh='把去識別化的數值摘要存成 JSON 檔。', En='Save a de-identified numeric summary as a JSON file.'}"/>
+                <!-- D-redesign: not-a-medical-device disclaimer. Wording is §6 BannedPhraseLint
+                     compliant (describes the tool, not the user's clinical state). -->
+                <TextBlock Text="{loc:T Zh='SenseEase 為健康輔助工具，並非醫療器材。這些自評數值僅供您與醫療人員參考，並非臨床評估。', En='SenseEase is a wellness tool, not a medical device. These self-reported values are for reference by you and your clinician only — not a clinical assessment.'}"
+                           FontSize="11" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
+                           TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+                <!-- Raw per-check-in CSV export REMOVED 2026-06-18 (user): raw data is
+                     LLM-access-only now — the user-facing export is the de-identified health
+                     report above. The symptom store stays on-device for the engine/LLM. -->
+
+                <!-- Alpha-2 addendum (auto-profiling world only): the vestibular "regret" toggle
+                     + the Reset that moved here from the console. Hidden unless
+                     AppConfig.AutoProfilingEnabled (set in RefreshFromPreferences). -->
+                <StackPanel x:Name="AutoProfilingDataGroup" Visibility="Collapsed" Margin="0,14,0,0">
+                    <Border Background="{DynamicResource Separator}" Height="1" Margin="0,0,0,12"/>
+                    <CheckBox x:Name="VestibularProtectionToggle"
+                              Style="{StaticResource SettingSwitch}"
+                              Content="{loc:T Zh='暈眩防護（敏感模式）', En='Dizziness protection (sensitive mode)'}"
+                              Foreground="{DynamicResource TextPrimary}" FontSize="12"
+                              Checked="OnVestibularProtectionChanged"
+                              Unchecked="OnVestibularProtectionChanged"/>
+                    <TextBlock Text="{loc:T Zh='若您感到暈眩或不適，可開啟此防護。', En='If you feel dizzy or uncomfortable, you can enable this protection.'}"
+                               FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                               TextWrapping="Wrap" Margin="22,6,0,14"/>
+                    <Button x:Name="ResetStateButton"
+                            Content="{loc:T Zh='重設個人化狀態', En='Reset personalisation state'}"
+                            HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
+                            Foreground="{DynamicResource ComfortHighText}"
+                            Background="{DynamicResource ComfortHighWeak}"
+                            BorderBrush="{DynamicResource ComfortHigh}" BorderThickness="1" Cursor="Hand"
+                            Click="OnResetStateClicked"
+                            ToolTip="{loc:T Zh='清除暫時的個人化（遮罩微調），保留你已養成的習慣化進度。', En='Clears transient personalisation (shader tweaks); keeps your earned habituation progress.'}"/>
+                </StackPanel>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

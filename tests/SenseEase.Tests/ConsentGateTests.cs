@@ -47,19 +47,19 @@ public class ConsentGateTests
         int asks = 0;
         vm.OverlayConsentRequested += (_, _) => asks++;
 
-        // Engine mask rises from a clear screen → hold + ask exactly once.
-        Assert.True(vm.ShouldHoldMaskForConsent(naturalTier: 5, engineMaskActive: true));
+        // Tier rises into the visible range (>=2) from a clear screen → hold + ask exactly once.
+        Assert.True(vm.ShouldHoldMaskForConsent(naturalTier: 5));
         Assert.Equal(1, asks);
-        Assert.True(vm.ShouldHoldMaskForConsent(5, true)); // still pending → held, no new ask
+        Assert.True(vm.ShouldHoldMaskForConsent(5)); // still pending → held, no new ask
         Assert.Equal(1, asks);
 
         // User agrees → released.
         vm.GrantOverlayConsent();
-        Assert.False(vm.ShouldHoldMaskForConsent(5, true));
+        Assert.False(vm.ShouldHoldMaskForConsent(5));
 
-        // Mask subsides → re-arm; a NEW engagement asks again (accept cleared the cooldown).
-        Assert.False(vm.ShouldHoldMaskForConsent(1, false));
-        Assert.True(vm.ShouldHoldMaskForConsent(6, true));
+        // Tier falls back to L1 → re-arm; a NEW engagement asks again (accept cleared the cooldown).
+        Assert.False(vm.ShouldHoldMaskForConsent(1));
+        Assert.True(vm.ShouldHoldMaskForConsent(6));
         Assert.Equal(2, asks);
     }
 
@@ -71,7 +71,7 @@ public class ConsentGateTests
         int asks = 0;
         vm.OverlayConsentRequested += (_, _) => asks++;
 
-        Assert.False(vm.ShouldHoldMaskForConsent(naturalTier: 8, engineMaskActive: true));
+        Assert.False(vm.ShouldHoldMaskForConsent(naturalTier: 8));
         Assert.Equal(0, asks);
     }
 
@@ -83,9 +83,9 @@ public class ConsentGateTests
         int asks = 0;
         vm.OverlayConsentRequested += (_, _) => asks++;
 
-        Assert.True(vm.ShouldHoldMaskForConsent(5, true)); // ask #1
-        vm.DeclineOverlayConsent();                        // cooldown begins
-        Assert.True(vm.ShouldHoldMaskForConsent(5, true)); // still engaged → still held
-        Assert.Equal(1, asks);                             // but no re-ask while pending/cooling down
+        Assert.True(vm.ShouldHoldMaskForConsent(5)); // ask #1
+        vm.DeclineOverlayConsent();                  // cooldown begins
+        Assert.True(vm.ShouldHoldMaskForConsent(5)); // still engaged → still held
+        Assert.Equal(1, asks);                       // but no re-ask while pending/cooling down
     }
 }

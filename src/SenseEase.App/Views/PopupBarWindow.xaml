@@ -133,6 +133,7 @@
                  so dragging + snapping work natively. Top = stronger (Maximum at top). The DECREASE
                  repeat button is the bottom→thumb run (toward Minimum) → painted SegOn = the filled
                  level; the increase run is transparent so the SegOff rail shows above. -->
+            <!-- thinner rail (UI比較粗 fix): 3px run -->
             <Style x:Key="PopupSliderRepeatFilled" TargetType="RepeatButton">
                 <Setter Property="Focusable" Value="False"/>
                 <Setter Property="IsTabStop" Value="False"/>
@@ -140,7 +141,7 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="RepeatButton">
                             <Border Background="Transparent">
-                                <Border Width="5" CornerRadius="2.5" HorizontalAlignment="Center"
+                                <Border Width="3" CornerRadius="1.5" HorizontalAlignment="Center"
                                         Background="{DynamicResource Popup.SegOn}"/>
                             </Border>
                         </ControlTemplate>
@@ -158,32 +159,42 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+            <!-- a clear FILLED dot (沒有一個點點 fix): blue fill + light ring so it reads as a grabbable knob -->
             <Style x:Key="PopupSliderThumb" TargetType="Thumb">
                 <Setter Property="Focusable" Value="False"/>
                 <Setter Property="Width" Value="44"/>
-                <Setter Property="Height" Value="18"/>
+                <Setter Property="Height" Value="16"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Thumb">
-                            <!-- 44-wide transparent hit pad; 16px visible knob -->
-                            <Border Background="Transparent">
-                                <Border x:Name="knob" Width="16" Height="16" CornerRadius="8"
-                                        Background="{DynamicResource Popup.OnBar}"
-                                        BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="2"
+                            <Border Background="Transparent"> <!-- 44-wide hit pad -->
+                                <Border x:Name="knob" Width="13" Height="13" CornerRadius="6.5"
+                                        Background="{DynamicResource Popup.Blue}"
+                                        BorderBrush="{DynamicResource Popup.OnBar}" BorderThickness="1.5"
                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="knob" Property="Background" Value="{DynamicResource Popup.Blue}"/>
+                                    <Setter TargetName="knob" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
                                 </Trigger>
                                 <Trigger Property="IsDragging" Value="True">
-                                    <Setter TargetName="knob" Property="Background" Value="{DynamicResource Popup.Blue}"/>
+                                    <Setter TargetName="knob" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
+            </Style>
+            <!-- one of the 12 faint step rungs (段落感 fix) -->
+            <Style x:Key="PopupSliderTick" TargetType="Border">
+                <Setter Property="Width" Value="9"/>
+                <Setter Property="Height" Value="2"/>
+                <Setter Property="CornerRadius" Value="1"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="HorizontalAlignment" Value="Center"/>
+                <Setter Property="Background" Value="{DynamicResource Popup.OnBarDim}"/>
+                <Setter Property="Opacity" Value="0.40"/>
             </Style>
             <Style x:Key="PopupIntensitySlider" TargetType="Slider">
                 <Setter Property="Orientation" Value="Vertical"/>
@@ -200,9 +211,24 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Slider">
                             <Grid>
-                                <!-- unfilled rail -->
-                                <Border Width="5" CornerRadius="2.5" HorizontalAlignment="Center"
+                                <!-- thin unfilled rail -->
+                                <Border Width="3" CornerRadius="1.5" HorizontalAlignment="Center"
                                         Background="{DynamicResource Popup.SegOff}"/>
+                                <!-- 12 step rungs → discrete-level feel (段落感) -->
+                                <UniformGrid Rows="12" Margin="0,3" HorizontalAlignment="Center">
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                    <Border Style="{StaticResource PopupSliderTick}"/>
+                                </UniformGrid>
                                 <Track x:Name="PART_Track">
                                     <Track.DecreaseRepeatButton>
                                         <RepeatButton Style="{StaticResource PopupSliderRepeatFilled}" Command="Slider.DecreaseLarge"/>
@@ -228,8 +254,11 @@
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ═══ Col 0 — AI chat card (toggled, floats left of the bar, hugs its content) ═══ -->
-        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Margin="0,0,8,0"
+        <!-- ═══ Col 0 — AI chat card (toggled, floats left of the bar). FIXED HEIGHT (#4): the card
+             is a constant height so typing / new messages never reflow the window (the "flash on
+             every keystroke" was SizeToContent re-measuring as the input + message list grew). The
+             messages row is star-sized and absorbs the input box's growth — total height stays put. -->
+        <Border x:Name="ChatPanel" Grid.Column="0" Width="300" Height="480" Margin="0,0,8,0"
                 VerticalAlignment="Center"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,0.5"
                 Background="{DynamicResource Popup.PanelBg}"
@@ -240,7 +269,7 @@
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
@@ -259,8 +288,8 @@
                     </Button>
                 </Grid>
 
-                <!-- messages — sizes to content up to a cap (no fixed-height blank) -->
-                <ScrollViewer Grid.Row="1" Margin="10,0" MaxHeight="340" VerticalScrollBarVisibility="Auto"
+                <!-- messages — fill the fixed-height card's middle row; scroll when overflowing -->
+                <ScrollViewer Grid.Row="1" Margin="10,0" VerticalScrollBarVisibility="Auto"
                               PanningMode="VerticalOnly"
                               Style="{DynamicResource AutoHideScroll}">
                     <ItemsControl ItemsSource="{Binding Chat.Messages}">
@@ -522,26 +551,22 @@
                      bar is still draggable from its background via the same handler. -->
                 <Border x:Name="DragHandle" Cursor="SizeNS" Background="Transparent"
                         Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"
-                        HorizontalAlignment="Center" Margin="0,3,0,0" Padding="12,6"
+                        HorizontalAlignment="Center" Margin="0,2,0,0" Padding="10,5"
                         ToolTip="{loc:T Zh='拖曳調整上下位置', En='Drag to move up / down'}"
                         AutomationProperties.Name="{loc:T Zh='拖曳調整工具列上下位置', En='Drag the bar up or down'}">
                     <Border.Style>
                         <Style TargetType="Border">
-                            <Setter Property="Opacity" Value="0.55"/>
+                            <!-- #10: smaller + fainter — a single short rule, barely-there at rest -->
+                            <Setter Property="Opacity" Value="0.3"/>
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Opacity" Value="0.9"/>
+                                    <Setter Property="Opacity" Value="0.6"/>
                                 </Trigger>
                             </Style.Triggers>
                         </Style>
                     </Border.Style>
-                    <!-- two short parallel rules = the universal grab/handle affordance -->
-                    <StackPanel VerticalAlignment="Center">
-                        <Border Width="20" Height="2.5" CornerRadius="1.25"
-                                Background="{DynamicResource Popup.OnBarDim}"/>
-                        <Border Width="20" Height="2.5" CornerRadius="1.25" Margin="0,3,0,0"
-                                Background="{DynamicResource Popup.OnBarDim}"/>
-                    </StackPanel>
+                    <Border Width="12" Height="2" CornerRadius="1" VerticalAlignment="Center"
+                            Background="{DynamicResource Popup.OnBarDim}"/>
                 </Border>
             </StackPanel>
         </Border>
