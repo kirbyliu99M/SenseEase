@@ -1746,13 +1746,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // episode, with a ~10-min cooldown after a decline. All state is touched only on the UI thread
     // (MainWindow.OnStateChanged + the bubble callbacks), so no locking is needed.
     private readonly SenseEase.App.Services.OverlayConsentGovernor _overlayConsent = new();
-    // The overlay alpha is TIER-driven (OverlayWindow.VimsLevels): L1 = 0 alpha (invisible),
-    // L2+ is visible. So "the mask is becoming visible" = tier >= 2 — NOT state.MaskActive (which
-    // the engine only flips at the higher pressure>=trigger threshold; the dimming shows earlier).
-    // Gating on MaskActive let the early dimming through un-consented (the reported bug).
-    private const int MaskVisibleTierThreshold = 2;
-    private bool _lastWantedMask;
-    private bool _maskConsentGranted;
+    internal SenseEase.App.Services.OverlayConsentGovernor OverlayConsentGovernorForTests => _overlayConsent;
+    // R3 #5 — PER-SESSION consent. While dormant the overlay shows NOTHING (levels 1–5 never appear
+    // on their own): the displayed tier is clamped to L1. Only when the engine's natural tier reaches
+    // the IMPACTFUL level (>=6) is the user asked. On grant the whole "overlay session" is live —
+    // every level then drives the overlay normally — until sustained calm ends it, after which the
+    // next level-6 rise asks again. A user-chosen always-on baseline (PersistentOverlayEnabled, e.g.
+    // the slider) is explicit consent → it runs the session with no bubble.
+    private const int ConsentImpactTier = 6;
+    private const long SessionEndCalmMs = 120_000; // natural tier <=1 this long ⇒ the session ends
+    private bool _overlaySessionActive;
+    private long _calmSinceTick;   // Environment.TickCount64 when calm began; 0 = not currently calm
     private bool _consentPending;
 
     /// <summary>Raised (UI thread) when the comfort overlay wants to engage but needs the user's
@@ -1763,57 +1767,68 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// before the user answered) — the host hides the bubble.</summary>
     public event EventHandler? OverlayConsentDismissRequested;
 
-    /// <summary>Item 1 — called on the UI thread from <c>MainWindow.OnStateChanged</c> with the
-    /// ENGINE's natural (pre-baseline) tier. Returns true while the visible mask must be HELD OFF
-    /// (clamped to L1) pending the user's agreement. Keyed on the VISIBLE-TIER threshold (tier >= 2),
-    /// not state.MaskActive — the dimming becomes visible from L2, before the engine flips MaskActive.
-    /// Safe with no event subscriber (headless tests).</summary>
+    /// <summary>R3 #5 — called on the UI thread from <c>MainWindow.OnStateChanged</c> with the ENGINE's
+    /// natural (pre-baseline) tier. Returns true while the visible overlay must be HELD OFF (clamped to
+    /// L1). PER-SESSION: dormant → always held + ask once the tier reaches the impactful level (>=6);
+    /// once granted the session is live (never held, all levels drive the overlay) until sustained
+    /// calm ends it. A user-chosen always-on baseline is implicit consent. Safe with no subscriber
+    /// (headless tests).</summary>
     public bool ShouldHoldMaskForConsent(int naturalTier)
     {
-        bool wantsVisibleMask = naturalTier >= MaskVisibleTierThreshold;
-
-        // User already opted into an always-on baseline → deliberate; never gate, treat as consented
-        // (so toggling it off mid-episode doesn't suddenly re-ask).
+        // Always-on baseline (slider / PersistentOverlay) = explicit consent → run the session, no bubble.
         if (PersistentOverlayEnabled)
         {
-            _maskConsentGranted = true;
+            _overlaySessionActive = true;
             _consentPending = false;
-            _lastWantedMask = wantsVisibleMask;
+            _calmSinceTick = 0;
             return false;
         }
 
-        bool rising  = wantsVisibleMask && !_lastWantedMask;
-        bool falling = !wantsVisibleMask && _lastWantedMask;
-        _lastWantedMask = wantsVisibleMask;
-
-        if (falling)
+        if (_overlaySessionActive)
         {
-            if (_consentPending) OverlayConsentDismissRequested?.Invoke(this, EventArgs.Empty);
-            _maskConsentGranted = false;   // re-arm for the next engagement
-            _consentPending = false;
+            // Session live → the overlay follows the engine across ALL levels. End it on sustained calm
+            // (natural tier back at L1 for SessionEndCalmMs) so the next level-6 rise re-asks.
+            if (naturalTier <= 1)
+            {
+                long now = Environment.TickCount64;
+                if (_calmSinceTick == 0) _calmSinceTick = now;
+                else if (now - _calmSinceTick >= SessionEndCalmMs) { _overlaySessionActive = false; _calmSinceTick = 0; }
+            }
+            else _calmSinceTick = 0;
             return false;
         }
 
-        if (!wantsVisibleMask) return false; // tier still at L1 → nothing visible to gate
-        if (_maskConsentGranted) return false; // already agreed this episode
-
-        if (rising && !_consentPending && _overlayConsent.ShouldAsk())
+        // Dormant → hold EVERYTHING off; ask only at the impactful tier.
+        if (naturalTier >= ConsentImpactTier)
         {
-            _consentPending = true;
-            OverlayConsentRequested?.Invoke(this, EventArgs.Empty);
+            if (!_consentPending && _overlayConsent.ShouldAsk())
+            {
+                _consentPending = true;
+                _overlayConsent.RecordAsked();                 // cooldown is timed from the ask
+                OverlayConsentRequested?.Invoke(this, EventArgs.Empty);
+            }
         }
-        return true; // hold the mask off (asking / pending / cooling down)
+        else if (_consentPending)
+        {
+            // Pressure subsided below the impactful tier before the user answered → retract the prompt.
+            _consentPending = false;
+            OverlayConsentDismissRequested?.Invoke(this, EventArgs.Empty);
+        }
+        return true; // dormant ⇒ hold the overlay off
     }
 
-    /// <summary>User agreed → let the mask show for this engagement (clears any cooldown).</summary>
+    /// <summary>User agreed → the overlay session is live; the overlay now follows the engine across
+    /// all levels until sustained calm ends the session.</summary>
     public void GrantOverlayConsent()
     {
-        _maskConsentGranted = true;
+        _overlaySessionActive = true;
         _consentPending = false;
+        _calmSinceTick = 0;
         _overlayConsent.RecordAccepted();
     }
 
-    /// <summary>User declined / dismissed → keep the mask held and start the ~10-min cooldown.</summary>
+    /// <summary>User declined / dismissed → stay dormant; the ~10-min cooldown (from the ask) blocks
+    /// re-prompting until a fresh level-6 rise after it elapses.</summary>
     public void DeclineOverlayConsent()
     {
         _consentPending = false;
