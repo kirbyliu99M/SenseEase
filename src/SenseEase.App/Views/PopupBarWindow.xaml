@@ -49,15 +49,36 @@
                         <ControlTemplate TargetType="Button">
                             <!-- 44×44 hit area; 28×28 visible chip centred. -->
                             <Border Background="Transparent">
-                                <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
-                                        Background="{TemplateBinding Background}"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
+                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
+                                            Background="{TemplateBinding Background}">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <!-- NEON ring overlay (R3 #1) — a crisp accent rim faded in on
+                                         hover/focus. Opacity-only ⇒ Reduce-Motion-exempt (WCAG 2.3.3). -->
+                                    <Border x:Name="neonRing" Width="28" Height="28" CornerRadius="14"
+                                            BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="1.5"
+                                            IsHitTestVisible="False" Opacity="0"/>
+                                </Grid>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnHover}"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard><Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="neonRing" Storyboard.TargetProperty="Opacity"
+                                                             To="0.55" Duration="0:0:0.14"/>
+                                        </Storyboard></BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard><Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="neonRing" Storyboard.TargetProperty="Opacity"
+                                                             To="0" Duration="0:0:0.09"/>
+                                        </Storyboard></BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="neonRing" Property="Opacity" Value="0.55"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnPress}"/>
@@ -172,9 +193,15 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Thumb">
                             <Border Background="Transparent"> <!-- 44-wide hit pad -->
-                                <Border x:Name="knob" Width="12" Height="14" CornerRadius="6"
-                                        Background="{DynamicResource Popup.Blue}"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <!-- R3 #1: a soft accent glow behind the handle so the slider fill
+                                         reads as 'lit' at the level (crisp accent, no DropShadow). -->
+                                    <Border Width="18" Height="20" CornerRadius="9"
+                                            Background="{DynamicResource Popup.Blue}"
+                                            Opacity="0.28" IsHitTestVisible="False"/>
+                                    <Border x:Name="knob" Width="12" Height="14" CornerRadius="6"
+                                            Background="{DynamicResource Popup.Blue}"/>
+                                </Grid>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
@@ -350,8 +377,19 @@
                     <!-- #1: dark, themed, auto-expanding input (was a default WHITE box → invisible
                          white-on-white text in dark). Recessed dark field + light caret/ink; one line
                          at rest, wraps + grows to ~3 lines then scrolls. -->
-                    <Border Grid.Column="0" Background="#33000000" BorderBrush="{DynamicResource Popup.Bdr}"
+                    <!-- R3 #1: neon focus ring — the input's rim turns accent while it has keyboard focus. -->
+                    <Border Grid.Column="0" Background="#33000000"
                             BorderThickness="1" CornerRadius="9" VerticalAlignment="Bottom">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="BorderBrush" Value="{DynamicResource Popup.Bdr}"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Popup.Blue}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <TextBox x:Name="ChatInput" Background="Transparent" BorderThickness="0"
                                  Padding="9,6" FontSize="13" MinHeight="20" MaxHeight="84"
                                  TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Center"
@@ -441,7 +479,14 @@
                  the bottom (DragHandle, shown when expanded). BarScale drives the unified fade+scale
                  reveal (code-behind, deferred to settle). -->
             <Border.RenderTransform><ScaleTransform x:Name="BarScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
-            <StackPanel HorizontalAlignment="Center">
+            <Grid>
+                <!-- NEON edge-glow (R3 #1): a faint always-on accent rim tracing the bar (negative
+                     margin cancels BarRoot's 0,8 padding so it reaches the rounded edge). Crisp accent
+                     stroke (no DropShadow — Effects don't render on the transparent glass window). -->
+                <Border x:Name="barNeonRim" Margin="0,-8" CornerRadius="{StaticResource Radius.md}"
+                        BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="1"
+                        IsHitTestVisible="False" Opacity="0.18"/>
+                <StackPanel HorizontalAlignment="Center">
 
                 <!-- (item 2) status dot + 低/中/高 word removed — the bar now opens straight to the
                      action button; on-screen motion is conveyed by the overlay itself, not a bar readout. -->
@@ -467,20 +512,37 @@
                     <!-- (item 3) the SenseEase app mark as the action glyph. Raster .ico (≤24px source)
                          → mildly soft at this size; HighQuality scaling softens the upscale. Dims when
                          paused so ON/OFF reads from the mark itself (no blue chip). -->
-                    <Image Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
-                           Width="20" Height="20"
-                           RenderOptions.BitmapScalingMode="HighQuality">
-                        <Image.Style>
-                            <Style TargetType="Image">
-                                <Setter Property="Opacity" Value="1"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsPaused}" Value="True">
-                                        <Setter Property="Opacity" Value="0.4"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Image.Style>
-                    </Image>
+                    <Grid Width="28" Height="28">
+                        <!-- ACTIVE neon ring (R3 #1): the SenseEase mark GLOWS an accent ring while
+                             protection is ON; the ring (and mark) dim away when paused. -->
+                        <Border CornerRadius="14" BorderBrush="{DynamicResource Popup.Blue}"
+                                BorderThickness="1.5" IsHitTestVisible="False">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Opacity" Value="0.9"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                            <Setter Property="Opacity" Value="0"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                        </Border>
+                        <Image Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
+                               Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Style>
+                                <Style TargetType="Image">
+                                    <Setter Property="Opacity" Value="1"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                            <Setter Property="Opacity" Value="0.4"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Image.Style>
+                        </Image>
+                    </Grid>
                 </Button>
 
                 <!-- FULL only: intensity drag slider + Lv.NN readout (with its own leading divider so
@@ -571,6 +633,7 @@
                     </StackPanel>
                 </Border>
             </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>
