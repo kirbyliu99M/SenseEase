@@ -151,9 +151,10 @@ public sealed class UserPreferences
     /// auto-launches at Windows login with the <c>--minimized</c> arg.
     /// Read on startup to surface the current registry state in the
     /// Settings UI; <see cref="Save"/> updates the registry value to
-    /// match. Default false — opt-in only.</summary>
+    /// match. Default TRUE (R3 additional #3 — seamless "always there" experience;
+    /// applies to fresh installs, existing prefs keep their saved value).</summary>
     [JsonPropertyName("run_at_windows_startup")]
-    public bool RunAtWindowsStartup { get; set; } = false;
+    public bool RunAtWindowsStartup { get; set; } = true;
 
     // ── Head-tracking sprint M8 (2026-05-30) ────────────────────────────────
     //
@@ -174,8 +175,12 @@ public sealed class UserPreferences
     /// "需重新啟動 / Requires restart" because the IHeadPoseReader and
     /// LightSensorProvider factories run once at MainViewModel construction
     /// and don't watch the flag at runtime.</summary>
+    /// R3 additional #3: default flipped to TRUE for the seamless "it just works" experience
+    /// (Kirby-approved). NOTE: this starts the camera sidecar at launch — a privacy-sensitive
+    /// default (see docs/HEAD-TRACKING-PRIVACY.md §1). Applies to fresh installs; existing prefs
+    /// keep their saved value.
     [JsonPropertyName("head_tracking_enabled")]
-    public bool HeadTrackingEnabled { get; set; } = false;
+    public bool HeadTrackingEnabled { get; set; } = true;
 
     /// <summary>M8: head-tracking follow-mode persistence. String-serialised
     /// for forward-compat ("Balanced" / "FullFollow"). Default "Balanced"

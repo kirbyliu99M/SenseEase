@@ -432,6 +432,10 @@ public partial class App : Application
             // onto data-points. Runtime-changeable thereafter via Settings.
             Configuration.AppConfig.PerAppAttributionEnabled =
                 Configuration.UserPreferences.Current.PerAppAttributionEnabled;
+            // R3 additional #3: keep the Windows auto-start (HKCU…\Run) entry in sync with the pref
+            // on EVERY launch — so the new default-ON registers on a fresh install, and a
+            // toggled-off pref clears any stale entry. Idempotent; best-effort.
+            try { Configuration.AutoStartRegistry.SetEnabled(Configuration.UserPreferences.Current.RunAtWindowsStartup); } catch { }
             // D-10 (2026-06-11): the escape-hatch hydrate was removed with the
             // feature. AppConfig.HeadTrackingEscapeHatchEnabled no longer exists
             // (FEAT-06 cancelled — the FOV mask is never weakened), so there is

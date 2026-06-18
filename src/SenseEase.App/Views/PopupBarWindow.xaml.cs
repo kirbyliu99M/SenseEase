@@ -376,6 +376,9 @@ public partial class PopupBarWindow : Window, IShellSurface
     private void OnChatInputKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != System.Windows.Input.Key.Enter) return;
+        // R3 #3a: Shift+Enter inserts a newline (the input is AcceptsReturn=True, so the default
+        // handles the insert) — only PLAIN Enter sends.
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0) return;
         if (DataContext is PopupBarViewModel { Chat: { } chat } && chat.SendCommand.CanExecute(null))
         {
             chat.SendCommand.Execute(null);

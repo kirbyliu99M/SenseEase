@@ -58,8 +58,9 @@ public class UserPreferencesTests : IDisposable
         Assert.False(p.AutoExpandNotifications);  // Toggle A default OFF (user decision)
         // D-14 (2026-06-11): VestibularWarningShown deleted (dead field) — no assertion.
         Assert.Equal(3, p.SchemaVersion);
-        // M8 new fields: opt-in privacy (head-tracking OFF), Balanced follow mode.
-        Assert.False(p.HeadTrackingEnabled);
+        // R3 additional #3: head-tracking now defaults ON (seamless preset, Kirby-approved); the
+        // follow-mode pref default is unchanged ("Balanced"; App forces FullFollow at startup).
+        Assert.True(p.HeadTrackingEnabled);
         Assert.Equal("Balanced", p.HeadTrackingFollowMode);
         // Appearance default: Auto (follow the Windows system theme).
         Assert.Equal(AppThemeMode.Auto, p.ThemeMode);
@@ -180,7 +181,7 @@ public class UserPreferencesTests : IDisposable
 
         Assert.False(reread.AutoExpandNotifications);          // default OFF
         Assert.True(reread.MinimizeToTrayOnClose);             // default ON
-        Assert.False(reread.RunAtWindowsStartup);              // default OFF
+        Assert.True(reread.RunAtWindowsStartup);               // default ON (R3 additional #3)
         Assert.Equal(AppThemeMode.Auto, reread.ThemeMode);     // default Auto
         Assert.Equal("ChineseTraditional", reread.LanguageModeRaw); // default zh-Hant
         Assert.Null(reread.HudLeft);                           // default unset
@@ -306,8 +307,8 @@ public class UserPreferencesTests : IDisposable
         Assert.True(p.RunAtWindowsStartup);
         Assert.True(p.UseNewBarOverlay);
 
-        // New M8 fields default to safe-opt-in.
-        Assert.False(p.HeadTrackingEnabled);
+        // R3 additional #3: head-tracking now defaults ON (seamless preset); follow mode "Balanced".
+        Assert.True(p.HeadTrackingEnabled);
         Assert.Equal("Balanced", p.HeadTrackingFollowMode);
 
         // Appearance setting field (absent in v=1) defaults to Auto.

@@ -122,18 +122,20 @@
                 </Setter>
             </Style>
 
-            <!-- Ghost pill for secondary card actions (undo / followup options) -->
+            <!-- Ghost pill for secondary card actions (undo / followup options). Fill is the per-theme
+                 glass chip (was a fixed #1A024AD8 that neither flipped with the theme nor was caught by
+                 the banned-#024AD8 lint due to its alpha prefix). -->
             <Style x:Key="GhostPanelBtn" TargetType="Button" BasedOn="{StaticResource PanelBtn}">
-                <Setter Property="Background" Value="#1A024AD8"/>
+                <Setter Property="Background" Value="{DynamicResource Popup.ChipRest}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
             </Style>
 
-            <!-- ── Intensity vertical slider (item 9) — a modern drag handle for level 1–12. ──
-                 Restyled from the standard 3-part Track (decrease repeat / thumb / increase repeat)
-                 so dragging + snapping work natively. Top = stronger (Maximum at top). The DECREASE
-                 repeat button is the bottom→thumb run (toward Minimum) → painted SegOn = the filled
-                 level; the increase run is transparent so the SegOff rail shows above. -->
-            <!-- thinner rail (UI比較粗 fix): 3px run -->
+            <!-- ── Intensity vertical slider (R3 #6) — a THICK, SEAMLESS fill bar (like the user's
+                 reference progress bar, vertical, our accent). Restyled from the standard 3-part Track
+                 (decrease repeat / thumb / increase repeat) so dragging + snapping work natively.
+                 Top = stronger (Maximum at top). The DECREASE run is the bottom→thumb fill (painted
+                 accent), the increase run is transparent so the grey rail shows above — NO per-level
+                 segments/rungs (they read cheap); the continuous fill IS the level. -->
             <Style x:Key="PopupSliderRepeatFilled" TargetType="RepeatButton">
                 <Setter Property="Focusable" Value="False"/>
                 <Setter Property="IsTabStop" Value="False"/>
@@ -141,8 +143,8 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="RepeatButton">
                             <Border Background="Transparent">
-                                <Border Width="3" CornerRadius="1.5" HorizontalAlignment="Center"
-                                        Background="{DynamicResource Popup.SegOn}"/>
+                                <Border Width="12" CornerRadius="6" HorizontalAlignment="Center"
+                                        Background="{DynamicResource Popup.Blue}"/>
                             </Border>
                         </ControlTemplate>
                     </Setter.Value>
@@ -159,19 +161,19 @@
                     </Setter.Value>
                 </Setter>
             </Style>
-            <!-- a clear FILLED dot (沒有一個點點 fix): blue fill + light ring so it reads as a grabbable knob -->
+            <!-- Flush rounded cap, SAME width as the fill, so the thumb reads as the rounded END of
+                 the seamless accent fill (not a separate dot). 44-wide hit pad keeps it grabbable. -->
             <Style x:Key="PopupSliderThumb" TargetType="Thumb">
                 <Setter Property="Focusable" Value="False"/>
                 <Setter Property="Width" Value="44"/>
-                <Setter Property="Height" Value="16"/>
+                <Setter Property="Height" Value="14"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Thumb">
                             <Border Background="Transparent"> <!-- 44-wide hit pad -->
-                                <Border x:Name="knob" Width="13" Height="13" CornerRadius="6.5"
+                                <Border x:Name="knob" Width="12" Height="14" CornerRadius="6"
                                         Background="{DynamicResource Popup.Blue}"
-                                        BorderBrush="{DynamicResource Popup.OnBar}" BorderThickness="1.5"
                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -185,16 +187,6 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
-            </Style>
-            <!-- one of the 12 faint step rungs (段落感 fix) -->
-            <Style x:Key="PopupSliderTick" TargetType="Border">
-                <Setter Property="Width" Value="9"/>
-                <Setter Property="Height" Value="2"/>
-                <Setter Property="CornerRadius" Value="1"/>
-                <Setter Property="VerticalAlignment" Value="Center"/>
-                <Setter Property="HorizontalAlignment" Value="Center"/>
-                <Setter Property="Background" Value="{DynamicResource Popup.OnBarDim}"/>
-                <Setter Property="Opacity" Value="0.40"/>
             </Style>
             <Style x:Key="PopupIntensitySlider" TargetType="Slider">
                 <Setter Property="Orientation" Value="Vertical"/>
@@ -211,24 +203,9 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Slider">
                             <Grid>
-                                <!-- thin unfilled rail -->
-                                <Border Width="3" CornerRadius="1.5" HorizontalAlignment="Center"
+                                <!-- thick rounded rail (the unfilled track) — seamless, no segments -->
+                                <Border Width="12" CornerRadius="6" HorizontalAlignment="Center"
                                         Background="{DynamicResource Popup.SegOff}"/>
-                                <!-- 12 step rungs → discrete-level feel (段落感) -->
-                                <UniformGrid Rows="12" Margin="0,3" HorizontalAlignment="Center">
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                    <Border Style="{StaticResource PopupSliderTick}"/>
-                                </UniformGrid>
                                 <Track x:Name="PART_Track">
                                     <Track.DecreaseRepeatButton>
                                         <RepeatButton Style="{StaticResource PopupSliderRepeatFilled}" Command="Slider.DecreaseLarge"/>
@@ -338,10 +315,13 @@
                                     <!-- Gated followup options: the FMS check-in / habituation-proposal
                                          answers + B5 adaptation notices flow through the real
                                          ChatbotViewModel into Messages, so they surface here automatically. -->
+                                    <!-- R3 #3b: smaller, left-aligned option chips (the big centred pills
+                                         read 'cheap'). Compact padding / font / min-height; flush left. -->
                                     <ItemsControl ItemsSource="{Binding FollowupOptions}" Margin="2,6,0,0"
+                                                  HorizontalAlignment="Left"
                                                   Visibility="{Binding FollowupVisibility}">
                                         <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                            <ItemsPanelTemplate><WrapPanel HorizontalAlignment="Left"/></ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
@@ -349,7 +329,9 @@
                                                         Command="{Binding DataContext.SelectFollowupCommand,
                                                                           RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
                                                         CommandParameter="{Binding}"
-                                                        Style="{StaticResource GhostPanelBtn}" Margin="0,0,6,6" MinHeight="34"/>
+                                                        Style="{StaticResource GhostPanelBtn}"
+                                                        HorizontalAlignment="Left"
+                                                        Padding="9,4" FontSize="12" MinHeight="24" Margin="0,0,5,5"/>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -372,7 +354,7 @@
                             BorderThickness="1" CornerRadius="9" VerticalAlignment="Bottom">
                         <TextBox x:Name="ChatInput" Background="Transparent" BorderThickness="0"
                                  Padding="9,6" FontSize="13" MinHeight="20" MaxHeight="84"
-                                 TextWrapping="Wrap" AcceptsReturn="False" VerticalContentAlignment="Center"
+                                 TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Center"
                                  VerticalScrollBarVisibility="Auto"
                                  Foreground="{DynamicResource Popup.Ink1}" CaretBrush="{DynamicResource Popup.Ink1}"
                                  Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
@@ -464,26 +446,41 @@
                 <!-- (item 2) status dot + 低/中/高 word removed — the bar now opens straight to the
                      action button; on-screen motion is conveyed by the overlay itself, not a bar readout. -->
 
-                <!-- on/off switch — the SenseEase mark; BRIGHT blue when running, muted GREY "off"
-                     when paused (reads as a switch position, not a disabled/dimmed control). CONDENSED + FULL -->
+                <!-- on/off switch — the SenseEase mark on a GLASS chip that matches the bar (R3 #2: no
+                     blue tone behind it). ON = raised glass chip + full-strength mark (+ the neon ring,
+                     Group 5); OFF/paused = flat (transparent) chip + dimmed mark. CONDENSED + FULL -->
                 <Button Command="{Binding PlayPauseCommand}"
                         ToolTip="{loc:T Zh='開啟／暫停保護', En='Toggle protection on / off'}"
                         AutomationProperties.Name="{loc:T Zh='開啟或暫停保護', En='Toggle protection on/off'}">
                     <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource BarPrimaryBtn}">
+                        <!-- BarIconBtn (glass hover = Popup.BtnHover), NOT BarPrimaryBtn — so neither the
+                             rest fill nor the hover is blue. ON = glass chip; paused = flat/transparent. -->
+                        <Style TargetType="Button" BasedOn="{StaticResource BarIconBtn}">
+                            <Setter Property="Background" Value="{DynamicResource Popup.ChipRest}"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsPaused}" Value="True">
-                                    <Setter Property="Background" Value="#995A6475"/>
+                                    <Setter Property="Background" Value="Transparent"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
                     <!-- (item 3) the SenseEase app mark as the action glyph. Raster .ico (≤24px source)
-                         → mildly soft at this size; HighQuality scaling softens the upscale. State is
-                         carried by the chip background (blue running / grey paused) above. -->
+                         → mildly soft at this size; HighQuality scaling softens the upscale. Dims when
+                         paused so ON/OFF reads from the mark itself (no blue chip). -->
                     <Image Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
                            Width="20" Height="20"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Style>
+                            <Style TargetType="Image">
+                                <Setter Property="Opacity" Value="1"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                        <Setter Property="Opacity" Value="0.4"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Image.Style>
+                    </Image>
                 </Button>
 
                 <!-- FULL only: intensity drag slider + Lv.NN readout (with its own leading divider so
@@ -551,12 +548,13 @@
                      bar is still draggable from its background via the same handler. -->
                 <Border x:Name="DragHandle" Cursor="SizeNS" Background="Transparent"
                         Visibility="Collapsed"
-                        HorizontalAlignment="Center" Margin="0,2,0,0" Padding="10,5"
+                        HorizontalAlignment="Center" Margin="0,-2,0,0" Padding="8,3"
                         ToolTip="{loc:T Zh='拖曳調整上下位置', En='Drag to move up / down'}"
                         AutomationProperties.Name="{loc:T Zh='拖曳調整工具列上下位置', En='Drag the bar up or down'}">
                     <Border.Style>
                         <Style TargetType="Border">
-                            <!-- #10: smaller + fainter — a single short rule, barely-there at rest -->
+                            <!-- R3 #4: TWO short rules (a single line confused as a 'minus'); small +
+                                 faint at rest, pulled tight under the chevron (negative top margin). -->
                             <Setter Property="Opacity" Value="0.3"/>
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
@@ -565,8 +563,12 @@
                             </Style.Triggers>
                         </Style>
                     </Border.Style>
-                    <Border Width="12" Height="2" CornerRadius="1" VerticalAlignment="Center"
-                            Background="{DynamicResource Popup.OnBarDim}"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <Border Width="10" Height="1.5" CornerRadius="0.75"
+                                Background="{DynamicResource Popup.OnBarDim}"/>
+                        <Border Width="10" Height="1.5" CornerRadius="0.75" Margin="0,2,0,0"
+                                Background="{DynamicResource Popup.OnBarDim}"/>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </Border>
