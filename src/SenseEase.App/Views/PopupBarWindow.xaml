@@ -277,15 +277,67 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- header: title + clear-chat (item 10) -->
+                <!-- R3 chatbox #1: always-on accent rim so the chat card reads as one lit object of the
+                     same neon family as the bar (mirrors barNeonRim verbatim). Static (rides the existing
+                     AnimateCard entrance), behind content, never hit-tested. -->
+                <Border x:Name="chatNeonRim" Grid.RowSpan="3" Margin="-1" IsHitTestVisible="False"
+                        CornerRadius="{StaticResource Radius.md}"
+                        BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="1" Opacity="0.18"/>
+
+                <!-- header: live-status dot + identity + clear-chat. The dot reads Online (accent) /
+                     Offline (faint) from Chat.IsLlmOnline and gently pulses (opacity-only ⇒ WCAG-2.3.3
+                     RM-exempt, same treatment as the typing dots) while Chat.IsGenerating. -->
                 <Grid Margin="16,11,8,8">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="SenseEase AI" VerticalAlignment="Center"
-                               FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
-                    <Button Grid.Column="1" Style="{StaticResource BarIconBtn}" Command="{Binding Chat.ClearCommand}"
+                    <Ellipse x:Name="StatusDot" Grid.Column="0" Width="8" Height="8" Margin="0,1,9,0"
+                             VerticalAlignment="Center">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{DynamicResource Popup.SegOff}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Chat.IsLlmOnline}" Value="True">
+                                        <Setter Property="Fill" Value="{DynamicResource Popup.Blue}"/>
+                                    </DataTrigger>
+                                    <!-- gentle "thinking" pulse — opacity-only ⇒ RM-exempt; reverts to solid on stop -->
+                                    <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard Name="DotPulse">
+                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="1.0" To="0.35" Duration="0:0:0.6"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <StopStoryboard BeginStoryboardName="DotPulse"/>
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="SenseEase AI" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Popup.Ink1}"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Popup.Ink2}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="{loc:T Zh='離線', En='Offline'}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Chat.IsLlmOnline}" Value="True">
+                                            <Setter Property="Text" Value="{loc:T Zh='在線 · 隨時為你', En='Online · ready to help'}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                    <Button Grid.Column="2" Style="{StaticResource BarIconBtn}" Command="{Binding Chat.ClearCommand}"
+                            VerticalAlignment="Center"
                             ToolTip="{loc:T Zh='清除對話', En='Clear chat'}"
                             AutomationProperties.Name="{loc:T Zh='清除對話', En='Clear chat'}">
                         <Path Data="{StaticResource Icon.Trash}" Fill="{DynamicResource Popup.Ink2}" Width="14" Height="14" Stretch="Uniform"/>
@@ -332,10 +384,30 @@
                                                     </Style>
                                                 </TextBox.Style>
                                             </TextBox>
-                                            <!-- Static "thinking" indicator while generating — no animation
-                                                 (reduced-motion-safe by default for a motion-sickness app). -->
-                                            <TextBlock Visibility="{Binding TypingVisibility}"
-                                                       Text="• • •" FontSize="15" Foreground="{DynamicResource Popup.Ink2}"/>
+                                            <!-- Animated typing dots — opacity-only staggered pulse (WCAG-2.3.3
+                                                 RM-exempt), mirroring the proven MainWindow DotsStoryboard. Same
+                                                 per-message TypingVisibility gate (unchanged); self-halts when hidden. -->
+                                            <StackPanel Orientation="Horizontal" Visibility="{Binding TypingVisibility}"
+                                                        VerticalAlignment="Center">
+                                                <StackPanel.Resources>
+                                                    <Storyboard x:Key="PopupDots" RepeatBehavior="Forever">
+                                                        <DoubleAnimation Storyboard.TargetName="D1" Storyboard.TargetProperty="Opacity"
+                                                                         From="0.2" To="1.0" Duration="0:0:0.25" AutoReverse="True"/>
+                                                        <DoubleAnimation Storyboard.TargetName="D2" Storyboard.TargetProperty="Opacity"
+                                                                         From="0.2" To="1.0" Duration="0:0:0.25" BeginTime="0:0:0.1" AutoReverse="True"/>
+                                                        <DoubleAnimation Storyboard.TargetName="D3" Storyboard.TargetProperty="Opacity"
+                                                                         From="0.2" To="1.0" Duration="0:0:0.25" BeginTime="0:0:0.2" AutoReverse="True"/>
+                                                    </Storyboard>
+                                                </StackPanel.Resources>
+                                                <StackPanel.Triggers>
+                                                    <EventTrigger RoutedEvent="StackPanel.Loaded">
+                                                        <BeginStoryboard Storyboard="{StaticResource PopupDots}"/>
+                                                    </EventTrigger>
+                                                </StackPanel.Triggers>
+                                                <Ellipse x:Name="D1" Width="6" Height="6" Fill="{DynamicResource Popup.Ink2}" Opacity="0.35" Margin="0,0,3,0"/>
+                                                <Ellipse x:Name="D2" Width="6" Height="6" Fill="{DynamicResource Popup.Ink2}" Opacity="0.35" Margin="0,0,3,0"/>
+                                                <Ellipse x:Name="D3" Width="6" Height="6" Fill="{DynamicResource Popup.Ink2}" Opacity="0.35"/>
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
 
@@ -368,66 +440,128 @@
                     </ItemsControl>
                 </ScrollViewer>
 
-                <!-- input row -->
-                <Grid Grid.Row="2" Margin="12,10,12,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <!-- #1: dark, themed, auto-expanding input (was a default WHITE box → invisible
-                         white-on-white text in dark). Recessed dark field + light caret/ink; one line
-                         at rest, wraps + grows to ~3 lines then scrolls. -->
-                    <!-- R3 #1: neon focus ring — the input's rim turns accent while it has keyboard focus. -->
-                    <Border Grid.Column="0" Background="#33000000"
-                            BorderThickness="1" CornerRadius="9" VerticalAlignment="Bottom">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="BorderBrush" Value="{DynamicResource Popup.Bdr}"/>
-                                <Style.Triggers>
-                                    <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                        <Setter Property="BorderBrush" Value="{DynamicResource Popup.Blue}"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <TextBox x:Name="ChatInput" Background="Transparent" BorderThickness="0"
-                                 Padding="9,6" FontSize="13" MinHeight="20" MaxHeight="84"
-                                 TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Center"
-                                 VerticalScrollBarVisibility="Auto"
-                                 Foreground="{DynamicResource Popup.Ink1}" CaretBrush="{DynamicResource Popup.Ink1}"
-                                 Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
-                                 IsVisibleChanged="OnChatInputVisibleChanged" KeyDown="OnChatInputKeyDown"
-                                 AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
-                    </Border>
-                    <Button Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Bottom"
-                            AutomationProperties.Name="{loc:T Zh='傳送或停止', En='Send or stop'}">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource BarPrimaryBtn}">
-                                <Setter Property="Command" Value="{Binding Chat.SendCommand}"/>
-                                <Setter Property="ToolTip" Value="{loc:T Zh='傳送', En='Send'}"/>
-                                <Style.Triggers>
-                                    <!-- While generating, the same button STOPS the reply. -->
-                                    <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
-                                        <Setter Property="Command" Value="{Binding Chat.CancelGenerationCommand}"/>
-                                        <Setter Property="ToolTip" Value="{loc:T Zh='停止生成', En='Stop'}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                        <Path Width="13" Height="13" Stretch="Uniform" Fill="White">
-                            <Path.Style>
-                                <Style TargetType="Path">
-                                    <Setter Property="Data" Value="{StaticResource Icon.Send}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
-                                            <Setter Property="Data" Value="{StaticResource Icon.Stop}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Path.Style>
-                        </Path>
-                    </Button>
-                </Grid>
+                <!-- input area (R3 chatbox): quick-start chips · recessed input + neon focus halo ·
+                     send w/ accent glow · keymap footer. Stacked inside the SAME bottom Auto row — no new
+                     RowDefinition, so the fixed-480 layout is preserved (messages row absorbs the delta). -->
+                <StackPanel Grid.Row="2" Margin="12,8,12,10">
+                    <!-- Quick-start chips — PRE-FILL the input only (code-behind sets ChatInput.Text +
+                         focus); they NEVER auto-send and never touch a VM command. -->
+                    <WrapPanel Margin="0,0,0,7">
+                        <Button Style="{StaticResource GhostPanelBtn}" Click="OnSuggestionChipClick"
+                                Content="{loc:T Zh='我覺得頭暈', En='I feel dizzy'}"
+                                Padding="9,4" FontSize="12" MinHeight="24" Margin="0,0,5,0"/>
+                        <Button Style="{StaticResource GhostPanelBtn}" Click="OnSuggestionChipClick"
+                                Content="{loc:T Zh='眼睛很累', En='My eyes feel tired'}"
+                                Padding="9,4" FontSize="12" MinHeight="24" Margin="0,0,5,0"/>
+                        <Button Style="{StaticResource GhostPanelBtn}" Click="OnSuggestionChipClick"
+                                Content="{loc:T Zh='幫我加強防護', En='Make it stronger'}"
+                                Padding="9,4" FontSize="12" MinHeight="24"/>
+                    </WrapPanel>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- recessed auto-expanding input + neon focus halo. The recessed field + its
+                             BorderBrush focus swap are byte-identical to before; the halo is an opacity-only
+                             overlay rim that fades in on focus (RM-exempt, mirrors the bar ring 140/90ms). -->
+                        <Grid Grid.Column="0">
+                            <Border Background="#33000000" BorderThickness="1" CornerRadius="9" VerticalAlignment="Bottom">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Popup.Bdr}"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Popup.Blue}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBox x:Name="ChatInput" Background="Transparent" BorderThickness="0"
+                                         Padding="9,6" FontSize="13" MinHeight="20" MaxHeight="84"
+                                         TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Center"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Foreground="{DynamicResource Popup.Ink1}" CaretBrush="{DynamicResource Popup.Ink1}"
+                                         Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
+                                         IsVisibleChanged="OnChatInputVisibleChanged" KeyDown="OnChatInputKeyDown"
+                                         AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
+                            </Border>
+                            <Border x:Name="inputNeonRim" CornerRadius="9" Margin="-1" VerticalAlignment="Bottom"
+                                    IsHitTestVisible="False" BorderBrush="{DynamicResource Popup.Blue}"
+                                    BorderThickness="1.5" Opacity="0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=ChatInput}" Value="True">
+                                                <DataTrigger.EnterActions>
+                                                    <BeginStoryboard><Storyboard>
+                                                        <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0.55" Duration="0:0:0.14"/>
+                                                    </Storyboard></BeginStoryboard>
+                                                </DataTrigger.EnterActions>
+                                                <DataTrigger.ExitActions>
+                                                    <BeginStoryboard><Storyboard>
+                                                        <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.09"/>
+                                                    </Storyboard></BeginStoryboard>
+                                                </DataTrigger.ExitActions>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                        </Grid>
+
+                        <!-- send / stop, with a soft accent glow behind the chip (brightens while a reply
+                             is generating). The Button (Send↔Stop command + icon morph) is verbatim. -->
+                        <Grid Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Bottom">
+                            <Border Width="32" Height="32" CornerRadius="16" Background="{DynamicResource Popup.Blue}"
+                                    IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Opacity" Value="0.30"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
+                                                <Setter Property="Opacity" Value="0.50"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                            <Button AutomationProperties.Name="{loc:T Zh='傳送或停止', En='Send or stop'}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource BarPrimaryBtn}">
+                                        <Setter Property="Command" Value="{Binding Chat.SendCommand}"/>
+                                        <Setter Property="ToolTip" Value="{loc:T Zh='傳送', En='Send'}"/>
+                                        <Style.Triggers>
+                                            <!-- While generating, the same button STOPS the reply. -->
+                                            <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
+                                                <Setter Property="Command" Value="{Binding Chat.CancelGenerationCommand}"/>
+                                                <Setter Property="ToolTip" Value="{loc:T Zh='停止生成', En='Stop'}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                                <Path Width="13" Height="13" Stretch="Uniform" Fill="White">
+                                    <Path.Style>
+                                        <Style TargetType="Path">
+                                            <Setter Property="Data" Value="{StaticResource Icon.Send}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
+                                                    <Setter Property="Data" Value="{StaticResource Icon.Stop}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Path.Style>
+                                </Path>
+                            </Button>
+                        </Grid>
+                    </Grid>
+
+                    <!-- keymap hint — documents the already-live Enter / Shift+Enter behaviour. -->
+                    <TextBlock Margin="2,5,0,0" FontSize="11" Foreground="{DynamicResource Popup.Ink2}"
+                               Text="{loc:T Zh='Shift+Enter 換行 · Enter 送出', En='Shift+Enter for new line · Enter to send'}"/>
+                </StackPanel>
             </Grid>
         </Border>
 

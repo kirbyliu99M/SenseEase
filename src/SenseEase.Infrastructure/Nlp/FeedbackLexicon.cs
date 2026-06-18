@@ -413,13 +413,13 @@ internal static class FeedbackLexicon
         return intent switch
         {
             "ReportDiscomfort" => zh
-                ? "我知道你不太舒服。我把畫面晃動調小了、邊緣也柔和了些，有沒有好一點再跟我說。"
+                ? "已降低畫面晃動並柔化邊緣，以減少視覺刺激。如仍不適請告知。"
                 : "I hear you're uncomfortable. I've eased the on-screen motion and softened the edges to help — tell me if it eases up for you.",
             "ReportComfort" => zh
-                ? "收到，你目前較穩定。系統會持續監測，並逐步放寬 FOV 保護。"
+                ? "了解，已記錄。如再有不適請告知。"
                 : "Understood. Your condition seems more stable. The system will keep monitoring and gradually relax FOV protection.",
             _ => zh
-                ? "我可以協助偵測暈眩與視覺不適。請描述是否有暈、噁心、頭痛或眼睛疲勞。"
+                ? "可協助處理視覺不適。請描述是否有暈眩、噁心、頭痛或眼睛疲勞。"
                 : "I can help detect motion discomfort. Please tell me if you feel dizziness, nausea, headache, or eye strain."
         };
     }

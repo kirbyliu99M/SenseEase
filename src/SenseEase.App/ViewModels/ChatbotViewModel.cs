@@ -104,7 +104,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// re-shows it (re-picked) on the next launch, so no stale-language copy survives.</summary>
     private static string WelcomeMessage() =>
         LocalizationManager.Current.Pick(
-            "嗨，我是 SenseEase AI 助理。眼睛或畫面有任何不舒服（像是頭暈、噁心、頭痛、眼睛疲勞），跟我說一聲，我就幫你調整。",
+            "SenseEase AI 助理。如有視覺不適（頭暈、噁心、頭痛、眼睛疲勞），請告知，我會為您調整防護。",
             "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.");
 
     private bool _isGenerating;
