@@ -40,6 +40,10 @@ public interface IShellController
     /// <summary>Deliberate-preference nudge toward LESS protection (widen the FOV).</summary>
     void NudgeGentler();
 
+    /// <summary>Set the protection intensity to an ABSOLUTE level (1–12) — the drag-slider path.
+    /// Returns the resulting displayed tier (the engine may clamp / floor it).</summary>
+    int SetIntensityLevel(int level);
+
     /// <summary>Reveal the AI chat panel.</summary>
     void OpenChat();
 

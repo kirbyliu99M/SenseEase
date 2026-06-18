@@ -1612,6 +1612,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return ResolveDisplayedTier(CurrentState.VimsTier);
     }
 
+    /// <summary>Set the always-on baseline floor to an ABSOLUTE level (1..12) — the drag-slider
+    /// counterpart of <see cref="NudgeIntensityLevel"/>. Identical apply path (baseline floor +
+    /// overlay visible), Q4.5-safe (never touches the habituation offset). No-op when the target
+    /// equals the current displayed level (absorbs the slider's snap echo). Returns the new
+    /// displayed level (1..12) so the caller can refresh the bar readout.</summary>
+    public int SetIntensityLevel(int level)
+    {
+        int current = ResolveDisplayedTier(CurrentState.VimsTier);
+        int target  = Math.Clamp(level, 1, 12);
+        if (target == current) return current;                                // snap echo / unchanged
+        int direction = target > current ? 1 : -1;
+        (_engine as MockInferenceEngine)?.NotifyManualLevelNudge(direction);  // B2: manual-authority sign
+        try
+        {
+            _adjustmentLog.Append(new AdjustmentRecord
+            {
+                Parameter = "LevelNudge",
+                Delta     = (direction >= 0 ? -1 : +1) * ManualNudgeFovEquivalentPp,
+                Source    = "user",
+            });
+        }
+        catch { /* persistence is best-effort; the change must still apply */ }
+        SetSensingModeToWgc();
+        if (target <= 1)
+        {
+            PersistentOverlayBaselineTier = 1;
+            PersistentOverlayEnabled      = false;
+        }
+        else
+        {
+            PersistentOverlayBaselineTier = target;                          // setter clamps 1..12
+            if (!PersistentOverlayEnabled) PersistentOverlayEnabled = true;  // auto-opens overlay
+        }
+        if (!OverlayVisible) OverlayVisible = true;
+        UpdateFromState(_engine.Current);
+        return ResolveDisplayedTier(CurrentState.VimsTier);
+    }
+
     private string _feedbackText = string.Empty;
     public string FeedbackText
     {

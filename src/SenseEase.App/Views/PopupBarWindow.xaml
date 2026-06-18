@@ -31,11 +31,8 @@
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/Icons.PopupBar.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <conv:TierToPopupStatusBrushConverter x:Key="StatusBrush"/>
-            <conv:TierToPopupStatusWordConverter  x:Key="StatusWord"/>
-            <conv:TierToPopupStatusWordMultiConverter x:Key="StatusWordML"/>
-            <conv:TierToPopupStatusGlyphConverter x:Key="StatusGlyph"/>
-            <conv:SegmentFillConverter            x:Key="SegFill"/>
+            <!-- Status converters removed with the bar's status dot+word (item 2). The C# converter
+                 classes remain (PopupStatusConverterTests references them). -->
             <BooleanToVisibilityConverter         x:Key="BoolToVis"/>
 
             <!-- Round transparent glyph button: 44 HIT area / 28 visible chip. The hit area is the
@@ -129,6 +126,98 @@
             <Style x:Key="GhostPanelBtn" TargetType="Button" BasedOn="{StaticResource PanelBtn}">
                 <Setter Property="Background" Value="#1A024AD8"/>
                 <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
+            </Style>
+
+            <!-- ── Intensity vertical slider (item 9) — a modern drag handle for level 1–12. ──
+                 Restyled from the standard 3-part Track (decrease repeat / thumb / increase repeat)
+                 so dragging + snapping work natively. Top = stronger (Maximum at top). The DECREASE
+                 repeat button is the bottom→thumb run (toward Minimum) → painted SegOn = the filled
+                 level; the increase run is transparent so the SegOff rail shows above. -->
+            <Style x:Key="PopupSliderRepeatFilled" TargetType="RepeatButton">
+                <Setter Property="Focusable" Value="False"/>
+                <Setter Property="IsTabStop" Value="False"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Border Background="Transparent">
+                                <Border Width="5" CornerRadius="2.5" HorizontalAlignment="Center"
+                                        Background="{DynamicResource Popup.SegOn}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="PopupSliderRepeatEmpty" TargetType="RepeatButton">
+                <Setter Property="Focusable" Value="False"/>
+                <Setter Property="IsTabStop" Value="False"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Border Background="Transparent"/>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="PopupSliderThumb" TargetType="Thumb">
+                <Setter Property="Focusable" Value="False"/>
+                <Setter Property="Width" Value="44"/>
+                <Setter Property="Height" Value="18"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Thumb">
+                            <!-- 44-wide transparent hit pad; 16px visible knob -->
+                            <Border Background="Transparent">
+                                <Border x:Name="knob" Width="16" Height="16" CornerRadius="8"
+                                        Background="{DynamicResource Popup.OnBar}"
+                                        BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="2"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="knob" Property="Background" Value="{DynamicResource Popup.Blue}"/>
+                                </Trigger>
+                                <Trigger Property="IsDragging" Value="True">
+                                    <Setter TargetName="knob" Property="Background" Value="{DynamicResource Popup.Blue}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="PopupIntensitySlider" TargetType="Slider">
+                <Setter Property="Orientation" Value="Vertical"/>
+                <Setter Property="Minimum" Value="1"/>
+                <Setter Property="Maximum" Value="12"/>
+                <Setter Property="IsSnapToTickEnabled" Value="True"/>
+                <Setter Property="TickFrequency" Value="1"/>
+                <Setter Property="SmallChange" Value="1"/>
+                <Setter Property="LargeChange" Value="2"/>
+                <Setter Property="IsMoveToPointEnabled" Value="True"/>
+                <Setter Property="Width" Value="44"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Slider">
+                            <Grid>
+                                <!-- unfilled rail -->
+                                <Border Width="5" CornerRadius="2.5" HorizontalAlignment="Center"
+                                        Background="{DynamicResource Popup.SegOff}"/>
+                                <Track x:Name="PART_Track">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Style="{StaticResource PopupSliderRepeatFilled}" Command="Slider.DecreaseLarge"/>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Style="{StaticResource PopupSliderRepeatEmpty}" Command="Slider.IncreaseLarge"/>
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource PopupSliderThumb}"/>
+                                    </Track.Thumb>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -327,42 +416,16 @@
             <!-- The whole bar background is still a drag surface (OnBarMouseDown), but it no longer
                  wears a SizeNS cursor — that over-implied EVERY control was drag-adjustable and
                  confused the user. The vertical drag is now advertised by ONE explicit grip handle at
-                 the bottom (DragHandle, shown in both stages). BarScale drives the unified fade+scale
+                 the bottom (DragHandle, shown when expanded). BarScale drives the unified fade+scale
                  reveal (code-behind, deferred to settle). -->
             <Border.RenderTransform><ScaleTransform x:Name="BarScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <StackPanel HorizontalAlignment="Center">
 
-                <!-- pulse status (colour + dot + word) — CONDENSED + FULL -->
-                <StackPanel HorizontalAlignment="Center">
-                    <AutomationProperties.Name>
-                        <MultiBinding Converter="{StaticResource StatusWordML}">
-                            <Binding Path="VimsTier"/>
-                            <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                        </MultiBinding>
-                    </AutomationProperties.Name>
-                    <!-- Screen-motion status — a clean solid dot (no glyph, no halo).
-                         The 低/中/高 word below keeps it dual-coded for accessibility. -->
-                    <Grid Width="20" Height="20" HorizontalAlignment="Center">
-                        <Ellipse Width="13" Height="13"
-                                 Fill="{Binding VimsTier, Converter={StaticResource StatusBrush}}"/>
-                    </Grid>
-                    <!-- The word re-picks on a language flip via the MultiBinding's Language value
-                         (a plain VimsTier binding stayed stale — "低" in English). -->
-                    <TextBlock Margin="0,2,0,0" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Popup.OnBar}">
-                        <TextBlock.Text>
-                            <MultiBinding Converter="{StaticResource StatusWordML}">
-                                <Binding Path="VimsTier"/>
-                                <Binding Path="Language" Source="{x:Static loc:LocalizationManager.Current}"/>
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
-                </StackPanel>
+                <!-- (item 2) status dot + 低/中/高 word removed — the bar now opens straight to the
+                     action button; on-screen motion is conveyed by the overlay itself, not a bar readout. -->
 
-                <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
-
-                <!-- on/off switch — a power symbol; BRIGHT blue when running, muted GREY "off" when
-                     paused (reads as a switch position, not a disabled/dimmed control). CONDENSED + FULL -->
+                <!-- on/off switch — the SenseEase mark; BRIGHT blue when running, muted GREY "off"
+                     when paused (reads as a switch position, not a disabled/dimmed control). CONDENSED + FULL -->
                 <Button Command="{Binding PlayPauseCommand}"
                         ToolTip="{loc:T Zh='開啟／暫停保護', En='Toggle protection on / off'}"
                         AutomationProperties.Name="{loc:T Zh='開啟或暫停保護', En='Toggle protection on/off'}">
@@ -375,50 +438,27 @@
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
-                    <Path Data="{StaticResource Icon.Power}" Width="15" Height="15" Stretch="Uniform"
-                          Stroke="White" StrokeThickness="2"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                    <!-- (item 3) the SenseEase app mark as the action glyph. Raster .ico (≤24px source)
+                         → mildly soft at this size; HighQuality scaling softens the upscale. State is
+                         carried by the chip background (blue running / grey paused) above. -->
+                    <Image Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
+                           Width="20" Height="20"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                 </Button>
 
-                <!-- FULL only: read-only 12-seg strength meter + nudge buttons (with its own
-                     leading divider so nothing is orphaned when condensed). The +/- buttons carry
-                     their own Hand cursor (BarIconBtn); the meter itself stays the default arrow. -->
+                <!-- FULL only: intensity drag slider + Lv.NN readout (with its own leading divider so
+                     nothing is orphaned when condensed). The engine owns the level; dragging the
+                     handle routes a TwoWay IntensityLevel to the absolute setter. Top = stronger. -->
                 <StackPanel x:Name="MeterSection" HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                     <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
-                    <Button Style="{StaticResource BarIconBtn}" Command="{Binding StrongerCommand}"
-                            ToolTip="{loc:T Zh='加強保護（提高遮罩強度）', En='Stronger protection'}"
-                            AutomationProperties.Name="{loc:T Zh='加強保護', En='Stronger protection'}">
-                        <Path Data="{StaticResource Icon.Plus}" Fill="{DynamicResource Popup.OnBar}" Width="13" Height="13" Stretch="Uniform"/>
-                    </Button>
-                    <ItemsControl ItemsSource="{Binding Segments}" Margin="0,4" HorizontalAlignment="Center"
-                                  AutomationProperties.Name="{Binding LevelText}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <!-- Themed via DynamicResource (not the frozen-literal SegFill converter)
-                                     so the lit run uses the THEME accent and flips with Light↔Dark. -->
-                                <Border Width="20" Height="4" Margin="0,1" CornerRadius="2">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="Background" Value="{DynamicResource Popup.SegOff}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding}" Value="True">
-                                                    <Setter Property="Background" Value="{DynamicResource Popup.SegOn}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <Slider x:Name="IntensitySlider" Style="{StaticResource PopupIntensitySlider}"
+                            Height="128" HorizontalAlignment="Center" Margin="0,2"
+                            Value="{Binding IntensityLevel, Mode=TwoWay}"
+                            ToolTip="{loc:T Zh='拖曳調整保護強度', En='Drag to set protection strength'}"
+                            AutomationProperties.Name="{loc:T Zh='保護強度（1 至 12，往上更強）', En='Protection strength (1 to 12, up is stronger)'}"/>
                     <TextBlock Text="{Binding LevelText}" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Popup.OnBar}"/>
-                    <Button Style="{StaticResource BarIconBtn}" Command="{Binding GentlerCommand}"
-                            ToolTip="{loc:T Zh='減弱保護（降低遮罩強度）', En='Gentler protection'}"
-                            AutomationProperties.Name="{loc:T Zh='減弱保護', En='Gentler protection'}">
-                        <Path Data="{StaticResource Icon.Minus}" Fill="{DynamicResource Popup.OnBar}" Width="13" Height="13" Stretch="Uniform"/>
-                    </Button>
+                               Margin="0,4,0,0" Foreground="{DynamicResource Popup.OnBar}"/>
                 </StackPanel>
 
                 <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
@@ -430,8 +470,9 @@
                     <Path Data="{StaticResource Icon.Chat}" Fill="{DynamicResource Popup.OnBar}" Width="15" Height="15" Stretch="Uniform"/>
                 </Button>
 
-                <!-- FULL only: quick-settings gear + pin. The gear's dropdown is the in-window
-                     SettingsFlyout card. Pin lights up blue while active. -->
+                <!-- FULL only: quick-settings gear. The gear's dropdown is the in-window
+                     SettingsFlyout card. (Pin removed — item 7: the bar appears reactively when
+                     needed, so a keep-open pin is unnecessary; the bar is always dismissible.) -->
                 <StackPanel x:Name="ToolsSection" HorizontalAlignment="Center"
                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
                     <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
@@ -439,38 +480,15 @@
                             AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}">
                         <Path Data="{StaticResource Icon.Settings}" Fill="{DynamicResource Popup.OnBar}" Width="15" Height="15" Stretch="Uniform"/>
                     </Button>
-                    <Button Command="{Binding TogglePinCommand}"
-                            ToolTip="{loc:T Zh='釘選工具列（保持顯示）', En='Pin the bar (keep open)'}"
-                            AutomationProperties.Name="{loc:T Zh='釘選工具列', En='Pin the bar'}">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource BarIconBtn}">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                        <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                        <Path Data="{StaticResource Icon.Pin}" Fill="{DynamicResource Popup.OnBar}" Width="14" Height="14" Stretch="Uniform"/>
-                    </Button>
                 </StackPanel>
 
                 <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
 
-                <!-- expand / collapse chevron — hidden while pinned (a pinned bar can't be
-                     collapsed; the pin toggle in the FULL set is then always reachable to un-pin) -->
+                <!-- expand / collapse chevron — always shown (pin removed, item 7) -->
                 <Button Command="{Binding ToggleExpandCommand}"
+                        Style="{StaticResource BarIconBtn}"
                         ToolTip="{loc:T Zh='展開／收合工具列', En='Expand / collapse'}"
                         AutomationProperties.Name="{loc:T Zh='展開或收合工具列', En='Expand or collapse the bar'}">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource BarIconBtn}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
                     <Path Width="14" Height="14" Stretch="Uniform" Stroke="{DynamicResource Popup.OnBar}" StrokeThickness="2"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
                         <Path.Style>
@@ -486,12 +504,13 @@
                     </Path>
                 </Button>
 
-                <!-- Drag handle — the single explicit grip for moving the bar up / down. Shown in
-                     BOTH the condensed and expanded stages (always visible — no IsExpanded gate). A
-                     press here is non-interactive, so it bubbles up to BarRoot.OnBarMouseDown and
-                     runs the vertical-only DragMove (mouse) / the window touch path (touch). This is
-                     the discoverable affordance that replaced the old whole-bar SizeNS cursor. -->
+                <!-- Drag handle — the explicit grip for moving the bar up / down. Shown ONLY in the
+                     EXPANDED stage (item 6 — tucked away in the condensed bar to keep it minimal). A
+                     press here is non-interactive, so it bubbles up to BarRoot.OnBarMouseDown and runs
+                     the vertical-only DragMove (mouse) / the window touch path (touch); the condensed
+                     bar is still draggable from its background via the same handler. -->
                 <Border x:Name="DragHandle" Cursor="SizeNS" Background="Transparent"
+                        Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"
                         HorizontalAlignment="Center" Margin="0,3,0,0" Padding="12,6"
                         ToolTip="{loc:T Zh='拖曳調整上下位置', En='Drag to move up / down'}"
                         AutomationProperties.Name="{loc:T Zh='拖曳調整工具列上下位置', En='Drag the bar up or down'}">

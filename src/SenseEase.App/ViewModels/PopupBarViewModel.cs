@@ -34,12 +34,9 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         Chat = chat;
 
         PlayPauseCommand     = new RelayCommand(_ => PlayPause());
-        StrongerCommand      = new RelayCommand(_ => Stronger());
-        GentlerCommand       = new RelayCommand(_ => Gentler());
         ToggleChatCommand    = new RelayCommand(_ => ToggleChat());
         ToggleSettingsCommand = new RelayCommand(_ => IsSettingsOpen = !IsSettingsOpen);
         ToggleExpandCommand  = new RelayCommand(_ => IsExpanded = !IsExpanded);
-        TogglePinCommand     = new RelayCommand(_ => IsPinned = !IsPinned);
         OpenLogsCommand      = new RelayCommand(_ => _controller?.OpenLogs());
         OpenFullSettingsCommand = new RelayCommand(_ => _controller?.OpenSettings());
 
@@ -65,22 +62,28 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(Level));
             OnPropertyChanged(nameof(LevelText));
-            OnPropertyChanged(nameof(Segments));
+            OnPropertyChanged(nameof(IntensityLevel));
         }
     }
 
     public int Level => VimsTier;
     public string LevelText => $"Lv.{Level:00}";
 
-    /// <summary>12 segment on/off flags, filled bottom-up (index 0 = top): segment i is
-    /// lit iff i ≥ 12 − Level. The window's ItemsControl binds each bool via SegmentFillConverter.</summary>
-    public bool[] Segments
+    // ── Intensity (item 9) — TWO-WAY for the drag slider. get = the engine tier; set routes a user
+    // drag to the controller's ABSOLUTE setter (the engine owns the level, so we never write VimsTier
+    // directly when a controller is present). Feedback-loop-guarded: _applyingEngineLevel is set while
+    // ApplyState pushes engine state, and a set equal to the current tier is a no-op (snap echo).
+    private bool _applyingEngineLevel;
+    public int IntensityLevel
     {
-        get
+        get => VimsTier;
+        set
         {
-            var segs = new bool[MaxLevel];
-            for (int i = 0; i < MaxLevel; i++) segs[i] = i >= MaxLevel - Level;
-            return segs;
+            if (_applyingEngineLevel) return;
+            var clamped = Math.Max(1, Math.Min(MaxLevel, value));
+            if (clamped == VimsTier) return;
+            if (_controller is not null) _controller.SetIntensityLevel(clamped);
+            else VimsTier = clamped; // standalone optimistic (design-time / tests)
         }
     }
 
@@ -134,22 +137,6 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         }
     }
 
-    // Pin keeps the full bar parked (no proximity auto-close, no click-away close) until the
-    // user un-pins. Pinning forces FULL; the collapse chevron is hidden while pinned so the
-    // pin toggle (which lives in the full set) is always reachable to un-pin.
-    private bool _isPinned;
-    public bool IsPinned
-    {
-        get => _isPinned;
-        set
-        {
-            if (_isPinned == value) return;
-            _isPinned = value;
-            if (value) IsExpanded = true;
-            OnPropertyChanged();
-        }
-    }
-
     // Quick-settings toggles — wired to the engine through the controller (錨點格線 / 漸進適應 /
     // 常駐遮罩). The getters read LIVE engine state so the switches reflect reality on open; with no
     // controller (design-time / tests) they fall back to local state so the UI still works.
@@ -179,12 +166,9 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
 
     // ── Commands ─────────────────────────────────────────────────────────────
     public ICommand PlayPauseCommand { get; }
-    public ICommand StrongerCommand { get; }
-    public ICommand GentlerCommand { get; }
     public ICommand ToggleChatCommand { get; }
     public ICommand ToggleSettingsCommand { get; }
     public ICommand ToggleExpandCommand { get; }
-    public ICommand TogglePinCommand { get; }
     public ICommand OpenLogsCommand { get; }
     public ICommand OpenFullSettingsCommand { get; }
 
@@ -192,18 +176,6 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
     {
         if (_controller is not null) { _controller.PlayPause(); return; }
         IsPaused = !IsPaused; // standalone optimistic
-    }
-
-    private void Stronger()
-    {
-        if (_controller is not null) { _controller.NudgeStronger(); return; }
-        VimsTier = VimsTier + 1; // standalone optimistic display
-    }
-
-    private void Gentler()
-    {
-        if (_controller is not null) { _controller.NudgeGentler(); return; }
-        VimsTier = VimsTier - 1;
     }
 
     private void ToggleChat()
@@ -216,8 +188,11 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
     /// <see cref="IShellController.StateChanged"/>).</summary>
     public void ApplyState(int tier, bool paused)
     {
-        VimsTier = tier;
-        IsPaused = paused;
+        // Guard the slider's two-way binding: while the engine pushes its tier, suppress the
+        // IntensityLevel setter so the echo can't re-enter the controller.
+        _applyingEngineLevel = true;
+        try { VimsTier = tier; IsPaused = paused; }
+        finally { _applyingEngineLevel = false; }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

@@ -201,6 +201,15 @@ public sealed class ShellController : IShellController
     public void NudgeStronger() { _vm.NudgeIntensityLevel(1); StateChanged?.Invoke(this, EventArgs.Empty); }
     public void NudgeGentler() { _vm.NudgeIntensityLevel(-1); StateChanged?.Invoke(this, EventArgs.Empty); }
 
+    // Absolute level (the drag slider). Rides the same always-on baseline as the nudges, so the
+    // displayed level + overlay update immediately and the meter reflects it.
+    public int SetIntensityLevel(int level)
+    {
+        int displayed = _vm.SetIntensityLevel(level);
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        return displayed;
+    }
+
     public void OpenChat()
     {
         if (_popup is null || !_popup.IsVisible) RevealPopup();

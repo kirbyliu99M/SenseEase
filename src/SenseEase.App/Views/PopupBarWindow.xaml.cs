@@ -278,16 +278,16 @@ public partial class PopupBarWindow : Window, IShellSurface
         // (1) LIGHT DISMISS — a FRESH left-click strictly outside the popup rect (the bar + any open
         // card) collapses it, even when the window was never activated (the bare-desktop click the
         // user expects to dismiss it, which Window.Deactivated misses). Honours the explicit dismiss
-        // immediately: bypasses the reveal grace AND the panel-open hold below. A pinned bar is
-        // exempt. dist > 0 ⇔ the cursor is outside the window rect.
+        // immediately: bypasses the reveal grace AND the panel-open hold below.
+        // dist > 0 ⇔ the cursor is outside the window rect.
         bool leftDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
         bool freshClick = leftDown && !_prevLeftDown;
         _prevLeftDown = leftDown;
-        if (freshClick && dist > 0 && !vm.IsPinned) { _farTicks = 0; CollapseToHandle(); return; }
+        if (freshClick && dist > 0) { _farTicks = 0; CollapseToHandle(); return; }
 
-        // (2) PROXIMITY — never auto-close while pinned or mid-interaction (a panel open). Reset the
-        // grace so a brief excursion while interacting doesn't collapse the moment the panel closes.
-        if (vm.IsPinned || vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
+        // (2) PROXIMITY — never auto-close mid-interaction (a panel open). Reset the grace so a
+        // brief excursion while interacting doesn't collapse the moment the panel closes.
+        if (vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
 
         // Reveal-from-afar grace (tray / hotkey): stay open a fixed window so the user can reach it.
         if (Environment.TickCount64 < _graceUntilTick) { _farTicks = 0; return; }
@@ -308,10 +308,9 @@ public partial class PopupBarWindow : Window, IShellSurface
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
-        // Click-away close (fires only when the window was activated, e.g. chat open) — but a PINNED
-        // bar stays put (that is the point of the pin). The non-activated case is covered by the
-        // light-dismiss poll in OnAutoCloseTick.
-        if (DataContext is PopupBarViewModel { IsPinned: true }) return;
+        // Click-away close (fires only when the window was activated, e.g. chat open). The
+        // non-activated case is covered by the light-dismiss poll in OnAutoCloseTick. (Pin removed —
+        // item 7 — so the bar is always dismissible.)
         CollapseToHandle();
     }
 
