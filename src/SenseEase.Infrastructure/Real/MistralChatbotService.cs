@@ -110,7 +110,15 @@ public static class SenseEaseDataRoot
 /// </summary>
 public sealed class MistralChatbotService : IChatbotService
 {
-    private readonly string _modelPath;
+    // Mutable: the non-default ("opt-in") model can fail to load (OOM / bad template) and we then
+    // re-point these at the bundled Mistral fallback and relaunch — so chat keeps its full LLM
+    // instead of dropping to the lexicon. See LoadAsync.
+    private string _modelPath;
+    private string[] _stopTokens;
+    private string[] _extraServerArgs;
+    private int? _nGpuLayers;
+    private readonly string? _fallbackModelPath;
+    private static readonly string[] DefaultStopTokens = { "[INST]", "User:" };
     private readonly List<ChatMessage> _history = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
 
@@ -374,9 +382,38 @@ public sealed class MistralChatbotService : IChatbotService
     /// feather knob is absent from the NLU contract (round-3, Kirby item 5).</summary>
     internal static string SystemPromptForTests => SystemPrompt;
 
-    public MistralChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null)
+    // GBNF grammar passed on every request: locks the model output to the EXACT NLU envelope —
+    // snake_case keys, the intent enum, numeric deltas, and the optional followup block. This makes
+    // structured output reliable for ANY model (hardens the small Mistral, which hallucinates keys;
+    // works the same for Qwen3-4B etc.). The grammar guarantees SHAPE + TYPES + the intent enum; the
+    // NluComplianceGate still owns POLICY + numeric-range clamps (defense in depth). Non-thinking
+    // models only — a <think> preamble would violate this grammar (Qwen3-Instruct-2507 is non-thinking).
+    internal const string EnvelopeGrammar = """"
+        root ::= "{" ws "\"intent\":" ws intent "," ws "\"severity\":" ws severity "," ws "\"reply\":" ws string "," ws "\"fov_delta\":" ws integer "," ws "\"mask_depth_delta\":" ws number "," ws "\"grid_visibility_delta\":" ws number followup? ws "}"
+        followup ::= "," ws "\"followup_question\":" ws string "," ws "\"followup_options\":" ws strarray
+        intent ::= "\"ReportDiscomfort\"" | "\"ReportComfort\"" | "\"ResetRequest\"" | "\"AnalyzeRequest\"" | "\"FollowupRequest\"" | "\"Unknown\""
+        severity ::= [1-5]
+        strarray ::= "[" ws string (ws "," ws string)* ws "]"
+        string ::= "\"" ([^"\\] | "\\" (["\\/bfnrt] | "u" hex hex hex hex))* "\""
+        hex ::= [0-9a-fA-F]
+        integer ::= "-"? ([0-9] | [1-9] [0-9]*)
+        number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)?
+        ws ::= [ \t\n]*
+        """";
+
+    /// <param name="stopTokens">Per-model stop sequences (null → Mistral default [INST]/User:).</param>
+    /// <param name="extraServerArgs">Per-model extra llama-server flags (e.g. non-thinking flags).</param>
+    /// <param name="nGpuLayers">Per-model GPU-offload layer count (null → 99 = full offload).</param>
+    /// <param name="fallbackModelPath">Bundled default (Mistral) to relaunch with if the primary
+    /// model fails to load — the "never break chat" guarantee. Null/equal → no fallback.</param>
+    public MistralChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null,
+        string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null, string? fallbackModelPath = null)
     {
         _modelPath = modelPath;
+        _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
+        _extraServerArgs = extraServerArgs ?? Array.Empty<string>();
+        _nGpuLayers = nGpuLayers;
+        _fallbackModelPath = fallbackModelPath;
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
     }
@@ -408,6 +445,35 @@ public sealed class MistralChatbotService : IChatbotService
     /// OpenAI-compatible HTTP API so we never call llama.dll directly from C#.
     /// </summary>
     public async Task LoadAsync()
+    {
+        if (!IsModelAvailable || IsModelLoaded) return;
+        try
+        {
+            await LaunchAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // Primary model failed to load. If it is an OPT-IN model (not the default) and the
+            // bundled default (Mistral) is present, re-point to it and relaunch ONCE so chat keeps
+            // its full LLM instead of dropping to the lexicon. If the fallback ALSO fails, propagate
+            // (same contract as before) → the caller's lexicon path takes over. Either way: no breakdown.
+            if (_fallbackModelPath is { } fb
+                && !string.Equals(fb, _modelPath, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(fb))
+            {
+                _modelPath = fb;
+                _stopTokens = DefaultStopTokens;
+                _extraServerArgs = Array.Empty<string>();
+                _nGpuLayers = null;
+                LoadError = null;
+                await LaunchAsync().ConfigureAwait(false);
+                return;
+            }
+            throw;
+        }
+    }
+
+    private async Task LaunchAsync()
     {
         if (!IsModelAvailable || IsModelLoaded) return;
         try
@@ -477,7 +543,7 @@ public sealed class MistralChatbotService : IChatbotService
             // private. The CLI carries only the non-secret flags below.
             string serverArgs =
                 $"--model \"{_modelPath}\" " +
-                $"--n-gpu-layers 99 " +
+                $"--n-gpu-layers {_nGpuLayers ?? 99} " +
                 $"--host 127.0.0.1 --port {ServerPort} " +
                 // H9: disable the built-in web UI (no need for an attack surface) and
                 // pin the context so a model swap can't silently shift behaviour.
@@ -495,7 +561,10 @@ public sealed class MistralChatbotService : IChatbotService
                 // --jinja uses the GGUF's embedded Jinja chat template. Without
                 // it the model produces garbage tokens (same bug we hit earlier
                 // through LLamaSharp's path).
-                $"--jinja";
+                $"--jinja" +
+                // Per-model extra flags (e.g. a thinking model's non-thinking switches). Empty for
+                // Mistral and for Qwen3-Instruct-2507 (already non-thinking).
+                (_extraServerArgs.Length > 0 ? " " + string.Join(" ", _extraServerArgs) : string.Empty);
 
             var psi = new ProcessStartInfo
             {
@@ -858,7 +927,12 @@ public sealed class MistralChatbotService : IChatbotService
                 temperature = 0.4,
                 top_p       = 0.9,
                 top_k       = 40,
-                stop        = new[] { "[INST]", "User:" },
+                stop        = _stopTokens,
+                // GBNF-constrain the output to the envelope so the JSON is always valid + the intent
+                // is always in-enum (llama.cpp server extension on /v1/chat/completions). If a bundled
+                // server build ignores `grammar` here, the tolerant parser + lexicon fallback still
+                // catch it — and `response_format` json_schema is the documented alternative.
+                grammar     = EnvelopeGrammar,
             };
 
             // NE3: never let a network error or a malformed-200 body throw past

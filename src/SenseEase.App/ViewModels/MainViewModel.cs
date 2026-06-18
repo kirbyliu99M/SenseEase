@@ -1066,7 +1066,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // CW-11/EXIT-04: keep the owned reference so DisposeServices can terminate the
         // llama-server child deterministically on quit. ChatbotVm + _nlu both share this
         // instance without owning its lifetime (see _mistral field doc).
-        _mistral = new MistralChatbotService(AppConfig.ModelPath, _adjustmentLog, _log);
+        // Model selection (2026-06-19): the active model (env/pref, present-gated to Mistral) drives
+        // the path + per-model stop tokens + server flags; the bundled Mistral is the load-fallback
+        // so an opt-in model that can't load (OOM / bad template) never breaks chat.
+        var chatModel = AppConfig.ActiveModel;
+        _mistral = new MistralChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
+            stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
+            nGpuLayers: chatModel.NGpuLayers, fallbackModelPath: AppConfig.DefaultModel.ModelPath);
         ChatbotVm = new ChatbotViewModel(_mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete

@@ -84,7 +84,59 @@ public static class AppConfig
     // and it's the same model the prior PC ran successfully.
     private const string ModelFileRelative = "models/Ministral-3-3B-Instruct-2512-GGUF/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf";
 
-    public static string ModelPath { get; } = ResolveModelPath();
+    // ── Chat-model registry (2026-06-19) ──────────────────────────────────────
+    // Mistral-3B is the BUNDLED default + fallback; Qwen3-4B is an OPT-IN upgrade (better Chinese)
+    // the user drops into models/ and selects via UserPreferences.ChatModelKey (or the dev env var
+    // SENSEEASE_CHAT_MODEL). Present-gated: an opt-in model whose GGUF isn't actually there silently
+    // falls back to the bundled Mistral, so chat never breaks on an unfit/absent model. The C# layer
+    // is model-agnostic (OpenAI-compat + server-side --jinja); a profile only carries the path +
+    // stop tokens + any per-model server flags.
+    public sealed record ChatModel(string Key, string ModelPath, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
+    private sealed record ChatModelSpec(string Key, string Relative, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
+
+    public const string DefaultModelKey = "mistral";
+    private static readonly ChatModelSpec[] ModelCatalog =
+    {
+        new(DefaultModelKey, ModelFileRelative, new[] { "[INST]", "User:" }, Array.Empty<string>(), null),
+        // Qwen3-4B-Instruct-2507 is the DEDICATED non-thinking variant → no enable_thinking flags needed.
+        new("qwen3-4b", "models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+            new[] { "<|im_end|>", "User:" }, Array.Empty<string>(), null),
+    };
+
+    /// <summary>The bundled default (Mistral) — always present; used as the fallback target.</summary>
+    public static ChatModel DefaultModel { get; } = BuildModel(FindSpec(DefaultModelKey)!);
+    private static readonly Lazy<ChatModel> _activeModel = new(ResolveActiveModel);
+    /// <summary>The model to actually load: env/pref selection, present-gated, Mistral fallback.</summary>
+    public static ChatModel ActiveModel => _activeModel.Value;
+
+    /// <summary>Back-compat: the ACTIVE model's resolved path (existing diagnostics + call sites).</summary>
+    public static string ModelPath => ActiveModel.ModelPath;
+
+    private static ChatModelSpec? FindSpec(string key)
+    {
+        foreach (var s in ModelCatalog) if (s.Key == key) return s;
+        return null;
+    }
+
+    private static ChatModel BuildModel(ChatModelSpec s)
+        => new(s.Key, ResolveModelPath(s.Relative), s.StopTokens, s.ExtraServerArgs, s.NGpuLayers);
+
+    private static ChatModel ResolveActiveModel()
+    {
+        // dev env override → persisted pref → default. Unknown key → default.
+        string key = Environment.GetEnvironmentVariable("SENSEEASE_CHAT_MODEL") ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            try { key = UserPreferences.Current.ChatModelKey ?? DefaultModelKey; }
+            catch { key = DefaultModelKey; }
+        }
+        var spec = FindSpec(key.Trim()) ?? FindSpec(DefaultModelKey)!;
+        var model = BuildModel(spec);
+        // Present-gate: an opt-in model whose GGUF isn't on disk → fall back to the bundled default.
+        if (spec.Key != DefaultModelKey && !File.Exists(model.ModelPath))
+            return DefaultModel;
+        return model;
+    }
 
     /// <summary>Returns the list of paths probed by ResolveModelPath, in order.
     /// Surfaced to the UI when the model isn't found so the user can see exactly
@@ -109,10 +161,10 @@ public static class AppConfig
         return resolved;
     }
 
-    private static string ResolveModelPath()
+    private static string ResolveModelPath(string relativePath)
     {
         var probes = new List<string>();
-        string rel = ModelFileRelative.Replace('/', Path.DirectorySeparatorChar);
+        string rel = relativePath.Replace('/', Path.DirectorySeparatorChar);
         // Strip any trailing slash from BaseDirectory so DirectoryInfo.Parent walks
         // up reliably (with a trailing slash some .NET versions treat it as already
         // pointing at the parent — the walk silently no-ops).
