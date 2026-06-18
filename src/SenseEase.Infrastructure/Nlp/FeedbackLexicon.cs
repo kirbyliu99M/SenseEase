@@ -353,6 +353,20 @@ internal static class FeedbackLexicon
     /// Chinese). Used as a veto over the LLM's FollowupRequest: when the user has
     /// already named the symptom, asking "which symptom?" is the wrong move —
     /// promote straight to ReportDiscomfort and act on it instead.</summary>
+    /// <summary>True when the text contains an explicit comfort/improvement cue
+    /// (好多了 / 改善了 / better / improved …) OR negates a symptom (不暈 / no longer dizzy).
+    /// Used by <c>NluComplianceGate</c> to tell a genuine "my headache is better" (real
+    /// ReportComfort) from a BARE symptom name like "頭痛" the model mis-tagged ReportComfort:
+    /// the bare name has a symptom keyword but NO comfort/negation cue, so this returns false
+    /// and the gate corrects it to ReportDiscomfort. Single-sources the comfort predicate
+    /// <see cref="Classify"/> already uses, so the two can't drift apart.</summary>
+    public static bool ExpressesComfortOrNegation(string? text)
+    {
+        string t = Normalize(text);
+        if (string.IsNullOrEmpty(t)) return false;
+        return ContainsAny(t, ComfortKeywords) || HasNegatedSymptom(t, 3);
+    }
+
     public static bool MentionsSpecificSymptom(string? text)
     {
         string t = Normalize(text);
@@ -399,8 +413,8 @@ internal static class FeedbackLexicon
         return intent switch
         {
             "ReportDiscomfort" => zh
-                ? "已偵測到不適，我已收緊 FOV 保護與周邊遮罩，降低視覺刺激。系統會持續監測 OFI 與壓力變化。"
-                : "Discomfort detected. I tightened FOV protection and peripheral masking to reduce visual load. I will keep monitoring OFI and pressure.",
+                ? "我知道你不太舒服。我把畫面晃動調小了、邊緣也柔和了些，有沒有好一點再跟我說。"
+                : "I hear you're uncomfortable. I've eased the on-screen motion and softened the edges to help — tell me if it eases up for you.",
             "ReportComfort" => zh
                 ? "收到，你目前較穩定。系統會持續監測，並逐步放寬 FOV 保護。"
                 : "Understood. Your condition seems more stable. The system will keep monitoring and gradually relax FOV protection.",

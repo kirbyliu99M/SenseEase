@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 
@@ -74,6 +75,21 @@ internal static class NluComplianceGate
         // Belt-and-suspenders: if lexicon detects reset cue, upgrade intent.
         var (_, _, _, reset) = FeedbackLexicon.ClassifyShaderHints(userText);
         if (reset && intent != "ResetRequest") intent = "ResetRequest";
+
+        // P0a (headache-"已緩解" misclassification 2026-06-18): the small model, fed a BARE symptom
+        // noun (often a tapped followup option like "頭痛 / Headache"), reads it as a label/resolution
+        // and returns ReportComfort with an "your headache has eased" reply — telling a user their
+        // just-reported symptom is gone. A bare symptom with NO comfort/negation cue is a CURRENT
+        // discomfort report; correct it (the symmetric twin of the FollowupRequest→ReportDiscomfort
+        // promote below). reply=null drops the wrong "glad you're better" text so the discomfort
+        // fallback (below) rebuilds an appropriate reply. Deterministic, source-agnostic backstop.
+        if (intent == "ReportComfort"
+            && FeedbackLexicon.MentionsSpecificSymptom(userText)
+            && !FeedbackLexicon.ExpressesComfortOrNegation(userText))
+        {
+            intent = "ReportDiscomfort";
+            reply = null;
+        }
 
         // FollowupRequest veto: if the user already named a specific symptom
         // (headache / dizzy / nausea / eye strain), asking "which symptom?"
@@ -203,6 +219,24 @@ internal static class NluComplianceGate
         string response = (reply ?? string.Empty).Trim();
         if (response.Length == 0)
             response = FeedbackLexicon.BuildFallbackResponse(userText, intent);
+
+        // P1 (symptom-denial backstop 2026-06-18): on a discomfort turn, never SHIP a reply that
+        // CLAIMS the user's symptom is gone/eased or PREDICTS it will improve — unless the user
+        // themselves said so this turn. Catches the class of "your headache should pass" failures
+        // even when the intent stayed ReportDiscomfort (so P0a didn't fire). Cheap bilingual
+        // substring scan; on a hit, rebuild from the safe lexicon fallback. The final deterministic
+        // line of defence behind the SystemPrompt SYMPTOM-STATE BOUNDARY rule.
+        if (intent == "ReportDiscomfort" && !FeedbackLexicon.ExpressesComfortOrNegation(userText))
+        {
+            string[] resolutionClaims =
+            {
+                "緩解", "已經好", "不痛了", "不暈了", "不會痛", "應該會好", "會好的", "應該會舒服", "舒服多了", "已改善",
+                "should feel better", "will feel better", "will improve", "is gone", "has eased",
+                "will pass", "you're better", "feeling better now",
+            };
+            if (resolutionClaims.Any(p => response.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                response = FeedbackLexicon.BuildFallbackResponse(userText, intent);
+        }
 
         // Sanitize followup payload: trust the proposal only if it gave both a
         // question AND 2-4 short options when intent is FollowupRequest.
