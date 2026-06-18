@@ -1,60 +1,55 @@
 <!--
-  UI-RESHAPE — DEFAULT (light-mode) palette for the NEW discreet surfaces only
-  (EdgeSidebarWindow / PopupBarWindow / NpsSurveyWindow). USER-APPROVED to override the
-  locked "Calm palette only" rule FOR THESE NEW SURFACES (kirby, 2026-06-17).
+  UI-RESHAPE — DEFAULT (LIGHT-mode) palette for the NEW discreet surfaces only
+  (EdgeSidebarWindow / PopupBarWindow / NpsSurveyWindow / ConsentBubbleWindow). USER-APPROVED to
+  override the locked "Calm palette only" rule FOR THESE NEW SURFACES (kirby, 2026-06-17).
 
-  PALETTE SWAP (kirby, 2026-06-17 iter 3): the original light build painted a fixed
-  light-blue glass; Kirby found the slate "dark" build friendlier and asked to make it the
-  DEFAULT. So this dictionary now holds the SLATE glass (what used to live in
-  PopupGlassTokens.Dark.xaml), and PopupGlassTokens.Dark.xaml became a genuine neutral
-  black/grey "Windows Game Bar" dark theme. The locked Theme/SenseEaseTheme.xaml is
-  UNCHANGED — existing windows + TokenContrastTests are untouched.
+  THEME REMAP (kirby, 2026-06-18 round 2): the original frosted WHITE / light-blue glass is the
+  LIGHT mode (restored here from the reference senseease-vertical-v1.html), and the SLATE look the
+  earlier iterations defaulted to is now the DARK mode (PopupGlassTokens.Dark.xaml). So: LIGHT =
+  light-blue frosted glass with DARK navy ink; DARK = slate glass with near-white ink. The locked
+  Theme/SenseEaseTheme.xaml is UNCHANGED — existing windows + TokenContrastTests are untouched.
 
   Pure ResourceDictionary (no x:Class) merged VIEW-LOCALLY via pack URI exactly like
-  SenseEaseTheme.xaml — NEVER App.Resources (MainWindowSmokeTests boots a bare
-  Application). The new windows merge BOTH this dictionary (Popup.* colours) AND
-  SenseEaseTheme.xaml (Radius/Type/FocusVisible/SettingSwitch/Elev structural tokens).
+  SenseEaseTheme.xaml — NEVER App.Resources (MainWindowSmokeTests boots a bare Application).
 
-  Bar surface = slate glass painted over a Win11 acrylic blur; the bar reads dark, so
-  BAR text/glyphs use the white Popup.OnBar ramp. PANELS (chat / dropdown) are a more
-  opaque slate glass → the near-WHITE Popup.Ink ramp. Contrast (over the slate each
-  brush paints): Ink1 ≈ 13.6:1 (AAA), Ink2 ≈ 9.0:1 (AAA), Ink3 ≈ 5.0:1 (AA).
+  Light glass reads LIGHT over the desktop, so BAR text/glyphs use the DARK navy Popup.OnBar ramp
+  and panels use the DARK navy Popup.Ink ramp (reference rgba(6,16,48,…)). No window-wide acrylic
+  on the bar (iter-4), so the fill alpha is bumped (~90% bar / ~95% panel) for readability.
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Accent (reference royal blue, lightened for legibility on the slate glass) -->
-    <SolidColorBrush x:Key="Popup.Blue"      Color="#FF5B8CFF"/>
-    <SolidColorBrush x:Key="Popup.BlueHover" Color="#FF7AA2FF"/>
+    <!-- Accent (reference royal blue — reads on the light glass) -->
+    <SolidColorBrush x:Key="Popup.Blue"      Color="#FF024AD8"/>
+    <SolidColorBrush x:Key="Popup.BlueHover" Color="#FF0340C0"/>
 
-    <!-- 3-state pulse status (green / amber / red, lightened to read on the slate) -->
-    <SolidColorBrush x:Key="Popup.Low"  Color="#FF4ADE80"/>
-    <SolidColorBrush x:Key="Popup.Mid"  Color="#FFFBBF24"/>
-    <SolidColorBrush x:Key="Popup.High" Color="#FFF87171"/>
+    <!-- 3-state pulse status (reference saturated green / amber / red — read on light glass) -->
+    <SolidColorBrush x:Key="Popup.Low"  Color="#FF22C55E"/>
+    <SolidColorBrush x:Key="Popup.Mid"  Color="#FFF59E0B"/>
+    <SolidColorBrush x:Key="Popup.High" Color="#FFEF4444"/>
 
-    <!-- Card fills (no window-wide acrylic blur now — iter-4 — so the alpha is bumped up for
-         readability over the desktop): BarBg ~90%, PanelBg ~95%. Slate. -->
-    <SolidColorBrush x:Key="Popup.BarBg"   Color="#E6232A36"/>
-    <SolidColorBrush x:Key="Popup.PanelBg" Color="#F21D232E"/>
-    <!-- Soft light rim on the dark glass. -->
-    <SolidColorBrush x:Key="Popup.Bdr"     Color="#26FFFFFF"/>
+    <!-- Card fills — frosted light-blue glass (reference rgba(210,224,255)/(215,228,252), alpha
+         bumped since there is no window-wide acrylic blur): BarBg ~90%, PanelBg ~95%. -->
+    <SolidColorBrush x:Key="Popup.BarBg"   Color="#E6D2E0FF"/>
+    <SolidColorBrush x:Key="Popup.PanelBg" Color="#F2D7E4FC"/>
+    <!-- Frosted-glass highlight rim. -->
+    <SolidColorBrush x:Key="Popup.Bdr"     Color="#59FFFFFF"/>
 
-    <!-- Ink ramp on PANELS — near-WHITE at descending alpha (dark text would vanish on the
-         slate). Verified AA+ on PanelBg. -->
-    <SolidColorBrush x:Key="Popup.Ink1" Color="#F0EAF0F8"/>
-    <SolidColorBrush x:Key="Popup.Ink2" Color="#B8EAF0F8"/>
-    <SolidColorBrush x:Key="Popup.Ink3" Color="#80EAF0F8"/>
+    <!-- Ink ramp on PANELS — DARK navy (reference rgba(6,16,48, .88/.52/.30)) on the light glass. -->
+    <SolidColorBrush x:Key="Popup.Ink1" Color="#E0061030"/>
+    <SolidColorBrush x:Key="Popup.Ink2" Color="#85061030"/>
+    <SolidColorBrush x:Key="Popup.Ink3" Color="#4D061030"/>
 
-    <!-- Text/glyph ON the bar (white ramp — the bar reads dark over the desktop) -->
-    <SolidColorBrush x:Key="Popup.OnBar"    Color="#F2FFFFFF"/>
-    <SolidColorBrush x:Key="Popup.OnBarDim" Color="#C2FFFFFF"/>
+    <!-- Text/glyph ON the bar — DARK navy (the light-blue bar reads LIGHT over the desktop). -->
+    <SolidColorBrush x:Key="Popup.OnBar"    Color="#F0061030"/>
+    <SolidColorBrush x:Key="Popup.OnBarDim" Color="#99061030"/>
 
-    <!-- 12-segment strength meter — off-segments low-alpha light, on-segments the accent -->
-    <SolidColorBrush x:Key="Popup.SegOff" Color="#33FFFFFF"/>
-    <SolidColorBrush x:Key="Popup.SegOn"  Color="#FF5B8CFF"/>
+    <!-- 12-segment meter / intensity slider — off = faint navy, on = the accent. -->
+    <SolidColorBrush x:Key="Popup.SegOff" Color="#26061030"/>
+    <SolidColorBrush x:Key="Popup.SegOn"  Color="#FF024AD8"/>
 
-    <!-- Hover/press wash for bar icon buttons (white film = a highlight over the dark glass) -->
-    <SolidColorBrush x:Key="Popup.BtnHover" Color="#2EFFFFFF"/>
-    <SolidColorBrush x:Key="Popup.BtnPress" Color="#21FFFFFF"/>
+    <!-- Hover/press wash for bar icon buttons (a faint DARK film = a press highlight on light glass). -->
+    <SolidColorBrush x:Key="Popup.BtnHover" Color="#14061030"/>
+    <SolidColorBrush x:Key="Popup.BtnPress" Color="#1F061030"/>
 
 </ResourceDictionary>

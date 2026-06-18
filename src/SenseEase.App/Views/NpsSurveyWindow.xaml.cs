@@ -21,13 +21,13 @@ namespace SenseEase.App.Views;
 /// </summary>
 public partial class NpsSurveyWindow : Window, IShellSurface
 {
-    // Theme-aware panel acrylic tint (ABGR 0xAABBGGRR). After the 2026-06-17 palette swap the
-    // DEFAULT (light) is the slate glass and Dark is the neutral Game-Bar black/grey:
-    //   Light → Popup.PanelBg #D11D232E (slate);  Dark → Popup.PanelBg #E61F1F22 (near-black).
+    // Theme-aware panel acrylic tint (ABGR 0xAABBGGRR). After the 2026-06-18 theme remap, LIGHT is
+    // the frosted light-blue glass and DARK is the slate:
+    //   Light → Popup.PanelBg #D7E4FC (light-blue);  Dark → Popup.PanelBg #1D232E (slate).
     // The frost only governs what bleeds through the blur; the Popup.* token paints the fill
     // on top. Mirrors NotificationCardWindow.ApplyThemeAwareAcrylic.
-    private const uint PanelAcrylicTintLight = 0xD12E231Du; // ARGB #D11D232E → ABGR (slate)
-    private const uint PanelAcrylicTintDark  = 0xE6221F1Fu; // ARGB #E61F1F22 → ABGR (Game-Bar black)
+    private const uint PanelAcrylicTintLight = 0xD1FCE4D7u; // ARGB #D1D7E4FC → ABGR (light-blue glass)
+    private const uint PanelAcrylicTintDark  = 0xE62E231Du; // ARGB #E61D232E → ABGR (slate)
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
