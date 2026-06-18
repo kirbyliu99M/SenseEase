@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using SenseEase.App.Interop;
 using SenseEase.App.Localization;
 using SenseEase.App.Theme;
@@ -64,8 +65,12 @@ public partial class SettingsWindow : Window
         // GLASS BRIDGE (2026-06-18): match the popup panel — the chrome + hosted SettingsContent
         // wear the glass palette (slate default; SettingsGlassTheme flips the Game-Bar dark variant).
         // Replaces ThemeManager.TrackElement (which merged the grey Palette.Dark and fought the glass).
-        Loaded += (_, _) => SettingsGlassTheme.Track(this);
+        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); };
         Closed += (_, _) => SettingsGlassTheme.Untrack(this);
+
+        // R3 #7: light-dismiss — close when focus moves to ANOTHER window (the user "changed to other
+        // windows"), but NOT when an owned child dialog opens or an in-window dropdown takes focus.
+        Deactivated += OnSettingsDeactivated;
 
         // UI-reshape Task 9 (2026-06-17): frosted Win11 acrylic behind the rounded Surface card,
         // applied once the HWND exists (mirrors NotificationCardWindow). The tint is THEME-AWARE —
@@ -80,13 +85,58 @@ public partial class SettingsWindow : Window
     /// card fill on top of this frost; the scrim only governs what bleeds through the blur.</summary>
     private void ApplyThemeAwareAcrylic()
     {
-        // GLASS BRIDGE (2026-06-18): the frost must match the popup glass. The old near-white light
-        // scrim (0xD9FFFFFF) was exactly why the card read WHITE. Slate by default, Game-Bar near-black
-        // on dark — same hue as the popup PanelBg the card paints on top. ABGR (0xAABBGGRR).
+        // R3 #7 (2026-06-18): the frost matches the popup theme — NEAR-WHITE in light mode, SLATE in
+        // dark — so the Settings card reads as the popup's light/dark sibling (was slate-in-both).
+        // ABGR (0xAABBGGRR).
         uint tint = ThemeManager.ShouldUseDark()
-            ? 0xD9221F1Fu   // Game-Bar near-black (ARGB #1F1F22)
-            : 0xD92E231Du;  // slate (ARGB #1D232E)
+            ? 0xD92E231Du   // slate (ARGB #1D232E) — matches the popup dark
+            : 0xD9FBF7F5u;  // near-white (ARGB #F5F7FB) — the light glass
         AcrylicGlass.EnableAcrylic(this, tint);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    /// <summary>R3 #7: close the Settings window when the user switches to ANOTHER window (focus
+    /// leaves us). Guarded so an owned child dialog (reset confirm) or an in-window dropdown — which
+    /// keep the foreground within our own HWND family — does NOT dismiss it.</summary>
+    private void OnSettingsDeactivated(object? sender, EventArgs e)
+    {
+        try
+        {
+            IntPtr fg = GetForegroundWindow();
+            IntPtr self = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (fg == self) return; // an in-window popup (combo / dropdown) — stay open
+            foreach (Window w in OwnedWindows)
+            {
+                if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) return; // child dialog — stay
+            }
+        }
+        catch { /* on any interop hiccup, fall through and close (the safe light-dismiss) */ }
+        Close();
+    }
+
+    /// <summary>One-piece glass redesign (2026-06-18): a calm fade + subtle scale settle on OPEN,
+    /// mirroring the popup card reveal (230ms, QuinticEase.EaseOut, 0.975→1) so the dialog feels
+    /// like a native Windows sheet rather than a hard pop. Animates the INNER SlabBorder transform
+    /// — never RootGrid, whose Clip (set in OnRootSizeChanged in local coords) would scale with it.
+    /// ReducedMotion snaps to the resting state (a motion-sickness app must never animate for a
+    /// user who feels unwell).</summary>
+    private void PlayEntrance()
+    {
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            SlabBorder.Opacity = 1;
+            SlabScale.ScaleX = SlabScale.ScaleY = 1;
+            return;
+        }
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(230));
+        SlabBorder.Opacity = 0;
+        SlabBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+        var settle = new DoubleAnimation(0.975, 1, dur) { EasingFunction = ease };
+        SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, settle);
+        SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, settle);
     }
 
     /// <summary>UI-reshape Task 9: clip the window root to a rounded rect on every resize so the

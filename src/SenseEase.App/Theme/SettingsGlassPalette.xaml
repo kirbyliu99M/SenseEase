@@ -2,20 +2,25 @@
   SettingsGlassPalette — the GLASS bridge that makes the Settings surface match the new popup panel.
 
   Redefines the SAME SenseEaseTheme colour-brush keys (see Palette.Dark.xaml for the authoritative
-  list) with the popup's Popup.* GLASS values, so SettingsContent + SettingsWindow re-skin to the
-  brand glass WITHOUT rewriting every control (the theme styles resolve colours via DynamicResource,
-  so redefining the keys re-skins them). Merged ABOVE SenseEaseTheme.xaml view-locally and, unlike
-  Palette.Dark, it is ALWAYS on (the settings is glass regardless of the OS light/dark, matching the
-  popup which is slate-by-default). SettingsGlassPalette.Dark.xaml flips it to the Game-Bar variant
-  exactly as PopupGlassTokens.Dark flips the popup. SenseEaseTheme.xaml + Palette.Dark.xaml are
-  UNCHANGED (TokenContrastTests untouched).
+  list) with GLASS values, so SettingsContent + SettingsWindow re-skin to the brand glass WITHOUT
+  rewriting every control (the theme styles resolve colours via DynamicResource). Merged ABOVE
+  SenseEaseTheme.xaml view-locally; SettingsGlassTheme merges SettingsGlassPalette.Dark.xaml above
+  this when the OS/app theme is dark.
 
-  This file = the SLATE (default) glass, mirroring PopupGlassTokens.xaml. Pure ResourceDictionary
-  (no x:Class), pack-URI-mergeable. Contrast on the slate card #1D232E (L≈0.0164):
-    TextPrimary  #F0EAF0F8 ≈ 12.3:1 (AAA)
-    TextSecondary#B8EAF0F8 ≈  9.0:1 (AAA)
-    TextTertiary #99EAF0F8 ≈  6.0:1 (AA+)
-    ComfortHighText #FCA5A5 ≈ 8.4:1 (AAA), SteadyText #A6E9C0 ≈ 11:1, RisingText #FBD89A ≈ 10:1.
+  R3 #7 (2026-06-18) — ALIGN with the popup theme: the popup is LIGHT in light mode + SLATE in dark,
+  so Settings now follows. This file = the LIGHT mode. The popup's light glass is light-BLUE, but a
+  light-blue Settings would push its DENSE TextTertiary/Secondary captions toward navy-on-light-blue
+  (~3–4:1, borderline AA); so Settings light uses a NEAR-WHITE glass with the popup's DARK navy ink
+  ramp — same family, but the higher surface luminance keeps even the tertiary caption AA+ (it reads
+  as the popup's light sibling without the contrast risk). SettingsGlassPalette.Dark.xaml is the SLATE
+  variant (matching the popup's dark). SenseEaseTheme.xaml + Palette.Dark.xaml are UNCHANGED.
+
+  Pure ResourceDictionary (no x:Class), pack-URI-mergeable. Contrast on the near-white card #F5F7FB
+  (L≈0.90), navy ink #061030 (L≈0.006):
+    TextPrimary  #E0061030 ≈ 13:1 (AAA)
+    TextSecondary#B0061030 ≈  7:1 (AAA)
+    TextTertiary #99061030 ≈  5.3:1 (AA+)
+    Accent #024AD8 with WHITE labels ≈ 7:1 (AA); comfort *Text use DARK variants for the light glass.
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
@@ -24,34 +29,48 @@
     <SolidColorBrush x:Key="Canvas"        Color="#00000000"/>
     <SolidColorBrush x:Key="HeaderSurface" Color="#00000000"/>
 
-    <!-- Card fills = the popup glass. Surface = PanelBg; SurfaceMuted = the slightly-lighter BarBg
-         so muted insets read as a distinct glass layer. -->
-    <SolidColorBrush x:Key="Surface"       Color="#F21D232E"/>
-    <SolidColorBrush x:Key="SurfaceMuted"  Color="#E6232A36"/>
+    <!-- Card fills = near-white frosted glass (the popup's light sibling, lighter for caption safety). -->
+    <SolidColorBrush x:Key="Surface"       Color="#F2F5F7FB"/>
+    <SolidColorBrush x:Key="SurfaceMuted"  Color="#ECECEEF3"/>
 
-    <!-- Soft light rim + hairline divider on the dark glass (Popup.Bdr). -->
-    <SolidColorBrush x:Key="CardBorder"    Color="#26FFFFFF"/>
-    <SolidColorBrush x:Key="Separator"     Color="#22FFFFFF"/>
+    <!-- Faint navy hairline rim + divider on the light glass. -->
+    <SolidColorBrush x:Key="CardBorder"    Color="#22061030"/>
+    <SolidColorBrush x:Key="Separator"     Color="#16061030"/>
 
-    <!-- Ink ramp = the popup's near-white ramp (Popup.Ink1/2 + a 60% tertiary for dense captions). -->
-    <SolidColorBrush x:Key="TextPrimary"   Color="#F0EAF0F8"/>
-    <SolidColorBrush x:Key="TextSecondary" Color="#B8EAF0F8"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#99EAF0F8"/>
+    <!-- Ink ramp = the popup's DARK navy ramp (Popup.Ink family), on the near-white glass. -->
+    <SolidColorBrush x:Key="TextPrimary"   Color="#E0061030"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#B0061030"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#99061030"/>
     <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFFFF"/>
 
-    <!-- Accent = the popup royal blue. -->
-    <SolidColorBrush x:Key="Accent"        Color="#FF5B8CFF"/>
-    <SolidColorBrush x:Key="AccentHover"   Color="#FF7AA2FF"/>
+    <!-- Accent = the popup royal blue (white labels on it ≈ 7:1 AA). -->
+    <SolidColorBrush x:Key="Accent"        Color="#FF024AD8"/>
+    <SolidColorBrush x:Key="AccentHover"   Color="#FF0340C0"/>
 
-    <!-- Comfort bands = the popup status hues, with light readable text + faint fills on the glass. -->
-    <SolidColorBrush x:Key="ComfortSteady"     Color="#FF4ADE80"/>
-    <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#264ADE80"/>
-    <SolidColorBrush x:Key="ComfortSteadyText" Color="#FFA6E9C0"/>
-    <SolidColorBrush x:Key="ComfortRising"     Color="#FFFBBF24"/>
-    <SolidColorBrush x:Key="ComfortRisingWeak" Color="#26FBBF24"/>
-    <SolidColorBrush x:Key="ComfortRisingText" Color="#FFFBD89A"/>
-    <SolidColorBrush x:Key="ComfortHigh"       Color="#FFF87171"/>
-    <SolidColorBrush x:Key="ComfortHighWeak"   Color="#26F87171"/>
-    <SolidColorBrush x:Key="ComfortHighText"   Color="#FFFCA5A5"/>
+    <!-- Comfort bands — hue fills as the popup status hues; the TEXT variants are DARK so they read
+         on the near-white glass (the slate's light *Text would vanish on light). -->
+    <SolidColorBrush x:Key="ComfortSteady"     Color="#FF22C55E"/>
+    <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#2622C55E"/>
+    <SolidColorBrush x:Key="ComfortSteadyText" Color="#FF0F7A3A"/>
+    <SolidColorBrush x:Key="ComfortRising"     Color="#FFF59E0B"/>
+    <SolidColorBrush x:Key="ComfortRisingWeak" Color="#26F59E0B"/>
+    <SolidColorBrush x:Key="ComfortRisingText" Color="#FF8A5500"/>
+    <SolidColorBrush x:Key="ComfortHigh"       Color="#FFEF4444"/>
+    <SolidColorBrush x:Key="ComfortHighWeak"   Color="#26EF4444"/>
+    <SolidColorBrush x:Key="ComfortHighText"   Color="#FFB3261D"/>
+
+    <!-- ══ One-piece glass films (R3 #7 light variant) ════════════════════════════
+         Faint NAVY-alpha facets that read on the near-white slab (the .Dark slate variant uses
+         white-alpha). RecessField = a faint navy inset for the read-only reveal-hotkey chip;
+         GroupDivider = inter-group seam (a touch above Separator); the close-button red wash is
+         theme-independent; the sheen is a faint top highlight. -->
+    <SolidColorBrush x:Key="RecessField"    Color="#14061030"/>
+    <SolidColorBrush x:Key="GroupDivider"   Color="#22061030"/>
+    <SolidColorBrush x:Key="CloseHoverWash" Color="#22FF3B30"/>
+    <SolidColorBrush x:Key="ClosePressWash" Color="#33FF3B30"/>
+    <LinearGradientBrush x:Key="SettingsSlabSheen" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#33FFFFFF" Offset="0"/>
+        <GradientStop Color="#00FFFFFF" Offset="0.22"/>
+    </LinearGradientBrush>
 
 </ResourceDictionary>

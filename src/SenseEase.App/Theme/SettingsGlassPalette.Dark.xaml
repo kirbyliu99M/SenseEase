@@ -1,11 +1,15 @@
 <!--
-  SettingsGlassPalette.Dark — the Game-Bar dark variant of the Settings glass bridge.
+  SettingsGlassPalette.Dark — the SLATE dark variant of the Settings glass bridge.
 
-  Redefines the SAME keys as SettingsGlassPalette.xaml with the neutral black/grey Game-Bar values
-  (mirroring PopupGlassTokens.Dark.xaml), merged ABOVE the slate glass when the effective theme is
-  dark — so the Settings flips slate↔Game-Bar EXACTLY like the popup. Pure ResourceDictionary.
-  Contrast on the near-black card #1F1F22 (L≈0.014):
-    TextPrimary #F2FFFFFF ≈ 17:1 (AAA), TextSecondary #B8FFFFFF ≈ 11:1, TextTertiary #99FFFFFF ≈ 7:1.
+  Redefines the SAME keys as SettingsGlassPalette.xaml with the SLATE glass values, merged ABOVE the
+  near-white light file when the effective theme is dark — so Settings flips near-white↔slate exactly
+  as the popup flips light-blue↔slate (R3 #7: Settings dark now matches the popup dark = slate; the
+  earlier Game-Bar near-black variant is retired). Pure ResourceDictionary. Contrast on the slate card
+  #1D232E (L≈0.0164):
+    TextPrimary  #F0EAF0F8 ≈ 12.3:1 (AAA)
+    TextSecondary#B8EAF0F8 ≈  9.0:1 (AAA)
+    TextTertiary #99EAF0F8 ≈  6.0:1 (AA+)
+    ComfortHighText #FCA5A5 ≈ 8.4:1 (AAA), SteadyText #A6E9C0 ≈ 11:1, RisingText #FBD89A ≈ 10:1.
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
@@ -13,19 +17,20 @@
     <SolidColorBrush x:Key="Canvas"        Color="#00000000"/>
     <SolidColorBrush x:Key="HeaderSurface" Color="#00000000"/>
 
-    <SolidColorBrush x:Key="Surface"       Color="#F51F1F22"/>
-    <SolidColorBrush x:Key="SurfaceMuted"  Color="#ED1B1B1D"/>
+    <SolidColorBrush x:Key="Surface"       Color="#F21D232E"/>
+    <SolidColorBrush x:Key="SurfaceMuted"  Color="#E6232A36"/>
 
-    <SolidColorBrush x:Key="CardBorder"    Color="#33FFFFFF"/>
-    <SolidColorBrush x:Key="Separator"     Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="CardBorder"    Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="Separator"     Color="#22FFFFFF"/>
 
-    <SolidColorBrush x:Key="TextPrimary"   Color="#F2FFFFFF"/>
-    <SolidColorBrush x:Key="TextSecondary" Color="#B8FFFFFF"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#99FFFFFF"/>
+    <SolidColorBrush x:Key="TextPrimary"   Color="#F0EAF0F8"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#B8EAF0F8"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#99EAF0F8"/>
     <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFFFF"/>
 
-    <SolidColorBrush x:Key="Accent"        Color="#FF4DA6FF"/>
-    <SolidColorBrush x:Key="AccentHover"   Color="#FF6FB6FF"/>
+    <!-- Accent deepened (#5B8CFF→#3366E0) so WHITE labels on the accent fill clear AA 4.5:1 on slate. -->
+    <SolidColorBrush x:Key="Accent"        Color="#FF3366E0"/>
+    <SolidColorBrush x:Key="AccentHover"   Color="#FF2856C8"/>
 
     <SolidColorBrush x:Key="ComfortSteady"     Color="#FF4ADE80"/>
     <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#264ADE80"/>
@@ -33,8 +38,18 @@
     <SolidColorBrush x:Key="ComfortRising"     Color="#FFFBBF24"/>
     <SolidColorBrush x:Key="ComfortRisingWeak" Color="#26FBBF24"/>
     <SolidColorBrush x:Key="ComfortRisingText" Color="#FFFBD89A"/>
-    <SolidColorBrush x:Key="ComfortHigh"       Color="#FFFF6B6B"/>
-    <SolidColorBrush x:Key="ComfortHighWeak"   Color="#26FF6B6B"/>
+    <SolidColorBrush x:Key="ComfortHigh"       Color="#FFF87171"/>
+    <SolidColorBrush x:Key="ComfortHighWeak"   Color="#26F87171"/>
     <SolidColorBrush x:Key="ComfortHighText"   Color="#FFFCA5A5"/>
+
+    <!-- One-piece glass films — SLATE (white-alpha facets read on the slate slab). -->
+    <SolidColorBrush x:Key="RecessField"    Color="#33000000"/>
+    <SolidColorBrush x:Key="GroupDivider"   Color="#2EFFFFFF"/>
+    <SolidColorBrush x:Key="CloseHoverWash" Color="#22FF3B30"/>
+    <SolidColorBrush x:Key="ClosePressWash" Color="#33FF3B30"/>
+    <LinearGradientBrush x:Key="SettingsSlabSheen" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#14FFFFFF" Offset="0"/>
+        <GradientStop Color="#00FFFFFF" Offset="0.22"/>
+    </LinearGradientBrush>
 
 </ResourceDictionary>
