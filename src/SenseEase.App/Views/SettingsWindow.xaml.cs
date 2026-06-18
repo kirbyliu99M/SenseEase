@@ -85,12 +85,12 @@ public partial class SettingsWindow : Window
     /// card fill on top of this frost; the scrim only governs what bleeds through the blur.</summary>
     private void ApplyThemeAwareAcrylic()
     {
-        // R3 #7 (2026-06-18): the frost matches the popup theme — NEAR-WHITE in light mode, SLATE in
-        // dark — so the Settings card reads as the popup's light/dark sibling (was slate-in-both).
-        // ABGR (0xAABBGGRR).
+        // R3 #7 + follow-up (2026-06-18): the frost matches the popup theme — light-BLUE glass in light
+        // mode, SLATE in dark — so the Settings card reads as the popup's light/dark sibling (now uses
+        // the popup's exact Popup.PanelBg light-blue, not the earlier near-white). ABGR (0xAABBGGRR).
         uint tint = ThemeManager.ShouldUseDark()
             ? 0xD92E231Du   // slate (ARGB #1D232E) — matches the popup dark
-            : 0xD9FBF7F5u;  // near-white (ARGB #F5F7FB) — the light glass
+            : 0xD9FCE4D7u;  // light-blue (ARGB #D7E4FC) — matches the popup's light glass (Popup.PanelBg)
         AcrylicGlass.EnableAcrylic(this, tint);
     }
 

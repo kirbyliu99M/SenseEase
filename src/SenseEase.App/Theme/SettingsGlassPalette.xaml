@@ -29,18 +29,22 @@
     <SolidColorBrush x:Key="Canvas"        Color="#00000000"/>
     <SolidColorBrush x:Key="HeaderSurface" Color="#00000000"/>
 
-    <!-- Card fills = near-white frosted glass (the popup's light sibling, lighter for caption safety). -->
-    <SolidColorBrush x:Key="Surface"       Color="#F2F5F7FB"/>
-    <SolidColorBrush x:Key="SurfaceMuted"  Color="#ECECEEF3"/>
+    <!-- R3 (2026-06-18, follow-up): ALIGN TOTALLY with the popup — the cards now use the popup's exact
+         light-BLUE panel glass (Popup.PanelBg #F2D7E4FC) instead of the earlier near-white, so Settings
+         and the popup read as one surface. The ink ramp is STRENGTHENED (vs the popup's panel ink) so
+         the denser Settings captions stay clearly legible on the slightly-darker blue glass. -->
+    <SolidColorBrush x:Key="Surface"       Color="#F2D7E4FC"/>
+    <SolidColorBrush x:Key="SurfaceMuted"  Color="#E6CEDEF7"/>
 
-    <!-- Faint navy hairline rim + divider on the light glass. -->
-    <SolidColorBrush x:Key="CardBorder"    Color="#22061030"/>
-    <SolidColorBrush x:Key="Separator"     Color="#16061030"/>
+    <!-- Navy hairline rim + divider on the light-blue glass (a touch stronger for clear card edges). -->
+    <SolidColorBrush x:Key="CardBorder"    Color="#2E061030"/>
+    <SolidColorBrush x:Key="Separator"     Color="#1C061030"/>
 
-    <!-- Ink ramp = the popup's DARK navy ramp (Popup.Ink family), on the near-white glass. -->
-    <SolidColorBrush x:Key="TextPrimary"   Color="#E0061030"/>
-    <SolidColorBrush x:Key="TextSecondary" Color="#B0061030"/>
-    <SolidColorBrush x:Key="TextTertiary"  Color="#99061030"/>
+    <!-- Ink ramp = DARK navy, STRENGTHENED for legibility on the light-blue glass. On #D7E4FC (L≈0.80):
+         Primary #F0 ≈ 11:1 (AAA), Secondary #C8 ≈ 7:1 (AAA), Tertiary #A8 ≈ 5:1 (AA+). -->
+    <SolidColorBrush x:Key="TextPrimary"   Color="#F0061030"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#C8061030"/>
+    <SolidColorBrush x:Key="TextTertiary"  Color="#A8061030"/>
     <SolidColorBrush x:Key="TextOnComfort" Color="#FFFFFFFF"/>
 
     <!-- Accent = the popup royal blue (white labels on it ≈ 7:1 AA). -->

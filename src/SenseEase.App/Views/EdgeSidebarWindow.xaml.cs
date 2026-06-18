@@ -63,6 +63,11 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        // STARTUP-POSITION FIX: Loaded fires before the per-monitor DPI + work area are reliably
+        // settled, so the Loaded reposition can land the handle off the right edge until the user
+        // clicks it (which re-anchors). ContentRendered fires after the first real frame, when
+        // WorkArea/DPI are trustworthy — re-anchor there so it snaps to the edge on its own.
+        ContentRendered += (_, _) => { RepositionForWorkArea(); ReassertTopmost(); };
         Closed += OnClosed;
         MouseLeftButtonUp += (_, _) => Clicked?.Invoke(this, EventArgs.Empty);
         // TOUCH FIX: the handle is ALWAYS hit-test-visible (it used to be click-through until a
