@@ -72,26 +72,11 @@ public partial class SettingsWindow : Window
         // windows"), but NOT when an owned child dialog opens or an in-window dropdown takes focus.
         Deactivated += OnSettingsDeactivated;
 
-        // UI-reshape Task 9 (2026-06-17): frosted Win11 acrylic behind the rounded Surface card,
-        // applied once the HWND exists (mirrors NotificationCardWindow). The tint is THEME-AWARE —
-        // a dark slate scrim in Dark mode, a soft near-white scrim in Light — so the frameless
-        // glass holds together in either theme. ABGR order (0xAABBGGRR).
-        SourceInitialized += (_, _) => ApplyThemeAwareAcrylic();
-    }
-
-    /// <summary>UI-reshape Task 9: pick an acrylic scrim that suits the current theme so the
-    /// frameless glass reads correctly in Light and Dark (mirrors
-    /// <c>NotificationCardWindow.ApplyThemeAwareAcrylic</c>). The Surface token paints the actual
-    /// card fill on top of this frost; the scrim only governs what bleeds through the blur.</summary>
-    private void ApplyThemeAwareAcrylic()
-    {
-        // R3 #7 + follow-up (2026-06-18): the frost matches the popup theme — light-BLUE glass in light
-        // mode, SLATE in dark — so the Settings card reads as the popup's light/dark sibling (now uses
-        // the popup's exact Popup.PanelBg light-blue, not the earlier near-white). ABGR (0xAABBGGRR).
-        uint tint = ThemeManager.ShouldUseDark()
-            ? 0xD92E231Du   // slate (ARGB #1D232E) — matches the popup dark
-            : 0xD9FCE4D7u;  // light-blue (ARGB #D7E4FC) — matches the popup's light glass (Popup.PanelBg)
-        AcrylicGlass.EnableAcrylic(this, tint);
+        // GREY-CORNERS FIX (2026-06-19): NO window-wide acrylic. ACCENT_ENABLE_ACRYLICBLURBEHIND frosts
+        // the SQUARE HWND, and clipping RootGrid (OnRootSizeChanged) cannot clip that backdrop — so the
+        // acrylic showed as greyish squares behind the rounded card's corners. The popup bar avoids
+        // window-wide acrylic for exactly this reason. The Surface card (~95% opaque) is the fill; the
+        // area outside its rounded corners is transparent (the desktop), so the corners read clean.
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]

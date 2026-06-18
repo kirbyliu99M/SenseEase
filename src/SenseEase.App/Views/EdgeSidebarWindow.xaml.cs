@@ -33,6 +33,16 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_NOOWNERZORDER = 0x0200;
     private const uint SWP_FORCE_TOPMOST = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
 
+    // Device-pixel placement (the startup-misplace fix): position the handle by the MONITOR's work
+    // area in device pixels via Win32, not WPF DIP Left/Top — the DIP path raced the per-monitor DPI
+    // at startup and landed the handle off the right edge until a click re-anchored it.
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+    [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+    private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+
     /// <summary>Distance from the window rect (dip) inside which the handle reveals.</summary>
     public double HoverProximityDip { get; set; } = 140.0;
     /// <summary>Hysteresis: once revealed, the handle only re-hides past this LARGER distance, so a
@@ -68,6 +78,8 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         // clicks it (which re-anchors). ContentRendered fires after the first real frame, when
         // WorkArea/DPI are trustworthy — re-anchor there so it snaps to the edge on its own.
         ContentRendered += (_, _) => { RepositionForWorkArea(); ReassertTopmost(); };
+        // Re-snap if the window's DPI changes (moved to a different-DPI monitor, OS scale change).
+        DpiChanged += (_, _) => RepositionForWorkArea();
         Closed += OnClosed;
         MouseLeftButtonUp += (_, _) => Clicked?.Invoke(this, EventArgs.Empty);
         // TOUCH FIX: the handle is ALWAYS hit-test-visible (it used to be click-through until a
@@ -169,6 +181,32 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
 
     private void RepositionForWorkArea()
     {
+        // PRIMARY PATH (device pixels): correct whenever the HWND exists — no DPI/multi-monitor race.
+        IntPtr hwnd = IsLoaded ? new System.Windows.Interop.WindowInteropHelper(this).Handle : IntPtr.Zero;
+        if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var winRect))
+        {
+            var mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (GetMonitorInfo(mon, ref mi))
+            {
+                int wpx = winRect.Right - winRect.Left;       // current window size, device px
+                int hpx = winRect.Bottom - winRect.Top;
+                var dpi = VisualTreeHelper.GetDpi(this);
+                int x = mi.rcWork.Right - wpx;                 // flush to the work-area right edge
+                // Centre at the saved bar centre (stored in WPF DIP); else vertically centre the monitor.
+                double centreDip;
+                try { centreDip = Configuration.UserPreferences.Current.PopupBarCenterY ?? -1; }
+                catch { centreDip = -1; }
+                int y = centreDip > 0
+                    ? (int)Math.Round(mi.rcWork.Top + (centreDip * dpi.DpiScaleY) - (hpx / 2.0))
+                    : mi.rcWork.Top + ((mi.rcWork.Bottom - mi.rcWork.Top - hpx) / 2);
+                y = Math.Max(mi.rcWork.Top, Math.Min(mi.rcWork.Bottom - hpx, y));
+                SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+                return;
+            }
+        }
+
+        // FALLBACK (pre-HWND / headless tests): the original WPF-DIP placement.
         var work = SystemParameters.WorkArea;
         Left = work.Right - Width;                       // flush to the right edge
         // #4: align the handle's CENTRE with the popup's remembered centre (where the user left the
