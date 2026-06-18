@@ -1,0 +1,108 @@
+<Window x:Class="SenseEase.App.Views.ConsentBubbleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
+        Title="SenseEase"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        AutomationProperties.Name="{loc:T Zh='要開啟舒適防護嗎？', En='Start comfort overlay?'}">
+    <!-- Item 1 — the consent bubble. A small no-activate (won't steal the user's app focus) glass
+         card, anchored near the SenseEase bar/edge, asking BEFORE the comfort overlay first engages.
+         The mask stays OFF (clamped to L1) until the user taps Start — fail-safe: a missed bubble
+         means no overlay. Mirrors the popup glass language (Popup.* tokens, view-local merge). -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="ConsentStartBtn" TargetType="Button">
+                <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="16,7"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="MinHeight" Value="34"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <!-- Secondary "Not now" — a quiet text button (transparent at rest, token wash on hover);
+                 no inline hex so the design-lint ratchet stays clean. -->
+            <Style x:Key="ConsentGhostBtn" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource Popup.Ink2}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="14,7"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="MinHeight" Value="34"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnHover}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Border Width="300" Margin="10"
+            Background="{DynamicResource Popup.PanelBg}"
+            BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
+            CornerRadius="{StaticResource Radius.md}"
+            Effect="{StaticResource Elev.3}"
+            Padding="16,14,16,14">
+        <StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,7">
+                <Ellipse Width="9" Height="9" Fill="{DynamicResource Popup.Blue}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="SenseEase" FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Popup.Ink1}" VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="19" Foreground="{DynamicResource Popup.Ink1}"
+                       Text="{loc:T Zh='偵測到畫面晃動。要為你開啟舒適防護來緩和嗎？', En='SenseEase noticed some on-screen motion. Start the comfort overlay to ease it?'}"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,13,0,0">
+                <Button x:Name="NotNowBtn" Style="{StaticResource ConsentGhostBtn}" Click="OnNotNowClicked"
+                        Content="{loc:T Zh='暫時不要', En='Not now'}"
+                        AutomationProperties.Name="{loc:T Zh='暫時不要', En='Not now'}"/>
+                <Button x:Name="StartBtn" Style="{StaticResource ConsentStartBtn}" Click="OnStartClicked" Margin="8,0,0,0"
+                        Content="{loc:T Zh='開啟', En='Start'}"
+                        AutomationProperties.Name="{loc:T Zh='開啟舒適防護', En='Start comfort overlay'}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

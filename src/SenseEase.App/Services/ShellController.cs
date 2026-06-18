@@ -25,6 +25,7 @@ public sealed class ShellController : IShellController
     private EdgeSidebarWindow? _sidebar;
     private PopupBarWindow? _popup;
     private NpsSurveyWindow? _npsWindow;
+    private ConsentBubbleWindow? _consentBubble;
 
     public ShellController(MainWindow console, MainViewModel vm)
     {
@@ -37,6 +38,12 @@ public sealed class ShellController : IShellController
     public void Start()
     {
         _vm.StateChanged += OnVmStateChanged;
+
+        // Item 1 — consent bubble: the VM raises these on the UI thread when the comfort overlay
+        // wants to engage (or when a pending ask is no longer relevant). This controller owns the
+        // bubble (it already owns the edge surfaces), so it belongs here, not in the console.
+        _vm.OverlayConsentRequested += (_, _) => ShowConsentBubble();
+        _vm.OverlayConsentDismissRequested += (_, _) => HideConsentBubble();
 
         _sidebar = new EdgeSidebarWindow();
         // Side-panel reveal (handle click / edge-throw): cursor is right here, so a SHORTER 5 s
@@ -142,6 +149,47 @@ public sealed class ShellController : IShellController
         // app/game (low-disturbance). The popup activates ONLY when the chat opens (typing needs
         // the caret), handled in PopupBarWindow on IsChatOpen. ShowActivated=False keeps Show()
         // from grabbing focus.
+    }
+
+    // ── Item 1: consent bubble ────────────────────────────────────────────────
+    private void ShowConsentBubble()
+    {
+        if (!_console.Dispatcher.CheckAccess()) { _console.Dispatcher.BeginInvoke(new Action(ShowConsentBubble)); return; }
+        if (_consentBubble is null)
+        {
+            _consentBubble = new ConsentBubbleWindow();
+            _consentBubble.ConsentAccepted += (_, _) => { _vm.GrantOverlayConsent(); _consentBubble?.Hide(); };
+            _consentBubble.ConsentDeclined += (_, _) => { _vm.DeclineOverlayConsent(); _consentBubble?.Hide(); };
+            _consentBubble.ContentRendered += (_, _) => PositionConsentBubble();
+            _consentBubble.SizeChanged += (_, _) => { PositionConsentBubble(); _exclude.Update(); };
+            _consentBubble.IsVisibleChanged += (_, e) =>
+            {
+                if ((bool)e.NewValue) _exclude.Register(_consentBubble!);
+                else _exclude.Unregister(_consentBubble!);
+            };
+        }
+        _consentBubble.Show();
+        PositionConsentBubble();
+        _consentBubble.ReassertTopmost();
+    }
+
+    private void HideConsentBubble()
+    {
+        if (!_console.Dispatcher.CheckAccess()) { _console.Dispatcher.BeginInvoke(new Action(HideConsentBubble)); return; }
+        _consentBubble?.Hide();
+    }
+
+    /// <summary>Anchor the bubble at the right edge, vertically near the bar's remembered centre
+    /// (the user associates the right edge with SenseEase), clamped to the work area.</summary>
+    private void PositionConsentBubble()
+    {
+        if (_consentBubble is null) return;
+        var work = SystemParameters.WorkArea;
+        const double edgeGap = 12.0;
+        _consentBubble.Left = Math.Max(work.Left, work.Right - _consentBubble.ActualWidth - edgeGap);
+        double centreY = TryGetSavedBarCentreY() ?? (work.Top + work.Height / 2.0);
+        double top = centreY - (_consentBubble.ActualHeight / 2.0);
+        _consentBubble.Top = Math.Max(work.Top, Math.Min(work.Bottom - _consentBubble.ActualHeight, top));
     }
 
     private void PositionPopup()

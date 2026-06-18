@@ -1738,6 +1738,79 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public event EventHandler<bool>? OverlayVisibilityChanged;
     public event EventHandler<SenseState>? StateChanged;
 
+    // ── Item 1: consent gate before the comfort overlay first becomes VISIBLE ──────────────
+    // The engine keeps sensing; only the DISPLAY is gated — MainWindow.OnStateChanged clamps the
+    // shown tier to L1 (0 alpha) while held. Only the AUTO (engine-driven) activation from a clear
+    // screen is gated: a user-chosen always-on baseline (PersistentOverlayEnabled, e.g. the bar's
+    // intensity slider) is a deliberate opt-in and shows WITHOUT asking. Asks once per engagement
+    // episode, with a ~10-min cooldown after a decline. All state is touched only on the UI thread
+    // (MainWindow.OnStateChanged + the bubble callbacks), so no locking is needed.
+    private readonly SenseEase.App.Services.OverlayConsentGovernor _overlayConsent = new();
+    private bool _lastEngineMaskActive;
+    private bool _maskConsentGranted;
+    private bool _consentPending;
+
+    /// <summary>Raised (UI thread) when the comfort overlay wants to engage but needs the user's
+    /// agreement — the host shows the consent bubble. No-op when nothing is subscribed.</summary>
+    public event EventHandler? OverlayConsentRequested;
+
+    /// <summary>Raised when a pending consent prompt is no longer relevant (the engine mask subsided
+    /// before the user answered) — the host hides the bubble.</summary>
+    public event EventHandler? OverlayConsentDismissRequested;
+
+    /// <summary>Item 1 — called on the UI thread from <c>MainWindow.OnStateChanged</c> with the
+    /// ENGINE's natural tier + mask intent. Returns true while the visible mask must be HELD OFF
+    /// (clamped to L1) pending the user's agreement. Safe with no event subscriber (headless tests).</summary>
+    public bool ShouldHoldMaskForConsent(int naturalTier, bool engineMaskActive)
+    {
+        // User already opted into an always-on baseline → deliberate; never gate, treat as consented
+        // (so toggling it off mid-episode doesn't suddenly re-ask).
+        if (PersistentOverlayEnabled)
+        {
+            _maskConsentGranted = true;
+            _consentPending = false;
+            _lastEngineMaskActive = engineMaskActive;
+            return false;
+        }
+
+        bool rising  = engineMaskActive && !_lastEngineMaskActive;
+        bool falling = !engineMaskActive && _lastEngineMaskActive;
+        _lastEngineMaskActive = engineMaskActive;
+
+        if (falling)
+        {
+            if (_consentPending) OverlayConsentDismissRequested?.Invoke(this, EventArgs.Empty);
+            _maskConsentGranted = false;   // re-arm for the next engagement
+            _consentPending = false;
+            return false;
+        }
+
+        if (!engineMaskActive) return false; // engine isn't asking for the mask
+        if (_maskConsentGranted) return false; // already agreed this episode
+
+        if (rising && !_consentPending && _overlayConsent.ShouldAsk())
+        {
+            _consentPending = true;
+            OverlayConsentRequested?.Invoke(this, EventArgs.Empty);
+        }
+        return true; // hold the mask off (asking / pending / cooling down)
+    }
+
+    /// <summary>User agreed → let the mask show for this engagement (clears any cooldown).</summary>
+    public void GrantOverlayConsent()
+    {
+        _maskConsentGranted = true;
+        _consentPending = false;
+        _overlayConsent.RecordAccepted();
+    }
+
+    /// <summary>User declined / dismissed → keep the mask held and start the ~10-min cooldown.</summary>
+    public void DeclineOverlayConsent()
+    {
+        _consentPending = false;
+        _overlayConsent.RecordDeclinedOrDismissed();
+    }
+
     /// <summary>
     /// Raised when VIMS pressure shows a sharp relative rise (≥30% within 3s).
     /// Carries the spike magnitude 0..1. UI listens to open the chatbot popup.

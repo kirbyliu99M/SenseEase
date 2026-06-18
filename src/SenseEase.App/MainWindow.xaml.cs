@@ -2258,9 +2258,27 @@ public partial class MainWindow : Window
             // Mutate the engine-shared SenseState in place — the engine never reads
             // VimsTier as input, so this is a forward-only display override.
             int original = state.VimsTier;
-            int displayed = _viewModel.ResolveDisplayedTier(original);
             double originalOverride = state.MaskPeakAlphaOverride;
             bool originalSteady = state.PersistentBaselineSteady;
+
+            // Item 1 — consent gate: until the user agrees to start the comfort overlay, HOLD the
+            // mask invisible by clamping the displayed tier to L1 (0 alpha). The engine keeps
+            // sensing; this is a forward-only display override (same pattern as the baseline floor
+            // below). The bubble is raised inside ShouldHoldMaskForConsent (UI thread).
+            if (_viewModel.ShouldHoldMaskForConsent(original, state.MaskActive))
+            {
+                state.VimsTier = 1;
+                state.MaskPeakAlphaOverride = 0.0;
+                state.PersistentBaselineSteady = false;
+                _overlay.PoseOwnedByPump = _renderingSubscribed;
+                _overlay.ApplyState(state);
+                state.VimsTier = original;
+                state.MaskPeakAlphaOverride = originalOverride;
+                state.PersistentBaselineSteady = originalSteady;
+                return;
+            }
+
+            int displayed = _viewModel.ResolveDisplayedTier(original);
             state.VimsTier = displayed;
             // When the floor ELEVATES the tier, the engine's MaskPeakAlphaOverride was resolved
             // for the raw (calm ≈ L1 ⇒ ~0) tier and would blank the always-on mask in
