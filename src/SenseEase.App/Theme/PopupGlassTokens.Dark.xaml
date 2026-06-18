@@ -30,6 +30,8 @@
     <SolidColorBrush x:Key="Popup.PanelBg" Color="#F21D232E"/>
     <!-- Soft light rim on the dark glass. -->
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#26FFFFFF"/>
+    <!-- Assistant chat bubble — a soft white wash on the slate glass. -->
+    <SolidColorBrush x:Key="Popup.BotBubbleBg" Color="#33FFFFFF"/>
 
     <!-- Ink ramp on PANELS — near-WHITE at descending alpha (dark text would vanish on the slate). -->
     <SolidColorBrush x:Key="Popup.Ink1" Color="#F0EAF0F8"/>

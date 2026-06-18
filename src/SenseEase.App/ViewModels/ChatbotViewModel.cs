@@ -104,7 +104,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// re-shows it (re-picked) on the next launch, so no stale-language copy survives.</summary>
     private static string WelcomeMessage() =>
         LocalizationManager.Current.Pick(
-            "您好，我是 SenseEase AI 助理。請描述您的視覺不適（暈眩、噁心、頭痛、眼睛疲勞），我會為您調整防護設定。",
+            "嗨，我是 SenseEase AI 助理。眼睛或畫面有任何不舒服（像是頭暈、噁心、頭痛、眼睛疲勞），跟我說一聲，我就幫你調整。",
             "Hi — I'm the SenseEase AI assistant. Describe any visual discomfort and I'll adjust your overlay protection.");
 
     private bool _isGenerating;
@@ -642,7 +642,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
             ChatMessageViewModel? assistantBubble = null;
             string assistantContentForPersist = string.Empty;
-            string deferredSummary = string.Empty;
             bool fakeStream = false;
 
             _dispatcher.Invoke(() =>
@@ -684,9 +683,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 }
                 else
                 {
-                    // Only fake-stream lexicon-mode replies. When the real model is
-                    // generating, Phase 5 will deliver true incremental streaming.
-                    fakeStream = !_chatbot.IsModelLoaded && !string.IsNullOrEmpty(visibleReply);
+                    // #5 (round 2): type EVERY reply out progressively (Claude-like), not just
+                    // lexicon-mode ones — the model reply now also reveals via the capped
+                    // FakeStream after the typing indicator covers generation. (True token-by-token
+                    // SSE would need streaming the structured-JSON envelope incrementally — deferred;
+                    // this gives the typing experience reliably without that surgery.)
+                    fakeStream = !string.IsNullOrEmpty(visibleReply);
                     if (fakeStream)
                     {
                         assistantBubble = new ChatMessageViewModel(string.Empty, ChatRole.Assistant);
@@ -761,15 +763,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
                 if (summary.Length > 0)
                 {
-                    // Persist the summary now so reload order stays user→reply→summary
-                    // and a mid-animation crash doesn't lose it. The VISIBLE bubble is
-                    // deferred until the fake-stream finishes (see below) so it never
-                    // races ahead of the reply that explains it.
+                    // The reply types out (fake-stream) above; the short "✓" confirmation is added
+                    // now, directly BELOW it. Added synchronously (no longer deferred behind the
+                    // animation) so it is deterministic + can't be lost if the animation is cancelled
+                    // — now that EVERY reply fake-streams, deferring it would hide it behind an
+                    // un-awaited task.
                     PersistMessage(ChatRole.Assistant, summary);
-                    if (fakeStream)
-                        deferredSummary = summary;
-                    else
-                        Messages.Add(new ChatMessageViewModel(summary, ChatRole.Assistant));
+                    Messages.Add(new ChatMessageViewModel(summary, ChatRole.Assistant));
                 }
 
                 // Item 5 — surface the rest advice (the actuation was already held above).
@@ -785,19 +785,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
             if (fakeStream && assistantBubble is not null)
             {
-                // Run the animation, THEN flip the deferred summary into the visible
-                // collection on the dispatcher. Order: reply animation completes →
-                // summary appears, matching what the user expects to read top-down.
-                string summaryToShow = deferredSummary;
+                // Type the reply out progressively (Claude-like) — the typing indicator covered
+                // generation; now the text reveals into the bubble (capped by FakeStreamMaxMs).
                 _ = Task.Run(async () =>
-                {
                     await FakeStreamAsync(assistantBubble, assistantContentForPersist, streamToken)
-                          .ConfigureAwait(false);
-                    if (streamToken.IsCancellationRequested) return;
-                    if (summaryToShow.Length > 0)
-                        _dispatcher.Invoke(() =>
-                            Messages.Add(new ChatMessageViewModel(summaryToShow, ChatRole.Assistant)));
-                });
+                          .ConfigureAwait(false));
             }
         }
         catch (OperationCanceledException)

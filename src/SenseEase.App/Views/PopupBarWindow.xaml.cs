@@ -176,28 +176,71 @@ public partial class PopupBarWindow : Window, IShellSurface
         {
             AnimateCard(SettingsFlyout, SettingsScale, vm.IsSettingsOpen, () => vm.IsSettingsOpen);
         }
-        else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded) && vm.IsExpanded)
+        else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded))
         {
-            // #2: fade the newly-revealed sections in so expand reads as a soft reveal, not a pop.
-            // (The bar frame still resizes via SizeToContent; the centre-anchor keeps it from
-            // shifting, and the content fade removes the "flash".) ReducedMotion snaps.
-            FadeInSections();
+            // #8: STRETCH the bar — animate the expanding sections' HEIGHT (+ a fade) so the bar
+            // visibly grows/shrinks instead of snapping. The window is SizeToContent, so growing the
+            // content height grows the window with it (we animate the WPF content, not the native
+            // window frame — the recommended approach). The centre-anchor keeps it from shifting.
+            AnimateExpandSections(vm.IsExpanded);
         }
     }
 
-    /// <summary>#2: gentle opacity fade-in for the in-bar meter + tools sections on expand (a fade,
-    /// not a scale — scaling a vertical sub-section reads as squashing). Same easing/duration rhythm
-    /// as the card pop so the whole UI feels unified. ReducedMotion snaps.</summary>
-    private void FadeInSections()
+    // #8 expand/collapse stretch durations (ease-out grow, snappier ease-in shrink).
+    private static readonly Duration ExpandDur   = new(TimeSpan.FromMilliseconds(240));
+    private static readonly Duration CollapseDur = new(TimeSpan.FromMilliseconds(170));
+
+    /// <summary>#8: grow (or shrink) the FULL-only sections by animating their Height 0↔natural plus
+    /// an opacity fade, so the bar stretches smoothly. Code-behind owns their Visibility (the XAML
+    /// binding was removed) so the collapse can finish its animation before the element leaves layout.
+    /// ReducedMotion snaps. The sections ClipToBounds so content never spills during the grow.</summary>
+    private void AnimateExpandSections(bool expand)
     {
-        bool rm = AccessibilityHelper.ReducedMotion();
-        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
-        foreach (var s in new FrameworkElement[] { MeterSection, ToolsSection })
+        foreach (var s in new FrameworkElement?[] { MeterSection, ToolsSection, DragHandle })
+            AnimateSectionHeight(s, expand);
+    }
+
+    private void AnimateSectionHeight(FrameworkElement? s, bool expand)
+    {
+        if (s is null) return;
+        s.BeginAnimation(HeightProperty, null);
+        s.BeginAnimation(OpacityProperty, null);
+
+        if (AccessibilityHelper.ReducedMotion())
         {
-            if (s is null) continue;
-            if (rm) { s.BeginAnimation(OpacityProperty, null); s.Opacity = 1; continue; }
+            s.Height = double.NaN; // auto
+            s.Opacity = 1;
+            s.Visibility = expand ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+
+        var ease = new QuinticEase { EasingMode = expand ? EasingMode.EaseOut : EasingMode.EaseIn };
+        if (expand)
+        {
+            s.Visibility = Visibility.Visible;
+            s.Height = double.NaN; // measure the natural height
+            s.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double target = s.DesiredSize.Height;
             s.Opacity = 0;
-            s.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, CardOpenDur) { EasingFunction = ease });
+            s.Height = 0;
+            var h = new DoubleAnimation(0, target, ExpandDur) { EasingFunction = ease };
+            h.Completed += (_, _) => { s.BeginAnimation(HeightProperty, null); s.Height = double.NaN; };
+            s.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, ExpandDur) { EasingFunction = ease });
+            s.BeginAnimation(HeightProperty, h);
+        }
+        else
+        {
+            double from = s.ActualHeight;
+            var h = new DoubleAnimation(from, 0, CollapseDur) { EasingFunction = ease };
+            h.Completed += (_, _) =>
+            {
+                s.BeginAnimation(HeightProperty, null);
+                s.Visibility = Visibility.Collapsed;
+                s.Height = double.NaN;
+                s.Opacity = 1;
+            };
+            s.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0, CollapseDur) { EasingFunction = ease });
+            s.BeginAnimation(HeightProperty, h);
         }
     }
 

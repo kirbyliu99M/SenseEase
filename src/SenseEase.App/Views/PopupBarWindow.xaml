@@ -300,7 +300,7 @@
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Setter Property="HorizontalAlignment" Value="Left"/>
-                                                <Setter Property="Background" Value="#33FFFFFF"/>
+                                                <Setter Property="Background" Value="{DynamicResource Popup.BotBubbleBg}"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsUser}" Value="True">
                                                         <Setter Property="HorizontalAlignment" Value="Right"/>
@@ -490,7 +490,7 @@
                      nothing is orphaned when condensed). The engine owns the level; dragging the
                      handle routes a TwoWay IntensityLevel to the absolute setter. Top = stronger. -->
                 <StackPanel x:Name="MeterSection" HorizontalAlignment="Center"
-                            Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                            Visibility="Collapsed" ClipToBounds="True">
                     <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Slider x:Name="IntensitySlider" Style="{StaticResource PopupIntensitySlider}"
                             Height="128" HorizontalAlignment="Center" Margin="0,2"
@@ -514,7 +514,7 @@
                      SettingsFlyout card. (Pin removed — item 7: the bar appears reactively when
                      needed, so a keep-open pin is unnecessary; the bar is always dismissible.) -->
                 <StackPanel x:Name="ToolsSection" HorizontalAlignment="Center"
-                            Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                            Visibility="Collapsed" ClipToBounds="True">
                     <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
                             ToolTip="{loc:T Zh='快速設定', En='Quick settings'}"
                             AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}">
@@ -550,7 +550,7 @@
                      the vertical-only DragMove (mouse) / the window touch path (touch); the condensed
                      bar is still draggable from its background via the same handler. -->
                 <Border x:Name="DragHandle" Cursor="SizeNS" Background="Transparent"
-                        Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"
+                        Visibility="Collapsed"
                         HorizontalAlignment="Center" Margin="0,2,0,0" Padding="10,5"
                         ToolTip="{loc:T Zh='拖曳調整上下位置', En='Drag to move up / down'}"
                         AutomationProperties.Name="{loc:T Zh='拖曳調整工具列上下位置', En='Drag the bar up or down'}">

@@ -34,6 +34,8 @@
     <SolidColorBrush x:Key="Popup.PanelBg" Color="#F2D7E4FC"/>
     <!-- Frosted-glass highlight rim. -->
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#59FFFFFF"/>
+    <!-- Assistant chat bubble — a soft navy wash on the light glass (Claude-style light-grey bubble). -->
+    <SolidColorBrush x:Key="Popup.BotBubbleBg" Color="#1F061030"/>
 
     <!-- Ink ramp on PANELS — DARK navy (reference rgba(6,16,48, .88/.52/.30)) on the light glass. -->
     <SolidColorBrush x:Key="Popup.Ink1" Color="#E0061030"/>
