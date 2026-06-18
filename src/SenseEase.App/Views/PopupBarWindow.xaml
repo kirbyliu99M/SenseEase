@@ -244,9 +244,20 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- header -->
-                <TextBlock Text="SenseEase AI" Margin="16,13,16,8"
-                           FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
+                <!-- header: title + clear-chat (item 10) -->
+                <Grid Margin="16,11,8,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="SenseEase AI" VerticalAlignment="Center"
+                               FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
+                    <Button Grid.Column="1" Style="{StaticResource BarIconBtn}" Command="{Binding Chat.ClearCommand}"
+                            ToolTip="{loc:T Zh='清除對話', En='Clear chat'}"
+                            AutomationProperties.Name="{loc:T Zh='清除對話', En='Clear chat'}">
+                        <Path Data="{StaticResource Icon.Trash}" Fill="{DynamicResource Popup.Ink2}" Width="14" Height="14" Stretch="Uniform"/>
+                    </Button>
+                </Grid>
 
                 <!-- messages — sizes to content up to a cap (no fixed-height blank) -->
                 <ScrollViewer Grid.Row="1" Margin="10,0" MaxHeight="340" VerticalScrollBarVisibility="Auto"

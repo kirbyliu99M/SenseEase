@@ -145,7 +145,11 @@ public class ApplyNluResultCharacterizationTests
             Assert.Equal("user", fov!.Source);
             Assert.Equal("I'm dizzy", fov.Utterance);
             Assert.Equal(-8.0, fov.Delta, 6); // logs the APPLIED delta (old offset was 0)
-            Assert.True(AnyAssistant(vm, "System adjustment"));
+            // Item 8: the confirmation is now an empathetic, magnitude-aware line (no param table /
+            // no numbers) — "✓ Strengthened your protection (noticeably)".
+            Assert.True(AnyAssistant(vm, "Strengthened your protection"));
+            Assert.False(AnyAssistant(vm, "System adjustment")); // the old parameter table is gone
+            Assert.False(AnyAssistant(vm, "FOV"));               // no knob names / numbers
         });
 
     // ── 3. The question-guard is scoped to ReportDiscomfort: a non-discomfort intent on an ──

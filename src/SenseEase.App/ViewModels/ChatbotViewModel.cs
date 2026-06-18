@@ -648,6 +648,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             _dispatcher.Invoke(() =>
             {
                 if (placeholder is not null) Messages.Remove(placeholder);
+
+                // Item 5 — safety gate: repeated discomfort reports in a short window → advise rest
+                // and HOLD this turn's auto-actuation (advice, not a hard block; the crisis floor is
+                // upstream). Zero the deltas BEFORE ApplyNluResult so nothing actuates this turn.
+                bool restAdvised = false;
+                if (result.Intent == "ReportDiscomfort" && _safetyGovernor.RecordAndShouldAdvise())
+                {
+                    result.FovDelta = 0;
+                    result.MaskDepthDelta = 0;
+                    result.GridVisibilityDelta = 0;
+                    result.FeatherWidthDelta = 0;
+                    restAdvised = true;
+                }
+
                 string summary = ApplyNluResult(result, text);
 
                 // Followup-requesting replies get rendered with option cards. The
@@ -756,6 +770,16 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                         deferredSummary = summary;
                     else
                         Messages.Add(new ChatMessageViewModel(summary, ChatRole.Assistant));
+                }
+
+                // Item 5 — surface the rest advice (the actuation was already held above).
+                if (restAdvised)
+                {
+                    string rest = LocalizationManager.Current.Pick(
+                        "你最近多次感到不適 — 先讓眼睛休息幾分鐘吧。有時候暫停會比再多調整更有幫助，所以我先暫停了這次的自動調整。",
+                        "You've mentioned discomfort a few times — let's rest your eyes for a few minutes. A pause often helps more than another tweak, so I've held off on auto-adjusting this time.");
+                    Messages.Add(new ChatMessageViewModel(rest, ChatRole.Assistant));
+                    PersistMessage(ChatRole.Assistant, rest);
                 }
             });
 
@@ -984,7 +1008,23 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
           .Append(" gridVis=").Append(bl.GridVisibility.ToString("F2"))
           .Append(" feather=").Append(bl.FeatherWidth.ToString("F2")).Append(")]\n")
           .Append("User: ").Append(text);
+        // Item 11b — per-turn mood hint: adapt the companion's tone to the user's current distress
+        // (driven by the live engine tier). Sits next to the input so the small model weights it.
+        sb.Append('\n').Append(BuildMoodDirective(_engine.Current.VimsTier));
         return sb.ToString();
+    }
+
+    /// <summary>Item 11 — a per-turn tone directive for the assistant, adapting its warmth to the
+    /// user's current distress level (engine tier 1–12). More soothing/reassuring when the tier is
+    /// high; lighter and encouraging when calm. Meta-instruction to the model — NOT user-facing, so
+    /// it stays in English (the reply language is pinned separately).</summary>
+    internal static string BuildMoodDirective(int tier)
+    {
+        if (tier >= 8)
+            return "(mood: the user is under real strain right now — be especially calm, slow and reassuring; lead with empathy, keep it brief.)";
+        if (tier >= 4)
+            return "(mood: some discomfort is present — be warm, gentle and supportive.)";
+        return "(mood: things are calm — be light, friendly and encouraging.)";
     }
 
     /// <summary>
@@ -1098,6 +1138,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // deltas so the resulting pseudo-table never contains "no change" rows.
         var rows = new System.Collections.Generic.List<(string Label, string Change)>();
 
+        // Item 8: the applied magnitudes, captured for the empathetic + magnitude-aware (NON-technical)
+        // confirmation. The per-param `rows` are kept only for the follow-up target decision + the
+        // durable audit log — they are no longer rendered to the user as a parameter table.
+        int appliedFov = 0;
+        double appliedMaskDepth = 0, appliedGridVisibility = 0, appliedFeatherWidth = 0;
+
         // Round-3 follow-up context: the target THIS turn actually moved, decided once
         // at the end so a stale prior-turn target can't bleed through. Grid is preferred
         // (only target with a real OFF), then mask, then fov.
@@ -1110,7 +1156,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // standing preference — apply the FOV but don't charge the habituation ledger.
             _engine.ApplyUserFeedback(result.FovDelta, isDeliberatePreference: result.Intent != "ReportDiscomfort");
             int newOffset = _engine.UserFovOffset;
-            int appliedFov = newOffset - oldOffset;
+            appliedFov = newOffset - oldOffset;
             if (appliedFov != 0)
             {
                 _adjustmentLog.Append(new AdjustmentRecord
@@ -1139,9 +1185,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             LogShader("GridVisibility", result.GridVisibilityDelta, before.GridVisibility, after.GridVisibility, utterance);
             LogShader("FeatherWidth",   result.FeatherWidthDelta,   before.FeatherWidth,   after.FeatherWidth,   utterance);
 
-            double appliedMaskDepth      = after.MaskDepth      - before.MaskDepth;
-            double appliedGridVisibility = after.GridVisibility - before.GridVisibility;
-            double appliedFeatherWidth   = after.FeatherWidth   - before.FeatherWidth;
+            appliedMaskDepth      = after.MaskDepth      - before.MaskDepth;
+            appliedGridVisibility = after.GridVisibility - before.GridVisibility;
+            appliedFeatherWidth   = after.FeatherWidth   - before.FeatherWidth;
 
             if (appliedMaskDepth != 0)
                 rows.Add(("Mask depth", $"{(appliedMaskDepth > 0 ? "+" : "")}{appliedMaskDepth:0.00}"));
@@ -1178,24 +1224,40 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                     "(That looked like a question, so I didn't change any settings — just tell me if you'd like an adjustment.)")
                 : string.Empty;
 
-        // MarkdownInlines (Views/MarkdownInlines.cs) only supports bold / italic /
-        // inline-code / bullets / linebreaks — it does NOT render markdown tables.
-        // So we emit a backtick-wrapped monospace pseudo-table: the label column is
-        // padded to a fixed width so values align vertically in the chat bubble.
-        int labelWidth = 0;
-        foreach (var r in rows) if (r.Label.Length > labelWidth) labelWidth = r.Label.Length;
-        labelWidth += 2; // gutter between columns
-
-        var sb = new StringBuilder();
-        sb.Append("**").Append(LocalizationManager.Current.Pick("系統調整", "System adjustment")).Append("**\n");
-        foreach (var (label, change) in rows)
-            sb.Append('`').Append(label.PadRight(labelWidth)).Append(change).Append("`\n");
-        // CW-2 CLOSED (D-2, Beta A2): mask-depth / feather render live via the single-pass
-        // field now — no "recorded only" caveat; the rows above are all truthfully applied.
+        // Item 8: NO parameter table. The confirmation is a single empathetic, magnitude-aware line —
+        // it tells the user how MUCH we adjusted (a touch / noticeably / a lot) in plain comfort
+        // language, never naming the technical knobs or numbers. (The LLM's own empathetic reply,
+        // which mirrors the symptom, is shown as the preceding bubble; this is the deterministic
+        // "✓ done, roughly this much" confirmation of what was ACTUALLY applied.)
+        string confirmation = BuildComfortConfirmation(appliedFov, appliedMaskDepth, appliedGridVisibility, appliedFeatherWidth);
         if (!_isOverlayVisible())
-            sb.Append("\n_").Append(LocalizationManager.Current.Pick(
-                "開啟 Overlay 以查看", "Open the overlay to see it")).Append('_');
-        return sb.ToString();
+            confirmation += LocalizationManager.Current.Pick(
+                "（開啟 Overlay 以查看）", " (open the overlay to see it)");
+        return confirmation;
+    }
+
+    /// <summary>Item 8 — a generic, magnitude-aware confirmation in plain comfort language (NO
+    /// parameter names or numbers). Conveys the DIRECTION (strengthened vs eased the protection) and
+    /// roughly HOW MUCH (a touch / noticeably / a lot), bucketed from the actually-applied deltas.</summary>
+    private static string BuildComfortConfirmation(int fovDelta, double maskDelta, double gridDelta, double featherDelta)
+    {
+        // "Stronger" protection = a tighter clear zone (negative FOV) or a deeper / more-visible
+        // periphery (positive mask / grid / feather). One turn normally moves a single direction.
+        bool stronger = fovDelta < 0 || maskDelta > 0 || gridDelta > 0 || featherDelta > 0;
+
+        // Qualitative magnitude from the most salient applied change (FOV scaled to ~20pp, the
+        // shader knobs to ~0.20) → 0..1, bucketed into a touch / noticeably / a lot.
+        double m = Math.Max(Math.Abs(fovDelta) / 20.0,
+                   Math.Max(Math.Abs(maskDelta) / 0.20,
+                   Math.Max(Math.Abs(gridDelta) / 0.20, Math.Abs(featherDelta) / 0.20)));
+        string magZh, magEn;
+        if (m < 0.34)      { magZh = "稍微";  magEn = "a little"; }
+        else if (m < 0.67) { magZh = "明顯";  magEn = "noticeably"; }
+        else               { magZh = "大幅";  magEn = "a lot"; }
+
+        string zh = stronger ? $"✓ 已為你加強保護（{magZh}）" : $"✓ 已為你放鬆保護（{magZh}）";
+        string en = stronger ? $"✓ Strengthened your protection ({magEn})" : $"✓ Eased your protection ({magEn})";
+        return LocalizationManager.Current.Pick(zh, en);
     }
 
     private void LogShader(string parameter, double delta, double oldValue, double newValue, string utterance)
@@ -1209,12 +1271,17 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         });
     }
 
+    // Item 5 — repeated-discomfort safety throttle (see DiscomfortSafetyGovernor). In-memory;
+    // reset on Clear() so a fresh session starts clean.
+    private readonly SenseEase.App.Services.DiscomfortSafetyGovernor _safetyGovernor = new();
+
     private void Clear()
     {
         _chatbot.ClearHistory();
         _chatbot.ClearOnDiskTrace(); // H24 (PII): wipe the on-disk model trace too
         Messages.Clear();
         try { _streamCts.Cancel(); } catch { /* ignore */ }
+        _safetyGovernor.Reset();
         _historyStore.DeleteFile();
         // NE18: the file is gone, so reset the in-session line counter — the welcome
         // bubble re-added below is never persisted, so disk is now empty.
