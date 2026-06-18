@@ -182,11 +182,11 @@ public sealed class UserPreferences
     [JsonPropertyName("head_tracking_enabled")]
     public bool HeadTrackingEnabled { get; set; } = true;
 
-    /// <summary>Chat model selection (2026-06-19). "mistral" = the bundled default + fallback;
-    /// "qwen3-4b" = the opt-in upgrade (must be present in models/). <c>AppConfig.ResolveActiveModel</c>
-    /// reads this (the env var SENSEEASE_CHAT_MODEL overrides it); an absent/unknown model
-    /// present-gates back to Mistral so chat never breaks.</summary>
-    public string ChatModelKey { get; set; } = AppConfig.DefaultModelKey;
+    /// <summary>Chat model selection. Default = "qwen3-4b" (the PRIMARY/main model, better Chinese).
+    /// "mistral" = the bundled fallback. <c>AppConfig.ResolveActiveModel</c> reads this (env var
+    /// SENSEEASE_CHAT_MODEL overrides); an absent/unknown/unloadable model present-gates + load-falls-back
+    /// to Mistral so chat never breaks. REVERTIBLE: set this back to "mistral".</summary>
+    public string ChatModelKey { get; set; } = AppConfig.PrimaryModelKey;
 
     /// <summary>M8: head-tracking follow-mode persistence. String-serialised
     /// for forward-compat ("Balanced" / "FullFollow"). Default "Balanced"

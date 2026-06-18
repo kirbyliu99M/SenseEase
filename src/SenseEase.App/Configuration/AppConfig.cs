@@ -94,6 +94,12 @@ public static class AppConfig
     public sealed record ChatModel(string Key, string ModelPath, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
     private sealed record ChatModelSpec(string Key, string Relative, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
 
+    /// <summary>The PRIMARY/main model — the default selection (UserPreferences.ChatModelKey). Qwen3-4B
+    /// (better Chinese). Revertible: change this (or the pref) back to a present model; if Qwen's GGUF
+    /// is absent or fails to load, the resolver/loader fall back to <see cref="DefaultModelKey"/>.</summary>
+    public const string PrimaryModelKey = "qwen3-4b";
+    /// <summary>The bundled, always-present FALLBACK model (Mistral) — the present-gate target and the
+    /// MistralChatbotService load-fallback, so chat never breaks if the primary is missing/unloadable.</summary>
     public const string DefaultModelKey = "mistral";
     private static readonly ChatModelSpec[] ModelCatalog =
     {
