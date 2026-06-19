@@ -912,6 +912,9 @@ public partial class SettingsContent : UserControl
         // daily estimates) — DeletableOnClear=true on every row, so the H24 "all my data"
         // clear must remove it too.
         BestEffortDelete(AppConfig.SymptomLogPath);
+
+        // Chatbot-tuning sprint (2026-06-19): the dedicated in-chat FMS quick-rate dev log.
+        BestEffortDelete(AppConfig.FmsLogPath);
     }
 
     /// <summary>Best-effort PII file delete — a missing file is success (nothing to

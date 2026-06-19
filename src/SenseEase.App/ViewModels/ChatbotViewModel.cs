@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using SenseEase.App.Configuration;
 using SenseEase.App.Localization;
@@ -923,6 +924,25 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         });
     }
 
+    /// <summary>FMS owner-migration (2026-06-19): proactively raise the FMS 0–20 quick-rate check-in IN the
+    /// chat — a calm assistant question + the adaptive 7-square rating row (the bubble→chat migration). The
+    /// window values + the record callback are supplied by the host (<see cref="FmsCheckInService"/> +
+    /// <c>MainViewModel.RecordFmsRating</c>); the user's tap is captured DETERMINISTICALLY and never reaches
+    /// the LLM. NOT persisted: this is a transient interactive prompt, and its rating row (buttons + live
+    /// callback) can't be rehydrated — persisting only the question text would leave an orphaned,
+    /// un-answerable line after a reload, and re-post duplicates every launch (Kirby 2026-06-20). The
+    /// answer is recorded separately to fms_log via the callback. Any thread.</summary>
+    public void RaiseFmsCheckIn(string question, string hint, int[] windowValues, Action<int> onPicked, string confirmText)
+    {
+        if (windowValues is null || windowValues.Length == 0 || onPicked is null) return;
+        _dispatcher.Invoke(() =>
+        {
+            Messages.Add(new ChatMessageViewModel(question, hint, windowValues,
+                v => { try { onPicked(v); } catch { /* a record failure must never break the chat */ } },
+                confirmText));
+        });
+    }
+
     /// <summary>B5: surface a SUBTLE, system-styled adaptation notice in the chat — the user-facing
     /// transparency for an auto-applied protection tweak (Kirby's "tell the user in the chatbox" policy).
     /// A plain assistant line, no picker. Marshals to the UI thread; best-effort (a notice failure must
@@ -1228,27 +1248,27 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         return confirmation;
     }
 
-    /// <summary>Item 8 — a generic, magnitude-aware confirmation in plain comfort language (NO
-    /// parameter names or numbers). Conveys the DIRECTION (strengthened vs eased the protection) and
-    /// roughly HOW MUCH (a touch / noticeably / a lot), bucketed from the actually-applied deltas.</summary>
+    /// <summary>Item 8 — the deterministic "✓" SYSTEM confirmation line (distinct from the LLM's warm
+    /// reply above it, which stays number-free). Conveys DIRECTION (strengthened vs eased) and an
+    /// APPROXIMATE adjustment intensity as a rounded "~約 X%" (owner pick 2026-06-20). The % is the
+    /// normalized magnitude of the most salient applied delta — an INTENSITY, not a protection-total —
+    /// hence "約 / ~" to avoid false precision; rounded to the nearest 5 and clamped to a relatable
+    /// 10–90% band. The internal knob names/raw values are still never exposed.</summary>
     private static string BuildComfortConfirmation(int fovDelta, double maskDelta, double gridDelta, double featherDelta)
     {
         // "Stronger" protection = a tighter clear zone (negative FOV) or a deeper / more-visible
         // periphery (positive mask / grid / feather). One turn normally moves a single direction.
         bool stronger = fovDelta < 0 || maskDelta > 0 || gridDelta > 0 || featherDelta > 0;
 
-        // Qualitative magnitude from the most salient applied change (FOV scaled to ~20pp, the
-        // shader knobs to ~0.20) → 0..1, bucketed into a touch / noticeably / a lot.
+        // Intensity = the most salient applied change normalized (FOV to ~20pp, shader knobs to ~0.20),
+        // surfaced as an approximate percentage.
         double m = Math.Max(Math.Abs(fovDelta) / 20.0,
                    Math.Max(Math.Abs(maskDelta) / 0.20,
                    Math.Max(Math.Abs(gridDelta) / 0.20, Math.Abs(featherDelta) / 0.20)));
-        string magZh, magEn;
-        if (m < 0.34)      { magZh = "稍微";  magEn = "a little"; }
-        else if (m < 0.67) { magZh = "明顯";  magEn = "noticeably"; }
-        else               { magZh = "大幅";  magEn = "a lot"; }
+        int pct = Math.Clamp((int)Math.Round(m * 100.0 / 5.0) * 5, 10, 90);
 
-        string zh = stronger ? $"✓ 已為你加強保護（{magZh}）" : $"✓ 已為你放鬆保護（{magZh}）";
-        string en = stronger ? $"✓ Strengthened your protection ({magEn})" : $"✓ Eased your protection ({magEn})";
+        string zh = stronger ? $"✓ 防護加強約 {pct}%" : $"✓ 防護放鬆約 {pct}%";
+        string en = stronger ? $"✓ Protection up ~{pct}%" : $"✓ Protection eased ~{pct}%";
         return LocalizationManager.Current.Pick(zh, en);
     }
 
@@ -1563,8 +1583,11 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
     /// assistant message. Null/empty when no followup is offered.</summary>
     public string[]? FollowupOptions { get; }
 
+    // UVHS fix (2026-06-19): the symptom-picker cards must DISAPPEAR once the user taps one (they used to
+    // linger after selection). Set when SelectFollowupCommand fires; gates the visibility below.
+    private bool _followupAnswered;
     public Visibility FollowupVisibility =>
-        FollowupOptions is { Length: > 0 } && !IsUser ? Visibility.Visible : Visibility.Collapsed;
+        FollowupOptions is { Length: > 0 } && !IsUser && !_followupAnswered ? Visibility.Visible : Visibility.Collapsed;
 
     // CW-3: the in-chat profile picker (ProfileOptions / SelectProfileCommand /
     // OnProfileSelected) and the ProfileOption record were removed — profiles are
@@ -1581,6 +1604,29 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     public ICommand SelectFollowupCommand { get; }
 
+    // ── FMS 0–20 quick-rate check-in (chatbot-tuning sprint 2026-06-19) ──────────────────
+    // The adaptive 7-square rating row rendered inline under a proactive assistant question. The pick is
+    // captured DETERMINISTICALLY (OnFmsSelected → host records it) and NEVER routed through the LLM.
+    /// <summary>The 7 square buttons of the adaptive FMS window; null on non-FMS messages.</summary>
+    public IReadOnlyList<FmsButtonVm>? FmsButtons { get; }
+    /// <summary>The calm→warm "comfort spectrum" track brush under the row.</summary>
+    public Brush? FmsTrackBrush { get; }
+    /// <summary>One-line hint under the question (e.g. "Tap a number — 0 is great, higher is rougher").</summary>
+    public string? FmsHint { get; }
+    /// <summary>Invoked once with the chosen FMS value 0–20 when the user taps a square.</summary>
+    public Action<int>? OnFmsSelected { get; }
+
+    private bool _fmsAnswered;
+    private readonly string _fmsConfirmText;
+    public Visibility FmsVisibility =>
+        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility FmsConfirmVisibility =>
+        FmsButtons is { Count: > 0 } && _fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>The calm confirmation shown in place of the row after the user answers.</summary>
+    public string FmsConfirmText => _fmsConfirmText;
+
+    public ICommand SelectFmsCommand { get; }
+
     public ChatMessageViewModel(
         string content,
         ChatRole role,
@@ -1594,10 +1640,43 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FollowupOptions = followupOptions;
         OnFollowupSelected = onFollowupSelected;
         _isTyping = isTyping;
+        _fmsConfirmText = string.Empty;
         SelectFollowupCommand = new RelayCommand(o =>
         {
-            if (o is string s && OnFollowupSelected is not null) OnFollowupSelected(s);
+            if (_followupAnswered) return;                     // one pick per picker
+            if (o is string s && OnFollowupSelected is not null)
+            {
+                _followupAnswered = true;                      // hide the cards as soon as one is tapped
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FollowupVisibility)));
+                OnFollowupSelected(s);
+            }
         });
+        SelectFmsCommand = new RelayCommand(o =>
+        {
+            if (_fmsAnswered) return;                          // one rating per check-in
+            int? v = o switch { int i => i, string s when int.TryParse(s, out var p) => p, _ => null };
+            if (v is null) return;
+            _fmsAnswered = true;
+            OnFmsSelected?.Invoke(v.Value);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsConfirmVisibility)));
+        });
+    }
+
+    /// <summary>FMS check-in message: a proactive assistant question + the adaptive 7-square rating row.</summary>
+    public ChatMessageViewModel(string question, string hint, int[] fmsValues,
+        Action<int> onFmsSelected, string confirmText)
+        : this(question, ChatRole.Assistant)
+    {
+        var buttons = new List<FmsButtonVm>(fmsValues.Length);
+        foreach (int v in fmsValues) buttons.Add(new FmsButtonVm(v));
+        FmsButtons = buttons;
+        FmsTrackBrush = fmsValues.Length > 0
+            ? FmsScale.Track(fmsValues[0], fmsValues[^1])
+            : null;
+        FmsHint = hint;
+        OnFmsSelected = onFmsSelected;
+        _fmsConfirmText = confirmText ?? string.Empty;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

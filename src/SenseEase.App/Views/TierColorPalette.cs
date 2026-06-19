@@ -1,9 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Windows;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace SenseEase.App.Views;
 
@@ -31,17 +26,15 @@ namespace SenseEase.App.Views;
 /// deliberately <b>no alarm red</b>; "more intervention" reads as a deeper, calmer
 /// blue, matching the app Accent #3B6FC4 and the non-alarming 動態感 framing.</para>
 ///
-/// <para>Two shapes are exposed:</para>
+/// <para>The bar's level-colour shape is exposed:</para>
 /// <list type="bullet">
 ///   <item><see cref="BrushForTier"/> — ambient-overlay alpha ladder (0.15→0.45) for
 ///         the bar. Soft, deliberately under-visible.</item>
-///   <item><see cref="IconForTier"/> — full-alpha 32×32 rendered icon for the tray.
-///         The tray icon must be visible against any taskbar background, so it
-///         can't reuse the bar's low-alpha brush directly. Same RGB hue, alpha
-///         bumped to 1.0 — the level-signal intent is preserved across surfaces.</item>
 /// </list>
+/// (The tray icon is built separately by <c>TrayIconService.BuildDistinctTrayIcon</c> — a
+/// constant indigo lens, not a per-tier tone, since D-10 "Alpha-1 TrayBrand".)
 ///
-/// Brushes and icons are static + Frozen so they're shareable across threads
+/// Brushes are static + Frozen so they're shareable across threads
 /// and produce zero allocation on level-change ticks.
 /// </summary>
 public static class TierColorPalette
@@ -102,38 +95,6 @@ public static class TierColorPalette
     // softened outline (#80B65C4E in XAML) so the frame defines without shouting.
     public static readonly SolidColorBrush FaultedBarBrush = MakeFrozen(ClayHue, 0x66); // ~0.40
 
-    // Tray icons — full-alpha 32×32 rendered once, frozen, cached by 級.
-    private static readonly Dictionary<int, ImageSource> _iconCache = new();
-
-    // System.Drawing.Icon cache for the tray, keyed by 級.
-    //
-    // Evolution across the sprint:
-    //   • Patch 3 (a47fb95): Bitmap.GetHicon() + Icon.FromHandle. Required
-    //     manual DestroyIcon at app exit because FromHandle doesn't own
-    //     the unmanaged HICON. Worked at the API level but produced an
-    //     HICON without proper ICO directory structure — Win11 shell
-    //     registered the tray entry but silently rejected the graphic
-    //     (the "entry exists but no icon" symptom user reported after
-    //     Patch 5 library swap proved registration itself was working).
-    //   • Patch 5 (3984c16): library swap H.NotifyIcon → Hardcodet, no
-    //     change to icon construction.
-    //   • Patch 6: attempted Bitmap.Save(stream, ImageFormat.Icon) +
-    //     new Icon(stream). Threw ArgumentNullException because
-    //     System.Drawing.Common on .NET 8 has NO ICO encoder — the API
-    //     exists but isn't implemented (open gap since .NET Core 3.x).
-    //   • Patch 7 (this commit): hand-build ICO container wrapping a
-    //     PNG payload (Win Vista+ accepts PNG-in-ICO). System.Drawing's
-    //     PNG encoder works; we just write the 6-byte ICONDIR + 16-byte
-    //     ICONDIRENTRY ourselves. Icon(Stream) ctor takes ownership, so
-    //     Icon.Dispose() is sufficient — no manual DestroyIcon needed.
-    //
-    // NOTE (Alpha-1 tray-ICO fix): the producer (IconForTier_Win) and its
-    // byte-cache (_winIconBytesCache) were removed — the tray now builds its
-    // own multi-size ICO in TrayIconService. _winIconCache is retained only so
-    // DisposeWinIconCache() (still called from TrayIconService.Dispose) can
-    // best-effort clear any stray entry a future caller might add.
-    private static readonly Dictionary<int, System.Drawing.Icon> _winIconCache = new();
-
     private static SolidColorBrush MakeFrozen(Color rgb, byte alpha)
     {
         var b = new SolidColorBrush(Color.FromArgb(alpha, rgb.R, rgb.G, rgb.B));
@@ -169,101 +130,7 @@ public static class TierColorPalette
         _                 => VeryHighHoverBrush,
     };
 
-    private static Color HueForTier(int tier) => BandForTier(tier) switch
-    {
-        TierBand.VeryHigh => VeryHighHue,
-        TierBand.High     => HighHue,
-        TierBand.Medium   => MediumHue,
-        TierBand.Low      => LowHue,
-        TierBand.VeryLow  => VeryLowHue,
-        _                 => VeryHighHue,
-    };
-
-    /// <summary>Resolves a 1–12 intensity level to a 32×32 ImageSource for the
-    /// system tray icon. Full-alpha rendering (the tray icon must be visible
-    /// against any taskbar background — low-alpha would disappear on light
-    /// themes). Cached per 級; first call allocates, subsequent calls return the
-    /// cached frozen RenderTargetBitmap.</summary>
-    public static ImageSource IconForTier(int tier)
-    {
-        int bandKey = (int)BandForTier(tier);
-        if (_iconCache.TryGetValue(bandKey, out var cached)) return cached;
-
-        var bmp = RenderIconBitmap(HueForTier(tier));
-        _iconCache[bandKey] = bmp;
-        return bmp;
-    }
-
-    // ── Removed (Alpha-1 tray-ICO fix): IconForTier_Win + BuildPngWrappedIco +
-    // GetIcoBytesForTesting. They hand-built a SINGLE 32 px PNG-in-ICO frame,
-    // which the Win11 shell down-scaled to the 16 px tray slot and rendered
-    // blurred / blank (the PNG-at-16px bug). The tray no longer uses this path —
-    // TrayIconService draws its own multi-size ICO (16/24/32/48 px BGRA-DIB
-    // frames) via BuildMultiSizeIco. The _winIconCache + DisposeWinIconCache
-    // below are kept so TrayIconService.Dispose()'s defensive cleanup of any
-    // stray cache entry still compiles and runs as a no-op.
-
-    /// <summary>App-shutdown cleanup. Disposes every cached Icon. Safe to
-    /// call multiple times; subsequent calls are no-ops (cache cleared
-    /// after first). Called from <c>TrayIconService.Dispose()</c>.
-    /// <para>Patch 6: the prior manual <c>DestroyIcon</c> P/Invoke loop is
-    /// gone — Patch 3's <c>Icon.FromHandle()</c> needed it because that
-    /// ctor doesn't take handle ownership. <c>Icon(Stream)</c> DOES take
-    /// ownership, so <c>Icon.Dispose()</c> alone fully releases everything.</para></summary>
-    public static void DisposeWinIconCache()
-    {
-        foreach (var icon in _winIconCache.Values)
-        {
-            try { icon.Dispose(); } catch { /* best-effort */ }
-        }
-        _winIconCache.Clear();
-    }
-
-    private static ImageSource RenderIconBitmap(Color hue)
-    {
-        // 32×32 rounded square, fully opaque, with a 2 px transparent margin
-        // so the shape doesn't touch taskbar edges. Hue is full-alpha — alpha
-        // signalling is the BAR's job, not the tray icon's (tray icons need
-        // to be visible regardless of taskbar background).
-        var visual = new DrawingVisual();
-        using (var ctx = visual.RenderOpen())
-        {
-            var fill = new SolidColorBrush(hue);
-            fill.Freeze();
-            ctx.DrawRoundedRectangle(fill, null, new Rect(2, 2, 28, 28), 6, 6);
-        }
-        var rtb = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
-        rtb.Render(visual);
-
-        // Historical context — H.NotifyIcon.Wpf 2.3.0 (the tray library used
-        // before Patch 5's swap to Hardcodet) explicitly threw
-        // NotImplementedException when a RenderTargetBitmap was assigned to
-        // TaskbarIcon.IconSource (its ImageExtensions.ToStreamAsync only
-        // handled a fixed set of types). The fix below — round-trip through
-        // PNG so the result is a BitmapImage — became unused once production
-        // switched to the System.Drawing.Icon path (IconForTier_Win above),
-        // but the method is kept as back-compat for any future caller that
-        // still wants an ImageSource. The "must be assignable to BitmapSource
-        // AND must NOT be RenderTargetBitmap" contract still holds for any
-        // ImageSource consumer; the test
-        // IconForTier_ReturnsTypeAcceptableToTrayLibrary pins it.
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(rtb));
-        using var ms = new MemoryStream();
-        encoder.Save(ms);
-        ms.Position = 0;
-
-        var bmp = new BitmapImage();
-        bmp.BeginInit();
-        bmp.CacheOption  = BitmapCacheOption.OnLoad; // detach from stream so we can dispose ms
-        bmp.StreamSource = ms;
-        bmp.EndInit();
-        bmp.Freeze();
-        return bmp;
-    }
-
-    /// <summary>The five 動態感 級 (拍板-1). Public so tests can name them; the enum
-    /// values double as cache keys in <see cref="_iconCache"/>. Ordered calm→stabilized
+    /// <summary>The five 動態感 級 (拍板-1). Public so tests can name them. Ordered calm→stabilized
     /// (VeryHigh = 極高 = most natural; VeryLow = 極低 = most stabilized) so the
     /// integer ordering matches intervention intensity.</summary>
     public enum TierBand

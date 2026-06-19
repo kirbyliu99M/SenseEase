@@ -265,6 +265,13 @@ public static class AppConfig
     public static string SymptomLogPath => Path.Combine(
         DataRoot, "SenseEase", "symptom_log.jsonl");
 
+    // FMS owner-migration (chatbot-tuning sprint 2026-06-19): a DEDICATED, clean one-row-per-response log
+    // of the in-chat FMS 0–20 quick-rate check-in, for DEV MONITORING — parallel to the NPS
+    // survey_log.jsonl, in the SAME %LOCALAPPDATA%\SenseEase home (H24 clear + H25 uninstall cover it).
+    // Distinct from symptom_log.jsonl (which mixes spike reports + NL estimates + other kinds).
+    public static string FmsLogPath => Path.Combine(
+        DataRoot, "SenseEase", "fms_log.jsonl");
+
     // H24: the chatbot model trace (the ClearOnDiskTrace target). Mirrors the path
     // LocalLlmChatbotService writes to (Infrastructure can't see this App config, so
     // both sides compute %LOCALAPPDATA%\SenseEase\model_trace.jsonl independently).

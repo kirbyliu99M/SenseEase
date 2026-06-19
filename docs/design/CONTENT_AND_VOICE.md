@@ -6,6 +6,8 @@
 
 # Voice & Tone Guide
 
+> **⚠ Chatbot voice is now governed by [docs/CHATBOT_BEHAVIOR_SPEC.md](../CHATBOT_BEHAVIOR_SPEC.md) (2026-06-19 tuning sprint).** The chatbot tuning target is **Qwen3-4B-Instruct-2507** (not Ministral 3B). In §5 below and elsewhere, "Ministral 3B" and `MistralChatbotService.cs` are historical — the class lives in `LocalLlmChatbotService.cs` now. For any chatbot conflict, the behavior spec wins (notably: ZH is clinical/concise per the spec, overriding the warm-你 register §B-3 prescribes for the chatbot specifically).
+
 I have enough grounded evidence. I have the real strings, their file:line locations, the chatbot system prompt, and the design tokens. Now I'll write the Voice & Tone guide.
 
 # Voice & Tone

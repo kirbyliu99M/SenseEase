@@ -50,4 +50,26 @@ public class InterrogativeDetectorTests
     [Fact]
     public void Null_IsNotFlagged()
         => Assert.False(InterrogativeDetector.IsSymptomInquiry(null));
+
+    [Theory]
+    // "Should I take this action?" deliberation — must NOT fire a destructive intent (a reset).
+    [InlineData("should I reset everything?")]
+    [InlineData("Should I reset to default")]
+    [InlineData("do I need to reset?")]
+    [InlineData("要不要重設？")]
+    [InlineData("該不該重設")]
+    [InlineData("需要重設嗎？")]
+    public void DeliberationQuestion_IsCommandInquiry(string text)
+        => Assert.True(InterrogativeDetector.IsCommandInquiry(text));
+
+    [Theory]
+    // Plain imperatives / statements — a real command, never a deliberation question.
+    [InlineData("reset everything to default")]
+    [InlineData("reset")]
+    [InlineData("I'm dizzy")]
+    [InlineData("重設所有設定")]
+    [InlineData("make it darker")]
+    [InlineData("")]
+    public void Imperatives_AreNotCommandInquiry(string text)
+        => Assert.False(InterrogativeDetector.IsCommandInquiry(text));
 }

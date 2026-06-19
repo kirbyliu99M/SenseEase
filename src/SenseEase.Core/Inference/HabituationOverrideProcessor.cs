@@ -104,22 +104,13 @@ public static class HabituationOverrideProcessor
                 "switch_profile is not supported — the habituation profile is set during calibration");
         }
 
-        // ── Rule 1: expires_at_iso in [now, now + 7 days] ──
-        // Past expiry is a hard reject — the proposal is already stale and
-        // surfacing the Card would just show a "已過期" timer. Future-but-
-        // over-cap is treated as the model getting the absolute date slightly
-        // wrong (Mistral 3B reliably overshoots — verified end-to-end at
-        // 18:21:00, model wanted 48h but emitted 7d + 6h); we LOG the over-
-        // cap and clamp downstream rather than discard a well-formed proposal
-        // over an off-by-hours expiry calculation.
-        if (proposal.ExpiresAtUtc <= utcNow)
-        {
-            return OverrideValidationResult.Reject(
-                "proposal expiry is in the past");
-        }
-        // No upper-bound rejection any more — Applicator stores the proposal
-        // with min(model expiry, now + 7 days) so the cap is enforced at the
-        // pending-proposal level, not the validation gate.
+        // ── Rule 1: expires_at_iso freshness is ADVISORY, not a gate ──
+        // The proposal is generated THIS turn, so it is never genuinely stale at validation time. A
+        // past/zero expiry only means the LLM got the absolute date wrong — it copies an in-prompt example
+        // date or can't compute "today + 1 day" (verified 2026-06-19: Qwen emitted a month-old date for a
+        // fresh proposal). Rejecting on a bad date would discard a well-formed proposal over an arithmetic
+        // slip, so freshness is no longer a gate: the surfacing step floors a past/near expiry to now + 1
+        // day and caps a far one at now + 7 days (MainViewModel.OnChatbotProposalReceived).
 
         // ── Rule 2: proposed_value in valid range for the intent ──
         if (!IsValueInRange(proposal, out string? rangeReason))

@@ -40,6 +40,9 @@
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#59FFFFFF"/>
     <!-- Assistant chat bubble — a soft navy wash on the light glass (Claude-style light-grey bubble). -->
     <SolidColorBrush x:Key="Popup.BotBubbleBg" Color="#1F061030"/>
+    <!-- Notice/alert dot (consent-bubble red notice). Calm-palette rule retired 2026-06-19, so a real
+         red is allowed; used only as a tiny badge to draw a glance, never as a fill. -->
+    <SolidColorBrush x:Key="Popup.Notice" Color="#FFE5484D"/>
 
     <!-- Ink ramp on PANELS — DARK navy on the light glass. Ink2 alpha raised 0x85→0xA6 (2026-06-18)
          so secondary-text usages (NPS comment/wordmark, consent "Not now") clear AA 4.5:1 on the very

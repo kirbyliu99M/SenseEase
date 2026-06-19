@@ -38,6 +38,8 @@
     <SolidColorBrush x:Key="Popup.Bdr"     Color="#26FFFFFF"/>
     <!-- Assistant chat bubble — a soft white wash on the slate glass. -->
     <SolidColorBrush x:Key="Popup.BotBubbleBg" Color="#33FFFFFF"/>
+    <!-- Notice/alert dot (consent-bubble red notice) — brighter on the dark slate so the badge reads. -->
+    <SolidColorBrush x:Key="Popup.Notice" Color="#FFFF6168"/>
 
     <!-- Ink ramp on PANELS — near-WHITE at descending alpha (dark text would vanish on the slate). -->
     <SolidColorBrush x:Key="Popup.Ink1" Color="#F0EAF0F8"/>

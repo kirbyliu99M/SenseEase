@@ -552,15 +552,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        // Clamp expiry to processor's max future window. Mistral 3B reliably
-        // overshoots the 48h target by hours-to-days; rather than discarding
-        // an otherwise-valid proposal we cap the timer at +7 days so the
-        // Card's countdown stays meaningful. The model's reply text still
-        // mentions whatever date it computed — that's a cosmetic mismatch
-        // we accept (and the user has the Card's authoritative countdown).
-        var maxExpiry = DateTime.UtcNow.AddDays(HabituationOverrideProcessor.ExpiresAtMaxFutureDays);
-        var clamped = proposal.ExpiresAtUtc > maxExpiry
-            ? proposal with { ExpiresAtUtc = maxExpiry }
+        // Floor a past/zero expiry to +1 day and cap a far one at +7 days. The proposal is fresh
+        // (generated THIS turn); a past date only means the LLM got the absolute date wrong — it copies an
+        // in-prompt example date or can't compute "today + 1 day" (verified 2026-06-19: Qwen emitted a
+        // month-old date for a fresh proposal). Either way the Card's countdown stays meaningful. The
+        // model's reply text may mention a different date — a cosmetic mismatch we accept (the Card's
+        // countdown is authoritative).
+        var now = DateTime.UtcNow;
+        var maxExpiry = now.AddDays(HabituationOverrideProcessor.ExpiresAtMaxFutureDays);
+        DateTime fixedExpiry = proposal.ExpiresAtUtc <= now ? now.AddDays(1)
+                             : proposal.ExpiresAtUtc > maxExpiry ? maxExpiry
+                             : proposal.ExpiresAtUtc;
+        var clamped = fixedExpiry != proposal.ExpiresAtUtc
+            ? proposal with { ExpiresAtUtc = fixedExpiry }
             : proposal;
 
         _activeProposal = clamped;
@@ -665,16 +669,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// console — a bad value/throw is swallowed here exactly like the 5★ path.</summary>
     internal void RecordFmsRating(int fms, string trigger = "")
     {
+        string foreground = WindowsActivityFilter.Instance.CurrentForegroundKey;
         try
         {
             var ev = ComfortRatingScale.BuildMeasuredFmsReport(
-                fms, VimsTier, MaskActive,
-                WindowsActivityFilter.Instance.CurrentForegroundKey, trigger);
+                fms, VimsTier, MaskActive, foreground, trigger);
             SymptomRecorder.Record(ev);
         }
         catch { /* a comfort rating must never propagate into the UI click handler */ }
+        // FMS owner-migration (2026-06-19): also append to the dedicated dev fms_log — this both gives dev
+        // a clean FMS-only file and drives the next in-chat window (re-centres on this pick). Best-effort.
+        // Carry the EFFERENCE-COPY context (Driver/Passenger mode + raw on-screen motion) so each rating
+        // records whether the provoking motion was self-generated (Kirby 2026-06-20).
+        try
+        {
+            var st = CurrentState;
+            _fmsCheckIn.Record(fms, trigger, foreground, VimsTier, MaskActive ? "on" : "off",
+                st?.Mode ?? "Passenger", st?.RawOpticalFlowIndex ?? 0.0);
+        }
+        catch { /* best-effort dev sink — never disturb the rating path */ }
         PushFmsContextToEngine();   // B1: reflect the just-logged report in the selector immediately
     }
+
+    // FMS owner-migration: owns the dedicated dev fms_log + the adaptive 7-point window. The SAME instance
+    // reads (NextFmsWindow) and writes (RecordFmsRating) so the window re-centres on the last logged pick.
+    private readonly SenseEase.App.Services.FmsCheckInService _fmsCheckIn = new();
+
+    /// <summary>The adaptive 7-value FMS window for the next in-chat check-in (re-centred on the user's
+    /// last pick; 0–6 first time).</summary>
+    internal int[] NextFmsWindow() => _fmsCheckIn.NextWindow();
 
     /// <summary>B1: push the recent measured-FMS aggregate (mean + count over the selector's 7-day
     /// durable window) into the engine so the Adaptive Fit selector can use it as the OUTCOME term.
@@ -1753,6 +1776,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // (MainWindow.OnStateChanged + the bubble callbacks), so no locking is needed.
     private readonly SenseEase.App.Services.OverlayConsentGovernor _overlayConsent = new();
     internal SenseEase.App.Services.OverlayConsentGovernor OverlayConsentGovernorForTests => _overlayConsent;
+    // Monotonic tick source for the consent linger / session-end timers. Injectable so tests can drive
+    // the persist-through-dip / tuck-away / reappear cycle deterministically (production = TickCount64).
+    internal Func<long> ConsentTickProvider { get; set; } = () => Environment.TickCount64;
     // R3 #5 — PER-SESSION consent. While dormant the overlay shows NOTHING (levels 1–5 never appear
     // on their own): the displayed tier is clamped to L1. Only when the engine's natural tier reaches
     // the IMPACTFUL level (>=6) is the user asked. On grant the whole "overlay session" is live —
@@ -1761,9 +1787,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // the slider) is explicit consent → it runs the session with no bubble.
     private const int ConsentImpactTier = 6;
     private const long SessionEndCalmMs = 120_000; // natural tier <=1 this long ⇒ the session ends
+    // How long the consent bubble lingers VISIBLE, unanswered, before it tucks itself away (so it isn't a
+    // permanent fixture). On tuck-away RecordDismissedUnanswered re-times the SHORT no-answer cooldown from
+    // that moment, so the bubble stays gone for exactly NoAnswerCooldown and then RE-APPEARS on the next
+    // impactful tier — re-prompting every NoAnswerCooldown while motion lasts (Kirby 2026-06-20). The two
+    // durations are independent (no ordering invariant). internal so the linger/persist tests can read it.
+    internal const long ConsentLingerMs = 45_000;
     private bool _overlaySessionActive;
-    private long _calmSinceTick;   // Environment.TickCount64 when calm began; 0 = not currently calm
+    private long _calmSinceTick;    // tick when calm began; 0 = not currently calm
+    private long _consentAskedTick; // tick when the bubble was last raised; 0 = not pending
     private bool _consentPending;
+    private bool _consentInteracting; // user currently has the bubble's card expanded → suspend the tuck-away
 
     /// <summary>Raised (UI thread) when the comfort overlay wants to engage but needs the user's
     /// agreement — the host shows the consent bubble. No-op when nothing is subscribed.</summary>
@@ -1796,7 +1830,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // (natural tier back at L1 for SessionEndCalmMs) so the next level-6 rise re-asks.
             if (naturalTier <= 1)
             {
-                long now = Environment.TickCount64;
+                long now = ConsentTickProvider();
                 if (_calmSinceTick == 0) _calmSinceTick = now;
                 else if (now - _calmSinceTick >= SessionEndCalmMs) { _overlaySessionActive = false; _calmSinceTick = 0; }
             }
@@ -1805,19 +1839,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         // Dormant → hold EVERYTHING off; ask only at the impactful tier.
-        if (naturalTier >= ConsentImpactTier)
+        if (!_consentPending)
         {
-            if (!_consentPending && _overlayConsent.ShouldAsk())
+            // No prompt up → raise one once the motion reaches the impactful tier and the cooldown allows.
+            if (naturalTier >= ConsentImpactTier && _overlayConsent.ShouldAsk())
             {
                 _consentPending = true;
+                _consentAskedTick = ConsentTickProvider();
                 _overlayConsent.RecordAsked();                 // cooldown is timed from the ask
                 OverlayConsentRequested?.Invoke(this, EventArgs.Empty);
             }
         }
-        else if (_consentPending)
+        // A prompt is UP. It is a deliberate question to the user, so keep it STABLE: do NOT retract it on
+        // a transient tier dip — motion-video tiers flicker across the impactful line constantly, and the
+        // old transient-retract tore the expanded card away mid-tap, so the overlay could never be turned
+        // on (Kirby 2026-06-20). It stays until the user answers (Grant/Decline via the bubble), or it has
+        // gone UNANSWERED for the full linger AND the user isn't mid-interaction → then it tucks away
+        // (regardless of the current tier). RecordDismissedUnanswered re-times the SHORT no-answer cooldown
+        // from here, so it stays gone for exactly NoAnswerCooldown and RE-APPEARS on the next impactful
+        // tier — re-prompting every NoAnswerCooldown while motion lasts. The overlay-hide path retracts it
+        // explicitly via CancelPendingConsent.
+        else if (!_consentInteracting && ConsentTickProvider() - _consentAskedTick >= ConsentLingerMs)
         {
-            // Pressure subsided below the impactful tier before the user answered → retract the prompt.
             _consentPending = false;
+            _overlayConsent.RecordDismissedUnanswered();
             OverlayConsentDismissRequested?.Invoke(this, EventArgs.Empty);
         }
         return true; // dormant ⇒ hold the overlay off
@@ -1829,17 +1874,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _overlaySessionActive = true;
         _consentPending = false;
+        _consentInteracting = false;
         _calmSinceTick = 0;
         _overlayConsent.RecordAccepted();
     }
 
-    /// <summary>User declined / dismissed → stay dormant; the ~10-min cooldown (from the ask) blocks
-    /// re-prompting until a fresh level-6 rise after it elapses.</summary>
+    /// <summary>User explicitly tapped "Not now" → stay dormant; the LONG decline cooldown (30 min, Kirby
+    /// 2026-06-20) blocks re-prompting until a fresh impactful rise after it elapses.</summary>
     public void DeclineOverlayConsent()
     {
         _consentPending = false;
-        _overlayConsent.RecordDeclinedOrDismissed();
+        _consentInteracting = false;
+        _overlayConsent.RecordDeclined();
     }
+
+    /// <summary>The overlay was turned off (Power Save / manual toggle) while a consent prompt was still
+    /// up. Retract it so the bubble hides WITH the rest of the protection instead of being orphaned on top
+    /// of a stopped overlay (workflow 2026-06-20). The from-ask cooldown stands, so a later re-enable
+    /// re-asks on the next impactful rise. No-op when nothing is pending.</summary>
+    public void CancelPendingConsent()
+    {
+        if (!_consentPending) return;
+        _consentPending = false;
+        _consentInteracting = false;
+        _consentAskedTick = 0;
+        OverlayConsentDismissRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>The host reports whether the user currently has the consent bubble's card EXPANDED
+    /// (deliberately engaging). While true the linger tuck-away is suspended, so the card is never pulled
+    /// out from under an in-progress decision (Kirby 2026-06-20).</summary>
+    internal void SetConsentInteracting(bool interacting) => _consentInteracting = interacting;
+
+    /// <summary>True while the overlay-consent bubble is up awaiting an answer. The proactive in-chat FMS
+    /// check-in defers while this is true so it doesn't surface a second prompt that would overlap the
+    /// consent bubble (the conflict Kirby hit 2026-06-20). Narrower than the old session-active gate, which
+    /// over-blocked the check-in opt-in for users who hadn't engaged the overlay.</summary>
+    internal bool ConsentPending => _consentPending;
 
     /// <summary>
     /// Raised when VIMS pressure shows a sharp relative rise (≥30% within 3s).

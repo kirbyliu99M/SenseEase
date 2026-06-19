@@ -160,12 +160,15 @@ public sealed class ShellController : IShellController
             _consentBubble = new ConsentBubbleWindow();
             _consentBubble.ConsentAccepted += (_, _) => { _vm.GrantOverlayConsent(); _consentBubble?.Hide(); };
             _consentBubble.ConsentDeclined += (_, _) => { _vm.DeclineOverlayConsent(); _consentBubble?.Hide(); };
+            // While the user has the card expanded, the VM suspends the linger tuck-away so it can't pull
+            // the card away mid-decision (Kirby 2026-06-20).
+            _consentBubble.ExpandedChanged += (_, expanded) => _vm.SetConsentInteracting(expanded);
             _consentBubble.ContentRendered += (_, _) => PositionConsentBubble();
             _consentBubble.SizeChanged += (_, _) => { PositionConsentBubble(); _exclude.Update(); };
             _consentBubble.IsVisibleChanged += (_, e) =>
             {
                 if ((bool)e.NewValue) _exclude.Register(_consentBubble!);
-                else _exclude.Unregister(_consentBubble!);
+                else { _exclude.Unregister(_consentBubble!); _vm.SetConsentInteracting(false); }
             };
         }
         _consentBubble.Show();

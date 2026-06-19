@@ -165,6 +165,35 @@ public class NluComplianceGateTests
         Assert.False(r.SuppressedAsQuestion);
     }
 
+    // Kirby 2026-06-20: a screen/state question the model mislabels ReportDiscomfort + answers
+    // "已記錄"/"recorded" with NO actuation (record-only) must NOT read as recorded — broadened
+    // guard fires regardless of delta and the "recorded" claim is replaced.
+    [Theory]
+    [InlineData("現在看的影片是不是容易暈眩")]
+    [InlineData("是不是會頭暈")]
+    public void QuestionGuard_RecordOnlyInquiry_DropsRecordedClaim_ZeroesDeltas(string utterance)
+    {
+        var r = NluComplianceGate.Check(
+            Raw("ReportDiscomfort", reply: "了解，已記錄。如再有不適請告知。"), utterance);
+
+        Assert.Equal(0, r.FovDelta);
+        Assert.Equal(0.0, r.MaskDepthDelta, 6);
+        Assert.Equal(0.0, r.GridVisibilityDelta, 6);
+        Assert.DoesNotContain("已記錄", r.Response);      // the misleading "recorded" is gone
+        Assert.Contains("沒有變更", r.Response);          // replaced with the honest clarify
+    }
+
+    [Fact]
+    public void QuestionGuard_RecordOnlyInquiry_En_DropsRecordedClaim()
+    {
+        var r = NluComplianceGate.Check(
+            Raw("ReportDiscomfort", reply: "Got it — recorded. Tell me if anything else comes up."),
+            "do you think this video is making me dizzy?");
+
+        Assert.Equal(0, r.FovDelta);
+        Assert.DoesNotContain("recorded", r.Response);
+    }
+
     // ── Stage D: convergence — the SAME deterministic floor governs BOTH decision engines ──
     //    The model PROPOSES actuation; the lexicon proposes nothing. For "ask, don't guess"
     //    and "don't answer a question by acting" inputs, the one gate must zero the actuation

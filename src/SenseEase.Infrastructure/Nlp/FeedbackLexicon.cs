@@ -136,7 +136,11 @@ internal static class FeedbackLexicon
     { "干擾", "格線太多", "網格太明顯", "分散", "distracting", "busy", "too many lines" };
 
     private static readonly string[] GridMoreKeywords =
-    { "看不到格", "需要參考", "錨點", "more grid", "show grid", "need reference" };
+    { "看不到格", "需要參考", "錨點", "more grid", "show grid", "need reference",
+      // 2026-06-20 (what_to_adjust card "Steadier view" chip): explicit POSITIVE-grid cues — the user
+      // deliberately picked a steadier view, so these strengthen the anchor grid (symmetric with the
+      // explicit reduce/dislike cues in GridLessKeywords; bare grid nouns stay absent for safety).
+      "穩定畫面", "steadier view", "steady the view" };
 
     // Round-3 (Kirby item 5): the chatbot's edge-feather vocabulary is REMOVED — edge
     // feathering is user-meaningless, so the chatbot neither proposes nor applies it.
@@ -281,6 +285,20 @@ internal static class FeedbackLexicon
         "怪", "怪怪的", "不舒服", "不適", "不对劲", "不對勁", "不适", "感覺", "感觉",
     };
 
+    // 2026-06-20 clarification-card taxonomy. VagueChangeHints = an imperative to CHANGE something with NO
+    // symptom and NO direction ("make it better", "幫我弄一下") → the what_to_adjust card (B). EdgeIssueHints
+    // = an edge/brightness complaint with no darker/lighter direction → the darker-or-lighter card (D).
+    private static readonly string[] VagueChangeHints =
+    {
+        "make it better", "fix it", "do something", "help", "adjust", "improve", "make it",
+        "幫我弄", "弄一下", "弄好", "調整一下", "調一下", "改善一下", "處理一下", "弄好一點",
+    };
+    private static readonly string[] EdgeIssueHints =
+    {
+        "edges look", "edges are off", "hard to look", "too much going on", "too busy",
+        "邊緣怪", "邊緣不對", "看起來不太對", "畫面太亂", "看了不舒服",
+    };
+
     /// <summary>
     /// Decide whether the bot should ask a clarifying follow-up question instead of
     /// (or in addition to) committing to an overlay adjustment. Returns a 2–4-option
@@ -315,6 +333,32 @@ internal static class FeedbackLexicon
             isZh ? "頭痛 / Headache"  : "Headache",
             isZh ? "眼睛疲勞 / Eye strain" : "Eye strain",
         };
+
+        // ── Clarification-card taxonomy (2026-06-20): pick a MORE RELEVANT card than "which symptom?"
+        // when the situation calls for it. These sit ABOVE the symptom-picker cases and only fire on their
+        // specific cues; each chip carries a keyword the classifier already routes (so taps degrade
+        // gracefully on the pure keyword-fallback path). Deterministic mirror of the prompt's card policy.
+        var (cardMd, cardGv, _, _) = ClassifyShaderHints(t);
+        bool noDirection = cardMd == 0 && cardGv == 0;
+
+        // Card E — TWO+ symptoms named whose actuators conflict (the grid that suppresses vection can
+        // aggravate eye strain): ask which is worst. Reuses the symptom chips, different question.
+        int namedCount = (mentionsDizzy ? 1 : 0) + (mentionsNausea ? 1 : 0)
+                       + (mentionsHeadache ? 1 : 0) + (mentionsEye ? 1 : 0);
+        if (intent == "ReportDiscomfort" && namedCount >= 2)
+            return (isZh ? "哪一項最困擾您？" : "Which is bothering you most?", symptomOptions);
+
+        // Card D — an edge/brightness complaint with NO darker/lighter direction: ask the direction first.
+        if (noDirection && !anySpecific && ContainsAny(t, EdgeIssueHints))
+            return (isZh ? "邊緣要更暗還是更亮？" : "Should the edges be darker or lighter?",
+                    isZh ? new[] { "邊緣更暗", "邊緣更亮" } : new[] { "Darker edges", "Lighter edges" });
+
+        // Card B — a vague CHANGE request with no symptom and no direction ("make it better", "幫我弄一下"):
+        // ask WHAT to adjust, not which symptom. The flagship addition (used to dead-end as a plain reply).
+        if (!anySpecific && noDirection && ContainsAny(t, VagueChangeHints))
+            return (isZh ? "請問要調整哪一項？" : "Sure — what should I adjust?",
+                    isZh ? new[] { "降低畫面動態", "邊緣更暗", "穩定畫面", "眼睛休息" }
+                         : new[] { "Less screen motion", "Darker edges", "Steadier view", "Rest my eyes" });
 
         // Followup policy (broadened per user feedback): be proactive. Ask unless
         // the user has given us enough to act confidently. "Enough" means EITHER
@@ -470,6 +514,6 @@ internal static class FeedbackLexicon
         return t;
     }
 
-    private static bool LooksChinese(string? text)
+    internal static bool LooksChinese(string? text)
         => !string.IsNullOrEmpty(text) && text.Any(c => c >= 0x4E00 && c <= 0x9FFF);
 }

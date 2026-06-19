@@ -63,12 +63,15 @@ public class HabituationOverrideProcessorTests
     }
 
     [Fact]
-    public void Validate_ExpiresInPast_Rejects()
+    public void Validate_ExpiresInPast_NowAccepts_CallerFloors()
     {
+        // Chatbot-tuning change (2026-06-19): a proposal is generated THIS turn, so a past expiry only
+        // means the LLM got the absolute date wrong (Qwen copies an in-prompt example date / can't compute
+        // "today + 1 day"). Freshness is no longer a validation gate — the host floors a past expiry to
+        // now + 1 day when storing the active proposal rather than discarding a well-formed proposal.
         var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 1.1, expires: NowFixed.AddHours(-1));
         var result = HabituationOverrideProcessor.Validate(proposal, MakeSnapshot(), now: NowFixed);
-        Assert.False(result.IsAccepted);
-        Assert.Contains("past", result.RejectionReason);
+        Assert.True(result.IsAccepted);
     }
 
     [Fact]

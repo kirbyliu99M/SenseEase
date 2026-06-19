@@ -145,11 +145,12 @@ public class ApplyNluResultCharacterizationTests
             Assert.Equal("user", fov!.Source);
             Assert.Equal("I'm dizzy", fov.Utterance);
             Assert.Equal(-8.0, fov.Delta, 6); // logs the APPLIED delta (old offset was 0)
-            // Item 8: the confirmation is now an empathetic, magnitude-aware line (no param table /
-            // no numbers) — "✓ Strengthened your protection (noticeably)".
-            Assert.True(AnyAssistant(vm, "Strengthened your protection"));
+            // Item 8: the "✓" system line is direction + an approximate intensity % (owner pick 2026-06-20)
+            // — fov −8 → ~40% → "✓ Protection up ~40%". The warm LLM reply above stays number-free; this
+            // line still never names a knob.
+            Assert.True(AnyAssistant(vm, "Protection up"));
             Assert.False(AnyAssistant(vm, "System adjustment")); // the old parameter table is gone
-            Assert.False(AnyAssistant(vm, "FOV"));               // no knob names / numbers
+            Assert.False(AnyAssistant(vm, "FOV"));               // still no knob names
         });
 
     // ── 3. The question-guard is scoped to ReportDiscomfort: a non-discomfort intent on an ──

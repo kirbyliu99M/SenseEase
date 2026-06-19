@@ -381,6 +381,57 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
+
+                                    <!-- FMS 0–20 quick-rate row (UVHS 2026-06-20): card-LESS, narrow, mouse-sized.
+                                         Lives directly under the proactive question — no separate card. Software-render
+                                         safe (flat brushes only, no effects/cache; state via brush only). -->
+                                    <StackPanel Visibility="{Binding FmsVisibility}" Margin="2,5,2,2" HorizontalAlignment="Left">
+                                        <TextBlock Text="{Binding FmsHint}" Foreground="{DynamicResource Popup.Ink2}"
+                                                   FontSize="10.5" Margin="1,0,0,4" TextWrapping="Wrap"/>
+                                        <ItemsControl ItemsSource="{Binding FmsButtons}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Width="26" Height="26" Margin="0,0,4,0" Cursor="Hand"
+                                                            FocusVisualStyle="{x:Null}"
+                                                            Command="{Binding DataContext.SelectFmsCommand,
+                                                                              RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
+                                                            CommandParameter="{Binding Value}"
+                                                            AutomationProperties.Name="{Binding Value}">
+                                                        <Button.Template>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="sq" CornerRadius="6" BorderThickness="1"
+                                                                        Background="{Binding IdleTint}"
+                                                                        BorderBrush="{DynamicResource Popup.Bdr}">
+                                                                    <TextBlock Text="{Binding Value}" FontSize="12"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               Foreground="{DynamicResource Popup.Ink1}"/>
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="sq" Property="BorderBrush"
+                                                                                Value="{DynamicResource Popup.Ink2}"/>
+                                                                    </Trigger>
+                                                                    <Trigger Property="IsPressed" Value="True">
+                                                                        <Setter TargetName="sq" Property="Opacity" Value="0.6"/>
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Button.Template>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <!-- thin comfort-spectrum track: calm → warm, never alarming -->
+                                        <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="1,5,1,0"
+                                                   Fill="{Binding FmsTrackBrush}"/>
+                                    </StackPanel>
+                                    <!-- calm confirmation shown in place of the row after the user rates -->
+                                    <TextBlock Visibility="{Binding FmsConfirmVisibility}" Text="{Binding FmsConfirmText}"
+                                               Foreground="{DynamicResource Popup.Ink2}" FontSize="12"
+                                               Margin="4,7,2,2" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -426,7 +477,7 @@
                                      the TextBox's own Text); non-interactive so clicks fall through to the input. -->
                                 <TextBlock IsHitTestVisible="False" Padding="9,6" FontSize="13"
                                            VerticalAlignment="Center" Foreground="{DynamicResource Popup.Ink2}"
-                                           Text="{loc:T Zh='有不舒服都可以說！', En='Tell me how you feel.'}">
+                                           Text="{loc:T Zh='有不適都可以告訴我', En='Tell me how you feel…'}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Collapsed"/>

@@ -217,11 +217,13 @@ public static class HabituationProposalLexicon
         ("敏感",     "SENSITIVE"),
     };
 
-    /// <summary>"Relax / loosen / lower" — direction is reduce sensitivity.</summary>
+    /// <summary>"Relax / loosen / lower" — direction is reduce sensitivity. Includes the unambiguous
+    /// "too sensitive" complaint phrasings (broadened 2026-06-19 so the deterministic net surfaces a
+    /// proposal even when the LLM misses) — these mean "the protection is too sensitive, ease it".</summary>
     private static readonly string[] RelaxKeywords =
     {
-        "調鬆", "放鬆", "鬆一點", "鬆點", "放寬", "降低", "減少",
-        "loosen", "relax", "lower", "decrease", "reduce", "softer",
+        "調鬆", "放鬆", "鬆一點", "鬆點", "放寬", "降低", "減少", "太敏感", "太靈敏",
+        "loosen", "relax", "lower", "decrease", "reduce", "softer", "too sensitive", "less sensitive", "overly sensitive",
     };
 
     /// <summary>"Tighten / strict / raise" — direction is increase sensitivity.</summary>
@@ -231,10 +233,12 @@ public static class HabituationProposalLexicon
         "tighten", "strict", "raise", "increase", "stronger", "stricter",
     };
 
-    /// <summary>"Raise" verbs specifically for strike-limit direction.</summary>
+    /// <summary>"Raise" verbs specifically for strike-limit direction. Includes the "it pauses me too
+    /// often" complaint (broadened 2026-06-19) — wanting FEWER pauses means a HIGHER strike limit.</summary>
     private static readonly string[] RaiseKeywords =
     {
         "提高", "增加", "raise", "increase",
+        "pausing me", "keeps pausing", "stop pausing", "pauses too", "一直暫停", "太容易暫停", "動不動就暫停",
     };
 
     /// <summary>"Lower" verbs specifically for strike-limit direction.</summary>
@@ -247,7 +251,12 @@ public static class HabituationProposalLexicon
 
     private static bool MentionsSensitivity(string text, string lower) =>
         lower.Contains("sensitivity")
+        || lower.Contains("too sensitive")      // phrase-gated: NOT bare "sensitive" (would catch
+        || lower.Contains("less sensitive")     // "sensitive to light" + an unrelated "lower brightness")
+        || lower.Contains("overly sensitive")
         || text.Contains("敏感度")
+        || text.Contains("太敏感")
+        || text.Contains("太靈敏")
         || text.Contains("感測度");
 
     private static bool MentionsSwitch(string text, string lower) =>
@@ -265,10 +274,17 @@ public static class HabituationProposalLexicon
     private static bool MentionsStrikeLimit(string text, string lower) =>
         lower.Contains("strike limit")
         || lower.Contains("strike count")
+        || lower.Contains("pausing me")        // "it keeps pausing me" → wants a higher strike limit
+        || lower.Contains("keeps pausing")
+        || lower.Contains("stop pausing")
+        || lower.Contains("pauses too")
         || text.Contains("嚴重事件容忍度")
         || text.Contains("嚴重事件容忍")
         || text.Contains("容忍度")
-        || text.Contains("觸發次數");
+        || text.Contains("觸發次數")
+        || text.Contains("一直暫停")
+        || text.Contains("太容易暫停")
+        || text.Contains("動不動就暫停");
 
     private static bool Contains(string text, string lower, string keyword)
     {

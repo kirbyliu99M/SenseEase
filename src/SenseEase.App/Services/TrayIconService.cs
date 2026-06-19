@@ -67,6 +67,12 @@ public sealed class TrayIconService : IDisposable
     private readonly MenuItem _settingsItem;
     private readonly MenuItem _quitItem;
     private bool _disposed;
+    // Tray-flash fix (Kirby 2026-06-20 r3): true while the context menu is open → ApplyState suppresses the
+    // tray-icon/label refresh (re-issuing Shell_NotifyIcon NIM_MODIFY under an open menu flashes/dismisses
+    // it). _lastTrayBand de-dupes the icon write so NIM_MODIFY fires ONLY on a real band change, not every tick.
+    private bool _menuOpen;
+    private TierColorPalette.TierBand? _lastTrayBand;
+    private string? _lastTooltip; // de-dupes the _tray.ToolTipText NIM_MODIFY write (identical per band)
     // overlay-bar-redesign diag-4: visibility watchdog. Logs Visibility +
     // IconHandle every 5s so a post-ctor flip to Hidden or a handle change
     // is captured in wgc_diag.txt without needing to re-instrument.
@@ -74,8 +80,7 @@ public sealed class TrayIconService : IDisposable
 
     // M12 (TrayDistinct): per-band cache of the locally code-drawn tray icon.
     // Keyed by TierColorPalette.TierBand so two tiers in the same band reuse
-    // one System.Drawing.Icon (and one HICON) — matching the old
-    // TierColorPalette._winIconCache behaviour so we don't allocate / leak an
+    // one System.Drawing.Icon (and one HICON) — so we don't allocate / leak an
     // HICON every StateChanged tick. Released in Dispose().
     private readonly System.Collections.Generic.Dictionary<TierColorPalette.TierBand, System.Drawing.Icon> _distinctIconCache = new();
 
@@ -190,6 +195,13 @@ public sealed class TrayIconService : IDisposable
             SenseEase.Infrastructure.Real.WgcDiagLog.Append(
                 $"[{DateTime.UtcNow:O}] [Tray] menu theming failed (left default menu): {ex.GetType().Name}: {ex.Message}");
         }
+
+        // Tray-flash fix (Kirby 2026-06-20 r3): while the menu is OPEN, suppress the per-tick tray-icon
+        // refresh — re-issuing Shell_NotifyIcon NIM_MODIFY under an open context menu makes it flash /
+        // dismiss (root cause; ApplyState re-set the icon on EVERY engine tick). _menuOpen gates ApplyState;
+        // the next tick after Closed resyncs.
+        menu.Opened += (_, _) => { _menuOpen = true;  SenseEase.Infrastructure.Real.WgcDiagLog.Append($"[{DateTime.UtcNow:O}] [TrayMenu] Opened"); };
+        menu.Closed += (_, _) => { _menuOpen = false; SenseEase.Infrastructure.Real.WgcDiagLog.Append($"[{DateTime.UtcNow:O}] [TrayMenu] Closed"); };
 
         _tray = new TaskbarIcon
         {
@@ -386,6 +398,12 @@ public sealed class TrayIconService : IDisposable
 
     private void ApplyState(SenseState state)
     {
+        // Tray-flash fix (Kirby 2026-06-20 r3): while the context menu is OPEN, don't touch the tray at all.
+        // Re-issuing Shell_NotifyIcon NIM_MODIFY (the per-tick icon/tooltip refresh — a vestige of the OLD
+        // per-tier icon TONE change; the new icon is a constant indigo lens) under an open menu flashes /
+        // dismisses it. The next tick after Closed resyncs.
+        if (_menuOpen) return;
+
         // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT the
         // broken ImageSource path (TaskbarIcon.IconSource). See
         // BuildDistinctTrayIcon below for HICON lifecycle details.
@@ -401,7 +419,15 @@ public sealed class TrayIconService : IDisposable
         // OFF; with the Alpha-1 indigo-lens icon the tile is already constant and
         // only the subtle, calm-safe accent dot varies by tier, so there is no
         // alarm surface to suppress. The dot now always tracks the live VimsTier.
-        _tray.Icon = BuildDistinctTrayIcon(TierColorPalette.BandForTier(state.VimsTier));
+        // De-dupe the NIM_MODIFY: write the icon ONLY on a real band change. The icon is now a constant
+        // indigo lens whose only per-band variation is a subtle accent dot (5 coarse bands), so re-issuing
+        // it every tick was pure churn left over from the old per-tier tone change.
+        var band = TierColorPalette.BandForTier(state.VimsTier);
+        if (band != _lastTrayBand)
+        {
+            _tray.Icon = BuildDistinctTrayIcon(band);
+            _lastTrayBand = band;
+        }
         RefreshLabels(state);
     }
 
@@ -456,8 +482,15 @@ public sealed class TrayIconService : IDisposable
             _statusItem.Header = header;
 
         // Tooltip mirrors the live tier always — the OS tooltip is the
-        // immediate read; the menu label carries the PS state.
-        _tray.ToolTipText = $"SenseEase — {header}";  // same comfort label as the Dashboard hero
+        // immediate read; the menu label carries the PS state. De-dupe the write (r3): _tray.ToolTipText=
+        // is a Shell_NotifyIcon NIM_MODIFY, and `header` is identical for every tick within a band, so
+        // skip the redundant write to kill the steady-state ~15 Hz churn (mirrors the _lastTrayBand guard).
+        string tip = $"SenseEase — {header}";  // same comfort label as the Dashboard hero
+        if (tip != _lastTooltip)
+        {
+            _tray.ToolTipText = tip;
+            _lastTooltip = tip;
+        }
 
         RefreshToggleBarLabel();
     }
@@ -993,10 +1026,5 @@ public sealed class TrayIconService : IDisposable
             try { icon.Dispose(); } catch { /* best-effort */ }
         }
         _distinctIconCache.Clear();
-        // Fix 3: release any HICONs cached on TierColorPalette's own path
-        // (IconForTier_Win) in case other callers populated it. The tray no
-        // longer uses that path for its live icon (M12 draws locally), but the
-        // cleanup stays so a stray cache entry can't leak until process exit.
-        TierColorPalette.DisposeWinIconCache();
     }
 }

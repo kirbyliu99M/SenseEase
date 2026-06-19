@@ -56,4 +56,41 @@ public static class InterrogativeDetector
 
         return false;
     }
+
+    // English "asking whether I SHOULD do something" openers — at the START only. "should I reset",
+    // "do I need to", "shall I" frame a deliberation, not a command — they must never trigger a
+    // destructive action (a reset). Distinct from IsSymptomInquiry (which is about bodily state).
+    private static readonly string[] EnglishCommandInquiryOpeners =
+    {
+        "should i", "shall i", "do i need", "do i have to", "ought i", "is it worth", "would it help if i",
+    };
+
+    // CJK "should I / do I need to" deliberation markers. 要不要 / 該不該 / 需不需要 are self-contained
+    // questions; 需要 / 我應該 need a trailing 嗎 or ? to read as a question (else they are statements).
+    private static readonly string[] CjkCommandInquiryMarkers = { "要不要", "該不該", "需不需要", "用不用" };
+    private static readonly string[] CjkCommandInquiryStems = { "需要", "我應該", "我该", "我應", "應該要", "该不该" };
+
+    /// <summary>True iff the message ASKS whether the user SHOULD take an action ("should I reset?",
+    /// "要不要重設?") rather than COMMANDING it ("reset everything"). Used to stop a deliberation
+    /// question from firing a destructive intent (e.g. ResetRequest → ResetPersonalization).
+    /// Deliberately narrow + start-anchored so a plain imperative is never caught. Null/blank ⇒ false.</summary>
+    public static bool IsCommandInquiry(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        string t = text.Trim();
+        string lower = t.ToLowerInvariant();
+
+        foreach (string opener in EnglishCommandInquiryOpeners)
+            if (lower.StartsWith(opener + " ", StringComparison.Ordinal)) return true;
+
+        foreach (string m in CjkCommandInquiryMarkers)
+            if (t.Contains(m, StringComparison.Ordinal)) return true;
+
+        bool hasQuestionTail = t.Contains('嗎') || t.Contains('?') || t.Contains('？') || t.Contains("吗");
+        if (hasQuestionTail)
+            foreach (string stem in CjkCommandInquiryStems)
+                if (t.Contains(stem, StringComparison.Ordinal)) return true;
+
+        return false;
+    }
 }

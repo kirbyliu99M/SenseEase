@@ -5,47 +5,61 @@ using Xunit;
 
 namespace SenseEase.Tests;
 
-/// <summary>R3 #5 — the consent cooldown governor: the cooldown is timed from the ASK (and re-armed
-/// on decline) and runs in parallel with an approved session; plus a startup-quiet window.</summary>
+/// <summary>R3 #5 — the consent cooldown governor: a short baseline from the ASK, an explicit "Not now"
+/// → a LONG cooldown (30 min), an UNANSWERED dismiss → a SHORT cooldown (3 min, Kirby 2026-06-20); plus a
+/// startup-quiet window.</summary>
 public class OverlayConsentGovernorTests
 {
     private static OverlayConsentGovernor New(Func<DateTime> clock) =>
-        new(clock) { Cooldown = TimeSpan.FromMinutes(10), StartupQuiet = TimeSpan.Zero };
+        new(clock) { StartupQuiet = TimeSpan.Zero }; // default DeclineCooldown 30m / NoAnswerCooldown 3m
 
     [Fact]
-    public void Ask_StartsCooldownFromTheAsk_ThenElapses()
+    public void Ask_StartsShortBaselineCooldown_ThenElapses()
     {
         var now = new DateTime(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
         var g = New(() => now);
 
         Assert.True(g.ShouldAsk());            // fresh
         g.RecordAsked();
-        Assert.False(g.ShouldAsk());           // cooling down (from the ask)
-        now = now.AddMinutes(11);
+        Assert.False(g.ShouldAsk());           // cooling down (the 3-min baseline from the ask)
+        now = now.AddMinutes(4);
         Assert.True(g.ShouldAsk());            // elapsed
     }
 
     [Fact]
-    public void Accept_KeepsTheFromAskCooldown()
+    public void Accept_KeepsTheFromAskBaseline()
     {
         var now = new DateTime(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
         var g = New(() => now);
         g.RecordAsked();
         g.RecordAccepted();
         Assert.False(g.ShouldAsk());           // accept does NOT clear it (the session owns re-asking)
-        now = now.AddMinutes(11);
+        now = now.AddMinutes(4);
         Assert.True(g.ShouldAsk());
     }
 
     [Fact]
-    public void Decline_StartsCooldown()
+    public void Decline_StartsTheLongCooldown()
     {
         var now = new DateTime(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
         var g = New(() => now);
-        g.RecordDeclinedOrDismissed();
-        Assert.False(g.ShouldAsk());
-        now = now.AddMinutes(11);
-        Assert.True(g.ShouldAsk());
+        g.RecordDeclined();
+        Assert.False(g.ShouldAsk());           // cooling down
+        now = now.AddMinutes(4);
+        Assert.False(g.ShouldAsk());           // past the 3-min no-answer window, but a DECLINE holds longer
+        now = now.AddMinutes(27);              // total +31 min
+        Assert.True(g.ShouldAsk());            // 30-min decline cooldown elapsed
+    }
+
+    [Fact]
+    public void DismissedUnanswered_StartsTheShortCooldown()
+    {
+        var now = new DateTime(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
+        var g = New(() => now);
+        g.RecordDismissedUnanswered();
+        Assert.False(g.ShouldAsk());           // cooling down (3 min)
+        now = now.AddMinutes(4);
+        Assert.True(g.ShouldAsk());            // short cooldown elapsed → re-asks sooner than a decline
     }
 
     [Fact]
@@ -126,5 +140,98 @@ public class ConsentGateTests
         vm.DeclineOverlayConsent();                  // cooldown begins (from the ask)
         Assert.True(vm.ShouldHoldMaskForConsent(7)); // still dormant → held
         Assert.Equal(1, asks);                       // but no re-ask while cooling down
+    }
+
+    // ── R3 #5 (Kirby 2026-06-20): the bubble is a STABLE prompt — transient tier dips must NOT retract it
+    //    (the bug that made "Start" un-clickable during a motion video); it tucks away only after the full
+    //    linger, suspends the tuck while the card is expanded, re-appears after the cooldown, and is
+    //    retracted on overlay-off. ──
+
+    [Fact]
+    public void PendingBubble_SurvivesTierDips_NotRetracted()
+    {
+        var vm = NewVm();
+        long tick = 0; vm.ConsentTickProvider = () => tick;
+        int asks = 0, dismisses = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+        vm.OverlayConsentDismissRequested += (_, _) => dismisses++;
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6)); // ask
+        Assert.Equal(1, asks);
+        // Motion-video flicker: the natural tier dips below the impactful line again and again.
+        Assert.True(vm.ShouldHoldMaskForConsent(3));
+        Assert.True(vm.ShouldHoldMaskForConsent(2));
+        Assert.True(vm.ShouldHoldMaskForConsent(5));
+        Assert.Equal(0, dismisses);                  // the card is NEVER torn away
+        Assert.True(vm.ConsentPending);
+    }
+
+    [Fact]
+    public void PendingBubble_TucksAway_AfterTheFullLinger()
+    {
+        var vm = NewVm();
+        long tick = 0; vm.ConsentTickProvider = () => tick;
+        int dismisses = 0;
+        vm.OverlayConsentDismissRequested += (_, _) => dismisses++;
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6));                  // ask at tick 0
+        tick = MainViewModel.ConsentLingerMs - 1;
+        Assert.True(vm.ShouldHoldMaskForConsent(6));                  // just under the linger → still up
+        Assert.Equal(0, dismisses);
+        tick = MainViewModel.ConsentLingerMs;
+        Assert.True(vm.ShouldHoldMaskForConsent(6));                  // linger elapsed → tuck away
+        Assert.Equal(1, dismisses);
+        Assert.False(vm.ConsentPending);
+    }
+
+    [Fact]
+    public void ExpandedCard_SuspendsTheTuckAway_UntilCollapsed()
+    {
+        var vm = NewVm();
+        long tick = 0; vm.ConsentTickProvider = () => tick;
+        int dismisses = 0;
+        vm.OverlayConsentDismissRequested += (_, _) => dismisses++;
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6)); // ask
+        vm.SetConsentInteracting(true);              // user opened the card
+        tick = MainViewModel.ConsentLingerMs * 3;    // long past the linger
+        Assert.True(vm.ShouldHoldMaskForConsent(6));
+        Assert.Equal(0, dismisses);                  // not pulled away mid-decision
+        vm.SetConsentInteracting(false);             // user collapsed without answering
+        Assert.True(vm.ShouldHoldMaskForConsent(6));
+        Assert.Equal(1, dismisses);                  // now it tucks away
+    }
+
+    [Fact]
+    public void TuckedBubble_ReAppears_OnceCooldownElapses()
+    {
+        var vm = NewVm();
+        vm.OverlayConsentGovernorForTests.NoAnswerCooldown = TimeSpan.Zero; // bypass the real-time cooldown
+        long tick = 0; vm.ConsentTickProvider = () => tick;
+        int asks = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6)); // ask #1
+        tick = MainViewModel.ConsentLingerMs;
+        Assert.True(vm.ShouldHoldMaskForConsent(6)); // tuck away (cooldown re-armed from here)
+        Assert.Equal(1, asks);
+        Assert.True(vm.ShouldHoldMaskForConsent(6)); // cooldown == 0 → re-ask on the next impactful tier
+        Assert.Equal(2, asks);
+    }
+
+    [Fact]
+    public void CancelPendingConsent_RetractsTheBubble_AndIsNoOpWhenIdle()
+    {
+        var vm = NewVm();
+        int dismisses = 0;
+        vm.OverlayConsentDismissRequested += (_, _) => dismisses++;
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6)); // ask
+        Assert.True(vm.ConsentPending);
+        vm.CancelPendingConsent();                   // overlay turned off while pending
+        Assert.Equal(1, dismisses);
+        Assert.False(vm.ConsentPending);
+        vm.CancelPendingConsent();                   // nothing pending → no-op
+        Assert.Equal(1, dismisses);
     }
 }

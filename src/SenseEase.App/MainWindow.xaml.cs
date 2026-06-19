@@ -29,6 +29,11 @@ public partial class MainWindow : Window
     private bool _checkInAnswered;
     private bool _pendingSpikeCheckIn;
     private string? _pendingCheckInContext;
+    // FMS owner-migration (UVHS 2026-06-20): the app's OWN startup produces a transient pressure spike as
+    // the sensing baseline settles — that is NOT user discomfort, so a proactive check-in must not react to
+    // it. Suppress check-ins for the first minute after launch (a self-generated spike, not a real one).
+    private readonly DateTime _startupUtc = DateTime.UtcNow;
+    private static readonly TimeSpan StartupCheckInGrace = TimeSpan.FromSeconds(60);
     // Phase-2 Eye-Care DYNAMIC inline self-report: the question/options appear ONLY when a check-in
     // is warranted — never logged yet, the cooldown elapsed, or the motion tier changed since the
     // last log ("an update is needed"). Otherwise the card rests, preventing surge/duplicate taps +
@@ -1012,15 +1017,58 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Don't react to the startup's own self-generated spike (sensing baseline settling).
+            if ((DateTime.UtcNow - _startupUtc) < StartupCheckInGrace) return;
+            // Defer while the overlay-consent bubble is up so the bubble stays the one thing that "speaks
+            // first": don't queue a discomfort check-in into the chat while the user is still being asked to
+            // start the overlay. The next spike after they answer surfaces the check-in (Kirby 2026-06-20).
+            // (The check-in no longer reveals the popup at all — see RaiseChatFmsCheckIn.)
+            if (_viewModel.ConsentPending) return;
             if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Declined) return;
-            if (CheckInOverlayHost is { Visibility: Visibility.Visible }) return;   // one at a time
             if (!_checkInGovernor.ShouldPrompt()) return;
 
             string? ctx = FriendlyForegroundContext();   // capture context at spike time
-            if (IsActive) ShowSpikeCheckInOverlay(ctx);
-            else { _pendingSpikeCheckIn = true; _pendingCheckInContext = ctx; }
+            // FMS owner-migration (2026-06-19): the recurring check-in now lives in the CHAT, not the
+            // in-console overlay. First run → the one-time in-console opt-in card, which continues into the
+            // chat check-in on opt-in; already opted in → straight to the chat rating row.
+            if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Unset)
+                ShowConsentOverlay(ctx);
+            else
+                RaiseChatFmsCheckIn(ctx);
         }
         catch { /* a feedback prompt must never crash the spike handler */ }
+    }
+
+    /// <summary>FMS owner-migration (2026-06-19): raise the FMS 0–20 quick-rate check-in IN the chat (the
+    /// bubble→chat migration) — a calm question + the adaptive 7-square rating row. Replaces the in-console
+    /// survey overlay; the CheckInGovernor rate limit is preserved. The pick is captured DETERMINISTICALLY
+    /// (recorded via the existing FMS path, never routed to the LLM). Does NOT reveal the popup — the
+    /// check-in waits quietly in the chat and is seen when the user opens the chat themselves; only the
+    /// consent bubble "speaks first" (Kirby 2026-06-20). Never throws.</summary>
+    private void RaiseChatFmsCheckIn(string? ctx)
+    {
+        try
+        {
+            int[] window = _viewModel.NextFmsWindow();
+            if (window.Length == 0) return;
+            string q = ctx is null
+                ? PickLoc("剛才偵測到較多畫面動態。目前感受如何？",
+                          "Lots of on-screen motion just now — how are you feeling?")
+                : PickLoc($"剛才在使用{ctx}時偵測到較多畫面動態。目前感受如何？",
+                          $"Lots of on-screen motion while using {ctx} — how are you feeling?");
+            string hint    = PickLoc("點一個數字（0 最舒適）", "Tap a number — 0 is best");
+            string confirm = PickLoc("已記錄，謝謝。", "Thanks — noted.");
+            _viewModel.ChatbotVm.RaiseFmsCheckIn(q, hint, window, picked =>
+            {
+                _viewModel.RecordFmsRating(picked, SymptomEvent.Triggers.Spike);
+                _checkInGovernor.RecordAnswered();
+                RefreshEyeCareCheckIns();   // reflect the new row in the Eye-Care list immediately
+            }, confirm);
+            _checkInGovernor.RecordShown();   // starts the 8h cooldown
+            // Intentionally NO RevealShellPanel() — "never auto-pop the popup" (Kirby 2026-06-20). The
+            // rating row is now queued in the chat; the user finds it when they open the chat.
+        }
+        catch { /* never crash the spike handler */ }
     }
 
     /// <summary>MainWindow.Activated: surface a deferred spike check-in (queued while the console was
@@ -1085,10 +1133,13 @@ public partial class MainWindow : Window
                 catch { /* a consent tap must never crash the dispatcher */ }
                 _checkInGovernor.RecordAnswered();
                 if (optedIn)
-                    // First-run CONTINUATION: surface the survey for THIS same spike (a content swap in
-                    // the already-open overlay, not a new prompt) — otherwise the introducing spike
-                    // shows no survey and the next is blocked for MinInterval.
-                    ShowCheckInSurveyOverlay(ctx);
+                {
+                    // FMS owner-migration (2026-06-19): the first-run CONTINUATION now hands off to the CHAT
+                    // rating row for THIS same spike (the in-console survey overlay is retired) — close the
+                    // one-time consent card, then raise the check-in in chat.
+                    HideCheckInOverlay();
+                    RaiseChatFmsCheckIn(ctx);
+                }
                 else
                     HideCheckInOverlay();
             });
@@ -2226,6 +2277,10 @@ public partial class MainWindow : Window
         else
         {
             _overlay?.Hide();
+            // The consent gate stops ticking once the overlay is hidden (OnStateChanged only runs it while
+            // the overlay IsVisible), so a pending consent bubble would be orphaned on top of stopped
+            // protection. Retract it explicitly so it hides with the overlay (workflow 2026-06-20).
+            _viewModel.CancelPendingConsent();
         }
     }
 

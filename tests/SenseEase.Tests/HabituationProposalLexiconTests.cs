@@ -55,6 +55,38 @@ public class HabituationProposalLexiconTests
         Assert.Equal(0.9, Assert.IsType<double>(result.ProposedValue));
     }
 
+    // ── Broadened complaint phrasings (2026-06-19): no explicit "sensitivity"/"strike limit" noun ──
+
+    [Theory]
+    [InlineData("make it less sensitive")]
+    [InlineData("it's too sensitive, please ease it")]
+    [InlineData("覺得太敏感了")]
+    public void TryDetect_TooSensitivePhrasing_ProducesRelaxProposal(string input)
+    {
+        var result = HabituationProposalLexicon.TryDetect(input, MakeSnapshot(scale: 1.0));
+        Assert.NotNull(result);
+        Assert.Equal(OverrideIntent.AdjustSensitivity, result!.Intent);
+        Assert.Equal(0.9, Assert.IsType<double>(result.ProposedValue));
+    }
+
+    [Theory]
+    [InlineData("this keeps pausing me, can you stop that")]
+    [InlineData("它太容易暫停了")]
+    public void TryDetect_PausingComplaint_RaisesStrikeLimit(string input)
+    {
+        var result = HabituationProposalLexicon.TryDetect(input, MakeSnapshot(strikeLimit: 2));
+        Assert.NotNull(result);
+        Assert.Equal(OverrideIntent.AdjustStrikeLimit, result!.Intent);
+        Assert.Equal(3L, Assert.IsType<long>(result.ProposedValue));
+    }
+
+    [Theory]
+    // Phrase-gating guard: a "sensitive to X" mention with an unrelated relax verb must NOT propose.
+    [InlineData("I'm sensitive to bright light, lower the brightness")]
+    [InlineData("the screen keeps moving and it bothers me")]
+    public void TryDetect_AmbiguousSensitiveMention_DoesNotFalsePropose(string input)
+        => Assert.Null(HabituationProposalLexicon.TryDetect(input, MakeSnapshot()));
+
     [Fact]
     public void TryDetect_RelaxSensitivity_ClampsAtMin()
     {

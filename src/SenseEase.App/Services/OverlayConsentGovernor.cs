@@ -16,8 +16,14 @@ public sealed class OverlayConsentGovernor
     private readonly DateTime _createdUtc;
     private DateTime? _cooldownUntilUtc;
 
-    /// <summary>Quiet window timed from the ASK (and re-armed on decline) before re-prompting.</summary>
-    public TimeSpan Cooldown { get; set; } = TimeSpan.FromMinutes(10);
+    /// <summary>Cooldown after an EXPLICIT "Not now" decline — a strong signal, so re-prompt slowly.
+    /// (Kirby 2026-06-20: decline → 30 min.)</summary>
+    public TimeSpan DeclineCooldown { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>Cooldown when the prompt went UNANSWERED (it was retracted because the engine mask
+    /// subsided before the user tapped). A weaker signal than a decline, so re-ask sooner. Also the
+    /// baseline timed from the ask. (Kirby 2026-06-20: no answer → 3 min.)</summary>
+    public TimeSpan NoAnswerCooldown { get; set; } = TimeSpan.FromMinutes(3);
 
     /// <summary>R3 additional #1: no prompt within this window after launch (avoids a start-up flash
     /// while the engine/overlay settle). ~60 s.</summary>
@@ -37,13 +43,18 @@ public sealed class OverlayConsentGovernor
         return !(_cooldownUntilUtc is { } until && now < until);
     }
 
-    /// <summary>Call when the bubble is shown — the cooldown is timed from here (R3 #5).</summary>
-    public void RecordAsked() => _cooldownUntilUtc = _clock() + Cooldown;
+    /// <summary>Call when the bubble is shown — sets the BASELINE short cooldown from the ask (so a granted
+    /// session that ends, or a flickering engine, doesn't immediately re-prompt). An explicit decline or an
+    /// unanswered-dismiss overrides it below.</summary>
+    public void RecordAsked() => _cooldownUntilUtc = _clock() + NoAnswerCooldown;
 
-    /// <summary>User agreed → the overlay session owns re-asking now; keep the from-ask cooldown so a
-    /// brief session that ends and re-rises within the window doesn't immediately re-prompt.</summary>
+    /// <summary>User agreed → the overlay session owns re-asking now; keep the short from-ask baseline.</summary>
     public void RecordAccepted() { }
 
-    /// <summary>User declined / dismissed → (re)start the quiet window from now.</summary>
-    public void RecordDeclinedOrDismissed() => _cooldownUntilUtc = _clock() + Cooldown;
+    /// <summary>User explicitly tapped "Not now" → the LONG cooldown (a deliberate decline).</summary>
+    public void RecordDeclined() => _cooldownUntilUtc = _clock() + DeclineCooldown;
+
+    /// <summary>The prompt was retracted UNANSWERED (mask subsided before the user tapped) → the SHORT
+    /// cooldown, timed from now, so it re-asks sooner than an explicit decline.</summary>
+    public void RecordDismissedUnanswered() => _cooldownUntilUtc = _clock() + NoAnswerCooldown;
 }
