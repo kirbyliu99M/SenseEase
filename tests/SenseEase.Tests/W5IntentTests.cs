@@ -58,20 +58,20 @@ public class W5IntentTests
     public void EM6_ExtractJson_StopsAtFirstBalancedObject()
     {
         string raw = "{\"reply\":\"ok\"}\n[PROFILE_OVERRIDE]\n{\"intent\":\"x\"}\n[/PROFILE_OVERRIDE]";
-        Assert.Equal("{\"reply\":\"ok\"}", MistralChatbotService.ExtractJson(raw));
+        Assert.Equal("{\"reply\":\"ok\"}", LocalLlmChatbotService.ExtractJson(raw));
     }
 
     [Fact]
     public void EM6_ExtractJson_IgnoresBracesInsideStrings()
     {
         string raw = "{\"reply\":\"a } brace in a string\"}\ntrailing text";
-        Assert.Equal("{\"reply\":\"a } brace in a string\"}", MistralChatbotService.ExtractJson(raw));
+        Assert.Equal("{\"reply\":\"a } brace in a string\"}", LocalLlmChatbotService.ExtractJson(raw));
     }
 
     [Fact]
     public void EM6_ExtractJson_HandlesNestedObjects()
     {
         string raw = "{\"a\":{\"b\":1}}\n[OBSERVATION_ADD]\nfoo\n[/OBSERVATION_ADD]";
-        Assert.Equal("{\"a\":{\"b\":1}}", MistralChatbotService.ExtractJson(raw));
+        Assert.Equal("{\"a\":{\"b\":1}}", LocalLlmChatbotService.ExtractJson(raw));
     }
 }

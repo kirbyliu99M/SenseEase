@@ -13,7 +13,7 @@ namespace SenseEase.Tests;
 ///
 /// <para>These tests pin the LITERAL block format because:</para>
 /// <list type="bullet">
-///   <item>The MistralChatbotService SystemPrompt (post-Phase 6d) will
+///   <item>The LocalLlmChatbotService SystemPrompt (post-Phase 6d) will
 ///         reference specific field names — a rename here would silently
 ///         desync the prompt's rules from the actual block content.</item>
 ///   <item>Token budget is tight (~120 tokens / ~600 chars target). Tests

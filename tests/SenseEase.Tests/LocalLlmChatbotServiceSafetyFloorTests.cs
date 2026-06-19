@@ -8,7 +8,7 @@ namespace SenseEase.Tests;
 
 /// <summary>
 /// M0 (v0.8.1 follow-up): contract tests for the self-harm safety floor
-/// migrated from CalibrationChatbotService into MistralChatbotService.
+/// migrated from CalibrationChatbotService into LocalLlmChatbotService.
 ///
 /// <para>Two layers tested:</para>
 /// <list type="number">
@@ -24,7 +24,7 @@ namespace SenseEase.Tests;
 /// requires a live local server. These tests pin the safety contract
 /// which must hold regardless of model state.</para>
 /// </summary>
-public class MistralChatbotServiceSafetyFloorTests
+public class LocalLlmChatbotServiceSafetyFloorTests
 {
     // ── Phrase-detector unit tests ─────────────────────────────────────────
 
@@ -101,7 +101,7 @@ public class MistralChatbotServiceSafetyFloorTests
             Path.GetTempPath(),
             $"definitely-not-a-real-gguf-{System.Guid.NewGuid():N}.gguf");
 
-        using var service = new MistralChatbotService(nonExistentPath);
+        using var service = new LocalLlmChatbotService(nonExistentPath);
         Assert.False(service.IsModelAvailable);
         Assert.False(service.IsModelLoaded);
 
@@ -135,7 +135,7 @@ public class MistralChatbotServiceSafetyFloorTests
             Path.GetTempPath(),
             $"no-model-{System.Guid.NewGuid():N}.gguf");
 
-        using var service = new MistralChatbotService(nonExistentPath);
+        using var service = new LocalLlmChatbotService(nonExistentPath);
         var result = await service.SendAsync("我有點頭暈");
 
         Assert.DoesNotContain("1925", result.Response);

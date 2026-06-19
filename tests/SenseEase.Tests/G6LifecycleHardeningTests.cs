@@ -76,7 +76,7 @@ public class G6LifecycleHardeningTests
     [Fact]
     public void SEC06_ApiKey_NotOnCommandLine_AndInjectedViaEnvironment()
     {
-        string src = ReadSource("src", "SenseEase.Infrastructure", "Real", "MistralChatbotService.cs");
+        string src = ReadSource("src", "SenseEase.Infrastructure", "Real", "LocalLlmChatbotService.cs");
 
         // The Bearer key must NOT be interpolated into serverArgs / the command line —
         // same-user processes can read Win32_Process.CommandLine (H9 threat model).
@@ -107,7 +107,7 @@ public class G6LifecycleHardeningTests
     [Fact]
     public void SEC01_StderrPump_RedactsEachLine()
     {
-        string src = ReadSource("src", "SenseEase.Infrastructure", "Real", "MistralChatbotService.cs");
+        string src = ReadSource("src", "SenseEase.Infrastructure", "Real", "LocalLlmChatbotService.cs");
         // The stderr pump that backs llama-server.log must redact before writing.
         Assert.Matches(@"writer\.WriteLine\(\s*PathRedactor\.Redact\(line\)\s*\)", src);
     }
@@ -224,7 +224,7 @@ public class G6LifecycleHardeningTests
     [Fact]
     public void B0_ModelTracePath_RoutesThroughDataRootSeam()
     {
-        string src = ReadSource("src", "SenseEase.Infrastructure", "Real", "MistralChatbotService.cs");
+        string src = ReadSource("src", "SenseEase.Infrastructure", "Real", "LocalLlmChatbotService.cs");
         // The trace path must resolve through SenseEaseDataRoot (so the test override
         // isolates it), NOT a hardcoded Environment.GetFolderPath at the trace site.
         Assert.Matches(@"_modelTracePath\s*=>\s*Path\.Combine\(\s*SenseEaseDataRoot\.Resolve\(\)", src);

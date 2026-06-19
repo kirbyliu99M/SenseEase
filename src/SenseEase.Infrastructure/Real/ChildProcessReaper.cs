@@ -21,7 +21,7 @@ internal static class ChildProcessReaper
     /// <summary>SIDE-05: populated when the static constructor or
     /// <see cref="Adopt"/> encounters a Win32 / exception failure. Null when
     /// everything succeeded. Callers (currently SidecarHeadPoseReader and
-    /// MistralChatbotService) read this once after their first Adopt call and
+    /// LocalLlmChatbotService) read this once after their first Adopt call and
     /// route it to their own diag sinks so the failure is surfaced without
     /// making the reaper fatal.</summary>
     internal static string? LastError { get; private set; }

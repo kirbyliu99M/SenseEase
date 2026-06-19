@@ -37,7 +37,7 @@ public class SafetyFloorParityTests
         // model is never loaded.
         string fakePath = Path.Combine(Path.GetTempPath(),
             $"no-model-{System.Guid.NewGuid():N}.gguf");
-        using var service = new MistralChatbotService(fakePath);
+        using var service = new LocalLlmChatbotService(fakePath);
 
         var result = await service.SendAsync("我想自杀");
 

@@ -36,7 +36,11 @@ stack_dump*.txt
 app_screenshot.png
 after_click.png
 
-# Large model binaries (download per models/mistral-7b/README.md)
+# Large model binaries — NEVER commit GGUF/ONNX weights (the Qwen GGUF is ~2.33 GB; shipped via the
+# installer, not git). Broad patterns so any models/ subdir (Qwen3-4B-*, etc.) is covered.
+models/**/*.gguf
+models/**/*.onnx
+# Legacy explicit paths kept for back-compat.
 models/mistral-7b/gguf/*
 !models/mistral-7b/gguf/.gitkeep
 models/mistral-7b/onnx/*

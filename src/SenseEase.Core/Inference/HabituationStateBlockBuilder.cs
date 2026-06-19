@@ -18,7 +18,7 @@ namespace SenseEase.Core.Inference;
 /// blocks and the user message itself.</para>
 ///
 /// <para>The block opens with <c>[habituation_state]</c> and closes with
-/// <c>[/habituation_state]</c>. MistralChatbotService's SystemPrompt
+/// <c>[/habituation_state]</c>. LocalLlmChatbotService's SystemPrompt
 /// (Phase 6d) documents how the LLM should consume it — primarily as
 /// natural-language grounding, NEVER echoed verbatim to the user.</para>
 /// </summary>

@@ -14,29 +14,29 @@ public class BuildLanguagePinTests
     [Fact]
     public void Pin_FollowsToggle_English()
         => WithProvider(() => true, () =>
-            Assert.Contains("US English", MistralChatbotService.BuildLanguagePin("任意文字 mixed")));
+            Assert.Contains("US English", LocalLlmChatbotService.BuildLanguagePin("任意文字 mixed")));
 
     [Fact]
     public void Pin_FollowsToggle_TraditionalChinese()
         => WithProvider(() => false, () =>
-            Assert.Contains("繁體中文", MistralChatbotService.BuildLanguagePin("any english text")));
+            Assert.Contains("繁體中文", LocalLlmChatbotService.BuildLanguagePin("any english text")));
 
     [Fact]
     public void Pin_NoProvider_FallsBackToHanDetection_Chinese()
         => WithProvider(null, () =>
-            Assert.Contains("繁體中文", MistralChatbotService.BuildLanguagePin("我覺得頭暈")));
+            Assert.Contains("繁體中文", LocalLlmChatbotService.BuildLanguagePin("我覺得頭暈")));
 
     [Fact]
     public void Pin_NoProvider_FallsBackToHanDetection_English()
         => WithProvider(null, () =>
-            Assert.Contains("US English", MistralChatbotService.BuildLanguagePin("I feel dizzy")));
+            Assert.Contains("US English", LocalLlmChatbotService.BuildLanguagePin("I feel dizzy")));
 
     [Fact]
     public void Pin_OverridesEarlierContextLanguage()
         => WithProvider(() => true, () =>
             // The override clause is what stops the [RecentAdjustments] echo from dragging the reply
             // back into the old language after a mid-session toggle.
-            Assert.Contains("regardless of the language", MistralChatbotService.BuildLanguagePin("hi")));
+            Assert.Contains("regardless of the language", LocalLlmChatbotService.BuildLanguagePin("hi")));
 
     private static void WithProvider(Func<bool>? provider, Action body)
     {

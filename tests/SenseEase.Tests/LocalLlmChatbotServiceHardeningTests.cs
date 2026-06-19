@@ -17,7 +17,7 @@ namespace SenseEase.Tests;
 /// string). These tests pin the SHIPPED behaviour, plus the parse-hardening (MaxDepth,
 /// non-object / malformed / empty-string rejection).</para>
 /// </summary>
-public class MistralChatbotServiceHardeningTests
+public class LocalLlmChatbotServiceHardeningTests
 {
     [Theory]
     [InlineData("{\"model_path\":\"C:/models/Ministral-3B-Instruct-2512-Q4_K_M.gguf\"}")]
@@ -25,7 +25,7 @@ public class MistralChatbotServiceHardeningTests
     [InlineData("{\"default_generation_settings\":{\"model\":\"ministral-3b\"}}")]
     [InlineData("{\"default_generation_settings\":{\"model_path\":\"/m/x.gguf\"},\"other\":1}")]
     public void PropsReportModelLoaded_NonEmptyModel_ReportsLoaded(string body)
-        => Assert.True(MistralChatbotService.PropsReportModelLoaded(body));
+        => Assert.True(LocalLlmChatbotService.PropsReportModelLoaded(body));
 
     [Theory]
     [InlineData(null)]
@@ -38,5 +38,5 @@ public class MistralChatbotServiceHardeningTests
     [InlineData("{\"model\":\"   \"}")]                   // whitespace-only
     [InlineData("{\"default_generation_settings\":{}}")]  // nested object, no model
     public void PropsReportModelLoaded_MissingOrEmptyModel_ReportsNotLoaded(string? body)
-        => Assert.False(MistralChatbotService.PropsReportModelLoaded(body));
+        => Assert.False(LocalLlmChatbotService.PropsReportModelLoaded(body));
 }

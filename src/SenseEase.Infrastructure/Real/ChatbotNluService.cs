@@ -6,20 +6,20 @@ using SenseEase.Infrastructure.Nlp;
 namespace SenseEase.Infrastructure.Real;
 
 /// <summary>
-/// INluService adapter backed by MistralChatbotService with robust keyword fallback.
+/// INluService adapter backed by LocalLlmChatbotService with robust keyword fallback.
 /// </summary>
 public sealed class ChatbotNluService : INluService, IDisposable
 {
-    private readonly MistralChatbotService _chatbot;
+    private readonly LocalLlmChatbotService _chatbot;
     private readonly bool _ownsChatbot;
 
     public ChatbotNluService(string modelPath)
     {
-        _chatbot = new MistralChatbotService(modelPath);
+        _chatbot = new LocalLlmChatbotService(modelPath);
         _ownsChatbot = true;
     }
 
-    public ChatbotNluService(MistralChatbotService chatbot)
+    public ChatbotNluService(LocalLlmChatbotService chatbot)
     {
         _chatbot = chatbot;
         _ownsChatbot = false;

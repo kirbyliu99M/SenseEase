@@ -112,7 +112,7 @@ public class BannedPhraseLintTests
     //       adjust the strike limit). These are INPUT keywords, not output copy.
     //   FeedbackLexicon.cs — "沒症狀" is a comfort keyword the user might TYPE
     //       (NLU input detection). Output copy is never produced from this list.
-    //   MistralChatbotService.cs — builds the LLM system prompt; "症狀" appears
+    //   LocalLlmChatbotService.cs — builds the LLM system prompt; "症狀" appears
     //       inside an LLM instruction example ("我在週末症狀更嚴重" is a quoted
     //       example of user input, not text shown directly to the user).
     private static readonly HashSet<string> SkipForZhInCoreInfra = new(
@@ -120,7 +120,7 @@ public class BannedPhraseLintTests
     {
         "HabituationProposalLexicon.cs",  // input-matcher: "耐受" / "容忍度" are user-input keywords
         "FeedbackLexicon.cs",             // input-matcher: "沒症狀" is an NLU comfort keyword
-        "MistralChatbotService.cs",       // LLM system-prompt builder: "症狀" is inside an LLM example
+        "LocalLlmChatbotService.cs",       // LLM system-prompt builder: "症狀" is inside an LLM example
     };
 
     [Fact]

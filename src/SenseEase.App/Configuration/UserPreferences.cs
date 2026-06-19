@@ -182,10 +182,9 @@ public sealed class UserPreferences
     [JsonPropertyName("head_tracking_enabled")]
     public bool HeadTrackingEnabled { get; set; } = true;
 
-    /// <summary>Chat model selection. Default = "qwen3-4b" (the PRIMARY/main model, better Chinese).
-    /// "mistral" = the bundled fallback. <c>AppConfig.ResolveActiveModel</c> reads this (env var
-    /// SENSEEASE_CHAT_MODEL overrides); an absent/unknown/unloadable model present-gates + load-falls-back
-    /// to Mistral so chat never breaks. REVERTIBLE: set this back to "mistral".</summary>
+    /// <summary>Chat model selection. Default = "qwen3-4b" (the sole chat model). <c>AppConfig.ResolveActiveModel</c>
+    /// reads this (env var SENSEEASE_CHAT_MODEL overrides; an unknown key falls back to the primary). If the
+    /// model's GGUF is absent or can't load, chat uses the deterministic lexicon path — no second model.</summary>
     public string ChatModelKey { get; set; } = AppConfig.PrimaryModelKey;
 
     /// <summary>M8: head-tracking follow-mode persistence. String-serialised

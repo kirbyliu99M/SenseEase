@@ -899,12 +899,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private readonly INluService _nlu;
 
-    // CW-11/EXIT-04: the single owned MistralChatbotService instance. ChatbotVm holds
+    // CW-11/EXIT-04: the single owned LocalLlmChatbotService instance. ChatbotVm holds
     // it as IChatbotService and ChatbotNluService wraps it with _ownsChatbot=false, so
     // NEITHER disposes it — the only place that reaps the ~2 GB llama-server child
     // (beyond the JobObject backstop) is DisposeServices, which disposes THIS reference
     // exactly once on the app-exit path.
-    private readonly MistralChatbotService _mistral;
+    private readonly LocalLlmChatbotService _llm;
 
     private readonly DispatcherTimer _idleTimer; // steps the engine with OFI=0 so pressure decays if WGC stalls
     private readonly DispatcherTimer _metricsTimer;
@@ -1065,15 +1065,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         // CW-11/EXIT-04: keep the owned reference so DisposeServices can terminate the
         // llama-server child deterministically on quit. ChatbotVm + _nlu both share this
-        // instance without owning its lifetime (see _mistral field doc).
-        // Model selection (2026-06-19): the active model (env/pref, present-gated to Mistral) drives
-        // the path + per-model stop tokens + server flags; the bundled Mistral is the load-fallback
-        // so an opt-in model that can't load (OOM / bad template) never breaks chat.
+        // instance without owning its lifetime (see _llm field doc).
+        // Model selection (2026-06-19): the active model (env/pref → Qwen) drives the path + per-model
+        // stop tokens + server flags. Mistral fallback removed — if the model can't load, chat drops to
+        // the deterministic lexicon path (no second bundled model).
         var chatModel = AppConfig.ActiveModel;
-        _mistral = new MistralChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
+        _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
-            nGpuLayers: chatModel.NGpuLayers, fallbackModelPath: AppConfig.DefaultModel.ModelPath);
-        ChatbotVm = new ChatbotViewModel(_mistral, _engine, _adjustmentLog, () => OverlayVisible, _log);
+            nGpuLayers: chatModel.NGpuLayers);
+        ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
         // engine type is OK here because MainViewModel constructed it above
@@ -1124,9 +1124,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // invitation/recalibrate banners and the LLM-calibration session are gone (dead,
         // unreachable UI). The engine's CalibrationProcessor / CalibrationResult plumbing
         // and the User-Model LLM client are kept.
-        // ChatbotNluService(MistralChatbotService) sets _ownsChatbot=false, so disposing
-        // _nlu does NOT dispose _mistral — MainViewModel owns that single dispose (EXIT-04).
-        _nlu = new ChatbotNluService(_mistral);
+        // ChatbotNluService(LocalLlmChatbotService) sets _ownsChatbot=false, so disposing
+        // _nlu does NOT dispose _llm — MainViewModel owns that single dispose (EXIT-04).
+        _nlu = new ChatbotNluService(_llm);
 
         _sensing = ProviderFor(AppConfig.Mode);
 
@@ -2344,10 +2344,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // CW-11/EXIT-04: terminate the llama-server child deterministically on quit.
         // ChatbotVm + _nlu share this instance but neither owns its lifetime, so the
         // single dispose lives here on the app-exit path (dispose ONCE — never from a
-        // ChatbotViewModel/NLU teardown). MistralChatbotService.Dispose() Kills the
+        // ChatbotViewModel/NLU teardown). LocalLlmChatbotService.Dispose() Kills the
         // child process tree + clears the shared LlamaSessionKey; the JobObject stays
         // the backstop, not the mechanism.
-        try { _mistral.Dispose(); } catch { }
+        try { _llm.Dispose(); } catch { }
 
         // LOGIC-03: drain the engine's background persist queue so the last enqueued
         // profile snapshot reaches disk before process exit (production runs with

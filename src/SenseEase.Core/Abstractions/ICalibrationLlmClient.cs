@@ -8,7 +8,7 @@ namespace SenseEase.Core.Abstractions;
 // retrospective analyzer).
 //
 // The implementation talks HTTP to the local llama-server subprocess (spawned by
-// MistralChatbotService). For unit testing we don't want to start a real server,
+// LocalLlmChatbotService). For unit testing we don't want to start a real server,
 // so consumers use this abstraction instead of calling HTTP directly; tests
 // inject a stub that returns canned LLM replies.
 //

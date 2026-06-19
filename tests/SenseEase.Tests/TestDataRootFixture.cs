@@ -46,7 +46,7 @@ internal static class TestDataRootFixture
             // Set BEFORE any AppConfig path property or UserPreferences.FilePath is
             // first read, so no test can touch the real per-user SenseEase folder.
             AppConfig.DataRootOverride = AssemblyRoot;
-            // Infrastructure-side mirror (B1a): MistralChatbotService resolves
+            // Infrastructure-side mirror (B1a): LocalLlmChatbotService resolves
             // model_trace.jsonl through SenseEaseDataRoot, which cannot see
             // AppConfig (App→Infrastructure dependency direction). Keep the two
             // seams pointed at the same root so Infrastructure writes isolate too.

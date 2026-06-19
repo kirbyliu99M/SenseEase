@@ -108,16 +108,15 @@ public static class SenseEaseDataRoot
 /// exposed via HTTP. The C# code in this file is now purely a process supervisor
 /// + thin HTTP client + the original NLU JSON parsing / lexicon-fallback logic.
 /// </summary>
-public sealed class MistralChatbotService : IChatbotService
+public sealed class LocalLlmChatbotService : IChatbotService
 {
-    // Mutable: the non-default ("opt-in") model can fail to load (OOM / bad template) and we then
-    // re-point these at the bundled Mistral fallback and relaunch — so chat keeps its full LLM
-    // instead of dropping to the lexicon. See LoadAsync.
-    private string _modelPath;
-    private string[] _stopTokens;
-    private string[] _extraServerArgs;
-    private int? _nGpuLayers;
-    private readonly string? _fallbackModelPath;
+    // The active model's launch params. Mistral fallback REMOVED (2026-06-19): Qwen is the sole model —
+    // if it fails to load, LoadError is set, IsModelLoaded stays false, and the caller's deterministic
+    // lexicon path takes over (no in-process model swap).
+    private readonly string _modelPath;
+    private readonly string[] _stopTokens;
+    private readonly string[] _extraServerArgs;
+    private readonly int? _nGpuLayers;
     private static readonly string[] DefaultStopTokens = { "[INST]", "User:" };
     private readonly List<ChatMessage> _history = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
@@ -402,19 +401,16 @@ public sealed class MistralChatbotService : IChatbotService
         ws ::= [ \t\n]*
         """";
 
-    /// <param name="stopTokens">Per-model stop sequences (null → Mistral default [INST]/User:).</param>
+    /// <param name="stopTokens">Per-model stop sequences (null → [INST]/User: default).</param>
     /// <param name="extraServerArgs">Per-model extra llama-server flags (e.g. non-thinking flags).</param>
     /// <param name="nGpuLayers">Per-model GPU-offload layer count (null → 99 = full offload).</param>
-    /// <param name="fallbackModelPath">Bundled default (Mistral) to relaunch with if the primary
-    /// model fails to load — the "never break chat" guarantee. Null/equal → no fallback.</param>
-    public MistralChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null,
-        string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null, string? fallbackModelPath = null)
+    public LocalLlmChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null,
+        string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
         _extraServerArgs = extraServerArgs ?? Array.Empty<string>();
         _nGpuLayers = nGpuLayers;
-        _fallbackModelPath = fallbackModelPath;
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
     }
@@ -448,30 +444,9 @@ public sealed class MistralChatbotService : IChatbotService
     public async Task LoadAsync()
     {
         if (!IsModelAvailable || IsModelLoaded) return;
-        try
-        {
-            await LaunchAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-            // Primary model failed to load. If it is an OPT-IN model (not the default) and the
-            // bundled default (Mistral) is present, re-point to it and relaunch ONCE so chat keeps
-            // its full LLM instead of dropping to the lexicon. If the fallback ALSO fails, propagate
-            // (same contract as before) → the caller's lexicon path takes over. Either way: no breakdown.
-            if (_fallbackModelPath is { } fb
-                && !string.Equals(fb, _modelPath, StringComparison.OrdinalIgnoreCase)
-                && File.Exists(fb))
-            {
-                _modelPath = fb;
-                _stopTokens = DefaultStopTokens;
-                _extraServerArgs = Array.Empty<string>();
-                _nGpuLayers = null;
-                LoadError = null;
-                await LaunchAsync().ConfigureAwait(false);
-                return;
-            }
-            throw;
-        }
+        // Qwen is the sole model (Mistral fallback removed 2026-06-19). On failure LaunchAsync sets
+        // LoadError + throws → the caller drops to the deterministic lexicon path. No in-process swap.
+        await LaunchAsync().ConfigureAwait(false);
     }
 
     private async Task LaunchAsync()

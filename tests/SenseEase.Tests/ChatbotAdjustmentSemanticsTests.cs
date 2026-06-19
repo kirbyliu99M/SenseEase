@@ -263,7 +263,7 @@ public class ChatbotAdjustmentSemanticsTests
         // String-scan the live NLU contract: the chatbot must neither describe nor
         // request feather. (The /feather slash command + engine knob are separate and
         // intentionally untouched.)
-        string prompt = MistralChatbotService.SystemPromptForTests;
+        string prompt = LocalLlmChatbotService.SystemPromptForTests;
         Assert.DoesNotContain("feather", prompt, StringComparison.OrdinalIgnoreCase);
     }
 

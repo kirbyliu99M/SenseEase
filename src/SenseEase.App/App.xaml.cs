@@ -49,7 +49,7 @@ public partial class App : Application
 
     /// <summary>H32: user-facing degrade message set when
     /// <see cref="IntegrityFailed"/> is raised. Mirrors the existing
-    /// LoadError-style surface (e.g. MistralChatbotService.LoadError) so the UI
+    /// LoadError-style surface (e.g. LocalLlmChatbotService.LoadError) so the UI
     /// can show a non-fatal banner instead of hard-crashing. Null when no
     /// integrity failure occurred.</summary>
     public static string? LoadError { get; private set; }
@@ -139,7 +139,7 @@ public partial class App : Application
         SessionEnding += (_, _) => SafeShutdownActivityFilter();
 
         // B0 deferred seam: push the App-layer data-root override down into
-        // Infrastructure so MistralChatbotService's model_trace.jsonl routes through
+        // Infrastructure so LocalLlmChatbotService's model_trace.jsonl routes through
         // the SAME AppConfig.DataRoot the App-layer paths use (Infrastructure must
         // NOT reference the App assembly — same cross-boundary pattern as
         // ChatbotUiLanguage / LlamaSessionKey). The lambda reads AppConfig.DataRoot
@@ -238,7 +238,7 @@ public partial class App : Application
             // would fail closed on every launch once a manifest ships.)
             string sidecarExePath   = Configuration.AppConfig.SidecarExePath;
             string llmServerExePath =
-                SenseEase.Infrastructure.Real.MistralChatbotService.ResolveServerExePath();
+                SenseEase.Infrastructure.Real.LocalLlmChatbotService.ResolveServerExePath();
 
             bool sidecarOk = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(sidecarExePath);
             bool llmOk     = SenseEase.Infrastructure.Storage.IntegrityVerifier.Verify(llmServerExePath);

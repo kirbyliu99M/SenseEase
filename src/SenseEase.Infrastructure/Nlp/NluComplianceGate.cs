@@ -14,8 +14,8 @@ namespace SenseEase.Infrastructure.Nlp;
 /// <para>Both decision engines feed ONE gate, so a rule can never hold on one path and
 /// silently miss the other:</para>
 /// <list type="bullet">
-///   <item>the LLM path (<c>MistralChatbotService.TryParseModelDecision</c>) — the model proposes;</item>
-///   <item>the lexicon fallback (<c>MistralChatbotService.BuildFallbackResult</c>, when the
+///   <item>the LLM path (<c>LocalLlmChatbotService.TryParseModelDecision</c>) — the model proposes;</item>
+///   <item>the lexicon fallback (<c>LocalLlmChatbotService.BuildFallbackResult</c>, when the
 ///   LLM is down/loading) — the lexicon proposes.</item>
 /// </list>
 /// <para>The gate disposes: the reset-cue upgrade, promote/demote on named-vs-unnamed
@@ -24,7 +24,7 @@ namespace SenseEase.Infrastructure.Nlp;
 /// sanitize/downgrade.</para>
 ///
 /// <para>NOT in this gate (different actuation contract / pre-decision short-circuits, left
-/// in <c>ChatbotViewModel.SendAsync</c> + <c>MistralChatbotService.SendAsync</c>): the
+/// in <c>ChatbotViewModel.SendAsync</c> + <c>LocalLlmChatbotService.SendAsync</c>): the
 /// SafetyFloor crisis interception, the <c>ShaderCommandLexicon</c> slash/strict commands and
 /// their 20% mask floor, the bare-off clarify, and the H6 sanitisation. The gate only ever
 /// sees an already-formed decision for the <c>IChatbotService</c> path; it does not govern

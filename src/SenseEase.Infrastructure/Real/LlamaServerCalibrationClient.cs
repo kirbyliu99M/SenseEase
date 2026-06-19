@@ -9,7 +9,7 @@ namespace SenseEase.Infrastructure.Real;
 
 /// <summary>
 /// H9/H10: process-lifetime holder for the random Bearer API key that
-/// <see cref="MistralChatbotService"/> generates when it spawns llama-server.
+/// <see cref="LocalLlmChatbotService"/> generates when it spawns llama-server.
 /// The server receives the key via the <c>LLAMA_ARG_API_KEY</c> child environment
 /// variable (SEC-06 — never on the command line) so every HTTP caller
 /// (the NLU service AND this calibration client) must present the SAME key. The
@@ -17,7 +17,7 @@ namespace SenseEase.Infrastructure.Real;
 /// at a call site we cannot modify, so it reads the key from here at request time
 /// rather than receiving it through its constructor.
 ///
-/// <para>Volatile single-writer (MistralChatbotService.LoadAsync) / many-reader
+/// <para>Volatile single-writer (LocalLlmChatbotService.LoadAsync) / many-reader
 /// (each SendChatAsync) — no lock needed for a reference-typed string publish.</para>
 /// </summary>
 internal static class LlamaSessionKey
@@ -36,14 +36,14 @@ internal static class LlamaSessionKey
 // ─────────────────────────────────────────────────────────────────────────────
 // Production ICalibrationLlmClient — posts to the running llama-server's
 // OpenAI-compatible /v1/chat/completions on http://127.0.0.1:8181. Mirrors
-// MistralChatbotService's HTTP pattern exactly (SEC-07 / H34 hardening):
+// LocalLlmChatbotService's HTTP pattern exactly (SEC-07 / H34 hardening):
 //   - Timeout 60 s (down from 5 min) so a wedged server can't hang UM4 analysis.
 //   - MaxResponseContentBufferSize 512 KiB — chat completions are <<256 tokens;
 //     a response that large indicates a misbehaving server, not a real reply.
 //   - JsonDocumentOptions MaxDepth 16 — bounds JSON parse recursion so a
 //     malformed deeply-nested 200 body can't blow the stack.
 //
-// Does NOT spawn a server — only talks to one MistralChatbotService already
+// Does NOT spawn a server — only talks to one LocalLlmChatbotService already
 // brought up. When the server isn't running, calls return null and the
 // caller (the User-Model retrospective analyzer) treats it as "LLM unavailable".
 //
@@ -56,14 +56,14 @@ public sealed class LlamaServerCalibrationClient : ICalibrationLlmClient, IDispo
 {
     // H34 (SEC-07): cap the response buffer (512 KiB — chat completions are
     // <<256 tokens) and drop the timeout to 60 s so a wedged server can't
-    // stall the UM4 retrospective analyzer. Mirrors MistralChatbotService exactly.
+    // stall the UM4 retrospective analyzer. Mirrors LocalLlmChatbotService exactly.
     private readonly HttpClient _http = new()
     {
         Timeout = TimeSpan.FromSeconds(60),
         MaxResponseContentBufferSize = 512 * 1024,
     };
     // H34 (SEC-07): bound JSON parse recursion — the OpenAI envelope is only a
-    // few levels deep; MaxDepth 16 matches MistralChatbotService._jsonDocOpts.
+    // few levels deep; MaxDepth 16 matches LocalLlmChatbotService._jsonDocOpts.
     private static readonly JsonDocumentOptions _jsonDocOpts = new() { MaxDepth = 16 };
     private const int ServerPort = 8181;
     private string ServerUrl => $"http://127.0.0.1:{ServerPort}";

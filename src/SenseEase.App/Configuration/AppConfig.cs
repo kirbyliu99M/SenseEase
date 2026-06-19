@@ -76,43 +76,28 @@ public static class AppConfig
     //                          copied to output. Preferred so the EXE is portable.
     //   2) <repo>/models/... — convenient during development; we walk up from the
     //                          bin folder to find a sibling models/ directory.
-    // Phase 5b: switched back to Ministral 3B after Gemma 4's GGUF tokenizer
-    // hit an ABI gap with LLamaSharp 0.27 — the b9294 native binaries worked for
-    // llama-cli directly but LLamaSharp's tokenize-without-special-parsing path
-    // produced only <unused24>/<unused49> filler tokens. Ministral 3B uses the
-    // Mistral chat template, which LLamaSharp 0.27 was built/tested against,
-    // and it's the same model the prior PC ran successfully.
-    private const string ModelFileRelative = "models/Ministral-3-3B-Instruct-2512-GGUF/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf";
-
     // ── Chat-model registry (2026-06-19) ──────────────────────────────────────
-    // Mistral-3B is the BUNDLED default + fallback; Qwen3-4B is an OPT-IN upgrade (better Chinese)
-    // the user drops into models/ and selects via UserPreferences.ChatModelKey (or the dev env var
-    // SENSEEASE_CHAT_MODEL). Present-gated: an opt-in model whose GGUF isn't actually there silently
-    // falls back to the bundled Mistral, so chat never breaks on an unfit/absent model. The C# layer
-    // is model-agnostic (OpenAI-compat + server-side --jinja); a profile only carries the path +
-    // stop tokens + any per-model server flags.
+    // Qwen3-4B-Instruct-2507 is the SOLE chat model. The Mistral fallback was removed once Qwen proved
+    // reliable — there is no second bundled model. The C# layer is model-agnostic (OpenAI-compat +
+    // server-side --jinja); a profile only carries the path + stop tokens + any per-model server flags,
+    // so swapping or adding a model later is one entry here plus the pref/env key. If the GGUF is absent
+    // or fails to load, chat drops to the deterministic lexicon path (LocalLlmChatbotService leaves
+    // IsModelLoaded=false) — no in-process model fallback.
     public sealed record ChatModel(string Key, string ModelPath, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
     private sealed record ChatModelSpec(string Key, string Relative, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
 
-    /// <summary>The PRIMARY/main model — the default selection (UserPreferences.ChatModelKey). Qwen3-4B
-    /// (better Chinese). Revertible: change this (or the pref) back to a present model; if Qwen's GGUF
-    /// is absent or fails to load, the resolver/loader fall back to <see cref="DefaultModelKey"/>.</summary>
+    /// <summary>The primary (and currently only) chat model — Qwen3-4B-Instruct-2507 (non-thinking). The
+    /// default selection (UserPreferences.ChatModelKey) and the fallback for an unknown/garbage pref key.</summary>
     public const string PrimaryModelKey = "qwen3-4b";
-    /// <summary>The bundled, always-present FALLBACK model (Mistral) — the present-gate target and the
-    /// MistralChatbotService load-fallback, so chat never breaks if the primary is missing/unloadable.</summary>
-    public const string DefaultModelKey = "mistral";
     private static readonly ChatModelSpec[] ModelCatalog =
     {
-        new(DefaultModelKey, ModelFileRelative, new[] { "[INST]", "User:" }, Array.Empty<string>(), null),
         // Qwen3-4B-Instruct-2507 is the DEDICATED non-thinking variant → no enable_thinking flags needed.
-        new("qwen3-4b", "models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        new(PrimaryModelKey, "models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
             new[] { "<|im_end|>", "User:" }, Array.Empty<string>(), null),
     };
 
-    /// <summary>The bundled default (Mistral) — always present; used as the fallback target.</summary>
-    public static ChatModel DefaultModel { get; } = BuildModel(FindSpec(DefaultModelKey)!);
     private static readonly Lazy<ChatModel> _activeModel = new(ResolveActiveModel);
-    /// <summary>The model to actually load: env/pref selection, present-gated, Mistral fallback.</summary>
+    /// <summary>The model to load: env override → persisted pref → PrimaryModelKey (unknown key → primary).</summary>
     public static ChatModel ActiveModel => _activeModel.Value;
 
     /// <summary>Back-compat: the ACTIVE model's resolved path (existing diagnostics + call sites).</summary>
@@ -129,19 +114,15 @@ public static class AppConfig
 
     private static ChatModel ResolveActiveModel()
     {
-        // dev env override → persisted pref → default. Unknown key → default.
+        // dev env override → persisted pref → primary. Unknown/garbage key → primary.
         string key = Environment.GetEnvironmentVariable("SENSEEASE_CHAT_MODEL") ?? string.Empty;
         if (string.IsNullOrWhiteSpace(key))
         {
-            try { key = UserPreferences.Current.ChatModelKey ?? DefaultModelKey; }
-            catch { key = DefaultModelKey; }
+            try { key = UserPreferences.Current.ChatModelKey ?? PrimaryModelKey; }
+            catch { key = PrimaryModelKey; }
         }
-        var spec = FindSpec(key.Trim()) ?? FindSpec(DefaultModelKey)!;
-        var model = BuildModel(spec);
-        // Present-gate: an opt-in model whose GGUF isn't on disk → fall back to the bundled default.
-        if (spec.Key != DefaultModelKey && !File.Exists(model.ModelPath))
-            return DefaultModel;
-        return model;
+        var spec = FindSpec(key.Trim()) ?? FindSpec(PrimaryModelKey)!;
+        return BuildModel(spec);
     }
 
     /// <summary>Returns the list of paths probed by ResolveModelPath, in order.
@@ -285,7 +266,7 @@ public static class AppConfig
         DataRoot, "SenseEase", "symptom_log.jsonl");
 
     // H24: the chatbot model trace (the ClearOnDiskTrace target). Mirrors the path
-    // MistralChatbotService writes to (Infrastructure can't see this App config, so
+    // LocalLlmChatbotService writes to (Infrastructure can't see this App config, so
     // both sides compute %LOCALAPPDATA%\SenseEase\model_trace.jsonl independently).
     // Used by the Settings "clear all my data" button to delete it directly.
     public static string ModelTracePath => Path.Combine(
