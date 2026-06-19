@@ -5,7 +5,7 @@
 # script reshapes the publish output into the Pre-Alpha distributable layout:
 #
 #   1. Trim cross-platform runtimes (Linux / macOS / win-arm64) -- ~85 MB saved
-#   2. Bundle Ministral 3B Q4_K_M GGUF model into models/ -- 2.0 GB
+#   2. Bundle Qwen3-4B Q4_K_M GGUF model into models/ -- ~2.3 GB
 #   3. Bundle setup demo video (samples/FPV-vid-h264.mp4) -- 113 MB
 #   4. Bundle head-tracker PyInstaller sidecar (tools/head-tracker-sidecar/dist/head_tracker/) -- ~350 MB
 #   5. Drop canonical README (scripts/README.txt) into dist root
@@ -111,7 +111,7 @@ Write-Host "  ($nativeRemoved trimmed)"
 # 1c. Trim vulkan/ to the server keep-list (H28)
 # -----------------------------------------------------------------------------
 Write-Section "Trim vulkan/ to server keep-list (H28)"
-# The chatbot launches ONLY llama-server.exe (see MistralChatbotService); the
+# The chatbot launches ONLY llama-server.exe (see LocalLlmChatbotService); the
 # other llama-*.exe CLIs (llama-cli, llama-bench, llama-quantize, ...) and the
 # RPC backend (ggml-rpc.dll) are never invoked at runtime and are pure bloat.
 # Keep-list = everything llama-server.exe needs to load:
@@ -163,19 +163,32 @@ if (Test-Path $vulkanDir) {
 Write-Host "  ($vulkanRemoved trimmed)"
 
 # -----------------------------------------------------------------------------
-# 2. Bundle Mistral 3B Q4_K_M GGUF
+# 2. Bundle Qwen3-4B Q4_K_M GGUF (the SOLE chat model)
 # -----------------------------------------------------------------------------
-Write-Section "Bundle Mistral 3B Q4_K_M GGUF model"
-$modelSrc = "models/Ministral-3-3B-Instruct-2512-GGUF/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"
+# Qwen3-4B-Instruct-2507 is now the ONLY chat model -- the Mistral/Ministral
+# fallback was removed 2026-06-19 once Qwen proved good in live testing (see
+# AppConfig.ModelCatalog). This source path MUST stay in lock-step with
+# AppConfig.ModelPath ("models/Qwen3-4B-Instruct-2507-GGUF/...-Q4_K_M.gguf") so the
+# app resolves the weights relative to AppContext.BaseDirectory at runtime.
+Write-Section "Bundle Qwen3-4B Q4_K_M GGUF model (sole chat model)"
+# Defense in depth: scrub any stale Ministral model dir left in the dist by a prior
+# staging run so we never ship the retired fallback (the dist's models/ tree is
+# created only by this script, so this is the only place it could linger).
+$staleMistralDir = Join-Path $Dist "models/Ministral-3-3B-Instruct-2512-GGUF"
+if (Test-Path $staleMistralDir) {
+    Remove-Item $staleMistralDir -Recurse -Force
+    Write-Host "  removed stale Ministral model dir (Mistral fallback retired 2026-06-19)"
+}
+$modelSrc = "models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 if (-not (Test-Path $modelSrc)) {
     Write-Error "Model not found at $modelSrc. Cannot stage."
     exit 1
 }
-$modelDest = Join-Path $Dist "models/Ministral-3-3B-Instruct-2512-GGUF"
+$modelDest = Join-Path $Dist "models/Qwen3-4B-Instruct-2507-GGUF"
 New-Item -ItemType Directory -Path $modelDest -Force | Out-Null
 Copy-Item $modelSrc $modelDest -Force
-$modelSize = [math]::Round((Get-Item (Join-Path $modelDest "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf")).Length / 1MB, 0)
-Write-Host "  copied: Q4_K_M.gguf ($modelSize MB)"
+$modelSize = [math]::Round((Get-Item (Join-Path $modelDest "Qwen3-4B-Instruct-2507-Q4_K_M.gguf")).Length / 1MB, 0)
+Write-Host "  copied: Qwen3-4B-Instruct-2507-Q4_K_M.gguf ($modelSize MB)"
 
 # -----------------------------------------------------------------------------
 # 3. (REMOVED 2026-06-08) Demo-video bundling
