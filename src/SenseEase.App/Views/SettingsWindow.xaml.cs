@@ -4,6 +4,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using SenseEase.App.Interop;
 using SenseEase.App.Localization;
 using SenseEase.App.Theme;
@@ -65,12 +66,18 @@ public partial class SettingsWindow : Window
         // GLASS BRIDGE (2026-06-18): match the popup panel — the chrome + hosted SettingsContent
         // wear the glass palette (slate default; SettingsGlassTheme flips the Game-Bar dark variant).
         // Replaces ThemeManager.TrackElement (which merged the grey Palette.Dark and fought the glass).
-        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); };
-        Closed += (_, _) => SettingsGlassTheme.Untrack(this);
+        // R3 #7: light-dismiss — close when the user clicks ANOTHER window or the desktop. The earlier
+        // Deactivated-event approach was unreliable for this frameless Topmost window (Deactivated does
+        // not always fire, and its foreground check raced the focus change). Mirror the PROVEN pattern
+        // used by NotificationCardWindow / the popup bar: poll GetForegroundWindow on a timer and close
+        // once the foreground is some OTHER top-level window. An in-window dropdown (foreground stays
+        // us) or an owned child dialog (reset confirm / hotkey picker) keeps it open.
+        _dismissPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _dismissPoll.Tick += OnDismissPollTick;
+        Activated += (_, _) => _dismissArmed = true;   // confirm we held focus at least once
 
-        // R3 #7: light-dismiss — close when focus moves to ANOTHER window (the user "changed to other
-        // windows"), but NOT when an owned child dialog opens or an in-window dropdown takes focus.
-        Deactivated += OnSettingsDeactivated;
+        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _dismissPoll.Start(); };
+        Closed += (_, _) => { SettingsGlassTheme.Untrack(this); _dismissPoll.Stop(); };
 
         // GREY-CORNERS FIX (2026-06-19): NO window-wide acrylic. ACCENT_ENABLE_ACRYLICBLURBEHIND frosts
         // the SQUARE HWND, and clipping RootGrid (OnRootSizeChanged) cannot clip that backdrop — so the
@@ -82,22 +89,33 @@ public partial class SettingsWindow : Window
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    /// <summary>R3 #7: close the Settings window when the user switches to ANOTHER window (focus
-    /// leaves us). Guarded so an owned child dialog (reset confirm) or an in-window dropdown — which
-    /// keep the foreground within our own HWND family — does NOT dismiss it.</summary>
-    private void OnSettingsDeactivated(object? sender, EventArgs e)
+    private readonly DispatcherTimer _dismissPoll;
+    private bool _dismissArmed;   // true once the window has actually held foreground — guards the open transition
+
+    /// <summary>R3 #7 (light-dismiss, poll-based): close the Settings window once the user clicks
+    /// ANOTHER top-level window or the desktop. Cheap 200 ms GetForegroundWindow poll (the same proven
+    /// approach as <see cref="NotificationCardWindow"/>), which — unlike the Deactivated event — fires
+    /// reliably for this frameless Topmost window. Stays open while WE are foreground (an in-window
+    /// combo/dropdown keeps the foreground on us) or while an owned child dialog (reset confirm / hotkey
+    /// picker) is up. The <c>_dismissArmed</c> latch means we never close during the open transition
+    /// (before the window has held focus once), so it can't rug-pull the instant it appears.</summary>
+    private void OnDismissPollTick(object? sender, EventArgs e)
     {
+        if (!IsVisible) { _dismissPoll.Stop(); return; }
         try
         {
             IntPtr fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero) return;                                  // transient — wait
             IntPtr self = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (fg == self) return; // an in-window popup (combo / dropdown) — stay open
-            foreach (Window w in OwnedWindows)
+            if (fg == self) { _dismissArmed = true; return; }              // focused (or in-window popup) — stay
+            foreach (Window w in OwnedWindows)                              // child dialog / picker — stay
             {
-                if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) return; // child dialog — stay
+                if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) { _dismissArmed = true; return; }
             }
+            if (!_dismissArmed) return;                                     // not yet focused since opening — don't pre-close
         }
         catch { /* on any interop hiccup, fall through and close (the safe light-dismiss) */ }
+        _dismissPoll.Stop();
         Close();
     }
 

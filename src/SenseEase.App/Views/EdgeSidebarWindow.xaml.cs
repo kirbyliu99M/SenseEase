@@ -36,12 +36,14 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     // Device-pixel placement (the startup-misplace fix): position the handle by the MONITOR's work
     // area in device pixels via Win32, not WPF DIP Left/Top — the DIP path raced the per-monitor DPI
     // at startup and landed the handle off the right edge until a click re-anchored it.
-    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
     [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
     private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+    // GetDpiForWindow is reliable the moment the HWND exists (unlike GetWindowRect /
+    // VisualTreeHelper.GetDpi, which can be stale at startup before the first layout/render).
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hWnd);
 
     /// <summary>Distance from the window rect (dip) inside which the handle reveals.</summary>
     public double HoverProximityDip { get; set; } = 140.0;
@@ -60,6 +62,7 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     private bool _isHovered;
     private bool _revealFired;
     private int _topmostTickCounter;
+    private int _reanchorTickCounter;
 
     /// <summary>Raised on left-click while revealed — the host opens the popup bar.</summary>
     public event EventHandler? Clicked;
@@ -183,22 +186,28 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     {
         // PRIMARY PATH (device pixels): correct whenever the HWND exists — no DPI/multi-monitor race.
         IntPtr hwnd = IsLoaded ? new System.Windows.Interop.WindowInteropHelper(this).Handle : IntPtr.Zero;
-        if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var winRect))
+        if (hwnd != IntPtr.Zero)
         {
             var mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
             var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (GetMonitorInfo(mon, ref mi))
             {
-                int wpx = winRect.Right - winRect.Left;       // current window size, device px
-                int hpx = winRect.Bottom - winRect.Top;
-                var dpi = VisualTreeHelper.GetDpi(this);
-                int x = mi.rcWork.Right - wpx;                 // flush to the work-area right edge
+                // Derive the device size from the KNOWN XAML DIP size (Width=18, Height=104) × the OS
+                // window DPI. GetDpiForWindow is valid the instant the HWND exists, whereas GetWindowRect
+                // and VisualTreeHelper.GetDpi can return a stale/zero rect or 1.0 scale before the first
+                // layout/render — which left the handle parked off the right edge until a click forced a
+                // re-layout (the "startup misplace"). This path no longer depends on either.
+                uint dpiRaw = GetDpiForWindow(hwnd);
+                double scale = dpiRaw >= 48 ? dpiRaw / 96.0 : 1.0;     // guard a 0/garbage return
+                int wpx = (int)Math.Round(Width * scale);
+                int hpx = (int)Math.Round(Height * scale);
+                int x = mi.rcWork.Right - wpx;                          // flush to the work-area right edge
                 // Centre at the saved bar centre (stored in WPF DIP); else vertically centre the monitor.
                 double centreDip;
                 try { centreDip = Configuration.UserPreferences.Current.PopupBarCenterY ?? -1; }
                 catch { centreDip = -1; }
                 int y = centreDip > 0
-                    ? (int)Math.Round(mi.rcWork.Top + (centreDip * dpi.DpiScaleY) - (hpx / 2.0))
+                    ? (int)Math.Round(mi.rcWork.Top + (centreDip * scale) - (hpx / 2.0))
                     : mi.rcWork.Top + ((mi.rcWork.Bottom - mi.rcWork.Top - hpx) / 2);
                 y = Math.Max(mi.rcWork.Top, Math.Min(mi.rcWork.Bottom - hpx, y));
                 SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
@@ -245,6 +254,13 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         if (!IsLoaded) return;
 
         if (++_topmostTickCounter >= 12) { _topmostTickCounter = 0; ReassertTopmost(); }
+
+        // SELF-HEAL the startup-position bug: re-assert the flush-right anchor ~2×/second for the
+        // window's lifetime. RepositionForWorkArea is idempotent (a SetWindowPos to the same coords is
+        // a no-op), so this is invisible when already correct — but if launch-time timing/DPI/AV jitter
+        // ever lands the handle off the right edge, it snaps back within ~0.5 s instead of staying wrong
+        // until the user clicks it.
+        if (++_reanchorTickCounter >= 30) { _reanchorTickCounter = 0; RepositionForWorkArea(); }
 
         if (!GetCursorPos(out POINT physical)) return;
         var dpi = VisualTreeHelper.GetDpi(this);

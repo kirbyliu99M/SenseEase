@@ -8,8 +8,10 @@
   It must NEVER be merged into App.Resources — MainWindowSmokeTests boots a bare
   new Application() with no Application.Resources, so an App-level token fails it.
 
-  Calm palette only: NO #E54747 (alarm red), NO #024AD8 (royal blue), NO #7B8DB0.
-  High strain uses muted clay #B65C4E, never loud red.
+  (Palette taste rule retired 2026-06-19, kirby: the earlier "calm palette only —
+  no #E54747/#024AD8/#7B8DB0, muted clay never loud red" constraint is GONE. The UI
+  colour itself has no comfort impact, so colour choice is now free. WCAG contrast
+  (TokenContrastTests) and token hygiene (DesignLintTests OrphanHex ratchet) still apply.)
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -42,6 +44,14 @@
     <SolidColorBrush x:Key="TextTertiary"  Color="#636C7A"/>
     <SolidColorBrush x:Key="Accent"        Color="#4B6EF5"/>
     <SolidColorBrush x:Key="AccentHover"   Color="#3552D9"/>
+    <!-- AccentStrong (2026-06-18): a DEEPER accent reserved for FILLS that carry WHITE / TextOnComfort
+         text (primary dialog/window buttons). The brand Accent #4B6EF5 (which matches the app icon +
+         tray mark) only reaches 4.33:1 with white (3.02:1 in dark) — below AA — but it MUST stay
+         #4B6EF5 for brand identity (accent dots, focus rings; accent TEXT uses the darker AccentHover).
+         So white-text fills use this token instead: white-on-#3366E0 = 5.10:1 in both themes. Same
+         value as the popup/Settings glass accent — one "primary-action blue" across the app.
+         Guarded by TokenContrastTests.WhiteTextOnAccentFill_ClearsWcagAa. -->
+    <SolidColorBrush x:Key="AccentStrong"  Color="#3366E0"/>
     <!-- Light top-chrome surface — the header is a hairline-divided white bar,
          never a painted indigo band. -->
     <SolidColorBrush x:Key="HeaderSurface" Color="#FFFFFF"/>

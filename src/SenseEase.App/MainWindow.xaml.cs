@@ -1442,6 +1442,9 @@ public partial class MainWindow : Window
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
         _settingsWindow.Show();
+        // Opened from the no-activate popup bar / tray: explicitly take foreground so the window gets
+        // keyboard focus AND its light-dismiss poll arms (it only auto-closes after holding focus once).
+        _settingsWindow.Activate();
     }
 
     /// <summary>FEAT-08 (CW-10, B1b UI half): host-side read of the live head-tracking

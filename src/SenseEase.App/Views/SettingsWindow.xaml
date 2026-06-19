@@ -28,10 +28,11 @@
          AppConfig.* singletons + the UserPreferences.Changed event. The constructor signature
          (Func<bool> hasVestibularDiagnosis) and all pass-through delegates are preserved verbatim.
 
-         Theme: the Window background is now Transparent (the acrylic + Surface card supply the
-         fill). SenseEaseTheme.xaml is merged view-locally so the tokens resolve in Light mode;
-         ThemeManager.TrackElement merges Palette.Dark.xaml over it for Dark (code-behind, incl.
-         live OS flips). Mirrors EventLogWindow. -->
+         Theme: the Window background is Transparent (the acrylic + Surface card supply the fill).
+         SenseEaseTheme.xaml + SettingsGlassPalette.xaml (the SLATE glass bridge) are merged
+         view-locally; SettingsGlassTheme.Track (code-behind) flips in SettingsGlassPalette.Dark.xaml
+         (the Game-Bar variant) for Dark, incl. live OS flips. The Settings stays slate glass in BOTH
+         OS themes by design — it does NOT follow the popup's light-blue light variant. -->
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -64,11 +65,11 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#22FF3B30"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource CloseHoverWash}"/>
                                     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#33FF3B30"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource ClosePressWash}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -80,50 +81,76 @@
 
     <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
         <!-- Rounded Surface slab — the glass card the acrylic frosts behind. -->
-        <Border Background="{DynamicResource Surface}"
+        <Border x:Name="SlabBorder"
+                Background="{DynamicResource Surface}"
                 BorderBrush="{DynamicResource CardBorder}"
                 BorderThickness="1"
                 CornerRadius="16"
-                Effect="{StaticResource Elev.3}">
+                Effect="{StaticResource Elev.3}"
+                RenderTransformOrigin="0.5,0.4">
+            <Border.RenderTransform>
+                <ScaleTransform x:Name="SlabScale" ScaleX="1" ScaleY="1"/>
+            </Border.RenderTransform>
+            <!-- Single-cell wrapper: the content grid + ONE top-edge specular sheen layered
+                 over it. Both sit INSIDE this slab Border so RootGrid.Clip (set in
+                 OnRootSizeChanged) rounds them and the sheen never peeks past the acrylic edge. -->
+            <Grid>
             <Grid Margin="16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Slim custom title row — the drag handle (MouseLeftButtonDown → DragMove). -->
-                <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,12"
-                      MouseLeftButtonDown="OnTitleBarMouseDown"
-                      TouchDown="OnTitleBarTouchDown" TouchMove="OnTitleBarTouchMove" TouchUp="OnTitleBarTouchUp">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                               Style="{StaticResource Type.Heading}"
-                               Text="{loc:T Zh='設定', En='Settings'}"/>
-                    <Button Grid.Column="1"
-                            Style="{StaticResource GlassCloseBtn}"
-                            Click="OnCloseClicked"
-                            ToolTip="{loc:T Zh='關閉', En='Close'}"
-                            AutomationProperties.Name="{loc:T Zh='關閉', En='Close'}"/>
-                </Grid>
+                <!-- Brand banner (2026-06-18) — the window's top identity now that the main
+                     console (which carried the SenseEase / HP brand) is being dismantled. Logo +
+                     SenseEase wordmark on the left; the "by ATCCxHP A02" credit shifted to the
+                     very right next to the round X close. The whole banner row stays the drag
+                     handle (the X owns its own click); a faint seam divides it from the list
+                     below so it reads as a banner, not just a title. -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,14">
+                    <Grid Background="Transparent"
+                          MouseLeftButtonDown="OnTitleBarMouseDown"
+                          TouchDown="OnTitleBarTouchDown" TouchMove="OnTitleBarTouchMove" TouchUp="OnTitleBarTouchUp">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Brand lockup: the app logo (AppIcon.ico) + wordmark. -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Image Width="24" Height="24" VerticalAlignment="Center"
+                                   Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
+                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                   AutomationProperties.Name="SenseEase"/>
+                            <TextBlock Text="SenseEase" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}"/>
+                        </StackPanel>
+
+                        <!-- Credit + close, shifted to the very right. -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="by ATCCxHP A02" VerticalAlignment="Center" Margin="0,0,10,0"
+                                       FontSize="12" Foreground="{DynamicResource TextTertiary}"/>
+                            <Button Style="{StaticResource GlassCloseBtn}"
+                                    Click="OnCloseClicked"
+                                    ToolTip="{loc:T Zh='關閉', En='Close'}"
+                                    AutomationProperties.Name="{loc:T Zh='關閉', En='Close'}"/>
+                        </StackPanel>
+                    </Grid>
+                    <Border Height="1" Background="{DynamicResource GroupDivider}" Margin="0,12,0,0"/>
+                </StackPanel>
 
                 <views:SettingsContent x:Name="ContentHost" Grid.Row="1"/>
-
-                <Button Grid.Row="2"
-                        Content="{loc:T Zh='關閉', En='Close'}"
-                        HorizontalAlignment="Right"
-                        Padding="18,8"
-                        Margin="0,12,6,0"
-                        Background="{DynamicResource Accent}"
-                        Foreground="{DynamicResource TextOnComfort}"
-                        BorderThickness="0"
-                        FontSize="12"
-                        FontWeight="SemiBold"
-                        Cursor="Hand"
-                        Click="OnCloseClicked"/>
+            </Grid>
+            <!-- ONE top-edge specular sheen = the liquid-glass light catch (a short
+                 white→transparent vertical gradient, the SettingsSlabSheen token).
+                 IsHitTestVisible=False so it never
+                 blocks the title drag handle or any control. The round X in the title row +
+                 Escape (OnKeyDown) are the sole close affordances — the redundant bottom
+                 Accent "Close" button was removed in the one-piece redesign (2026-06-18). -->
+            <Border CornerRadius="16" IsHitTestVisible="False"
+                    Background="{DynamicResource SettingsSlabSheen}"/>
             </Grid>
         </Border>
     </Grid>

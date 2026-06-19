@@ -12,7 +12,7 @@
         ShowInTaskbar="False"
         ShowActivated="False"
         ResizeMode="NoResize"
-        SizeToContent="WidthAndHeight"
+        SizeToContent="Manual" Width="360" Height="496"
         WindowStartupLocation="Manual"
         AutomationProperties.Name="{loc:T Zh='SenseEase 控制列', En='SenseEase control bar'}"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
@@ -47,38 +47,18 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <!-- 44×44 hit area; 28×28 visible chip centred. -->
+                            <!-- 44×44 hit area; 28×28 visible chip centred. Hover/press = a soft glass
+                                 fill wash (no accent RING — the crisp ring read as a selection box). -->
                             <Border Background="Transparent">
-                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
-                                            Background="{TemplateBinding Background}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <!-- NEON ring overlay (R3 #1) — a crisp accent rim faded in on
-                                         hover/focus. Opacity-only ⇒ Reduce-Motion-exempt (WCAG 2.3.3). -->
-                                    <Border x:Name="neonRing" Width="28" Height="28" CornerRadius="14"
-                                            BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="1.5"
-                                            IsHitTestVisible="False" Opacity="0"/>
-                                </Grid>
+                                <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
+                                        Background="{TemplateBinding Background}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnHover}"/>
-                                    <Trigger.EnterActions>
-                                        <BeginStoryboard><Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="neonRing" Storyboard.TargetProperty="Opacity"
-                                                             To="0.55" Duration="0:0:0.14"/>
-                                        </Storyboard></BeginStoryboard>
-                                    </Trigger.EnterActions>
-                                    <Trigger.ExitActions>
-                                        <BeginStoryboard><Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="neonRing" Storyboard.TargetProperty="Opacity"
-                                                             To="0" Duration="0:0:0.09"/>
-                                        </Storyboard></BeginStoryboard>
-                                    </Trigger.ExitActions>
-                                </Trigger>
-                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="neonRing" Property="Opacity" Value="0.55"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BtnPress}"/>
@@ -252,7 +232,15 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid x:Name="RootGrid">
+    <!-- R3-7 (FLASH FIX): the WINDOW is a FIXED 360x496 (SizeToContent=Manual) and NEVER resizes —
+         resizing a layered (AllowsTransparency) window re-allocates its surface = the flash on every
+         reveal/expand/chat/settings (confirmed: flash ⇔ window SizeChanged). Instead RootGrid hugs its
+         content and floats RIGHT + vertically CENTRED inside the fixed window, so the bar stays flush to
+         the edge and the panels open into already-allocated (transparent, click-through) space. The grid
+         resizing internally is just content layout — same-size surface update, no flash. ShellController
+         positions the window so the grid's centre sits at the saved bar-centre; the empty grid area has no
+         Background (null) so clicks pass through it. -->
+    <Grid x:Name="RootGrid" HorizontalAlignment="Right" VerticalAlignment="Center">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="Auto"/>
@@ -267,8 +255,11 @@
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,0.5"
                 Background="{DynamicResource Popup.PanelBg}"
                 BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
-                CornerRadius="{StaticResource Radius.md}"
-                Effect="{StaticResource Elev.3}">
+                CornerRadius="{StaticResource Radius.md}">
+            <!-- R3-6: no DropShadowEffect. In software-render mode (AllowsTransparency) an Effect
+                 allocates an offscreen buffer that DISABLES ClearType for the subtree, so the card's
+                 text re-rastered crisp↔grey on every open/close = the "flash". The 1px Popup.Bdr rim +
+                 the near-opaque glass fill carry the card's definition without a render target. -->
             <Border.RenderTransform><ScaleTransform x:Name="ChatScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <Grid>
                 <Grid.RowDefinitions>
@@ -284,59 +275,15 @@
                         CornerRadius="{StaticResource Radius.md}"
                         BorderBrush="{DynamicResource Popup.Blue}" BorderThickness="1" Opacity="0.18"/>
 
-                <!-- header: live-status dot + identity + clear-chat. The dot reads Online (accent) /
-                     Offline (faint) from Chat.IsLlmOnline and gently pulses (opacity-only ⇒ WCAG-2.3.3
-                     RM-exempt, same treatment as the typing dots) while Chat.IsGenerating. -->
+                <!-- header: identity + clear-chat. -->
                 <Grid Margin="16,11,8,8">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Ellipse x:Name="StatusDot" Grid.Column="0" Width="8" Height="8" Margin="0,1,9,0"
-                             VerticalAlignment="Center">
-                        <Ellipse.Style>
-                            <Style TargetType="Ellipse">
-                                <Setter Property="Fill" Value="{DynamicResource Popup.SegOff}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Chat.IsLlmOnline}" Value="True">
-                                        <Setter Property="Fill" Value="{DynamicResource Popup.Blue}"/>
-                                    </DataTrigger>
-                                    <!-- gentle "thinking" pulse — opacity-only ⇒ RM-exempt; reverts to solid on stop -->
-                                    <DataTrigger Binding="{Binding Chat.IsGenerating}" Value="True">
-                                        <DataTrigger.EnterActions>
-                                            <BeginStoryboard Name="DotPulse">
-                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                                     From="1.0" To="0.35" Duration="0:0:0.6"/>
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </DataTrigger.EnterActions>
-                                        <DataTrigger.ExitActions>
-                                            <StopStoryboard BeginStoryboardName="DotPulse"/>
-                                        </DataTrigger.ExitActions>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Ellipse.Style>
-                    </Ellipse>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Text="SenseEase AI" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Popup.Ink1}"/>
-                        <TextBlock FontSize="11" Foreground="{DynamicResource Popup.Ink2}">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Text" Value="{loc:T Zh='離線', En='Offline'}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Chat.IsLlmOnline}" Value="True">
-                                            <Setter Property="Text" Value="{loc:T Zh='在線 · 隨時為你', En='Online · ready to help'}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                    </StackPanel>
-                    <Button Grid.Column="2" Style="{StaticResource BarIconBtn}" Command="{Binding Chat.ClearCommand}"
+                    <TextBlock Grid.Column="0" Text="SenseEase AI" VerticalAlignment="Center"
+                               FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
+                    <Button Grid.Column="1" Style="{StaticResource BarIconBtn}" Command="{Binding Chat.ClearCommand}"
                             VerticalAlignment="Center"
                             ToolTip="{loc:T Zh='清除對話', En='Clear chat'}"
                             AutomationProperties.Name="{loc:T Zh='清除對話', En='Clear chat'}">
@@ -345,8 +292,8 @@
                 </Grid>
 
                 <!-- messages — fill the fixed-height card's middle row; scroll when overflowing -->
-                <ScrollViewer Grid.Row="1" Margin="10,0" VerticalScrollBarVisibility="Auto"
-                              PanningMode="VerticalOnly"
+                <ScrollViewer x:Name="ChatScroll" Grid.Row="1" Margin="10,0" VerticalScrollBarVisibility="Auto"
+                              PanningMode="VerticalOnly" ScrollChanged="OnChatScrollChanged"
                               Style="{DynamicResource AutoHideScroll}">
                     <ItemsControl ItemsSource="{Binding Chat.Messages}">
                         <ItemsControl.ItemTemplate>
@@ -444,73 +391,55 @@
                      send w/ accent glow · keymap footer. Stacked inside the SAME bottom Auto row — no new
                      RowDefinition, so the fixed-480 layout is preserved (messages row absorbs the delta). -->
                 <StackPanel Grid.Row="2" Margin="12,8,12,10">
-                    <!-- Quick-start chips — PRE-FILL the input only (code-behind sets ChatInput.Text +
-                         focus); they NEVER auto-send and never touch a VM command. -->
-                    <WrapPanel Margin="0,0,0,7">
-                        <Button Style="{StaticResource GhostPanelBtn}" Click="OnSuggestionChipClick"
-                                Content="{loc:T Zh='我覺得頭暈', En='I feel dizzy'}"
-                                Padding="9,4" FontSize="12" MinHeight="24" Margin="0,0,5,0"/>
-                        <Button Style="{StaticResource GhostPanelBtn}" Click="OnSuggestionChipClick"
-                                Content="{loc:T Zh='眼睛很累', En='My eyes feel tired'}"
-                                Padding="9,4" FontSize="12" MinHeight="24" Margin="0,0,5,0"/>
-                        <Button Style="{StaticResource GhostPanelBtn}" Click="OnSuggestionChipClick"
-                                Content="{loc:T Zh='幫我加強防護', En='Make it stronger'}"
-                                Padding="9,4" FontSize="12" MinHeight="24"/>
-                    </WrapPanel>
-
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- recessed auto-expanding input + neon focus halo. The recessed field + its
-                             BorderBrush focus swap are byte-identical to before; the halo is an opacity-only
-                             overlay rim that fades in on focus (RM-exempt, mirrors the bar ring 140/90ms). -->
-                        <Grid Grid.Column="0">
-                            <Border Background="#33000000" BorderThickness="1" CornerRadius="9" VerticalAlignment="Bottom">
-                                <Border.Style>
-                                    <Style TargetType="Border">
-                                        <Setter Property="BorderBrush" Value="{DynamicResource Popup.Bdr}"/>
-                                        <Style.Triggers>
-                                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                                <Setter Property="BorderBrush" Value="{DynamicResource Popup.Blue}"/>
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
+                        <!-- recessed auto-expanding input. Its OWN border turns accent on keyboard focus —
+                             correctly sized to the field. (A stretch overlay rim, like the bar's fixed-size
+                             chip ring, over-sized the box to the row height, so the focus lives on the field
+                             border itself here.) -->
+                        <Border Grid.Column="0" Background="#33000000" BorderThickness="1" CornerRadius="9"
+                                VerticalAlignment="Bottom">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Popup.Bdr}"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource Popup.Blue}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
                                 <TextBox x:Name="ChatInput" Background="Transparent" BorderThickness="0"
                                          Padding="9,6" FontSize="13" MinHeight="20" MaxHeight="84"
                                          TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Center"
                                          VerticalScrollBarVisibility="Auto"
                                          Foreground="{DynamicResource Popup.Ink1}" CaretBrush="{DynamicResource Popup.Ink1}"
                                          Text="{Binding Chat.InputText, UpdateSourceTrigger=PropertyChanged}"
-                                         IsVisibleChanged="OnChatInputVisibleChanged" KeyDown="OnChatInputKeyDown"
+                                         IsVisibleChanged="OnChatInputVisibleChanged" PreviewKeyDown="OnChatInputKeyDown"
                                          AutomationProperties.Name="{loc:T Zh='輸入訊息給 SenseEase AI', En='Message SenseEase AI'}"/>
-                            </Border>
-                            <Border x:Name="inputNeonRim" CornerRadius="9" Margin="-1" VerticalAlignment="Bottom"
-                                    IsHitTestVisible="False" BorderBrush="{DynamicResource Popup.Blue}"
-                                    BorderThickness="1.5" Opacity="0">
-                                <Border.Style>
-                                    <Style TargetType="Border">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=ChatInput}" Value="True">
-                                                <DataTrigger.EnterActions>
-                                                    <BeginStoryboard><Storyboard>
-                                                        <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0.55" Duration="0:0:0.14"/>
-                                                    </Storyboard></BeginStoryboard>
-                                                </DataTrigger.EnterActions>
-                                                <DataTrigger.ExitActions>
-                                                    <BeginStoryboard><Storyboard>
-                                                        <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.09"/>
-                                                    </Storyboard></BeginStoryboard>
-                                                </DataTrigger.ExitActions>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                            </Border>
-                        </Grid>
+                                <!-- Placeholder watermark — shown only while the field is empty (driven by
+                                     the TextBox's own Text); non-interactive so clicks fall through to the input. -->
+                                <TextBlock IsHitTestVisible="False" Padding="9,6" FontSize="13"
+                                           VerticalAlignment="Center" Foreground="{DynamicResource Popup.Ink2}"
+                                           Text="{loc:T Zh='有不舒服都可以說！', En='Tell me how you feel.'}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=ChatInput}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
 
                         <!-- send / stop, with a soft accent glow behind the chip (brightens while a reply
                              is generating). The Button (Send↔Stop command + icon morph) is verbatim. -->
@@ -558,9 +487,6 @@
                         </Grid>
                     </Grid>
 
-                    <!-- keymap hint — documents the already-live Enter / Shift+Enter behaviour. -->
-                    <TextBlock Margin="2,5,0,0" FontSize="11" Foreground="{DynamicResource Popup.Ink2}"
-                               Text="{loc:T Zh='Shift+Enter 換行 · Enter 送出', En='Shift+Enter for new line · Enter to send'}"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -574,8 +500,8 @@
                 VerticalAlignment="Bottom" HorizontalAlignment="Right" Panel.ZIndex="10"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,1"
                 Background="{DynamicResource Popup.BarBg}" BorderBrush="{DynamicResource Popup.Bdr}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.sm}" Padding="11,11,11,11"
-                Effect="{StaticResource Elev.3}">
+                BorderThickness="1" CornerRadius="{StaticResource Radius.sm}" Padding="11,11,11,11">
+            <!-- R3-6: no DropShadowEffect (see ChatPanel note) — kills the ClearType re-raster flash. -->
             <Border.RenderTransform><ScaleTransform x:Name="SettingsScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <StackPanel>
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
@@ -604,9 +530,8 @@
                 Background="{DynamicResource Popup.BarBg}"
                 BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.md}"
-                Effect="{StaticResource Elev.3}"
                 RenderTransformOrigin="1,0.5"
-                MouseLeftButtonDown="OnBarMouseDown">
+                MouseLeftButtonDown="OnBarMouseDown"><!-- R3-6: no DropShadowEffect (ClearType re-raster flash) -->
             <!-- The whole bar background is still a drag surface (OnBarMouseDown), but it no longer
                  wears a SizeNS cursor — that over-implied EVERY control was drag-adjustable and
                  confused the user. The vertical drag is now advertised by ONE explicit grip handle at
@@ -647,21 +572,33 @@
                          → mildly soft at this size; HighQuality scaling softens the upscale. Dims when
                          paused so ON/OFF reads from the mark itself (no blue chip). -->
                     <Grid Width="28" Height="28">
-                        <!-- ACTIVE neon ring (R3 #1): the SenseEase mark GLOWS an accent ring while
-                             protection is ON; the ring (and mark) dim away when paused. -->
-                        <Border CornerRadius="14" BorderBrush="{DynamicResource Popup.Blue}"
-                                BorderThickness="1.5" IsHitTestVisible="False">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Setter Property="Opacity" Value="0.9"/>
+                        <!-- ACTIVE state = a soft blue GLOW around the SenseEase mark while protection is
+                             ON. R3-6: the glow is a STATIC radial-gradient halo (an Ellipse), NOT a
+                             DropShadowEffect. In software-render mode an Effect allocates an offscreen
+                             buffer that DISABLES ClearType + re-rasters on every toggle — so the old
+                             DropShadow flashed the bar each time PlayPause flipped IsPaused. The halo's
+                             Opacity (not an Effect) toggles with IsPaused — cheap, no render target, no
+                             flash — mirroring the slider-thumb glow pattern already used in this file. -->
+                        <Ellipse Width="32" Height="32" IsHitTestVisible="False"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Ellipse.Fill>
+                                <RadialGradientBrush>
+                                    <GradientStop Color="{DynamicResource Popup.NeonGlowColor}"     Offset="0.0"/>
+                                    <GradientStop Color="{DynamicResource Popup.NeonGlowColor}"     Offset="0.45"/>
+                                    <GradientStop Color="{DynamicResource Popup.NeonGlowColorEdge}" Offset="1.0"/>
+                                </RadialGradientBrush>
+                            </Ellipse.Fill>
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Opacity" Value="0.85"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsPaused}" Value="True">
                                             <Setter Property="Opacity" Value="0"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </Border.Style>
-                        </Border>
+                            </Ellipse.Style>
+                        </Ellipse>
                         <Image Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
                                Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center"
                                RenderOptions.BitmapScalingMode="HighQuality">
@@ -684,6 +621,10 @@
                      handle routes a TwoWay IntensityLevel to the absolute setter. Top = stronger. -->
                 <StackPanel x:Name="MeterSection" HorizontalAlignment="Center"
                             Visibility="Collapsed" ClipToBounds="True">
+                    <!-- R3-5: a TranslateTransform the expand/collapse animates (Y rise/sink) instead of
+                         Height — transforms composite fine in software-render mode, Height re-ran layout
+                         + a native window resize every frame (the old "jerky" growth). -->
+                    <StackPanel.RenderTransform><TranslateTransform x:Name="MeterShift"/></StackPanel.RenderTransform>
                     <Border Height="1" Width="22" Margin="0,5" Background="{DynamicResource Popup.OnBarDim}" Opacity="0.30"/>
                     <Slider x:Name="IntensitySlider" Style="{StaticResource PopupIntensitySlider}"
                             Height="128" HorizontalAlignment="Center" Margin="0,2"
@@ -708,6 +649,7 @@
                      needed, so a keep-open pin is unnecessary; the bar is always dismissible.) -->
                 <StackPanel x:Name="ToolsSection" HorizontalAlignment="Center"
                             Visibility="Collapsed" ClipToBounds="True">
+                    <StackPanel.RenderTransform><TranslateTransform x:Name="ToolsShift"/></StackPanel.RenderTransform>
                     <Button x:Name="SettingsBtn" Style="{StaticResource BarIconBtn}" Command="{Binding ToggleSettingsCommand}"
                             ToolTip="{loc:T Zh='快速設定', En='Quick settings'}"
                             AutomationProperties.Name="{loc:T Zh='設定', En='Settings'}">
@@ -743,10 +685,11 @@
                      the vertical-only DragMove (mouse) / the window touch path (touch); the condensed
                      bar is still draggable from its background via the same handler. -->
                 <Border x:Name="DragHandle" Cursor="SizeNS" Background="Transparent"
-                        Visibility="Collapsed"
+                        Visibility="Collapsed" ClipToBounds="True"
                         HorizontalAlignment="Center" Margin="0,-2,0,0" Padding="8,3"
                         ToolTip="{loc:T Zh='拖曳調整上下位置', En='Drag to move up / down'}"
                         AutomationProperties.Name="{loc:T Zh='拖曳調整工具列上下位置', En='Drag the bar up or down'}">
+                    <Border.RenderTransform><TranslateTransform x:Name="DragShift"/></Border.RenderTransform>
                     <Border.Style>
                         <Style TargetType="Border">
                             <!-- R3 #4: TWO short rules (a single line confused as a 'minus'); small +

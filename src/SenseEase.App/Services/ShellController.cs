@@ -106,7 +106,7 @@ public sealed class ShellController : IShellController
     public void ToggleGlassPopupBar()
     {
         EnsurePopup();
-        if (_popup!.IsVisible) _popup.Hide();
+        if (_popup!.IsVisible) _popup.DismissToHandle(); // condensed-baseline hide (no reopen flash) + VM reset
         else ShowPopup(TrayGraceMs);
     }
 
@@ -196,17 +196,20 @@ public sealed class ShellController : IShellController
     {
         if (_popup is null) return;
         var work = SystemParameters.WorkArea;
-        // The bar docks near the right edge (the handle is hidden while it is up, so no gap is
-        // needed for it); a few px of breathing room lets the Elev.3 glass shadow show.
+        // R3-7: the popup window is a FIXED 360x496 that never resizes (so a layered-window resize can't
+        // flash). Its content (RootGrid) hugs the right edge + is vertically centred inside it, so docking
+        // the WINDOW right with a small gap puts the bar a few px from the screen edge.
         const double edgeGap = 4.0;
         _popup.Left = Math.Max(work.Left, work.Right - _popup.ActualWidth - edgeGap);
 
-        // #3/#5: anchor by the bar's CENTRE (drag up/down; default = screen centre). Deriving Top
-        // from the centre each time means a resize (expand / chat-open) extends symmetrically and
-        // the always-on bar does NOT shift — it stays where the user left it.
+        // #3/#5: anchor by the bar's CENTRE (drag up/down; default = screen centre). The bar is centred in
+        // the fixed window, so the window centre = the bar centre. Clamp the BAR CENTRE on-screen (NOT the
+        // whole window — it may overflow the work area transparently), so the bar can still sit near the
+        // top/bottom edges instead of being confined to the middle by the tall fixed window.
         double centreY = TryGetSavedBarCentreY() ?? (work.Top + work.Height / 2.0);
-        double top = centreY - (_popup.ActualHeight / 2.0);
-        _popup.Top = Math.Max(work.Top, Math.Min(work.Bottom - _popup.ActualHeight, top));
+        const double barHalf = 100.0; // keeps the ~172-tall condensed bar comfortably on-screen
+        centreY = Math.Max(work.Top + barHalf, Math.Min(work.Bottom - barHalf, centreY));
+        _popup.Top = centreY - (_popup.ActualHeight / 2.0); // window centred on the bar centre (may overflow)
     }
 
     private static double? TryGetSavedBarCentreY()

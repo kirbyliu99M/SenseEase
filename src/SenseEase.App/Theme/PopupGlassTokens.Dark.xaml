@@ -16,14 +16,20 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Accent (royal blue, lightened for legibility on the slate glass) -->
-    <SolidColorBrush x:Key="Popup.Blue"      Color="#FF5B8CFF"/>
-    <SolidColorBrush x:Key="Popup.BlueHover" Color="#FF7AA2FF"/>
+    <!-- Accent (royal blue). Deepened 2026-06-18 from #5B8CFF → #3366E0 so WHITE button/bubble labels
+         clear AA 4.5:1 (white-on-#5B8CFF was only 3.16:1; on #3366E0 it is 5.1:1) while the fill still
+         reads ~3.1:1 on the slate panel. Hover deepens (not lightens) to keep white readable. The
+         brighter #5B8CFF stays as the non-text slider run (Popup.SegOn) below. -->
+    <SolidColorBrush x:Key="Popup.Blue"      Color="#FF3366E0"/>
+    <SolidColorBrush x:Key="Popup.BlueHover" Color="#FF2856C8"/>
+    <!-- Neon GLOW colour for the active on/off mark's DropShadow halo — a brighter cyan-blue so it
+         reads as a luminous glow on the dark slate glass. -->
+    <Color x:Key="Popup.NeonGlowColor">#FF5AA0FF</Color>
+    <!-- R3-6: same hue at 0 alpha — the OUTER stop of the on/off mark's radial-gradient halo, so the
+         glow fades to nothing with no dark fringe (replaces the DropShadowEffect that caused flashing). -->
+    <Color x:Key="Popup.NeonGlowColorEdge">#005AA0FF</Color>
 
-    <!-- 3-state pulse status (green / amber / red, lightened to read on the slate) -->
-    <SolidColorBrush x:Key="Popup.Low"  Color="#FF4ADE80"/>
-    <SolidColorBrush x:Key="Popup.Mid"  Color="#FFFBBF24"/>
-    <SolidColorBrush x:Key="Popup.High" Color="#FFF87171"/>
+    <!-- (Popup.Low/Mid/High removed 2026-06-18 — zero consumers after the status-dot removal.) -->
 
     <!-- Card fills — slate glass (no window acrylic → alpha bumped): BarBg ~90%, PanelBg ~95%. -->
     <SolidColorBrush x:Key="Popup.BarBg"   Color="#E6232A36"/>
@@ -49,5 +55,9 @@
     <!-- Hover/press wash for bar icon buttons (white film = a highlight over the dark glass). -->
     <SolidColorBrush x:Key="Popup.BtnHover" Color="#2EFFFFFF"/>
     <SolidColorBrush x:Key="Popup.BtnPress" Color="#21FFFFFF"/>
+
+    <!-- Glass chip rest/hover fills (NPS score tiles, ghost pills) — white film on the slate glass. -->
+    <SolidColorBrush x:Key="Popup.ChipRest"  Color="#1FFFFFFF"/>
+    <SolidColorBrush x:Key="Popup.ChipHover" Color="#33FFFFFF"/>
 
 </ResourceDictionary>

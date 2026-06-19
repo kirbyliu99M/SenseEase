@@ -22,11 +22,15 @@
     <!-- Accent (reference royal blue — reads on the light glass) -->
     <SolidColorBrush x:Key="Popup.Blue"      Color="#FF024AD8"/>
     <SolidColorBrush x:Key="Popup.BlueHover" Color="#FF0340C0"/>
+    <!-- Neon GLOW colour for the active on/off mark's DropShadow halo (a Color, not a Brush, for the
+         Effect). A vivid blue that reads as a glow on the light-blue glass. -->
+    <Color x:Key="Popup.NeonGlowColor">#FF2E7BFF</Color>
+    <!-- R3-6: same hue at 0 alpha — the OUTER stop of the on/off mark's radial-gradient halo, so the
+         glow fades to nothing with no fringe (replaces the DropShadowEffect that caused flashing). -->
+    <Color x:Key="Popup.NeonGlowColorEdge">#002E7BFF</Color>
 
-    <!-- 3-state pulse status (reference saturated green / amber / red — read on light glass) -->
-    <SolidColorBrush x:Key="Popup.Low"  Color="#FF22C55E"/>
-    <SolidColorBrush x:Key="Popup.Mid"  Color="#FFF59E0B"/>
-    <SolidColorBrush x:Key="Popup.High" Color="#FFEF4444"/>
+    <!-- (Popup.Low/Mid/High 3-state status hues removed 2026-06-18 — zero consumers after the
+         status-dot + converters were dropped in the bar restructure; the slider uses SegOn/SegOff.) -->
 
     <!-- Card fills — frosted light-blue glass (reference rgba(210,224,255)/(215,228,252), alpha
          bumped since there is no window-wide acrylic blur): BarBg ~90%, PanelBg ~95%. -->
@@ -37,9 +41,12 @@
     <!-- Assistant chat bubble — a soft navy wash on the light glass (Claude-style light-grey bubble). -->
     <SolidColorBrush x:Key="Popup.BotBubbleBg" Color="#1F061030"/>
 
-    <!-- Ink ramp on PANELS — DARK navy (reference rgba(6,16,48, .88/.52/.30)) on the light glass. -->
+    <!-- Ink ramp on PANELS — DARK navy on the light glass. Ink2 alpha raised 0x85→0xA6 (2026-06-18)
+         so secondary-text usages (NPS comment/wordmark, consent "Not now") clear AA 4.5:1 on the very
+         light panel (the old 0x85 measured 3.59:1); now ~5.3:1, still clearly below Ink1's emphasis.
+         Ink3 stays a faint hairline token (divider use only — NOT text). -->
     <SolidColorBrush x:Key="Popup.Ink1" Color="#E0061030"/>
-    <SolidColorBrush x:Key="Popup.Ink2" Color="#85061030"/>
+    <SolidColorBrush x:Key="Popup.Ink2" Color="#A6061030"/>
     <SolidColorBrush x:Key="Popup.Ink3" Color="#4D061030"/>
 
     <!-- Text/glyph ON the bar — DARK navy (the light-blue bar reads LIGHT over the desktop). -->
@@ -53,5 +60,11 @@
     <!-- Hover/press wash for bar icon buttons (a faint DARK film = a press highlight on light glass). -->
     <SolidColorBrush x:Key="Popup.BtnHover" Color="#14061030"/>
     <SolidColorBrush x:Key="Popup.BtnPress" Color="#1F061030"/>
+
+    <!-- Glass chip rest/hover fills (NPS score tiles, ghost pills). Per-theme so the resting chip
+         doesn't vanish: a faint NAVY film reads on the light-blue glass here; the .Dark variant uses
+         a white film. -->
+    <SolidColorBrush x:Key="Popup.ChipRest"  Color="#1F061030"/>
+    <SolidColorBrush x:Key="Popup.ChipHover" Color="#33061030"/>
 
 </ResourceDictionary>

@@ -45,6 +45,26 @@ public class TokenContrastTests
         AssertAllPairs(dark, dark, "dark");
     }
 
+    [Fact]
+    public void WhiteTextOnAccentFill_ClearsWcagAa()
+    {
+        // Coverage gap closed (2026-06-18): the brand Accent (#4B6EF5 light / #7C8CF8 dark) is for
+        // accent IDENTITY (dots, rings, accent text) and is intentionally NOT asserted here — white
+        // on it is only 4.33:1 / 3.02:1. White-text primary-button FILLS must use AccentStrong; this
+        // guards that token so a future re-tint can't reintroduce an unreadable white-on-fill button.
+        foreach (var (file, palette) in new[] { ("SenseEaseTheme.xaml", "light"), ("Palette.Dark.xaml", "dark") })
+        {
+            var tokens = ParseBrushes(Path.Combine(ThemeDir(), file));
+            Assert.True(tokens.ContainsKey("TextOnComfort"), $"[{palette}] missing TextOnComfort token.");
+            Assert.True(tokens.ContainsKey("AccentStrong"),
+                $"[{palette}] missing AccentStrong (the white-text-fill accent token).");
+            double ratio = ContrastRatio(tokens["TextOnComfort"], tokens["AccentStrong"]);
+            Assert.True(ratio >= AaNormal,
+                $"[{palette}] TextOnComfort on AccentStrong contrast {ratio:0.00}:1 is below WCAG AA 4.5:1. " +
+                "Deepen AccentStrong until white text on the fill clears 4.5:1.");
+        }
+    }
+
     private static void AssertAllPairs(
         IReadOnlyDictionary<string, (int r, int g, int b)> textSource,
         IReadOnlyDictionary<string, (int r, int g, int b)> surfaceSource,

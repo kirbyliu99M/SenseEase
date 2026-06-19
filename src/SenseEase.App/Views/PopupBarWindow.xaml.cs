@@ -167,84 +167,173 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (DataContext is not PopupBarViewModel vm) return;
         if (e.PropertyName == nameof(PopupBarViewModel.IsChatOpen))
         {
-            // Activate ONLY when the chat opens, so the input can take keyboard focus — the bar
-            // itself is shown non-activating (ShowActivated=False) to avoid stealing focus.
-            if (vm.IsChatOpen) Activate();
-            AnimateCard(ChatPanel, ChatScale, vm.IsChatOpen, () => vm.IsChatOpen);
+            // #2: unfurl LEFT out of the bar. Activate ONLY when chat opens so the input takes keyboard
+            // focus (the bar is ShowActivated=False to avoid stealing focus). #4 clean swap: OpenPanelCleanly
+            // waits for any open settings panel to finish closing before chat unfurls (never both at once).
+            if (vm.IsChatOpen) { Activate(); OpenPanelCleanly(ChatPanel, ChatScale, SettingsFlyout, () => vm.IsChatOpen); }
+            else AnimateCard(ChatPanel, ChatScale, false, () => vm.IsChatOpen, PanelUnfurlScaleX, PanelUnfurlScaleY);
         }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsSettingsOpen))
         {
-            AnimateCard(SettingsFlyout, SettingsScale, vm.IsSettingsOpen, () => vm.IsSettingsOpen);
+            if (vm.IsSettingsOpen) OpenPanelCleanly(SettingsFlyout, SettingsScale, ChatPanel, () => vm.IsSettingsOpen); // #3 + #4
+            else AnimateCard(SettingsFlyout, SettingsScale, false, () => vm.IsSettingsOpen, PanelUnfurlScaleX, PanelUnfurlScaleY);
         }
         else if (e.PropertyName == nameof(PopupBarViewModel.IsExpanded))
         {
-            // #8: STRETCH the bar — animate the expanding sections' HEIGHT (+ a fade) so the bar
-            // visibly grows/shrinks instead of snapping. The window is SizeToContent, so growing the
-            // content height grows the window with it (we animate the WPF content, not the native
-            // window frame — the recommended approach). The centre-anchor keeps it from shifting.
+            // R3-6 (#1): the bar STRETCHES open from the centre — the sections' height unfolds within a
+            // pinned window, with no opacity/cache/Effect render targets, so it is smooth AND flash-free
+            // (see AnimateExpandSections).
             AnimateExpandSections(vm.IsExpanded);
         }
     }
 
-    // #8 expand/collapse stretch durations (ease-out grow, snappier ease-in shrink).
-    private static readonly Duration ExpandDur   = new(TimeSpan.FromMilliseconds(240));
-    private static readonly Duration CollapseDur = new(TimeSpan.FromMilliseconds(170));
-
-    /// <summary>#8: grow (or shrink) the FULL-only sections by animating their Height 0↔natural plus
-    /// an opacity fade, so the bar stretches smoothly. Code-behind owns their Visibility (the XAML
-    /// binding was removed) so the collapse can finish its animation before the element leaves layout.
-    /// ReducedMotion snaps. The sections ClipToBounds so content never spills during the grow.</summary>
-    private void AnimateExpandSections(bool expand)
+    /// <summary>#4 clean swap: open <paramref name="card"/>, but if the OTHER panel is still on screen (it
+    /// was just told to close) wait for its close to finish first — so the two panels never animate at once
+    /// (the old simultaneous open+close "conflict"). One panel at a time, sequenced, no flash.</summary>
+    private void OpenPanelCleanly(FrameworkElement card, ScaleTransform scale, FrameworkElement other, Func<bool> stillOpen)
     {
-        foreach (var s in new FrameworkElement?[] { MeterSection, ToolsSection, DragHandle })
-            AnimateSectionHeight(s, expand);
+        void DoOpen() { if (stillOpen()) AnimateCard(card, scale, true, stillOpen, PanelUnfurlScaleX, PanelUnfurlScaleY); }
+        if (other.Visibility == Visibility.Visible)
+        {
+            // The other panel's close animation runs CardCloseDur; open this one only once it has finished.
+            var t = new System.Windows.Threading.DispatcherTimer { Interval = CardCloseDur.TimeSpan };
+            t.Tick += (s, _) => { ((System.Windows.Threading.DispatcherTimer)s!).Stop(); DoOpen(); };
+            t.Start();
+        }
+        else DoOpen();
     }
 
-    private void AnimateSectionHeight(FrameworkElement? s, bool expand)
+    // R3-7: cap the expand/collapse Height animation to an EVEN frame rate (divisor of 60/120Hz) so the
+    // software-rendered layout animation keeps a consistent cadence instead of dropping frames (the "frame
+    // lag"). Tunable: raise toward 60 if the machine renders it smoothly, lower if it still judders.
+    private const int ExpandFps = 30;
+    // R3-7b: the content fade+slide that MASKS the stepped Height (see AnimateExpandSections). This dip is
+    // how far the unfolding content rises into place — small so it reads as a settle, not a jump.
+    private const double SectionSlide = 8.0;
+
+    /// <summary>R3-7 (centred stretch, flash-free): the bar STRETCHES open from its centre by animating the
+    /// FULL-only sections' HEIGHT inside their ClipToBounds (controls "unfold" — a blind wiping open). The
+    /// WINDOW is a FIXED size and never resizes (resizing a layered window = the flash); RootGrid is
+    /// right+centre-aligned inside it, so growing the bar's content stretches the glass up AND down from the
+    /// centre WITHIN the fixed window — no window resize, no re-anchor, no pin needed. No opacity/cache/Effect
+    /// render targets (those flip ClearType / re-raster). ReducedMotion snaps; the Completed re-check makes
+    /// latest-call-win on a rapid toggle.</summary>
+    private void AnimateExpandSections(bool expand)
     {
-        if (s is null) return;
-        s.BeginAnimation(HeightProperty, null);
-        s.BeginAnimation(OpacityProperty, null);
+        // (El, slide transform, fade?) — the FULL-only sections. DragHandle's opacity is Style-owned
+        // (0.3 rest / 0.6 hover), so it SLIDES but does not opacity-fade.
+        var items = new (FrameworkElement? El, TranslateTransform Shift, bool Fade)[]
+        {
+            (MeterSection, MeterShift, true),
+            (ToolsSection, ToolsShift, true),
+            (DragHandle,   DragShift,  false),
+        };
 
         if (AccessibilityHelper.ReducedMotion())
         {
-            s.Height = double.NaN; // auto
-            s.Opacity = 1;
-            s.Visibility = expand ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var (el, shift, fade) in items)
+            {
+                if (el is null) continue;
+                el.BeginAnimation(HeightProperty, null); el.Height = double.NaN;
+                shift.BeginAnimation(TranslateTransform.YProperty, null); shift.Y = 0;
+                if (fade) { el.BeginAnimation(OpacityProperty, null); el.Opacity = 1; }
+                el.Visibility = expand ? Visibility.Visible : Visibility.Collapsed;
+            }
             return;
         }
 
-        var ease = new QuinticEase { EasingMode = expand ? EasingMode.EaseOut : EasingMode.EaseIn };
+        // R3-7b smoothness: the bar STRETCHES by animating section Height = per-frame LAYOUT, which the
+        // AllowsTransparency SOFTWARE renderer can't push at 60fps → the residual "frame lag". A BlurEffect
+        // to soften it is OFF-LIMITS (an Effect re-allocates the surface = the flash we removed). Instead we
+        // MASK the stepped height: the GLASS height grows on a CAPPED, even cadence (ExpandFps — cheap, and
+        // low-detail so its steps are tolerable), while the high-detail CONTENT fades + slides into place on a
+        // SMOOTH, uncapped, fully-composited animation (no layout, no render target). The eye tracks the fluid
+        // fade/slide and stops reading the height steps. Gentle CubicEase spreads deltas; ReducedMotion snaps.
+        var ease = new CubicEase { EasingMode = expand ? EasingMode.EaseOut : EasingMode.EaseIn };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(expand ? 260 : 170));
+
         if (expand)
         {
-            s.Visibility = Visibility.Visible;
-            s.Height = double.NaN; // measure the natural height
-            s.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double target = s.DesiredSize.Height;
-            s.Opacity = 0;
-            s.Height = 0;
-            var h = new DoubleAnimation(0, target, ExpandDur) { EasingFunction = ease };
-            h.Completed += (_, _) => { s.BeginAnimation(HeightProperty, null); s.Height = double.NaN; };
-            s.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, ExpandDur) { EasingFunction = ease });
-            s.BeginAnimation(HeightProperty, h);
+            // Measure natural heights (Measure only — no Arrange/paint → no flash), then animate 0→natural.
+            foreach (var (el, _, _) in items)
+            {
+                if (el is null) continue;
+                el.Visibility = Visibility.Visible;
+                el.Height = double.NaN;
+                el.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            }
+            bool hooked = false;
+            foreach (var (el, shift, fade) in items)
+            {
+                if (el is null) continue;
+                double target = el.DesiredSize.Height;
+                el.Height = 0;
+
+                // Glass stretch — Height (layout), capped to an even cadence.
+                var h = new DoubleAnimation(0, target, dur) { EasingFunction = ease };
+                Timeline.SetDesiredFrameRate(h, ExpandFps);
+                if (!hooked)
+                {
+                    hooked = true;
+                    h.Completed += (_, _) =>
+                    {
+                        if (DataContext is PopupBarViewModel v && !v.IsExpanded) return; // collapsed mid-grow
+                        foreach (var (e2, _, _) in items)
+                            if (e2 is not null) { e2.BeginAnimation(HeightProperty, null); e2.Height = double.NaN; }
+                    };
+                }
+                el.BeginAnimation(HeightProperty, h);
+
+                // Content mask — fade + slide, SMOOTH (uncapped, composited): rises from +SectionSlide → 0.
+                shift.BeginAnimation(TranslateTransform.YProperty, null); shift.Y = SectionSlide;
+                shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(SectionSlide, 0, dur) { EasingFunction = ease });
+                if (fade)
+                {
+                    el.BeginAnimation(OpacityProperty, null); el.Opacity = 0;
+                    el.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+                }
+            }
         }
         else
         {
-            double from = s.ActualHeight;
-            var h = new DoubleAnimation(from, 0, CollapseDur) { EasingFunction = ease };
-            h.Completed += (_, _) =>
+            bool hooked = false;
+            foreach (var (el, shift, fade) in items)
             {
-                s.BeginAnimation(HeightProperty, null);
-                s.Visibility = Visibility.Collapsed;
-                s.Height = double.NaN;
-                s.Opacity = 1;
-            };
-            s.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0, CollapseDur) { EasingFunction = ease });
-            s.BeginAnimation(HeightProperty, h);
+                if (el is null) continue;
+                double from = el.ActualHeight;
+                var h = new DoubleAnimation(from, 0, dur) { EasingFunction = ease };
+                Timeline.SetDesiredFrameRate(h, ExpandFps);
+                if (!hooked)
+                {
+                    hooked = true;
+                    h.Completed += (_, _) =>
+                    {
+                        if (DataContext is PopupBarViewModel v && v.IsExpanded) return; // re-expanded mid-sink
+                        foreach (var (e2, sh2, fd2) in items)
+                            if (e2 is not null)
+                            {
+                                e2.BeginAnimation(HeightProperty, null); e2.Height = double.NaN; e2.Visibility = Visibility.Collapsed;
+                                sh2.BeginAnimation(TranslateTransform.YProperty, null); sh2.Y = 0;
+                                if (fd2) { e2.BeginAnimation(OpacityProperty, null); e2.Opacity = 1; }
+                            }
+                    };
+                }
+                el.BeginAnimation(HeightProperty, h);
+
+                // Content fades + slides back down as it goes.
+                shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, SectionSlide, dur) { EasingFunction = ease });
+                if (fade) el.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0, dur) { EasingFunction = ease });
+            }
         }
     }
 
-    private void AnimateReveal() => AnimateCard(BarRoot, BarScale, open: true, stillOpen: null);
+    private void AnimateReveal()
+    {
+        // R3-7: the window is a fixed size that never resizes, so the old SizeToContent width-latch
+        // workaround (EnsureContentShrinkWrap) is gone. RootGrid (right+centre-aligned) already hugs the
+        // bar flush to the edge; just fade it in.
+        AnimateCard(BarRoot, BarScale, open: true, stillOpen: null);
+    }
 
     // Unified "Windows flyout" motion: fade + a subtle scale-up from the trigger edge. ONE easing,
     // ONE pair of durations — the bar reveal AND the chat / quick-settings cards all pop out the same
@@ -253,9 +342,20 @@ public partial class PopupBarWindow : Window, IShellSurface
     // read as a hesitant, "clumsy and deliberate" fade. ReducedMotion snaps.
     private static readonly Duration CardOpenDur  = new(TimeSpan.FromMilliseconds(230));
     private static readonly Duration CardCloseDur = new(TimeSpan.FromMilliseconds(145));
-    private const double CardScaleFrom = 0.975; // subtler scale travel = smoother settle (kept low — minimal motion)
+    private const double CardScaleFrom = 0.975; // bar reveal: subtle uniform pop (minimal motion)
+    // Chat/settings panels UNFURL leftward out of the bar (their transform origin is the right edge):
+    // a gentle ScaleX sweep + a near-still ScaleY so the panel "opens to the left" calmly. Kept subtle
+    // (0.90, not 0.80) — a deep ScaleX squashes the text and reads as a whirl under software compositing.
+    private const double PanelUnfurlScaleX = 0.90;
+    private const double PanelUnfurlScaleY = 0.97;
 
-    private void AnimateCard(FrameworkElement card, ScaleTransform scale, bool open, Func<bool>? stillOpen)
+    // R3-6: BitmapCache REMOVED. Toggling CacheMode on→null on a layered (AllowsTransparency) window
+    // re-rasterizes the element each time = a visible flicker on every open/close (web-confirmed). With
+    // the DropShadowEffects also gone (XAML), the cards are plain vector subtrees that composite fine in
+    // software mode from opacity+transform alone — no cache, no flash, and text stays ClearType-crisp.
+
+    private void AnimateCard(FrameworkElement card, ScaleTransform scale, bool open, Func<bool>? stillOpen,
+                             double fromX = CardScaleFrom, double fromY = CardScaleFrom)
     {
         if (AccessibilityHelper.ReducedMotion())
         {
@@ -272,20 +372,22 @@ public partial class PopupBarWindow : Window, IShellSurface
         {
             card.Visibility = Visibility.Visible;
             var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
-            card.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, CardOpenDur) { EasingFunction = ease });
-            var s = new DoubleAnimation(CardScaleFrom, 1, CardOpenDur) { EasingFunction = ease };
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, s);
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, s);
+            var fadeIn = new DoubleAnimation(0, 1, CardOpenDur) { EasingFunction = ease };
+            card.BeginAnimation(OpacityProperty, fadeIn);
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(fromX, 1, CardOpenDur) { EasingFunction = ease });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(fromY, 1, CardOpenDur) { EasingFunction = ease });
         }
         else
         {
             var ease = new QuinticEase { EasingMode = EasingMode.EaseIn }; // exit a touch quicker
             var fade = new DoubleAnimation(0, CardCloseDur) { EasingFunction = ease };
-            if (stillOpen != null) fade.Completed += (_, _) => { if (!stillOpen()) card.Visibility = Visibility.Collapsed; };
+            fade.Completed += (_, _) =>
+            {
+                if (stillOpen != null && !stillOpen()) card.Visibility = Visibility.Collapsed;
+            };
             card.BeginAnimation(OpacityProperty, fade);
-            var s = new DoubleAnimation(CardScaleFrom, CardCloseDur) { EasingFunction = ease };
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, s);
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, s);
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(fromX, CardCloseDur) { EasingFunction = ease });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(fromY, CardCloseDur) { EasingFunction = ease });
         }
     }
 
@@ -293,17 +395,46 @@ public partial class PopupBarWindow : Window, IShellSurface
     {
         if (IsVisible)
         {
+            _pendingHide = false; // a reveal cancels any in-flight deferred condensed-hide
             // Prime _prevLeftDown TRUE: the reveal itself was a click (handle / tray), and the button
             // may still be down on the first tick — don't let that held press count as a fresh
             // outside-click that instantly re-collapses the bar. Only a NEW press dismisses.
             _farTicks = 0; _prevLeftDown = true; _autoClose.Start();
-            // #2 (tremble): keep the bar invisible, then DEFER the reveal fade one layout pass so
-            // SizeToContent has settled the window position — otherwise it visibly jitters as it sizes.
+            // #2 (tremble) + R3-5 (flash): keep the bar HIDDEN (not just opacity 0 — Hidden never
+            // paints, so it can't flash at full state for one frame before the fade), then DEFER the
+            // reveal one layout pass so SizeToContent settles the window position first. AnimateReveal →
+            // AnimateCard flips it back Visible and fades it in.
             BarRoot.BeginAnimation(OpacityProperty, null);
             BarRoot.Opacity = 0;
+            BarRoot.Visibility = Visibility.Hidden;
             Dispatcher.BeginInvoke(new Action(AnimateReveal), System.Windows.Threading.DispatcherPriority.Loaded);
         }
-        else _autoClose.Stop();
+        else { _autoClose.Stop(); ResetExpandStateForHide(); }
+    }
+
+    /// <summary>On hide, force the expand/pin state back to a clean condensed baseline so the NEXT reveal
+    /// opens correctly even when the bar was hidden mid expand/collapse (an instant dismiss interrupts the
+    /// collapse animation, which would otherwise leave the sections half-grown and the window pinned).</summary>
+    private void ResetExpandStateForHide()
+    {
+        try
+        {
+            _fadingOut = false;
+            // P4: reset the idle-fade target (RootGrid, not the Window) so the next reveal is fully opaque.
+            RootGrid.BeginAnimation(OpacityProperty, null); RootGrid.Opacity = 1;
+            // Clear reveal/expand transforms so the next reveal opens condensed + clean.
+            BarRoot.BeginAnimation(OpacityProperty, null); // value re-set to 0 by OnVisibleChanged on next show
+            BarScale.BeginAnimation(ScaleTransform.ScaleXProperty, null); BarScale.ScaleX = 1;
+            BarScale.BeginAnimation(ScaleTransform.ScaleYProperty, null); BarScale.ScaleY = 1;
+            foreach (var el in new FrameworkElement?[] { MeterSection, ToolsSection, DragHandle })
+            {
+                if (el is null) continue;
+                el.BeginAnimation(HeightProperty, null); el.Height = double.NaN;
+                el.Visibility = Visibility.Collapsed;
+            }
+            // R3-7: the window is a fixed size now — do NOT touch SizeToContent (it must stay Manual).
+        }
+        catch { /* a cleanup pass must never crash the hide */ }
     }
 
     private void OnAutoCloseTick(object? sender, EventArgs e)
@@ -314,21 +445,36 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (!GetCursorPos(out POINT p)) return;
         var dpi = VisualTreeHelper.GetDpi(this);
         double cx = p.X / dpi.DpiScaleX, cy = p.Y / dpi.DpiScaleY;
-        double dx = Math.Max(0, Math.Max(Left - cx, cx - (Left + ActualWidth)));
-        double dy = Math.Max(0, Math.Max(Top - cy, cy - (Top + ActualHeight)));
+        // R3-7: the window is a fixed 360x496 that is mostly transparent; the VISIBLE content (RootGrid)
+        // hugs the right edge, vertically centred. Measure proximity to the CONTENT rect, not the window
+        // (else the bar would "stay near" across the whole 360px-wide transparent window).
+        double contentRight  = Left + ActualWidth;                       // window right = grid right (right-aligned)
+        double contentLeft   = contentRight - RootGrid.ActualWidth;      // grid hugs its content
+        double contentTop    = Top + ((ActualHeight - RootGrid.ActualHeight) / 2.0); // grid vertically centred
+        double contentBottom = contentTop + RootGrid.ActualHeight;
+        double dx = Math.Max(0, Math.Max(contentLeft - cx, cx - contentRight));
+        double dy = Math.Max(0, Math.Max(contentTop - cy, cy - contentBottom));
         double dist = Math.Sqrt((dx * dx) + (dy * dy));
 
-        // (1) LIGHT DISMISS — a FRESH left-click strictly outside the popup rect (the bar + any open
+        // (1) LIGHT DISMISS — a FRESH left-click strictly outside the content rect (the bar + any open
         // card) collapses it, even when the window was never activated (the bare-desktop click the
         // user expects to dismiss it, which Window.Deactivated misses). Honours the explicit dismiss
         // immediately: bypasses the reveal grace AND the panel-open hold below.
-        // dist > 0 ⇔ the cursor is outside the window rect.
+        // dist > 0 ⇔ the cursor is outside the content rect.
         bool leftDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
         bool freshClick = leftDown && !_prevLeftDown;
         _prevLeftDown = leftDown;
-        if (freshClick && dist > 0) { _farTicks = 0; CollapseToHandle(); return; }
+        if (freshClick && dist > 0) { _farTicks = 0; CollapseToHandle(fade: false); return; } // deliberate → instant
 
-        // (2) PROXIMITY — never auto-close mid-interaction (a panel open). Reset the grace so a
+        // (2) IDLE FADE in flight: a fresh outside click (handled above) closes instantly; the cursor
+        // RETURNING to the bar aborts the fade and keeps it open. Otherwise let the fade run to completion.
+        if (_fadingOut)
+        {
+            if (dist <= CloseMarginDip) { CancelIdleFade(); _farTicks = 0; }
+            return;
+        }
+
+        // (3) PROXIMITY — never auto-close mid-interaction (a panel open). Reset the grace so a
         // brief excursion while interacting doesn't collapse the moment the panel closes.
         if (vm.IsChatOpen || vm.IsSettingsOpen) { _farTicks = 0; return; }
 
@@ -336,17 +482,108 @@ public partial class PopupBarWindow : Window, IShellSurface
         if (Environment.TickCount64 < _graceUntilTick) { _farTicks = 0; return; }
 
         if (dist <= CloseMarginDip) { _farTicks = 0; return; }
-        if (++_farTicks >= CloseGraceTicks) { _farTicks = 0; CollapseToHandle(); }
+        if (++_farTicks >= CloseGraceTicks) { _farTicks = 0; CollapseToHandle(fade: true); } // idle → gentle fade
     }
 
-    /// <summary>Collapse the popup back to the discreet edge handle and reset the panels +
-    /// expand state so the next reveal opens clean. ShellController re-shows the sidebar on the
-    /// resulting IsVisibleChanged.</summary>
-    private void CollapseToHandle()
+    // #5 idle fade-out: a calm recession when the user just drifts away (vs the snappy instant close on a
+    // deliberate click elsewhere). Slightly slower than the action exits — it should feel like the surface
+    // gently stepping back, not a dismiss.
+    private static readonly Duration IdleFadeDur = new(TimeSpan.FromMilliseconds(320));
+    private bool _fadingOut;
+    private bool _pendingHide; // a condensed-baseline render is in flight before Hide() (R3-7 reopen-flash fix)
+
+    /// <summary>#5: collapse the popup back to the discreet edge handle. A DELIBERATE dismiss (a fresh
+    /// click on another window / the bare desktop, or Deactivated) closes INSTANTLY — the user made a
+    /// choice, so it should feel snappy. An IDLE dismiss (the cursor drifted away and the grace elapsed)
+    /// gently FADES the whole popup out first (a calm recession befitting a comfort tool), then hides.
+    /// ShellController re-shows the edge handle on the resulting IsVisibleChanged. ReducedMotion snaps.</summary>
+    private void CollapseToHandle(bool fade = false)
     {
+        if (fade && !AccessibilityHelper.ReducedMotion())
+        {
+            if (_fadingOut) return; // a fade is already running
+            _fadingOut = true;
+            var ease = new QuinticEase { EasingMode = EasingMode.EaseIn };
+            var a = new DoubleAnimation(1, 0, IdleFadeDur) { EasingFunction = ease };
+            a.Completed += (_, _) => { if (_fadingOut) ResetAndHide(); };
+            RootGrid.BeginAnimation(OpacityProperty, a); // P4: fade the CONTENT, not Window.Opacity (which
+            return;                                       // recomposites the whole layered surface = flash)
+        }
+        ResetAndHide(); // instant (also used to finish / override an in-flight fade)
+    }
+
+    /// <summary>Public dismiss entry for the host (ShellController hotkey / handle toggle). Routes through
+    /// the same reset + condensed-baseline hide as a click-away dismiss, so it has no reopen flash and no
+    /// VM-reset gap (a raw Hide() would leave IsExpanded/IsChatOpen set and a stale expanded surface).</summary>
+    public void DismissToHandle() => ResetAndHide();
+
+    /// <summary>Reset the open panels + expand state, then hide so the next reveal opens clean.</summary>
+    private void ResetAndHide()
+    {
+        _fadingOut = false;
+        RootGrid.BeginAnimation(OpacityProperty, null);
+        RootGrid.Opacity = 1;
         if (DataContext is PopupBarViewModel vm)
         { vm.IsChatOpen = false; vm.IsSettingsOpen = false; vm.IsExpanded = false; }
-        Hide();
+        HideToCondensed();
+    }
+
+    /// <summary>R3-7 reopen-flash fix: collapse the bar to its condensed baseline INSTANTLY, let the layered
+    /// window render that condensed frame into its surface, and ONLY THEN hide. A layered (AllowsTransparency)
+    /// window keeps its last-rendered bitmap across Hide→Show; the collapse-on-hide reset (ResetExpandStateForHide)
+    /// runs while the window is already hidden, so it never renders — leaving the EXPANDED bitmap in the surface,
+    /// which the next reveal flashes before WPF re-renders. Deferring Hide by two render frames lands the
+    /// condensed frame in the surface first. The deferred hide is cancelled if a reveal arrives meanwhile.</summary>
+    private void HideToCondensed()
+    {
+        ForceCondensedBaseline();          // bar is now condensed; let it render before we hide
+        if (AccessibilityHelper.ReducedMotion()) { Hide(); return; } // no motion → no surface-staleness concern worth the defer
+        _pendingHide = true;
+        int frames = 0;
+        EventHandler? onRender = null;
+        onRender = (_, _) =>
+        {
+            if (!_pendingHide) { System.Windows.Media.CompositionTarget.Rendering -= onRender; return; } // a reveal cancelled it
+            if (++frames < 2) return;       // wait until the condensed frame has actually composed into the surface
+            System.Windows.Media.CompositionTarget.Rendering -= onRender;
+            _pendingHide = false;
+            Hide();
+        };
+        System.Windows.Media.CompositionTarget.Rendering += onRender;
+    }
+
+    /// <summary>Collapse the expand sections + any open panel to the condensed baseline INSTANTLY (cancel
+    /// animations) AND blank BarRoot, so the pre-hide render leaves the layered surface BLANK (not the
+    /// expanded bar — the reopen flash — and not the condensed bar either, which the reveal would show as a
+    /// stale frame BEFORE the fade-in = a double flash on appearance). Blank → reveal shows nothing →
+    /// AnimateReveal fades the condensed bar in cleanly, a single appearance.</summary>
+    private void ForceCondensedBaseline()
+    {
+        foreach (var el in new FrameworkElement?[] { MeterSection, ToolsSection, DragHandle })
+        {
+            if (el is null) continue;
+            el.BeginAnimation(HeightProperty, null); el.Height = double.NaN; el.Visibility = Visibility.Collapsed;
+        }
+        foreach (var (card, scale) in new (FrameworkElement card, ScaleTransform scale)[] { (ChatPanel, ChatScale), (SettingsFlyout, SettingsScale) })
+        {
+            card.BeginAnimation(OpacityProperty, null); card.Opacity = 0; card.Visibility = Visibility.Collapsed;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null); scale.ScaleX = 1;
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null); scale.ScaleY = 1;
+        }
+        BarScale.BeginAnimation(ScaleTransform.ScaleXProperty, null); BarScale.ScaleX = 1;
+        BarScale.BeginAnimation(ScaleTransform.ScaleYProperty, null); BarScale.ScaleY = 1;
+        // Blank BarRoot so the pre-hide frame carries NO visible bar — the reveal then has a clean blank
+        // surface to fade into (OnVisibleChanged re-asserts Opacity=0 + Hidden; AnimateReveal fades it in).
+        BarRoot.BeginAnimation(OpacityProperty, null); BarRoot.Opacity = 0;
+    }
+
+    /// <summary>Abort an in-flight idle fade (the cursor came back to the bar) and restore it to rest.</summary>
+    private void CancelIdleFade()
+    {
+        if (!_fadingOut) return;
+        _fadingOut = false;
+        RootGrid.BeginAnimation(OpacityProperty, null);
+        RootGrid.Opacity = 1;
     }
 
     private void OnDeactivated(object? sender, EventArgs e)
@@ -376,14 +613,31 @@ public partial class PopupBarWindow : Window, IShellSurface
     private void OnChatInputKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != System.Windows.Input.Key.Enter) return;
-        // R3 #3a: Shift+Enter inserts a newline (the input is AcceptsReturn=True, so the default
-        // handles the insert) — only PLAIN Enter sends.
+        // Wired to PreviewKeyDown (NOT KeyDown): with AcceptsReturn=True the TextBox's own class handler
+        // eats PLAIN Enter (inserts a newline + marks it Handled) during the bubbling KeyDown, so a
+        // bubbling handler never saw plain Enter — only Ctrl+Enter (which AcceptsReturn ignores) reached
+        // it, which is why send "needed" Ctrl+Enter. The tunnelling Preview runs FIRST, so we intercept
+        // plain Enter here and send. Shift+Enter is left un-handled so the TextBox inserts a newline.
+        // IME-safe: a composing Enter arrives as Key.ImeProcessed (not Key.Enter), so it never sends.
         if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0) return;
+        // Plain Enter must NEVER insert a newline (AcceptsReturn would, since Preview tunnels first), so
+        // mark it Handled UNCONDITIONALLY — then send only if the composer can (non-empty, not generating,
+        // not paused). On an empty / mid-stream composer plain Enter is a clean no-op, not a stray blank line.
+        e.Handled = true;
         if (DataContext is PopupBarViewModel { Chat: { } chat } && chat.SendCommand.CanExecute(null))
-        {
             chat.SendCommand.Execute(null);
-            e.Handled = true;
-        }
+    }
+
+    /// <summary>Auto-scroll the chat to the newest content as it arrives (a reply streaming in, or a new
+    /// bubble) — but ONLY when the user is already near the bottom, so scrolling up to read history is
+    /// never yanked away. Fires on content growth, not on the user's own scrolling. View-only.</summary>
+    private void OnChatScrollChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
+    {
+        if (e.ExtentHeightChange <= 0) return;                         // react to content growth only
+        if (sender is not System.Windows.Controls.ScrollViewer sv) return;
+        double bottomBefore = e.ExtentHeight - e.ExtentHeightChange;   // where "bottom" was before the add
+        if (e.VerticalOffset + e.ViewportHeight >= bottomBefore - 24)  // were we within ~24px of it?
+            sv.ScrollToBottom();
     }
 
     // ── #3 vertical-only drag (with a small threshold) + centre persist ─────────────
@@ -538,10 +792,17 @@ public partial class PopupBarWindow : Window, IShellSurface
     public (int Left, int Top, int Width, int Height) GetMonitorRectInPhysicalPixels()
     {
         var dpi = VisualTreeHelper.GetDpi(this);
-        int left = (int)Math.Floor(Left * dpi.DpiScaleX);
-        int top = (int)Math.Floor(Top * dpi.DpiScaleY);
-        int width = (int)Math.Ceiling(ActualWidth * dpi.DpiScaleX);
-        int height = (int)Math.Ceiling(ActualHeight * dpi.DpiScaleY);
+        // R3-7: the window is a FIXED 360x496 but mostly transparent — exclude only the VISIBLE content
+        // (RootGrid, right-aligned + vertically centred), not the whole window, so the WGC capture/OFI
+        // doesn't ignore the empty desktop region around the bar.
+        double cw = RootGrid.ActualWidth, ch = RootGrid.ActualHeight;
+        if (cw <= 0 || ch <= 0) { cw = ActualWidth; ch = ActualHeight; } // pre-layout fallback
+        double cLeftDip = Left + ActualWidth - cw;                  // grid right-aligned to the window right
+        double cTopDip  = Top + ((ActualHeight - ch) / 2.0);        // grid vertically centred
+        int left   = (int)Math.Floor(cLeftDip * dpi.DpiScaleX);
+        int top    = (int)Math.Floor(cTopDip * dpi.DpiScaleY);
+        int width  = (int)Math.Ceiling(cw * dpi.DpiScaleX);
+        int height = (int)Math.Ceiling(ch * dpi.DpiScaleY);
         return (left, top, width, height);
     }
 }

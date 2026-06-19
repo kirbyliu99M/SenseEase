@@ -79,7 +79,7 @@
                     Foreground="{DynamicResource TextSecondary}"
                     Click="OnCancel"/>
             <Button x:Name="OkBtn"
-                    Background="{DynamicResource Accent}"
+                    Background="{DynamicResource AccentStrong}"
                     Foreground="{DynamicResource TextOnComfort}"
                     IsDefault="True"
                     Click="OnOk"/>

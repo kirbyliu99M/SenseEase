@@ -1,5 +1,8 @@
 # R3-5 — Popup animation overhaul (execution brief, "focus fire")
 
+**Status:** ✅ IMPLEMENTED 2026-06-19 (uncommitted — Kirby commits). Build 0/0, suite 1681✓/3 skip. All of A/C/D done in `Views/PopupBarWindow.xaml(.cs)`; **B turned out moot** — removing the Height animation eliminated the per-frame `SizeChanged`→`PositionPopup` churn at the source (only ONE resize per expand/collapse now), so no `ShellController` `IsAnimating` flag was needed (adding one would have blocked the single, necessary re-center). Live-verified via computer-use: condensed/expanded/collapsed all stay centre-anchored at centre-Y 302 and flush-right (w=48); slider/gear/handle render on expand, clear on collapse. **The MOTION smoothness itself (no jitter/flash during the grow) still needs Kirby's eyes — static measurement can't judge it.**
+**(original brief below)**
+
 **Status:** READY to implement (not started). Sibling commits R3-1…R3-4 landed; build green, suite 1681✓/3 skip on `alpha1-w2-engine-integrity`.
 **Goal:** the popup reveal + condensed→full EXPAND read as smooth, NOT "flashy / jerky / jumpy".
 **Constraint that frames everything:** the popup windows use `AllowsTransparency=True` (required for the frosted-glass acrylic) → WPF falls back to **software rendering** for the whole window. This is the hard ceiling: it cannot be "silky" like a GPU-composited app, BUT **RenderTransform / Opacity animations are still composited acceptably even in software mode**, whereas anything that triggers **layout or a native window resize per frame** janks. So the rule is: **animate only RenderTransform + Opacity; never animate size/layout mid-flight; never resize the native window per frame.**

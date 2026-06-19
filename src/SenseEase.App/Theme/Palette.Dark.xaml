@@ -31,6 +31,10 @@
     <!-- Brighter indigo for dark-mode contrast on the deep canvas/surfaces. -->
     <SolidColorBrush x:Key="Accent"        Color="#7C8CF8"/>
     <SolidColorBrush x:Key="AccentHover"   Color="#98A6FF"/>
+    <!-- AccentStrong = #3366E0 in dark too (white 5.10:1; reads ~3:1 as a fill on the dark Surface,
+         and the white label carries identification). The white-text-fill token is theme-independent;
+         the brand Accent stays the brighter #7C8CF8. -->
+    <SolidColorBrush x:Key="AccentStrong"  Color="#3366E0"/>
 
     <!-- Comfort bands re-tuned for dark legibility: text-on-weak stays ≥4.5:1
          against its weak fill; weak fills sit just above the dark surface. -->

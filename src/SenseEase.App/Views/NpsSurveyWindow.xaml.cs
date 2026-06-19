@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using SenseEase.App.Accessibility;
 using SenseEase.App.Interop;
 using SenseEase.App.Services;
@@ -49,6 +50,54 @@ public partial class NpsSurveyWindow : Window, IShellSurface
         Loaded += OnThemeLoaded;
         Closed += OnThemeClosed;
         ContentRendered += OnEntrance;
+
+        // #6: after a stretch with no response the card gently FADES out (mirroring the popup bar's idle
+        // fade) instead of lingering — a calm recession, recorded as a dismissal so NpsService throttles
+        // correctly. Any interaction (move / click / key over the card) restarts the idle window, and an
+        // interaction mid-fade aborts it so a late answer is never lost.
+        _idleDismiss = new DispatcherTimer { Interval = NpsIdleTimeout };
+        _idleDismiss.Tick += OnIdleDismissTick;
+        Loaded += (_, _) => _idleDismiss.Start();
+        Closed += (_, _) => _idleDismiss.Stop();
+        PreviewMouseMove += (_, _) => RestartIdle();
+        PreviewMouseDown += (_, _) => RestartIdle();
+        PreviewKeyDown   += (_, _) => RestartIdle();
+    }
+
+    private readonly DispatcherTimer _idleDismiss;
+    private static readonly TimeSpan NpsIdleTimeout = TimeSpan.FromSeconds(15);
+    private bool _idleFading;
+
+    /// <summary>Restart the no-response idle window on any interaction. If a fade-out is already running,
+    /// abort it and restore the card to full opacity so a late answer is never lost.</summary>
+    private void RestartIdle()
+    {
+        if (_idleFading)
+        {
+            _idleFading = false;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+        }
+        _idleDismiss.Stop();
+        _idleDismiss.Start();
+    }
+
+    /// <summary>#6: the idle window elapsed with no response — fade the card out, then record it as a
+    /// dismissal (DismissCommand → NpsService.RecordDismissed + close). ReducedMotion skips the fade.</summary>
+    private void OnIdleDismissTick(object? sender, EventArgs e)
+    {
+        _idleDismiss.Stop();
+        if (_idleFading) return;
+        _idleFading = true;
+        if (AccessibilityHelper.ReducedMotion())
+        {
+            (DataContext as NpsSurveyViewModel)?.DismissCommand.Execute(null);
+            return;
+        }
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(400))) { EasingFunction = ease };
+        fade.Completed += (_, _) => { if (_idleFading) (DataContext as NpsSurveyViewModel)?.DismissCommand.Execute(null); };
+        BeginAnimation(OpacityProperty, fade);
     }
 
     /// <summary>Native toast-style entrance: the card fades + rises into place once laid out

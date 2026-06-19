@@ -40,7 +40,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="#1FFFFFFF" CornerRadius="10">
+                            <Border x:Name="bd" Background="{DynamicResource Popup.ChipRest}" CornerRadius="10">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -90,7 +90,7 @@
                  blue = unreadable). Stays a glass chip; hover just deepens the film, ink keeps
                  its contrast in both themes. -->
             <Style x:Key="NpsGhostBtn" TargetType="Button">
-                <Setter Property="Background" Value="#1FFFFFFF"/>
+                <Setter Property="Background" Value="{DynamicResource Popup.ChipRest}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Padding" Value="14,7"/>
@@ -105,7 +105,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#33FFFFFF"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.ChipHover}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -131,7 +131,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#1FFFFFFF"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.ChipHover}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -190,9 +190,9 @@
             <!-- scale anchors so 1↔5 direction is unambiguous -->
             <Grid Margin="6,6,6,0">
                 <TextBlock Text="{Binding ScaleLowLabel}"  HorizontalAlignment="Left"
-                           FontSize="11" Foreground="{DynamicResource Popup.Ink3}"/>
+                           FontSize="11" Foreground="{DynamicResource Popup.Ink2}"/>
                 <TextBlock Text="{Binding ScaleHighLabel}" HorizontalAlignment="Right"
-                           FontSize="11" Foreground="{DynamicResource Popup.Ink3}"/>
+                           FontSize="11" Foreground="{DynamicResource Popup.Ink2}"/>
             </Grid>
 
             <TextBlock Text="{Binding CommentLabel}" Margin="2,16,0,5" FontSize="12"

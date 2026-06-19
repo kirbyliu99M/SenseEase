@@ -23,8 +23,15 @@ public class DesignLintTests
     // surface migrates to tokens → 150 after the final UI-polish wave → 104 after
     // the A-D batch (M3/M14 regroup) retired #0A1F5C→TextPrimary and the banned
     // #7B8DB0→TextTertiary across SettingsContent + CalibrationCardView → 91 after
-    // the pop-up two-face compact-bar redesign (fewer, token-driven elements).
-    private const int OrphanHexBaseline = 91;
+    // the pop-up two-face compact-bar redesign (fewer, token-driven elements) → 21
+    // after the one-piece Settings glass redesign (2026-06-18): migrated the
+    // SettingsWindow close-button washes to CloseHover/ClosePressWash tokens AND
+    // re-measured the true count (the 91 had gone stale-loose — the ratchet only
+    // fails on INCREASE, so it stayed high while surfaces kept migrating to tokens)
+    // → 17 after the theme-fit audit fixes (2026-06-18): GhostPanelBtn #1A024AD8 and
+    // the four NPS chip washes (#1FFFFFFF/#33FFFFFF) migrated to per-theme Popup.Chip*
+    // tokens (also closes the alpha-prefixed banned-#024AD8 lint evasion).
+    private const int OrphanHexBaseline = 17;
 
     private static readonly Regex HexColor =
         new(@"#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})", RegexOptions.Compiled);
@@ -49,82 +56,11 @@ public class DesignLintTests
             "If you intentionally migrated a surface and the count DROPPED, set OrphanHexBaseline to the new count.");
     }
 
-    // TEST-12: Zero-tolerance scan for the three explicitly-banned hex values as
-    // LIVE assignments in production *.xaml and *.cs files. These colours
-    // (#E54747 alarm-red, #024AD8 royal-blue, #7B8DB0 banned-slate) must NEVER
-    // appear as colour values outside the Theme/ token declarations.
-    //
-    // Exemptions:
-    //   • Theme/ files — the banned-list comment in SenseEaseTheme.xaml's header
-    //     documents these values by name; the declaration is not a usage.
-    //   • All comment regions: XAML <!-- ... --> (including multi-line blocks) and
-    //     C# // lines. Historical notes referencing retired values are documentation,
-    //     not live assignments. XAML stripping removes the entire <!-- ... --> span
-    //     before scanning so interior lines of multi-line comments are excluded.
-    //   • obj/ and bin/ build artefacts.
-    //
-    // "Zero live hits" is the invariant: once a banned hex is truly retired from
-    // all production surfaces, this gate ensures it stays retired.
-    [Fact]
-    public void BannedHex_ZeroLiveOccurrencesInProductionCode()
-    {
-        var bannedPattern = new Regex(
-            @"#(?:E54747|024AD8|7B8DB0)",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-        // Strip XAML block comments (<!-- ... -->) including multi-line spans.
-        var xmlCommentPattern = new Regex(
-            @"<!--.*?-->",
-            RegexOptions.Compiled | RegexOptions.Singleline);
-
-        // Strip C# line comments (// to end-of-line). Applied line-by-line so
-        // we don't accidentally eat string literals that contain "//".
-        var csLineCommentPattern = new Regex(
-            @"//.*$",
-            RegexOptions.Compiled);
-
-        string repoRoot = FindRepoRoot();
-        var violations = new System.Collections.Generic.List<string>();
-
-        foreach (string file in Directory.EnumerateFiles(
-            Path.Combine(repoRoot, "src"), "*", SearchOption.AllDirectories))
-        {
-            string norm = file.Replace('\\', '/');
-            if (norm.Contains("/obj/") || norm.Contains("/bin/")) continue;
-
-            string ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext != ".xaml" && ext != ".cs") continue;
-
-            // Theme/ declarations document the banned list — exempt.
-            if (norm.Contains("/Theme/")) continue;
-
-            string content = File.ReadAllText(file);
-
-            // For XAML: strip all XML comment blocks before checking.
-            if (ext == ".xaml")
-            {
-                string stripped = xmlCommentPattern.Replace(content, string.Empty);
-                if (bannedPattern.IsMatch(stripped))
-                    violations.Add($"{file}: contains live banned-hex in non-comment XAML");
-                continue;
-            }
-
-            // For C#: strip line comments line-by-line, then test each line.
-            int lineNum = 0;
-            foreach (string line in content.Split('\n'))
-            {
-                lineNum++;
-                string stripped = csLineCommentPattern.Replace(line, string.Empty);
-                if (bannedPattern.IsMatch(stripped))
-                    violations.Add($"{file}:{lineNum}: {line.TrimStart()}");
-            }
-        }
-
-        Assert.True(violations.Count == 0,
-            $"Found {violations.Count} banned-hex live assignment(s) in production code " +
-            "(#E54747, #024AD8, #7B8DB0 must not appear as colour values outside Theme/ declarations):\n" +
-            string.Join("\n", violations));
-    }
+    // (TEST-12 BannedHex_ZeroLiveOccurrencesInProductionCode removed 2026-06-19, kirby:
+    //  the calm-palette taste rule it enforced — no #E54747/#024AD8/#7B8DB0 — was retired.
+    //  Colour choice is now free; only WCAG contrast (TokenContrastTests) + the OrphanHex
+    //  token-hygiene ratchet above still gate. FindRepoRoot was this test's sole user, so it
+    //  was removed too.)
 
     private static string FindAppDir()
     {
@@ -138,19 +74,5 @@ public class DesignLintTests
         }
         throw new DirectoryNotFoundException(
             "Could not locate src/SenseEase.App from " + AppContext.BaseDirectory);
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src")) &&
-                Directory.Exists(Path.Combine(dir.FullName, "tests")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException(
-            "Could not locate repo root (src/ + tests/ siblings) from " + AppContext.BaseDirectory);
     }
 }

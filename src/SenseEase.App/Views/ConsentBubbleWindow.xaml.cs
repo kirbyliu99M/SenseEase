@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using SenseEase.App.Interop;
 using SenseEase.App.Services;
+using SenseEase.App.Theme;
 
 namespace SenseEase.App.Views;
 
@@ -34,6 +35,75 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
         // No-activate (NOT click-through) — the buttons stay clickable but the bubble never grabs
         // foreground from the user's app/game. Applied once the HWND exists.
         SourceInitialized += (_, _) => { try { ClickThrough.EnableNoActivate(this); } catch { } };
+        // Track Auto/Light/Dark so the bubble adapts (it was light-token-locked: merged only the LIGHT
+        // PopupGlassTokens, so it stayed light-blue glass even in Dark mode + showed failing navy ink).
+        Loaded += OnThemeLoaded;
+        Closed += OnThemeClosed;
+    }
+
+    // ── Dark-variant theming (mirrors NpsSurveyWindow / EdgeSidebarWindow). No acrylic on this
+    //    surface, so this only swaps the Popup.* token dictionary; never throws (headless-guarded). ──
+    internal const string DarkPopupTokensUri =
+        "pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.Dark.xaml";
+
+    private void OnThemeLoaded(object? sender, RoutedEventArgs e)
+    {
+        try { ThemeManager.TrackElement(this); } catch { /* no Application in headless tests */ }
+        ApplyPopupTheme();
+        try { Configuration.UserPreferences.Changed += OnThemePrefsChanged; } catch { }
+        try { Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnThemeSystemChanged; } catch { }
+    }
+
+    private void OnThemeClosed(object? sender, EventArgs e)
+    {
+        try { ThemeManager.UntrackElement(this); } catch { }
+        try { Configuration.UserPreferences.Changed -= OnThemePrefsChanged; } catch { }
+        try { Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnThemeSystemChanged; } catch { }
+    }
+
+    private void OnThemePrefsChanged(object? sender, EventArgs e)
+    {
+        if (Dispatcher.CheckAccess()) ApplyPopupTheme();
+        else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
+    }
+
+    private void OnThemeSystemChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category != Microsoft.Win32.UserPreferenceCategory.General) return;
+        if (Dispatcher.CheckAccess()) ApplyPopupTheme();
+        else Dispatcher.BeginInvoke(new Action(ApplyPopupTheme));
+    }
+
+    /// <summary>Idempotently merge PopupGlassTokens.Dark.xaml ABOVE the light tokens when dark
+    /// (add only if absent), remove it when light. Never throws.</summary>
+    private void ApplyPopupTheme()
+    {
+        bool dark;
+        try { dark = ThemeManager.ShouldUseDark(); }
+        catch { dark = false; }
+
+        try
+        {
+            var merged = Resources.MergedDictionaries;
+            ResourceDictionary? existing = null;
+            foreach (ResourceDictionary rd in merged)
+            {
+                if (rd.Source is { } src &&
+                    string.Equals(src.ToString(), DarkPopupTokensUri, StringComparison.OrdinalIgnoreCase))
+                { existing = rd; break; }
+            }
+
+            if (dark)
+            {
+                if (existing is null)
+                    merged.Add(new ResourceDictionary { Source = new Uri(DarkPopupTokensUri, UriKind.Absolute) });
+            }
+            else if (existing is not null)
+            {
+                merged.Remove(existing);
+            }
+        }
+        catch { /* leave on light default */ }
     }
 
     private void OnStartClicked(object sender, RoutedEventArgs e)
