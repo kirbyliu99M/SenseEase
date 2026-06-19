@@ -1,2 +1,0 @@
-# LOGIC — fixed/rejected/unverified
-

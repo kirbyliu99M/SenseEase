@@ -1,2 +1,0 @@
-# INTENT — fixed/rejected/unverified
-

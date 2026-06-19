@@ -1,2 +1,0 @@
-# DEAD — fixed/rejected/unverified
-
