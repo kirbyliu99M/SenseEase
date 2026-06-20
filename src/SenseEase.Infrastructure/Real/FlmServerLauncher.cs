@@ -173,6 +173,9 @@ public static class FlmServerLauncher
             if (!p.Start()) return null;
             p.BeginOutputReadLine();
             p.BeginErrorReadLine();
+            // Reap the flm child if SenseEase exits OR crashes (Job Object KILL_ON_JOB_CLOSE), matching the
+            // Vulkan server — so a crash never leaves an orphan flm holding the NPU. Best-effort.
+            try { ChildProcessReaper.Adopt(p); } catch { }
             return p;
         }
         catch (Exception ex) { trace?.Invoke($"FLM: serve start failed ({ex.GetType().Name})"); return null; }
