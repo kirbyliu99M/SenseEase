@@ -1119,7 +1119,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 flmInstalled: FlmServerLauncher.FindExe() is not null, externalOverrideSet: llmExternalOverride))
         {
             string npuTag = chatModel.NpuModelTag!;
-            npuStarter = ct => FlmServerLauncher.TryAcquireAsync(npuTag, FlmServerLauncher.DefaultPort, null, ct);
+            // Field diagnostics: route the launcher's reuse/launch/fallback narration into the Event Log so a
+            // deployed build reveals whether a user's machine took the NPU or fell back to Vulkan, and why.
+            Action<string> npuTrace = m => { try { _log?.Append(new EventLogEntry { Timestamp = DateTime.UtcNow, Category = "Llm.Backend", Message = m }); } catch { } };
+            npuStarter = ct => FlmServerLauncher.TryAcquireAsync(npuTag, FlmServerLauncher.DefaultPort, npuTrace, ct);
         }
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,

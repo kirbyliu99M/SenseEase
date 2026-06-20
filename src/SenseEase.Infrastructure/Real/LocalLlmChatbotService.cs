@@ -521,6 +521,12 @@ public sealed class LocalLlmChatbotService : IChatbotService
 
     public bool IsModelAvailable => File.Exists(_modelPath);
     public bool IsModelLoaded { get; private set; }
+    /// <summary>Which backend actually served the last successful load — for field diagnostics: "lexicon"
+    /// (no model), "Vulkan llama-server (local)", or "FastFlowLM NPU (launched|reused)". A deployed build can
+    /// then reveal which accelerator a user's machine really used.</summary>
+    public string ActiveBackend { get; private set; } = "lexicon";
+    // The label ConnectExternalAsync stamps into ActiveBackend on success (managed-NPU launched/reused vs env).
+    private string? _externalBackendLabel;
     public IReadOnlyList<ChatMessage> History => _history.AsReadOnly();
     public string? LoadError { get; private set; }
 
@@ -550,7 +556,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         if (IsModelLoaded) return;
         // External backend (ultrabook #5): an already-running OpenAI server (e.g. FastFlowLM on the NPU).
         // We connect rather than launch; the local GGUF need not even be present.
-        if (IsExternal) { await ConnectExternalAsync().ConfigureAwait(false); return; }
+        if (IsExternal) { _externalBackendLabel = "external server (env override)"; await ConnectExternalAsync().ConfigureAwait(false); return; }
         // Managed NPU backend (ultrabook #5): on an AMD Ryzen-AI box, bring up FastFlowLM (reuse-or-launch) and
         // drive it over the same external seam. A null result (no flm / model not installed / never answered)
         // falls through to the bundled Vulkan launch below, so the chatbot still works on any machine.
@@ -576,6 +582,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _externalBaseUrl = mb.BaseUrl;
         _externalModelName = mb.ModelTag;
         _serverProcess = mb.OwnedProcess;          // killed on Dispose iff we launched it (else null = reused)
+        _externalBackendLabel = mb.OwnedProcess is not null ? "FastFlowLM NPU (launched)" : "FastFlowLM NPU (reused)";
         await ConnectExternalAsync().ConfigureAwait(false);
         if (IsModelLoaded) return true;
 
@@ -591,6 +598,17 @@ public sealed class LocalLlmChatbotService : IChatbotService
         return false;
     }
 
+    // Field diagnostics (ultrabook #5): record a one-line backend breadcrumb to the Event Log so a deployed
+    // build reveals which accelerator served — the NPU (FastFlowLM), the Vulkan fallback, or the lexicon.
+    // Best-effort; a diagnostic write must never break a load. Messages carry only loopback URLs + model
+    // tags (no user paths), so no redaction is needed.
+    private void LogDiag(string message)
+    {
+        if (_eventLog is null) return;
+        try { _eventLog.Append(new EventLogEntry { Timestamp = DateTime.UtcNow, Category = "Llm.Backend", Message = message }); }
+        catch { /* diagnostics are best-effort */ }
+    }
+
     /// <summary>External-backend connect (ultrabook #5): confirm the already-running OpenAI server answers
     /// (<c>GET /v1/models</c>), then mark loaded. We do NOT launch or supervise it — no bearer, no
     /// idle-unload, no child process. Never throws; a failure leaves <see cref="IsModelLoaded"/> false so the
@@ -604,7 +622,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
             {
                 IsModelLoaded = true;
                 LoadError = null;
+                ActiveBackend = _externalBackendLabel ?? "external server";
                 Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
+                LogDiag($"LLM backend ready: {ActiveBackend} @ {ServerUrl}");
             }
             else
             {
@@ -758,9 +778,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
             await WaitForServerReadyAsync(TimeSpan.FromMinutes(2)).ConfigureAwait(false);
             IsModelLoaded = true;
             LoadError = null;
+            ActiveBackend = "Vulkan llama-server (local)";
             // Idle-unload (#1): a fresh load counts as activity; arm the 60 s poll (once, reused on reload).
             Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
             StartIdleTimer();
+            LogDiag($"LLM backend ready: {ActiveBackend} :{ServerPort}");
         }
         catch (Exception ex)
         {
@@ -945,7 +967,10 @@ public sealed class LocalLlmChatbotService : IChatbotService
         // ahead of the model/lexicon path below.
         _history.Add(new ChatMessage { Role = ChatRole.User, Content = pureUserText });
 
-        if (!IsModelLoaded && IsModelAvailable)
+        // Re-load on demand: the local GGUF is present, OR a managed NPU backend is configured (the GGUF may
+        // be absent on an NPU-only install), OR we're in external mode. Covers the first load AND a re-load
+        // after an idle-unload.
+        if (!IsModelLoaded && (IsModelAvailable || _managedBackendStarter is not null || IsExternal))
         {
             try { await LoadAsync().ConfigureAwait(false); }
             catch { /* LoadError is set; fall through to lexicon, retry next message */ }
@@ -1503,7 +1528,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// concurrent load (it simply retries on the next poll). Internal so tests can drive it directly.</summary>
     internal void MaybeUnloadIfIdle()
     {
-        if (IsExternal) return;                     // we don't own an external server's lifecycle — never kill it
+        // Unload a server we OWN: the local llama-server, OR a managed FastFlowLM we launched (_serverProcess
+        // set). Never one we merely connect to (env override / a reused FLM → _serverProcess null) — not ours.
+        if (IsExternal && _serverProcess is null) return;
         if (!IsModelLoaded || !IdleWindowElapsed()) return;
         if (!_lock.Wait(0)) return;                 // a request/load holds the lock → skip, retry next poll
         try
@@ -1514,6 +1541,13 @@ public sealed class LocalLlmChatbotService : IChatbotService
             try { _serverProcess?.Dispose(); } catch { }
             _serverProcess = null;
             IsModelLoaded = false;
+            ActiveBackend = "lexicon";
+            // Reset external mode so the next LoadAsync re-runs the managed starter (relaunch flm) instead of
+            // re-connecting to the port we just killed. Harmless for the local path (these are already null).
+            _externalBaseUrl = null;
+            _externalModelName = null;
+            _externalBackendLabel = null;
+            LogDiag("LLM backend unloaded (idle) — frees memory; next message re-loads on demand.");
             // Mirror the load-failure cleanup: drop the per-process key + bearer so a re-load mints fresh.
             if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
                 LlamaSessionKey.Set(null);
