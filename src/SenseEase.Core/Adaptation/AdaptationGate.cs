@@ -55,7 +55,8 @@ public static class AdaptationGate
         // (Worsening behaviour OR a fresh discomfort report within the suppression window.)
         bool discomfortSignal =
             s.BehaviorWorsening ||
-            s.HoursSinceLastDiscomfort <= cfg.RelaxSuppressAfterDiscomfortHrs;
+            s.HoursSinceLastDiscomfort <= cfg.RelaxSuppressAfterDiscomfortHrs ||
+            s.MeasuredDiscomfortInWindow; // B6 Stage 2 (RT-3d): ANY measured discomfort in the count window
 
         // (A) INDEPENDENT, DATA-DRIVEN TIGHTEN — highest priority, NOT gated on the LLM.
         // Measured worsening tightens immediately (the safe direction); this also closes the
@@ -257,7 +258,12 @@ public sealed record MeasuredState(
     int AutoChangesThisWeek,
     /// <summary>Net relax (pp) already applied today — for the per-day net-relax cap.</summary>
     double NetRelaxTodayPp,
-    bool HasEverAutoRelaxed);
+    bool HasEverAutoRelaxed,
+    /// <summary>B6 Stage 2 (RT-3d): any MEASURED report (ANY intervention state) at/above the discomfort
+    /// threshold within the COUNT window. Blocks relax even when the worst-case MAX missed it (an off-state
+    /// report, or one outside the recency window). Defaults false so existing positional constructions and
+    /// the B5 gate tests stay valid without change.</summary>
+    bool MeasuredDiscomfortInWindow = false);
 
 /// <summary>The §11 policy knobs (defaults mirror the sign-off table; the wiring stage may override
 /// from SenseDefaults). Pure data so tests can dial each rule independently.</summary>

@@ -669,7 +669,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// console — a bad value/throw is swallowed here exactly like the 5★ path.</summary>
     internal void RecordFmsRating(int fms, string trigger = "")
     {
-        string foreground = WindowsActivityFilter.Instance.CurrentForegroundKey;
+        // CurrentForegroundKey is null unless per-app consent is on (D-16); both the report builder and
+        // the fms-log Record accept a null appContext, so carry the nullable through as-is.
+        string? foreground = WindowsActivityFilter.Instance.CurrentForegroundKey;
         try
         {
             var ev = ComfortRatingScale.BuildMeasuredFmsReport(
@@ -949,7 +951,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     // B5: the deterministic learning-loop coordinator (WPF-free; gated on consent inside RunOnce).
     private readonly AdaptationCoordinator _adaptationCoordinator = new();
-    private const double AdaptiveAutoTuneWindowDays = 7.0;
+    // B6 Stage 2 (RT-1): split the FMS horizon. The COUNT/coverage window (28d) makes ~8 ON-reports
+    // reachable at a real ~2/week supply; the RECENCY window (10d ≤ count) drives the worst-case MAX +
+    // discomfort clock, so reachability is bought from TIME only and never loosens a value floor.
+    // (Fork F4: hoisting these + AdaptationGateConfig.Default into SenseDefaults is a deferred cleanup.)
+    private const double AdaptiveAutoTuneFmsCountWindowDays = 28.0;
+    private const double AdaptiveAutoTuneFmsRecencyWindowDays = 10.0;
     private const double AdaptiveAutoTuneBehaviourWindowDays = 28.0; // recent horizon for the exposure trend
     private const string AutoAdaptParameter = "AutoAdaptTrigger";
     private int _behaviorFlushTickCounter;
@@ -2395,7 +2402,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // behaviour rows are windowed to a recent horizon so an unbounded history can't satisfy
             // cold-start's behaviour-day floor or dominate the half-split trend with stale data.
             var symptomEvents = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
-            var fms = AdaptationEvidence.MeasuredOnFms(symptomEvents, now, AdaptiveAutoTuneWindowDays, cfg.RelaxFmsLowThreshold);
+            var fms = AdaptationEvidence.MeasuredOnFms(
+                symptomEvents, now, AdaptiveAutoTuneFmsCountWindowDays, AdaptiveAutoTuneFmsRecencyWindowDays,
+                cfg.RelaxFmsLowThreshold);
             var behaviorRows = _behaviorWriter.ReadAll()
                 .Where(r => DateTime.TryParseExact(r.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
                                                    DateTimeStyles.None, out var d)

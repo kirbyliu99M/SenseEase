@@ -25,51 +25,78 @@ public static class AdaptationEvidence
         int OnReportCount,
         double WorstRecentFmsOn,
         bool CoverageOk,
-        double HoursSinceLastDiscomfort);
+        double HoursSinceLastDiscomfort,
+        bool MeasuredDiscomfortInWindow);
 
-    /// <summary>Aggregate the MEASURED, protection-ON FMS reports in the trailing window. Excludes
-    /// <c>nl_daily</c>/estimate rows (the un-injectable invariant). Worst-case = window p75 (a single
-    /// fresh bad episode keeps it high). Coverage = reports span ≥ 2 distinct days (not a single-session
-    /// burst). HoursSinceLastDiscomfort = hours since the most recent MEASURED report (any intervention
-    /// state) at/above <paramref name="discomfortThreshold"/>, else +∞.</summary>
+    /// <summary>Aggregate the MEASURED, protection-ON FMS reports (B6 Stage 2). TWO horizons (red-team RT-1):
+    /// <paramref name="countWindowDays"/> (e.g. 28d) drives REACHABILITY — the ON-report COUNT + coverage
+    /// accumulate over it; <paramref name="recencyWindowDays"/> (≤ count, e.g. 10d) drives the worst-case,
+    /// which is a true <b>MAX</b> (NOT a dilutable percentile) so no number of calm reports can bury a bad one.
+    /// <c>HoursSinceLastDiscomfort</c> + <c>MeasuredDiscomfortInWindow</c> span the COUNT window (RT-3d), so a
+    /// bad report that padded the count can never be invisible to suppression. Excludes nl_daily/estimate rows
+    /// (the un-injectable invariant). Coverage = window-proportional spread (RT-2c). Reachability is bought
+    /// from the count time-horizon ONLY; the worst-case + discomfort axes get STRICTER, never looser.</summary>
     public static FmsEvidence MeasuredOnFms(
-        IEnumerable<SymptomEvent>? events, DateTime nowUtc, double windowDays, double discomfortThreshold)
+        IEnumerable<SymptomEvent>? events, DateTime nowUtc,
+        double countWindowDays, double recencyWindowDays, double discomfortThreshold)
     {
-        var none = new FmsEvidence(0, 0.0, false, double.PositiveInfinity);
+        var none = new FmsEvidence(0, 0.0, false, double.PositiveInfinity, false);
         if (events is null) return none;
 
-        DateTime since = nowUtc.AddDays(-windowDays);
-        var inWindow = new List<(DateTime ts, SymptomEvent e)>();
+        DateTime sinceCount   = nowUtc.AddDays(-countWindowDays);
+        DateTime sinceRecency = nowUtc.AddDays(-recencyWindowDays);
+        DateTime sinceLast7   = nowUtc.AddDays(-7);
+
+        var onInCount   = new List<(DateTime ts, SymptomEvent e)>(); // ON-state, within the count window
+        var onInRecency = new List<int>();                           // ON-state values, within the recency window
         double hoursSinceDiscomfort = double.PositiveInfinity;
+        bool anyDiscomfortInWindow = false;
 
         foreach (var e in events)
         {
             if (e is null || !e.Measured || e.Kind != SymptomEvent.Kinds.FmsReport) continue; // MEASURED-ONLY
-            if (!TryParseUtc(e.TsUtc, out DateTime ts) || ts < since) continue;
-            inWindow.Add((ts, e));
+            if (!TryParseUtc(e.TsUtc, out DateTime ts) || ts < sinceCount) continue;          // within count window
 
-            // Discomfort clock: any measured report at/above threshold, regardless of ON/OFF.
+            // Discomfort over the COUNT window (ANY intervention state): the clock + an "any-in-window" flag.
+            // RT-3d: a ≥threshold report anywhere in the count window blocks relax — it cannot pad the count
+            // and simultaneously be invisible to suppression (the dilution the worst-case MAX also guards).
             if (e.Value >= discomfortThreshold)
             {
+                anyDiscomfortInWindow = true;
                 double hrs = (nowUtc - ts).TotalHours;
                 if (hrs >= 0 && hrs < hoursSinceDiscomfort) hoursSinceDiscomfort = hrs;
             }
+
+            if (e.InterventionState == SymptomEvent.InterventionStates.On)
+            {
+                onInCount.Add((ts, e));
+                if (ts >= sinceRecency) onInRecency.Add(e.Value);
+            }
         }
 
-        var on = inWindow
-            .Where(x => x.e.InterventionState == SymptomEvent.InterventionStates.On)
-            .ToList();
-        if (on.Count == 0) return none with { HoursSinceLastDiscomfort = hoursSinceDiscomfort };
+        if (onInCount.Count == 0)
+            return none with { HoursSinceLastDiscomfort = hoursSinceDiscomfort, MeasuredDiscomfortInWindow = anyDiscomfortInWindow };
 
-        double[] values = on.Select(x => (double)x.e.Value).OrderBy(v => v).ToArray();
-        double p75 = Percentile(values, 0.75);
-        int distinctDays = on.Select(x => x.ts.Date).Distinct().Count();
+        // Worst-case = MAX over the RECENCY ON-reports (RT-1: a max can't be diluted by calm reports). 0.0
+        // when there are no ON-reports in the recency window — that "no recent data" case is caught by the
+        // coverage recency-presence check below, never read as "comfortable".
+        double worst = onInRecency.Count > 0 ? onInRecency.Max() : 0.0;
+
+        // Window-proportional coverage (RT-2c): enough distinct days, no single day dominating the count, and
+        // at least one ON-report in the last 7 days (an old calm streak cannot carry a stale relax).
+        int distinctDays = onInCount.Select(x => x.ts.Date).Distinct().Count();
+        int requiredDays = (int)Math.Ceiling(countWindowDays / 7.0);
+        int maxPerDay = onInCount.GroupBy(x => x.ts.Date).Max(g => g.Count());
+        bool coverageOk = distinctDays >= requiredDays
+                       && maxPerDay * 2 <= onInCount.Count               // no single day > 50% of the count
+                       && onInCount.Any(x => x.ts >= sinceLast7);        // recency presence
 
         return new FmsEvidence(
-            OnReportCount: on.Count,
-            WorstRecentFmsOn: p75,
-            CoverageOk: distinctDays >= 2,
-            HoursSinceLastDiscomfort: hoursSinceDiscomfort);
+            OnReportCount: onInCount.Count,
+            WorstRecentFmsOn: worst,
+            CoverageOk: coverageOk,
+            HoursSinceLastDiscomfort: hoursSinceDiscomfort,
+            MeasuredDiscomfortInWindow: anyDiscomfortInWindow);
     }
 
     // ── Behaviour / exposure trend ─────────────────────────────────────────────────────────────────
@@ -165,7 +192,8 @@ public static class AdaptationEvidence
             DaysSinceLastAutoChange: daysSinceLastAutoChange,
             AutoChangesThisWeek: autoChangesThisWeek,
             NetRelaxTodayPp: netRelaxTodayPp,
-            HasEverAutoRelaxed: hasEverAutoRelaxed);
+            HasEverAutoRelaxed: hasEverAutoRelaxed,
+            MeasuredDiscomfortInWindow: fms.MeasuredDiscomfortInWindow);
     }
 
     // ── Auto-channel timing/history (derived from the durable adjustment log) ──────────────────────
@@ -227,23 +255,7 @@ public static class AdaptationEvidence
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>Linear-interpolated percentile over an ascending array (PERCENTILE.INC); single sample
-    /// returns itself; q clamped to [0,1].</summary>
-    private static double Percentile(double[] sortedAscending, double q)
-    {
-        int n = sortedAscending.Length;
-        if (n == 0) return 0.0;
-        if (n == 1) return sortedAscending[0];
-        if (q <= 0.0) return sortedAscending[0];
-        if (q >= 1.0) return sortedAscending[n - 1];
-        double rank = q * (n - 1);
-        int lo = (int)Math.Floor(rank);
-        int hi = lo + 1;
-        double frac = rank - lo;
-        if (hi >= n) return sortedAscending[n - 1];
-        return sortedAscending[lo] + frac * (sortedAscending[hi] - sortedAscending[lo]);
-    }
+    // (B6 Stage 2: the p75 Percentile helper was removed — the relax worst-case is now a true MAX, RT-1.)
 
     private static DateTime ParseDate(string? ymd)
         => DateTime.TryParseExact(ymd, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)

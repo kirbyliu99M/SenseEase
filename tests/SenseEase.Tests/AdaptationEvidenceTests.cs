@@ -50,29 +50,44 @@ public class AdaptationEvidenceTests
         for (int i = 0; i < 6; i++) events.Add(Measured(3, SymptomEvent.InterventionStates.On, i % 3)); // 6 measured, 3 days
         for (int i = 0; i < 10; i++) events.Add(NlDaily(2, i % 3));                                       // 10 chat-derived
 
-        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 7.0, 6.0);
+        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 28.0, 10.0, 6.0);
         Assert.Equal(6, fms.OnReportCount);   // estimates never counted
     }
 
     [Fact]
-    public void MeasuredOnFms_WorstCaseUsesP75_NotMean()
+    public void MeasuredOnFms_WorstCaseUsesMax_NotADilutablePercentile()
     {
-        // Nine 2s + one 18: mean ≈ 3.6 (looks fine), but p75 catches the bad tail.
+        // RT-1: nine calm 2s + one bad 18 in the recency window. A p75 would dilute the 18 out of the tail
+        // (≈ 2) and wrongly permit relax; a MAX cannot be diluted — the single bad report stands.
         var events = Enumerable.Range(0, 9).Select(i => Measured(2, SymptomEvent.InterventionStates.On, i % 3)).ToList();
         events.Add(Measured(18, SymptomEvent.InterventionStates.On, 0));
-        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 7.0, 6.0);
-        Assert.True(fms.WorstRecentFmsOn >= 2.0); // p75 of the sorted set — not the diluted mean
-        Assert.True(fms.HoursSinceLastDiscomfort < 24.0); // the 18 (>=6) set the discomfort clock today
+        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 28.0, 10.0, 6.0);
+        Assert.Equal(18.0, fms.WorstRecentFmsOn, 6);       // MAX, undiluted (a p75 would be ~2)
+        Assert.True(fms.MeasuredDiscomfortInWindow);        // the 18 (>=6) also flags discomfort-in-window
+        Assert.True(fms.HoursSinceLastDiscomfort < 24.0);   // … and set the discomfort clock today
     }
 
     [Fact]
-    public void MeasuredOnFms_CoverageRequiresTwoDistinctDays()
+    public void MeasuredOnFms_Coverage_IsWindowProportional()
     {
+        // RT-2c: over a 28-day count window, coverage needs ceil(28/7)=4 distinct days, no single day >50% of
+        // the count, and ≥1 ON-report in the last 7 days — a short calm island in a long window is rejected.
         var sameDay = Enumerable.Range(0, 6).Select(_ => Measured(3, SymptomEvent.InterventionStates.On, 0)).ToList();
-        Assert.False(AdaptationEvidence.MeasuredOnFms(sameDay, Now, 7.0, 6.0).CoverageOk); // single-session burst
+        Assert.False(AdaptationEvidence.MeasuredOnFms(sameDay, Now, 28.0, 10.0, 6.0).CoverageOk); // 1 day
 
-        var spread = new List<SymptomEvent> { Measured(3, SymptomEvent.InterventionStates.On, 0), Measured(3, SymptomEvent.InterventionStates.On, 2) };
-        Assert.True(AdaptationEvidence.MeasuredOnFms(spread, Now, 7.0, 6.0).CoverageOk);
+        var twoDayIsland = new List<SymptomEvent>
+        {
+            Measured(3, SymptomEvent.InterventionStates.On, 0), Measured(3, SymptomEvent.InterventionStates.On, 1),
+        };
+        Assert.False(AdaptationEvidence.MeasuredOnFms(twoDayIsland, Now, 28.0, 10.0, 6.0).CoverageOk); // only 2 of 4 days
+
+        // Spread across 4 distinct days (one each), with a report in the last 7 days → coverage OK.
+        var spread = new List<SymptomEvent>
+        {
+            Measured(3, SymptomEvent.InterventionStates.On, 0), Measured(3, SymptomEvent.InterventionStates.On, 2),
+            Measured(3, SymptomEvent.InterventionStates.On, 4), Measured(3, SymptomEvent.InterventionStates.On, 6),
+        };
+        Assert.True(AdaptationEvidence.MeasuredOnFms(spread, Now, 28.0, 10.0, 6.0).CoverageOk);
     }
 
     [Fact]
@@ -83,7 +98,7 @@ public class AdaptationEvidenceTests
             Measured(3, SymptomEvent.InterventionStates.On, 1),
             Measured(15, SymptomEvent.InterventionStates.Off, 0), // OFF + high
         };
-        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 7.0, 6.0);
+        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 28.0, 10.0, 6.0);
         Assert.Equal(1, fms.OnReportCount);                  // OFF not counted in the ON aggregate
         Assert.True(fms.HoursSinceLastDiscomfort < 24.0);    // but the OFF 15 still set the discomfort clock
     }
@@ -91,7 +106,7 @@ public class AdaptationEvidenceTests
     [Fact]
     public void MeasuredOnFms_NoData_IsNone()
     {
-        var fms = AdaptationEvidence.MeasuredOnFms(new List<SymptomEvent>(), Now, 7.0, 6.0);
+        var fms = AdaptationEvidence.MeasuredOnFms(new List<SymptomEvent>(), Now, 28.0, 10.0, 6.0);
         Assert.Equal(0, fms.OnReportCount);
         Assert.True(double.IsPositiveInfinity(fms.HoursSinceLastDiscomfort));
     }
@@ -154,7 +169,7 @@ public class AdaptationEvidenceTests
     [Fact]
     public void Build_HoursSinceDiscomfort_IsMinOfFmsAndManualTighten()
     {
-        var fms = new AdaptationEvidence.FmsEvidence(8, 3.0, true, 100.0);    // last FMS discomfort 100h ago
+        var fms = new AdaptationEvidence.FmsEvidence(8, 3.0, true, 100.0, false); // last FMS discomfort 100h ago; none in-window
         var exp = new AdaptationEvidence.ExposureEvidence(10, true, true, false, false);
         var s = AdaptationEvidence.BuildMeasuredState(Cohort.Typical, fms, exp,
             baseEffectiveTrigger: 85, currentAutoDeltaPp: 0,
@@ -169,13 +184,13 @@ public class AdaptationEvidenceTests
     public void EndToEnd_GoodEvidence_GateRelaxes()
     {
         var events = new List<SymptomEvent>();
-        for (int i = 0; i < 9; i++) events.Add(Measured(3, SymptomEvent.InterventionStates.On, i % 3)); // calm, 3 days
+        for (int i = 0; i < 9; i++) events.Add(Measured(3, SymptomEvent.InterventionStates.On, i)); // calm, 9 distinct days // calm, 3 days
         var rows = new List<DailyBehaviorAggregate>
         {
             Day("2026-06-10", 40, 30, 1), Day("2026-06-11", 40, 30, 1), Day("2026-06-12", 40, 30, 1),
             Day("2026-06-13", 42, 32, 1), Day("2026-06-14", 42, 32, 1), Day("2026-06-15", 42, 32, 1),
         };
-        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 7.0, 6.0);
+        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 28.0, 10.0, 6.0);
         var exp = AdaptationEvidence.ExposureTrend(rows);
         var s = AdaptationEvidence.BuildMeasuredState(Cohort.Typical, fms, exp, 85, 0,
             double.PositiveInfinity, 30, 0, 0, hasEverAutoRelaxed: true);
@@ -268,13 +283,13 @@ public class AdaptationEvidenceTests
     public void EndToEnd_Avoidance_GateHolds()
     {
         var events = new List<SymptomEvent>();
-        for (int i = 0; i < 9; i++) events.Add(Measured(3, SymptomEvent.InterventionStates.On, i % 3));
+        for (int i = 0; i < 9; i++) events.Add(Measured(3, SymptomEvent.InterventionStates.On, i)); // calm, 9 distinct days
         var rows = new List<DailyBehaviorAggregate>
         {
             Day("2026-06-10", 50, 40, 1), Day("2026-06-11", 50, 40, 1), Day("2026-06-12", 50, 40, 1),
             Day("2026-06-13", 20, 15, 1), Day("2026-06-14", 20, 15, 1), Day("2026-06-15", 20, 15, 1), // load collapsed
         };
-        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 7.0, 6.0);
+        var fms = AdaptationEvidence.MeasuredOnFms(events, Now, 28.0, 10.0, 6.0);
         var exp = AdaptationEvidence.ExposureTrend(rows);
         var s = AdaptationEvidence.BuildMeasuredState(Cohort.Typical, fms, exp, 85, 0,
             double.PositiveInfinity, 30, 0, 0, hasEverAutoRelaxed: true);
