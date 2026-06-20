@@ -72,6 +72,11 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
     /// (the two-stage flow: edge → condensed bar). Fires once per edge entry.</summary>
     public event EventHandler? RevealRequested;
 
+    /// <summary>Audit 2026-06-20: gates <see cref="Clicked"/> on a matching down+up ON the handle, so a drag
+    /// that merely RELEASES over the thin edge strip (its mouse-down began elsewhere) can't spuriously open
+    /// the bar. Cleared on MouseLeave so a press-then-drag-off also cancels the pending click.</summary>
+    private bool _handlePressed;
+
     public EdgeSidebarWindow()
     {
         InitializeComponent();
@@ -84,7 +89,9 @@ public partial class EdgeSidebarWindow : Window, IShellSurface
         // Re-snap if the window's DPI changes (moved to a different-DPI monitor, OS scale change).
         DpiChanged += (_, _) => RepositionForWorkArea();
         Closed += OnClosed;
-        MouseLeftButtonUp += (_, _) => Clicked?.Invoke(this, EventArgs.Empty);
+        MouseLeftButtonDown += (_, _) => _handlePressed = true;
+        MouseLeftButtonUp += (_, _) => { if (_handlePressed) { _handlePressed = false; Clicked?.Invoke(this, EventArgs.Empty); } };
+        MouseLeave += (_, _) => _handlePressed = false; // press-then-drag-off cancels the pending click
         // TOUCH FIX: the handle is ALWAYS hit-test-visible (it used to be click-through until a
         // mouse HOVER set it true via the proximity poller — but a touch user has no hovering
         // cursor, so the handle never became tappable and the bar could never be opened). Now a

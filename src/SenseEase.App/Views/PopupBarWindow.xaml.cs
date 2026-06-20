@@ -434,6 +434,14 @@ public partial class PopupBarWindow : Window, IShellSurface
         try
         {
             _fadingOut = false;
+            // Drag cleanup (audit 2026-06-20): if the bar is hidden mid-drag (a programmatic dismiss, or an
+            // auto-close that slipped through before the guard), release any held mouse/touch capture and
+            // clear the drag flags so the NEXT reveal doesn't open "armed" with stale capture. Mirrors
+            // EndDrag + the up-handlers; never throws (a release on an already-released device is benign).
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            if (_dragTouch is not null) { try { ReleaseTouchCapture(_dragTouch); } catch { } _dragTouch = null; }
+            _dragArmed = false;
+            _dragging = false;
             // P4: reset the idle-fade target (RootGrid, not the Window) so the next reveal is fully opaque.
             RootGrid.BeginAnimation(OpacityProperty, null); RootGrid.Opacity = 1;
             // Clear reveal/expand transforms so the next reveal opens condensed + clean.
@@ -455,6 +463,12 @@ public partial class PopupBarWindow : Window, IShellSurface
     {
         if (!IsVisible) { _autoClose.Stop(); return; }
         if (DataContext is not PopupBarViewModel vm) return;
+
+        // Drag guard (audit 2026-06-20): never auto-close mid-drag — a light-dismiss or idle-fade firing
+        // while the user is dragging the bar by its handle would yank it out from under the gesture and
+        // strand the drag state. Reset the idle grace so a drag excursion can't accumulate toward a close;
+        // the drag's up-handler resumes normal proximity behaviour.
+        if (_dragArmed || _dragging) { _farTicks = 0; return; }
 
         if (!GetCursorPos(out POINT p)) return;
         var dpi = VisualTreeHelper.GetDpi(this);

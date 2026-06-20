@@ -76,6 +76,9 @@ public partial class EventLogWindow : Window
 
     private void OnTitleBarTouchDown(object sender, TouchEventArgs e)
     {
+        // Re-entrancy guard (audit 2026-06-20): a 2nd finger landing on the title bar mid-drag would
+        // overwrite _moveTouch + reset the drag baseline, jumping the window. Let the first touch own it.
+        if (_moveTouch is not null) { e.Handled = true; return; }
         _moveTouch = e.TouchDevice;
         _moveStartScreenPx = PointToScreen(e.GetTouchPoint(this).Position);
         _moveStartLeft = Left; _moveStartTop = Top;
