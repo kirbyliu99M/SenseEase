@@ -32,6 +32,9 @@ namespace SenseEase.Core.AdaptiveFit;
 /// when the window has ≥1 measured FMS report.</param>
 /// <param name="ConfidenceMargin">Minimum score advantage argmax needs over Hold to move (anti-overfit).</param>
 /// <param name="FitTolerance">Half-width (normalised [0,1] units) of the linear fit kernel.</param>
+/// <param name="W7GateConflict">B6 Stage 3: penalty for a candidate Band move OPPOSING the B5 gate's standing
+/// auto-delta direction (the one-coordinated-loop brake). Defaults to 0 so callers/tests that don't pass it
+/// are byte-identical; the engine supplies the live direction.</param>
 public readonly record struct SelectorWeights(
     double W1Pressure,
     double W2Spike,
@@ -40,7 +43,8 @@ public readonly record struct SelectorWeights(
     double W5ManualConflict,
     double W6Fms,
     double ConfidenceMargin,
-    double FitTolerance)
+    double FitTolerance,
+    double W7GateConflict = 0.0)
 {
     /// <summary>The provisional, conservative default weights — the SSOT is the
     /// <c>// Adaptive Fit selector (F1/F2 governance)</c> region of <see cref="SenseDefaults"/>.</summary>
@@ -52,5 +56,6 @@ public readonly record struct SelectorWeights(
         W5ManualConflict: SenseDefaults.SelectorW5ManualConflict,
         W6Fms:            SenseDefaults.SelectorW6Fms,
         ConfidenceMargin: SenseDefaults.SelectorConfidenceMargin,
-        FitTolerance:     SenseDefaults.SelectorFitTolerance);
+        FitTolerance:     SenseDefaults.SelectorFitTolerance,
+        W7GateConflict:   SenseDefaults.SelectorW7GateConflict);
 }

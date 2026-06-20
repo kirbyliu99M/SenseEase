@@ -1092,11 +1092,18 @@ public sealed class MockInferenceEngine : IInferenceEngine
             recentManualLevelDelta = _lastManualLevelDeltaSign;
         }
 
+        // B6 Stage 3: the B5 gate's standing auto-delta as a band vote, so the selector won't drift the band
+        // OPPOSITE the gate's direction (one coordinated loop — not two channels fighting). Sign convention: a
+        // NEGATIVE auto-delta is a TIGHTEN (more protection ⇒ prefer a HIGHER band ⇒ +1); a POSITIVE delta is
+        // a RELAX (⇒ −1); 0 = no standing auto-delta ⇒ no brake (the default user is byte-identical). A soft
+        // brake read off the gate lock is fine — a one-tick-stale sign at worst defers a move, never forces one.
+        int gateLevelDirection = -Math.Sign(_autoAdaptTriggerDeltaPp);
+
         // The state machine's Settling → Active gate wants to know whether a
         // confident pick currently exists; ask the selector once up front (pure,
         // no state change) and feed the boolean in.
         SelectorDecision peek = DeterministicSetSelector.Select(
-            _activeSet, stats, SelectorWeights.Default, recentManualLevelDelta);
+            _activeSet, stats, SelectorWeights.Default, recentManualLevelDelta, gateLevelDirection);
         bool haveConfidentPick = peek is SelectorDecision.MoveTo;
 
         _adaptiveFitMachine.Advance(evalDt, stats.SampleCount, haveConfidentPick);
@@ -1117,7 +1124,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
         // Re-run under the now-eligible machine (peek above may predate the
         // Advance that promoted us to Active). Pure; cheap.
         SelectorDecision decision = DeterministicSetSelector.Select(
-            _activeSet, stats, SelectorWeights.Default, recentManualLevelDelta);
+            _activeSet, stats, SelectorWeights.Default, recentManualLevelDelta, gateLevelDirection);
 
         if (decision is not SelectorDecision.MoveTo move) return;
         GridCoord target = move.Target;

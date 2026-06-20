@@ -64,15 +64,19 @@ public static class DeterministicSetSelector
     /// <param name="recentManualLevelDelta">Sign-significant recent manual level change
     /// (&gt;0 = user manually went up, &lt;0 = down, 0 = none). Candidates moving opposite this
     /// sign are penalised so the user's authority defers the auto-move.</param>
+    /// <param name="gateLevelDirection">B6 Stage 3: the B5 gate's standing auto-delta direction as a band
+    /// vote (+1 = gate tightened ⇒ prefer higher band, −1 = gate relaxed ⇒ lower, 0 = no auto-delta).
+    /// Candidates opposing it are penalised (W7GateConflict) so the selector + gate stay one coordinated loop.</param>
     public static SelectorDecision Select(
         GridCoord current,
         UserIntensityStats stats,
         SelectorWeights w,
-        int recentManualLevelDelta)
+        int recentManualLevelDelta,
+        int gateLevelDirection = 0)
     {
         // The current cell is ALWAYS a candidate — staying must be able to win, which is
         // what makes flat/neutral stats deterministically Hold.
-        double holdScore = Score(current, current, stats, w, recentManualLevelDelta);
+        double holdScore = Score(current, current, stats, w, recentManualLevelDelta, gateLevelDirection);
 
         // Track the best NON-current adjacent candidate.
         var bestTarget = current;
@@ -81,7 +85,7 @@ public static class DeterministicSetSelector
 
         foreach (var candidate in SetGrid.AdjacentCells(current))
         {
-            double s = Score(current, candidate, stats, w, recentManualLevelDelta);
+            double s = Score(current, candidate, stats, w, recentManualLevelDelta, gateLevelDirection);
 
             // Deterministic tie-break: strictly-greater wins; on an exact tie keep the
             // earlier candidate (AdjacentCells yields a fixed order), so the result is stable.
@@ -121,7 +125,8 @@ public static class DeterministicSetSelector
         GridCoord candidate,
         UserIntensityStats stats,
         SelectorWeights w,
-        int recentManualLevelDelta)
+        int recentManualLevelDelta,
+        int gateLevelDirection = 0)
     {
         // Feature norms in [0,1] against the documented operating points.
         double pressureNorm = Clamp01(stats.PressureP90 / PressureNormDivisor);
@@ -151,13 +156,17 @@ public static class DeterministicSetSelector
 
         double distance = GridCoord.ManhattanDistance(current, candidate);
         double conflict = ManualConflict(current, candidate, recentManualLevelDelta);
+        // B6 Stage 3: the same brake against the B5 gate's standing direction — keeps the two learning
+        // channels (selector band-axis + gate trigger-axis) from pulling opposite ways. 0 with no auto-delta.
+        double gateConflict = GateConflict(current, candidate, gateLevelDirection);
 
         return w.W1Pressure * fitPressure
              + w.W2Spike    * fitSpike
              + w.W3Calm     * fitCalm
              + fmsTerm
              - w.W4Distance * distance
-             - w.W5ManualConflict * conflict;
+             - w.W5ManualConflict * conflict
+             - w.W7GateConflict * gateConflict;
     }
 
     /// <summary>fit ∈ [0,1] — a linear kernel: 1 at the cell target, falling to 0 once the
@@ -187,6 +196,24 @@ public static class DeterministicSetSelector
 
         // Opposite signs ⇒ conflict. (user went up but candidate goes down, or vice-versa).
         return Math.Sign(bandMove) != Math.Sign(recentManualLevelDelta) ? 1 : 0;
+    }
+
+    /// <summary>B6 Stage 3 — gateConflict ∈ {0,1}: 1 when the candidate's Band move OPPOSES the B5 gate's
+    /// standing auto-delta direction. The gate's contribution to <c>EffectiveTrigger</c> implies a band vote
+    /// — a TIGHTEN (negative delta, more protection) reads as an "up" vote (+1) and a RELAX (positive delta)
+    /// as a "down" vote (−1); 0 = no standing auto-delta. Mirrors <see cref="ManualConflict"/>: a BRAKE only
+    /// (it never drives a move), so the selector defers a band drift that would fight the gate — keeping the
+    /// two learning channels (band-axis + trigger-axis) as one coordinated loop.</summary>
+    internal static int GateConflict(GridCoord current, GridCoord candidate, int gateLevelDirection)
+    {
+        if (gateLevelDirection == 0)
+            return 0;
+
+        int bandMove = candidate.Band - current.Band; // >0 up, <0 down, 0 = no intensity move
+        if (bandMove == 0)
+            return 0;
+
+        return Math.Sign(bandMove) != Math.Sign(gateLevelDirection) ? 1 : 0;
     }
 
     // ── Cell-axis → [0,1] target maps ─────────────────────────────────────────

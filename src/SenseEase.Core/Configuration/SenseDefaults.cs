@@ -481,6 +481,13 @@ public static class SenseDefaults
     /// adjustment is effectively suppressed (user authority defers the auto-move).</summary>
     public const double SelectorW5ManualConflict = 2.0;
 
+    /// <summary>B6 Stage 3 (provisional until M1): selector GATE-conflict penalty — the brake that keeps the
+    /// set-selector and the B5 auto-adaptation gate as ONE coordinated loop. The gate's standing auto-delta
+    /// implies a band direction (tighten ⇒ higher band, relax ⇒ lower); a candidate Band move OPPOSING it is
+    /// suppressed, exactly like a manual nudge (the gate's direction is itself data-validated). Mirrors
+    /// <see cref="SelectorW5ManualConflict"/>; contributes ZERO when there is no standing auto-delta.</summary>
+    public const double SelectorW7GateConflict = 2.0;
+
     /// <summary>B1: weight on the measured-FMS→Band OUTCOME term. Applied only when the window has ≥1
     /// measured FMS self-report (<see cref="UserIntensityStats.FmsSampleCount"/> &gt; 0). The term is a
     /// MONOTONE-UP product <c>(FmsAggregate/20)·bandTarget</c>: higher recent measured discomfort always
