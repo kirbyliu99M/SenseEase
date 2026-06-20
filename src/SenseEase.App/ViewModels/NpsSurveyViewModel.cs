@@ -17,11 +17,13 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
 {
     private readonly Action<int, string?>? _onSubmit;
     private readonly Action? _onDismiss;
+    private readonly Action? _onIdleDismiss;
 
-    public NpsSurveyViewModel(Action<int, string?>? onSubmit = null, Action? onDismiss = null)
+    public NpsSurveyViewModel(Action<int, string?>? onSubmit = null, Action? onDismiss = null, Action? onIdleDismiss = null)
     {
         _onSubmit = onSubmit;
         _onDismiss = onDismiss;
+        _onIdleDismiss = onIdleDismiss;
         SelectScoreCommand = new RelayCommand(p => SelectedScore = AsScore(p));
         SubmitCommand = new RelayCommand(_ => Submit(), _ => SelectedScore.HasValue);
         DismissCommand = new RelayCommand(_ => _onDismiss?.Invoke());
@@ -35,9 +37,10 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
         "您對 SenseEase 的整體感受如何？",
         "How would you rate your experience with SenseEase?");
 
-    /// <summary>Low/high anchors shown under the 1–5 row so the scale direction is unambiguous.</summary>
-    public string ScaleLowLabel  => LocalizationManager.Current.Pick("1 = 不滿意", "1 = poor");
-    public string ScaleHighLabel => LocalizationManager.Current.Pick("5 = 非常滿意", "5 = great");
+    /// <summary>Low/high meaning anchors shown small + subtle ABOVE the 1–5 row (over the end buttons) so
+    /// the scale direction is unambiguous. No "1 ="/"5 =" prefix — the numbers are right below.</summary>
+    public string ScaleLowLabel  => LocalizationManager.Current.Pick("不滿意", "poor");
+    public string ScaleHighLabel => LocalizationManager.Current.Pick("非常滿意", "great");
 
     /// <summary>Free-text label for the comment field (kirby: the fill bar is "其他建議").</summary>
     public string CommentLabel => LocalizationManager.Current.Pick("其他建議（選填）", "Other suggestions (optional)");
@@ -71,6 +74,11 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
         if (!SelectedScore.HasValue) return;
         _onSubmit?.Invoke(SelectedScore.Value, string.IsNullOrWhiteSpace(Comment) ? null : Comment!.Trim());
     }
+
+    /// <summary>The card timed out un-answered (idle auto-dismiss) — a WEAKER signal than an explicit
+    /// "Not now", routed to <c>onIdleDismiss</c> so the host arms the short cooldown, not the 90-day quiet
+    /// window. Falls back to <c>onDismiss</c> when no idle handler is wired (design-time / tests).</summary>
+    public void NotifyIdleDismiss() => (_onIdleDismiss ?? _onDismiss)?.Invoke();
 
     private static int? AsScore(object? p) => p switch
     {

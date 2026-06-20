@@ -19,4 +19,13 @@ public interface IChatbotService : IDisposable
     /// never throws. Default is a no-op for services that keep no on-disk trace
     /// (lexicon-only / test stubs).</summary>
     void ClearOnDiskTrace() { }
+
+    /// <summary>W-B NEW-B14 (2026-06-20): a lightweight, history-free, grammar-free SHORT completion used
+    /// ONLY for a held-turn rest advice — the host has already decided to advise rest + hold all actuation,
+    /// so this must NOT run the NLU pipeline or resend the conversation transcript (no context-window
+    /// growth). Returns warm, non-actuating advice text, or null when unavailable (the host then falls back
+    /// to a fixed honest line). Default = unavailable, so lexicon-only services + test stubs fall straight
+    /// back without a network call.</summary>
+    Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+        => Task.FromResult<string?>(null);
 }

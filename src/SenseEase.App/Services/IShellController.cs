@@ -31,6 +31,11 @@ public interface IShellController
     /// so surfaces refresh their pulse / play-pause affordances.</summary>
     event EventHandler? StateChanged;
 
+    /// <summary>H5 — raised when any quick-settings-relevant value changes from ANY source (an engine
+    /// state tick OR a direct toggle from another surface), so the popup re-reads its switches and they
+    /// never go stale.</summary>
+    event EventHandler? QuickSettingsChanged;
+
     /// <summary>Toggle protection on/off (start sensing or power-save).</summary>
     void PlayPause();
 
@@ -69,6 +74,7 @@ public interface IShellController
     bool GradedExposureEnabled { get; set; }
     /// <summary>常駐遮罩 — the always-on resting overlay mask on/off.</summary>
     bool PersistentMaskEnabled { get; set; }
-    /// <summary>True when the local chat LLM is loaded + available (drives the chat-header dot).</summary>
-    bool IsLlmOnline { get; }
+    /// <summary>自動防護 / Auto Protect — overlay consent: when on, the overlay auto-engages on motion
+    /// with no consent bubble; when off, the per-session "ask each time" model. Persisted.</summary>
+    bool AlwaysAllowOverlay { get; set; }
 }

@@ -915,6 +915,18 @@ public partial class SettingsContent : UserControl
 
         // Chatbot-tuning sprint (2026-06-19): the dedicated in-chat FMS quick-rate dev log.
         BestEffortDelete(AppConfig.FmsLogPath);
+
+        // W-E (2026-06-20): the overlay-consent decline cooldown is BEHAVIOURAL data, not a kept
+        // preference — clear it (the asked/accepted/declined/ignored rows in symptom_log are deleted
+        // above) so a post-wipe state re-asks normally. Theme/language stay intact: this is the
+        // data-clear path, not the preferences-reset path.
+        try
+        {
+            UserPreferences.Current.LastOverlayDeclineUtc = null;
+            UserPreferences.Current.OverlayDeclineCount = 0;
+            UserPreferences.Current.Save();
+        }
+        catch { /* best-effort — a prefs write failure must not abort the data clear */ }
     }
 
     /// <summary>Best-effort PII file delete — a missing file is success (nothing to

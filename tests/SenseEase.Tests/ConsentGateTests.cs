@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using SenseEase.App.Configuration;
 using SenseEase.App.Services;
 using SenseEase.App.ViewModels;
 using Xunit;
@@ -71,13 +73,51 @@ public class OverlayConsentGovernorTests
         now = now.AddSeconds(61);
         Assert.True(g.ShouldAsk());            // past it
     }
+
+    [Fact]
+    public void RestoreDeclineCooldown_RecentDecline_SuppressesUntilTheWindowElapses()
+    {
+        // W-E: an explicit decline from a PRIOR session (re-seeded on launch) keeps the 30-min cooldown.
+        var now = new DateTime(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
+        var g = New(() => now);
+        g.RestoreDeclineCooldown(now.AddMinutes(-5)); // declined 5 min before this launch
+        Assert.False(g.ShouldAsk());                  // still cooling down → no re-nag after restart
+        now = now.AddMinutes(26);                     // 31 min after the decline
+        Assert.True(g.ShouldAsk());                   // window elapsed → re-asks
+    }
+
+    [Fact]
+    public void RestoreDeclineCooldown_StaleOrNull_IsNoOp()
+    {
+        var now = new DateTime(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
+        var g = New(() => now);
+        g.RestoreDeclineCooldown(now.AddMinutes(-31)); // older than the 30-min window
+        Assert.True(g.ShouldAsk());                    // already elapsed → does NOT suppress
+        g.RestoreDeclineCooldown(null);                // never declined
+        Assert.True(g.ShouldAsk());
+    }
 }
 
 /// <summary>R3 #5 — the MainViewModel PER-SESSION consent gate. While dormant the overlay is held off
 /// entirely (clamped to L1) and the user is asked only once the tier reaches the impactful level (>=6);
 /// granting activates the session (all levels run un-held); a user-chosen baseline is implicit consent.</summary>
-public class ConsentGateTests
+/// <para>W-E (2026-06-20): the consent gate now re-seeds its decline cooldown from the persisted
+/// <see cref="UserPreferences.LastOverlayDeclineUtc"/> on construction, so these tests must run against
+/// CLEAN prefs — isolated in the <c>TestDataRoot</c> collection (per-class temp subdir + cache reset)
+/// like <see cref="PersistentOverlayBaselinePersistenceTests"/>, so a sibling test's persisted decline
+/// can't suppress the expected ask.</para>
+[Collection("TestDataRoot")]
+public class ConsentGateTests : IDisposable
 {
+    public ConsentGateTests()
+    {
+        TestDataRootFixture.UseClassSubdir(nameof(ConsentGateTests));
+        if (File.Exists(UserPreferences.FilePath)) File.Delete(UserPreferences.FilePath);
+        UserPreferences.ResetCacheForTesting();
+    }
+
+    public void Dispose() => UserPreferences.ResetCacheForTesting();
+
     private static MainViewModel NewVm()
     {
         var vm = new MainViewModel();

@@ -25,6 +25,7 @@ public class PopupBarIntensityTests
         public int CurrentTier => _tier;
         public bool IsPaused => false;
         public event EventHandler? StateChanged;
+        public event EventHandler? QuickSettingsChanged;
 
         public int SetIntensityLevel(int level)
         {
@@ -32,11 +33,17 @@ public class PopupBarIntensityTests
             LastSetLevel = level;
             _tier = Math.Clamp(level, 1, 12);
             StateChanged?.Invoke(this, EventArgs.Empty); // mirror the real engine push-back
+            QuickSettingsChanged?.Invoke(this, EventArgs.Empty); // real controller fires both on a state tick
             return _tier;
         }
 
         /// <summary>Simulate an engine-driven tier change (no user action).</summary>
-        public void PushTier(int tier) { _tier = Math.Clamp(tier, 1, 12); StateChanged?.Invoke(this, EventArgs.Empty); }
+        public void PushTier(int tier)
+        {
+            _tier = Math.Clamp(tier, 1, 12);
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            QuickSettingsChanged?.Invoke(this, EventArgs.Empty);
+        }
 
         public void PlayPause() { }
         public void NudgeStronger() { }
@@ -50,7 +57,7 @@ public class PopupBarIntensityTests
         public bool AnchorGridEnabled { get; set; }
         public bool GradedExposureEnabled { get; set; }
         public bool PersistentMaskEnabled { get; set; }
-        public bool IsLlmOnline => false;
+        public bool AlwaysAllowOverlay { get; set; }
     }
 
     [Fact]

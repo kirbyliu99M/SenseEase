@@ -342,10 +342,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         return _modelInitTask;
     }
 
-    /// <summary>UI-RESHAPE — true when the local chat LLM is loaded AND available. Drives the popup
-    /// chat-header status dot (green = online, grey = offline). Raised once model init completes.</summary>
-    public bool IsLlmOnline => _chatbot.IsModelLoaded && _chatbot.IsModelAvailable;
-
     private async Task InitModelAsync()
     {
         try
@@ -363,7 +359,6 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 // "unavailable" copy — NOT the GGUF probe path (which leaks the username);
                 // that diagnostic went to the Event Log above instead.
                 StatusText = loaded ? string.Empty : AssistantUnavailableText();
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLlmOnline)));
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
         }
@@ -641,6 +636,25 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             if (string.IsNullOrWhiteSpace(visibleReply))
                 visibleReply = result.Response;
 
+            // Item 5 / NEW-B14 (W-B 2026-06-20): repeated discomfort in a short window → advise REST and
+            // HOLD this turn's auto-actuation. Decided HERE on the async path (the governor is pure off-UI
+            // bookkeeping) so a held turn can REPLACE the reply with model-generated rest advice. The
+            // upstream compliance gate scrubbed result.Response with actuated=true, so showing it AFTER we
+            // zero the deltas would falsely claim "I eased it" while the turn actually held off — the
+            // two-bubble contradiction. We zero the deltas BEFORE ApplyNluResult and regenerate the reply as
+            // the chatbot's own brief rest advice (history-free, so the context window can't grow); a fixed
+            // honest line backstops an empty/failed regeneration, so neither a false nor an empty bubble ships.
+            bool restAdvised = result.Intent == "ReportDiscomfort" && _safetyGovernor.RecordAndShouldAdvise();
+            if (restAdvised)
+            {
+                result.FovDelta = 0;
+                result.MaskDepthDelta = 0;
+                result.GridVisibilityDelta = 0;
+                result.FeatherWidthDelta = 0;
+                string regenerated = await GenerateRestAdviceAsync(callCts.Token).ConfigureAwait(false);
+                visibleReply = !string.IsNullOrWhiteSpace(regenerated) ? regenerated : DeterministicRestAdvice();
+            }
+
             ChatMessageViewModel? assistantBubble = null;
             string assistantContentForPersist = string.Empty;
             bool fakeStream = false;
@@ -649,25 +663,32 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             {
                 if (placeholder is not null) Messages.Remove(placeholder);
 
-                // Item 5 — safety gate: repeated discomfort reports in a short window → advise rest
-                // and HOLD this turn's auto-actuation (advice, not a hard block; the crisis floor is
-                // upstream). Zero the deltas BEFORE ApplyNluResult so nothing actuates this turn.
-                bool restAdvised = false;
-                if (result.Intent == "ReportDiscomfort" && _safetyGovernor.RecordAndShouldAdvise())
-                {
-                    result.FovDelta = 0;
-                    result.MaskDepthDelta = 0;
-                    result.GridVisibilityDelta = 0;
-                    result.FeatherWidthDelta = 0;
-                    restAdvised = true;
-                }
-
+                // Item 5 / NEW-B14: the rest-advice decision + delta-zeroing + reply regeneration already
+                // ran on the async path above (restAdvised). With the deltas zeroed, ApplyNluResult applies
+                // nothing and returns an empty summary (no ✓ row), and visibleReply now carries the honest
+                // rest advice — so a held turn renders exactly one calm, honest bubble.
                 string summary = ApplyNluResult(result, text);
+
+                // NEW-B13 (W-B 2026-06-20): the user asked to strengthen/ease but the engine was already at
+                // the limit, so NOTHING applied (empty summary) — yet the upstream scrub blessed the reply
+                // with actuated=true on the REQUESTED delta, so it may falsely claim a change. Replace it
+                // with an honest at-limit line. (A PARTIAL clamp still applies something → non-empty summary
+                // → skipped; a held turn already zeroed the deltas → requestedChange=false → skipped.)
+                bool requestedChange = result.FovDelta != 0 || result.MaskDepthDelta != 0
+                                    || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0;
+                if (requestedChange && summary.Length == 0 && result.Intent != "ResetRequest")
+                {
+                    bool strongerReq = result.FovDelta < 0 || result.MaskDepthDelta > 0
+                                    || result.GridVisibilityDelta > 0 || result.FeatherWidthDelta > 0;
+                    visibleReply = AtLimitReply(strongerReq);
+                }
 
                 // Followup-requesting replies get rendered with option cards. The
                 // assistant text is the question itself (FollowupQuestion); if the
                 // model only set Response, fall back to that.
-                bool hasFollowup = result.FollowupOptions is { Length: > 0 }
+                // A held (rest-advice) turn never renders a follow-up — the single rest bubble stands alone.
+                bool hasFollowup = !restAdvised
+                                && result.FollowupOptions is { Length: > 0 }
                                 && !string.IsNullOrWhiteSpace(result.FollowupQuestion ?? visibleReply);
                 if (hasFollowup)
                 {
@@ -773,15 +794,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                     Messages.Add(new ChatMessageViewModel(summary, ChatRole.Assistant));
                 }
 
-                // Item 5 — surface the rest advice (the actuation was already held above).
-                if (restAdvised)
-                {
-                    string rest = LocalizationManager.Current.Pick(
-                        "你最近多次感到不適 — 先讓眼睛休息幾分鐘吧。有時候暫停會比再多調整更有幫助，所以我先暫停了這次的自動調整。",
-                        "You've mentioned discomfort a few times — let's rest your eyes for a few minutes. A pause often helps more than another tweak, so I've held off on auto-adjusting this time.");
-                    Messages.Add(new ChatMessageViewModel(rest, ChatRole.Assistant));
-                    PersistMessage(ChatRole.Assistant, rest);
-                }
+                // (NEW-B14) The held-turn rest advice is now the single visible reply above — no separate
+                // appended "rest" bubble, and no false "I eased it" claim.
             });
 
             if (fakeStream && assistantBubble is not null)
@@ -833,6 +847,44 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             });
         }
     }
+
+    private const int RestAdviceTimeoutSeconds = 15;
+
+    /// <summary>NEW-B14 (W-B): regenerate a held-turn rest advice as the chatbot's OWN short reply via the
+    /// lightweight, history-free <see cref="IChatbotService.CompleteShortAsync"/> (no NLU, no transcript →
+    /// the context window can't grow). Bounded by a short timeout linked to the turn; returns empty on any
+    /// failure so the caller falls back to <see cref="DeterministicRestAdvice"/>. A superseding-turn cancel
+    /// (the outer token) is rethrown so the whole turn unwinds via the normal cancellation path.</summary>
+    private async Task<string> GenerateRestAdviceAsync(CancellationToken turnToken)
+    {
+        try
+        {
+            string system = LocalizationManager.Current.Pick(
+                "你是一位冷靜、體貼的視覺舒適陪伴。使用者最近多次表示不適。請用 1–2 句溫和的話，建議他們先讓眼睛休息幾分鐘。不要提到或聲稱任何設定變更，只給出休息建議。",
+                "You are a calm, caring visual-comfort companion. The user has reported discomfort several times. In 1–2 warm sentences, gently suggest they rest their eyes for a few minutes. Do not mention or claim any settings change — give only the rest advice.");
+            string user = LocalizationManager.Current.Pick("（請給出休息建議。）", "(Please give the rest advice.)");
+
+            using var restCts = CancellationTokenSource.CreateLinkedTokenSource(turnToken);
+            restCts.CancelAfter(TimeSpan.FromSeconds(RestAdviceTimeoutSeconds));
+            string? gen = await _chatbot.CompleteShortAsync(system, user, restCts.Token).ConfigureAwait(false);
+            return (gen ?? string.Empty).Trim();
+        }
+        catch (OperationCanceledException) when (turnToken.IsCancellationRequested)
+        {
+            throw; // the whole turn was cancelled / superseded — let it unwind via the OCE catch
+        }
+        catch
+        {
+            return string.Empty; // any other failure (incl. the rest-advice timeout) → deterministic fallback
+        }
+    }
+
+    /// <summary>The honest, fixed rest-advice line — used when the model regeneration is unavailable
+    /// (lexicon-only mode, server down, timeout, or empty). It truthfully states we held off auto-adjusting,
+    /// so it never carries a false action claim.</summary>
+    private static string DeterministicRestAdvice() => LocalizationManager.Current.Pick(
+        "你最近多次感到不適 — 先讓眼睛休息幾分鐘吧。有時候暫停會比再多調整更有幫助，所以我先暫停了這次的自動調整。",
+        "You've mentioned discomfort a few times — let's rest your eyes for a few minutes. A pause often helps more than another tweak, so I've held off on auto-adjusting this time.");
 
     /// <summary>NE6: user-triggered cancel of the in-flight interactive turn. Cancels the
     /// shared <see cref="_streamCts"/> — the live model call is linked into it (see the
@@ -1271,6 +1323,17 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         string en = stronger ? $"✓ Protection up ~{pct}%" : $"✓ Protection eased ~{pct}%";
         return LocalizationManager.Current.Pick(zh, en);
     }
+
+    /// <summary>NEW-B13: the honest reply when a strengthen/ease request hit the engine's limit and nothing
+    /// applied — it replaces a falsely-actuating model reply with a truthful at-limit line plus an offer of
+    /// the opposite direction, so the user is never told a change happened that didn't.</summary>
+    private static string AtLimitReply(bool strongerRequested) => strongerRequested
+        ? LocalizationManager.Current.Pick(
+            "防護已經是最強的了，沒辦法再加強。若反而想放鬆一點，告訴我就好。",
+            "Protection is already at its strongest, so I couldn't increase it further. If you'd like me to ease it instead, just say the word.")
+        : LocalizationManager.Current.Pick(
+            "防護已經是最輕的了，沒辦法再放鬆。若想加強一點，告訴我就好。",
+            "Protection is already at its gentlest, so I couldn't ease it further. If you'd like me to strengthen it, just say the word.");
 
     private void LogShader(string parameter, double delta, double oldValue, double newValue, string utterance)
     {

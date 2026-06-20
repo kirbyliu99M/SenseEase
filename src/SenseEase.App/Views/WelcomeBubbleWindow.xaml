@@ -1,0 +1,93 @@
+<Window x:Class="SenseEase.App.Views.WelcomeBubbleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
+        Title="SenseEase"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        ResizeMode="NoResize"
+        SizeToContent="Manual" Width="320" Height="240"
+        WindowStartupLocation="Manual"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        AutomationProperties.Name="{loc:T Zh='歡迎使用 SenseEase', En='Welcome to SenseEase'}">
+    <!-- W-A first-run welcome (2026-06-20, Kirby): a one-time, ambient glass MESSAGE bubble shown on the
+         shell entry path (ShellController.Start) when AppConfig.IsFirstRun, anchored at the right edge by
+         the edge handle — so a fresh user gets context for the otherwise-unexplained edge tab + red consent
+         dot, instead of onboarding being stranded in the now-hidden console. Shown EXPANDED (immediately
+         readable) with a gentle fade+rise entrance (ReducedMotion snaps); a single "Got it" dismiss. Same
+         flash-free rules as the consent bubble: fixed-size layered window, NO Effect (it flashes the
+         transparent layered window + kills ClearType under software rendering). Popup.* tokens, view-local
+         merge; no-activate so it never steals the user's app focus. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/PopupGlassTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Primary "Got it" — mirrors the consent bubble's Start button (Popup.Blue, token hover);
+                 no inline hex so the design-lint ratchet stays clean. -->
+            <Style x:Key="WelcomeGotItBtn" TargetType="Button">
+                <Setter Property="Background" Value="{DynamicResource Popup.Blue}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="16,7"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="MinHeight" Value="34"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <!-- RootGrid hugs the right edge + is vertically centred INSIDE the fixed window, so ShellController.
+         PositionWelcome (docks the window right, centres it on the saved bar centre) lands the content
+         flush near the handle — exactly the consent bubble's content-rect arrangement. -->
+    <Grid x:Name="RootGrid" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10">
+        <!-- Shown EXPANDED (Opacity starts 0 only so the entrance can fade it in cleanly). -->
+        <Border x:Name="MessageBubble" HorizontalAlignment="Right" Width="284"
+                Background="{DynamicResource Popup.PanelBg}"
+                BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
+                CornerRadius="16" Padding="16,14,16,14" Opacity="0" ClipToBounds="True">
+            <Border.RenderTransform><TranslateTransform x:Name="EntranceShift"/></Border.RenderTransform>
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Image Source="pack://application:,,,/SenseEase.App;component/Resources/AppIcon.ico"
+                           Width="18" Height="18" Margin="0,0,8,0" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock Text="{loc:T Zh='歡迎使用 SenseEase', En='Welcome to SenseEase'}"
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Popup.Ink1}" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="19" Foreground="{DynamicResource Popup.Ink1}"
+                           Text="{loc:T Zh='SenseEase 已在背景安靜運作，會在畫面晃動較明顯時，為你溫和穩定視野。隨時可從螢幕右側邊緣的標籤開啟你的控制項。',
+                                        En='SenseEase is now running quietly in the background, ready to gently steady your view when on-screen motion picks up. Open your controls anytime from the tab on the right edge of your screen.'}"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                    <Button x:Name="GotItBtn" Style="{StaticResource WelcomeGotItBtn}" Click="OnGotItClicked" IsDefault="True"
+                            Content="{loc:T Zh='我知道了', En='Got it'}"
+                            AutomationProperties.Name="{loc:T Zh='我知道了，關閉歡迎訊息', En='Got it — dismiss welcome'}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

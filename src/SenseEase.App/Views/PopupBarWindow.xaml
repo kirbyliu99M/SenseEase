@@ -564,6 +564,12 @@
                 <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding PersistentMaskOn}"
                           Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
                           Content="{loc:T Zh='常駐遮罩', En='Persistent mask'}"/>
+                <!-- 自動防護 / Auto Protect (backing flag: AlwaysAllowOverlay) — overlay-consent mode:
+                     ON = auto-engage on motion (no bubble), OFF = ask each time. -->
+                <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AlwaysAllowOverlayOn}"
+                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
+                          Content="{loc:T Zh='自動防護', En='Auto Protect'}"
+                          ToolTip="{loc:T Zh='開啟後，偵測到晃動會自動開啟舒適防護，不再先詢問。', En='When on, the comfort overlay auto-engages on motion without asking first.'}"/>
                 <Border Height="1" Background="{DynamicResource Popup.Ink3}" Margin="0,9,0,7" Opacity="0.4"/>
                 <Button Content="{loc:T Zh='完整設定頁面', En='Full settings'}" Style="{StaticResource PanelBtn}"
                         HorizontalAlignment="Stretch" Command="{Binding OpenFullSettingsCommand}"
@@ -604,7 +610,7 @@
                 <!-- on/off switch — the SenseEase mark on a GLASS chip that matches the bar (R3 #2: no
                      blue tone behind it). ON = raised glass chip + full-strength mark (+ the neon ring,
                      Group 5); OFF/paused = flat (transparent) chip + dimmed mark. CONDENSED + FULL -->
-                <Button Command="{Binding PlayPauseCommand}"
+                <Button x:Name="PlayPauseButton" Command="{Binding PlayPauseCommand}"
                         ToolTip="{loc:T Zh='開啟／暫停保護', En='Toggle protection on / off'}"
                         AutomationProperties.Name="{loc:T Zh='開啟或暫停保護', En='Toggle protection on/off'}">
                     <Button.Style>

@@ -57,4 +57,15 @@ public sealed class OverlayConsentGovernor
     /// <summary>The prompt was retracted UNANSWERED (mask subsided before the user tapped) → the SHORT
     /// cooldown, timed from now, so it re-asks sooner than an explicit decline.</summary>
     public void RecordDismissedUnanswered() => _cooldownUntilUtc = _clock() + NoAnswerCooldown;
+
+    /// <summary>W-E (2026-06-20): re-seed the decline cooldown from a PERSISTED last-decline time so an
+    /// explicit "Not now" survives a restart (this governor is otherwise in-memory). No-op when the user
+    /// never declined or when the <see cref="DeclineCooldown"/> window has already elapsed — so a stale
+    /// timestamp can never suppress a fresh ask forever.</summary>
+    public void RestoreDeclineCooldown(DateTime? lastDeclineUtc)
+    {
+        if (lastDeclineUtc is not { } t) return;
+        var until = t.ToUniversalTime() + DeclineCooldown;
+        if (until > _clock()) _cooldownUntilUtc = until;
+    }
 }

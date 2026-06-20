@@ -139,6 +139,42 @@ public sealed class NpsServiceTests : IDisposable
     }
 
     [Fact]
+    public void ComputeCsat_ReturnsMeanAndTopTwoBox_NullWhenEmpty()
+    {
+        // Option B: the PRIMARY 5-point KPI is CSAT (mean + top-2-box), not the experimental NPS-analog.
+        DateTime now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var svc = new NpsService(NewDir(), () => now, isFirstRun: () => false);
+
+        Assert.Null(svc.ComputeCsat());                 // no responses yet
+
+        svc.RecordResponse(5, null);                    // satisfied (top-box)
+        svc.RecordResponse(4, null);                    // satisfied (top-2-box)
+        svc.RecordResponse(2, null);                    // not satisfied
+
+        var csat = svc.ComputeCsat();
+        Assert.NotNull(csat);
+        Assert.Equal(3, csat!.Value.Count);
+        Assert.Equal(11.0 / 3.0, csat.Value.Mean, 3);              // (5+4+2)/3
+        Assert.Equal(200.0 / 3.0, csat.Value.TopTwoBoxPercent, 3); // 2 of 3 scored >= 4
+    }
+
+    [Fact]
+    public void RecordDismissed_IdleAutoDismiss_ArmsOnlyTheShortCooldown_NotThe90DayWindow()
+    {
+        // An idle timeout (un-answered) is a weaker signal than an explicit "Not now" → 30-day cooldown,
+        // not the 90-day quiet window — so ignoring the card once does not silence it for a quarter.
+        DateTime now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var svc = new NpsService(NewDir(), () => now, isFirstRun: () => false);
+        svc.RecordSessionStart(); svc.RecordSessionStart(); svc.RecordSessionStart();
+
+        svc.RecordDismissed(explicitDecline: false);    // idle auto-dismiss
+        now = now.AddDays(29);
+        Assert.False(svc.ShouldAsk());                  // inside the 30-day cooldown
+        now = now.AddDays(2);                            // total 31 days
+        Assert.True(svc.ShouldAsk());                   // short cooldown elapsed (NOT 90-day) → re-asks
+    }
+
+    [Fact]
     public void State_SurvivesReload()
     {
         DateTime now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);

@@ -25,6 +25,7 @@
             </ResourceDictionary.MergedDictionaries>
 
             <conv:ScoreIsSelectedConverter x:Key="ScoreSelected"/>
+            <conv:ScoreToAccessibleNameConverter x:Key="ScoreA11yName"/>
 
             <!-- 5-point QA tile: a faint glass chip at rest; the accent fill (+ white ink)
                  on hover AND while selected, so the chosen score stays lit after the click. -->
@@ -165,7 +166,17 @@
             <TextBlock Text="{Binding Prompt}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"
                        Foreground="{DynamicResource Popup.Ink1}"/>
 
-            <ItemsControl ItemsSource="{Binding Scores}" Margin="0,14,0,0" HorizontalAlignment="Center"
+            <!-- Small, subtle meaning anchors sitting ON TOP of the number row (poor over 1, great over 5).
+                 Width-matched to the 5×52px button block so the ends align; no "1 ="/"5 =" prefix — the
+                 numbers are right below. -->
+            <Grid Width="260" HorizontalAlignment="Center" Margin="0,14,0,2">
+                <TextBlock Text="{Binding ScaleLowLabel}"  HorizontalAlignment="Left"  Margin="6,0,0,0"
+                           FontSize="11" Foreground="{DynamicResource Popup.Ink2}"/>
+                <TextBlock Text="{Binding ScaleHighLabel}" HorizontalAlignment="Right" Margin="0,0,6,0"
+                           FontSize="11" Foreground="{DynamicResource Popup.Ink2}"/>
+            </Grid>
+
+            <ItemsControl ItemsSource="{Binding Scores}" Margin="0,0,0,0" HorizontalAlignment="Center"
                           AutomationProperties.Name="{loc:T Zh='1 到 5 分', En='Score from 1 to 5'}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -175,7 +186,7 @@
                         <Button Style="{StaticResource ScoreBtn}" Content="{Binding}"
                                 CommandParameter="{Binding}"
                                 Command="{Binding DataContext.SelectScoreCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                AutomationProperties.Name="{Binding}">
+                                AutomationProperties.Name="{Binding Converter={StaticResource ScoreA11yName}}">
                             <Button.Tag>
                                 <MultiBinding Converter="{StaticResource ScoreSelected}">
                                     <Binding/>
@@ -186,14 +197,6 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-
-            <!-- scale anchors so 1↔5 direction is unambiguous -->
-            <Grid Margin="6,6,6,0">
-                <TextBlock Text="{Binding ScaleLowLabel}"  HorizontalAlignment="Left"
-                           FontSize="11" Foreground="{DynamicResource Popup.Ink2}"/>
-                <TextBlock Text="{Binding ScaleHighLabel}" HorizontalAlignment="Right"
-                           FontSize="11" Foreground="{DynamicResource Popup.Ink2}"/>
-            </Grid>
 
             <TextBlock Text="{Binding CommentLabel}" Margin="2,16,0,5" FontSize="12"
                        Foreground="{DynamicResource Popup.Ink2}"/>

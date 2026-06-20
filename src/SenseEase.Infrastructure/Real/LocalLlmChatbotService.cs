@@ -162,7 +162,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "  4. NEVER STATE THE USER'S BODY STATE: you cannot know how they feel. Never say a symptom is gone/eased/better/緩解/不痛了/不暈了 and never predict 'should/will feel better / 會好 / 應該會舒服' UNLESS the user said so THIS turn. A named symptom is a CURRENT report.\n" +
         "  5. NO INTERNAL JARGON OR NUMBERS in the reply: never name fov / field-of-view / mask / mask depth / grid / anchor / tier / optical flow / pressure / strike-limit / sensitivity-scale / percentages / clock times. Speak in feeling-terms ('eased the on-screen motion a little'). You MAY echo a plain word the user used.\n" +
         "  6. MEDICAL SCOPE: never diagnose or suggest medication, and NEVER tell the user they are fine or do not need care. For 'should I see a doctor?' answer neutrally that a professional can best advise (專業人員較能判斷).\n" +
-        "  7. PRIVACY (pinned fact): if asked whether you record/store anything — EN: 'Everything runs on your device and your conversations aren't stored.'  ZH: '所有處理都在本機進行，對話不會被儲存。' Never say you record the conversation.\n" +
+        "  7. PRIVACY (pinned fact): if asked whether you record/store anything — be HONEST: the conversation IS saved locally so it can persist, but it never leaves the device and can be cleared anytime. EN: 'Everything runs on your device — your conversations stay on your machine and never leave it, and you can clear them anytime.'  ZH: '所有處理都在本機進行，對話只會留在你的裝置上、不會外傳，你也可以隨時清除。' Never claim the conversation is not stored.\n" +
         "  8. LANGUAGE: reply ONLY in the language the per-turn directive pins — US English OR Traditional Chinese. Never Simplified Chinese, never Japanese/Korean, and NEVER mix languages (no English words like 'tier'/'profile'/'FOV' inside a Chinese reply, and no Chinese inside an English reply).\n\n" +
 
         // ── ACTUATOR PARAMETERS — what your deltas physically do ──
@@ -398,9 +398,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "User: Hi, how are you\n" +
         "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Hi! I'm running and watching for any visual discomfort — just tell me how you're feeling and I'll adjust the overlay.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: do you store my chat data?\n" +
-        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Everything runs on your device and your conversations aren't stored.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Everything runs on your device — your conversations stay on your machine and never leave it, and you can clear them anytime.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: 你會記錄我的對話嗎?\n" +
-        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"所有處理都在本機進行，對話不會被儲存。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"所有處理都在本機進行，對話只會留在你的裝置上、不會外傳，你也可以隨時清除。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: 我這樣是不是要去看醫生?\n" +
         "(a QUESTION + medical — answer neutrally, never say they're fine or that they don't need a doctor, change nothing)\n" +
         "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"這建議由專業人員評估較為妥當。視覺方面若有不適，我可協助調整畫面。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
@@ -991,6 +991,62 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 // Network failure, timeout, or malformed JSON — fall back to lexicon.
                 return null;
             }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    /// <summary>W-B NEW-B14 (2026-06-20): a lightweight, history-free, grammar-free short completion used
+    /// ONLY for a held-turn rest advice. Deliberately omits the conversation history + the NLU envelope
+    /// grammar so it CANNOT grow the context window — a single system+user pair, small max_tokens, and it
+    /// never touches <c>_history</c>. Honesty backstop: the result is run through
+    /// <see cref="ReplyComplianceScrubber"/> with actuated:false, so a slipped "I eased it" can never
+    /// survive. Returns null on any failure / when the server is not loaded → the host uses its
+    /// deterministic fallback line.</summary>
+    public async Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+    {
+        if (!IsModelLoaded) return null; // no server → host falls back; never fire a doomed HTTP call
+        await _lock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var requestBody = new
+            {
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user",   content = userPrompt },
+                },
+                max_tokens  = 96,        // 1-2 short sentences — bounded so it can't grow context/latency
+                temperature = 0.4,
+                top_p       = 0.9,
+                top_k       = 40,
+                stop        = _stopTokens,
+                // NO grammar (free prose) + NO history (one-shot) — deliberately context-window-light.
+            };
+            try
+            {
+                using var resp = await _http.PostAsJsonAsync(
+                    $"{ServerUrl}/v1/chat/completions", requestBody, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return null;
+
+                string respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(respBody, _jsonDocOpts);
+                if (doc.RootElement.TryGetProperty("choices", out var choices)
+                    && choices.GetArrayLength() > 0
+                    && choices[0].TryGetProperty("message", out var msg)
+                    && msg.TryGetProperty("content", out var content))
+                {
+                    string? text = content.GetString();
+                    if (string.IsNullOrWhiteSpace(text)) return null;
+                    // Honesty backstop: a companion completion must never CLAIM a settings change (R1).
+                    return ReplyComplianceScrubber.Scrub(text, intent: string.Empty, actuated: false, userPrompt);
+                }
+                return null;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch { return null; } // network failure / malformed body → deterministic fallback
         }
         finally
         {

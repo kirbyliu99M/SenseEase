@@ -233,6 +233,29 @@ public sealed class UserPreferences
     [JsonPropertyName("persistent_overlay_enabled")]
     public bool PersistentOverlayEnabled { get; set; } = false;
 
+    /// <summary>"Auto Protect" / 自動防護 overlay-consent mode (UI-RESHAPE quick-settings, Kirby 2026-06-20;
+    /// user-facing label is "Auto Protect", the backing flag stays <c>AlwaysAllowOverlay</c>).
+    /// When <c>true</c> the comfort overlay auto-engages on motion with NO consent bubble (a standing,
+    /// durable consent). <c>false</c> (default) keeps the per-session "ask each time" model. Distinct
+    /// from <see cref="PersistentOverlayEnabled"/> (which also floors an always-on baseline) — this only
+    /// pre-grants consent. Additive field; old files load with it absent (defaults to OFF), no version bump.</summary>
+    [JsonPropertyName("always_allow_overlay")]
+    public bool AlwaysAllowOverlay { get; set; } = false;
+
+    /// <summary>Overlay-consent durability (W-E, 2026-06-20): the UTC time of the last EXPLICIT "Not now"
+    /// decline. The <c>OverlayConsentGovernor</c> is in-memory, so on launch it re-seeds its 30-min decline
+    /// cooldown from this — an explicit decline survives a restart instead of re-nagging on the next
+    /// impactful rise. Null = never declined. The full asked/accepted/declined/ignored TIMELINE lives in
+    /// symptom_log.jsonl (<c>kind=overlay_consent</c>); this is only the cooldown seed. Additive field —
+    /// old files load with it absent, no version bump. Cleared by "Clear all my data".</summary>
+    [JsonPropertyName("last_overlay_decline_utc")]
+    public DateTime? LastOverlayDeclineUtc { get; set; }
+
+    /// <summary>Running count of explicit overlay-consent declines (prompt-fatigue analytics). Additive;
+    /// reset by "Clear all my data".</summary>
+    [JsonPropertyName("overlay_decline_count")]
+    public int OverlayDeclineCount { get; set; }
+
     /// <summary>UI-RESHAPE quick-settings — 錨點格線 (Chang-Hain anchor-grid lines) on/off. Read each
     /// frame by <see cref="Views.OverlayWindow"/>'s grid pass; off forces grid opacity to 0. Default
     /// on (the grid is part of the protection; the toggle lets sensitive users hide the lines).

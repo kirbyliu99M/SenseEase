@@ -1,3 +1,6 @@
+using System;
+using System.Globalization;
+
 namespace SenseEase.Core.Models;
 
 /// <summary>
@@ -64,12 +67,39 @@ public sealed class SymptomEvent
     /// window title.</summary>
     public string? ForegroundKey { get; set; }
 
+    /// <summary>Overlay-consent decision for a <c>kind=overlay_consent</c> row: see
+    /// <see cref="Decisions"/> ("asked" | "accepted" | "declined" | "ignored"). Null on every FMS row,
+    /// so a reader filters the consent timeline by <see cref="Kind"/>.</summary>
+    public string? Decision { get; set; }
+
     // ── Value catalogs (string-valued for forward-compatible JSONL) ───────────
-    public static class Kinds { public const string FmsReport = "fms_report"; public const string FmsEstimate = "fms_estimate"; }
+    public static class Kinds { public const string FmsReport = "fms_report"; public const string FmsEstimate = "fms_estimate"; public const string OverlayConsent = "overlay_consent"; }
+    /// <summary>Overlay-consent decision discriminator (the <see cref="Decision"/> field).</summary>
+    public static class Decisions { public const string Asked = "asked"; public const string Accepted = "accepted"; public const string Declined = "declined"; public const string Ignored = "ignored"; }
     public static class Scales { public const string Fms20 = "fms20"; }
     // "stars" is the legacy 5★ console widget (kept for back-compat reads of older logs + the
     // pinned ComfortRatingScaleTests); "slider" is the current 0-20 FMS console capture (D-redesign).
     public static class Sources { public const string Stars = "stars"; public const string NlDaily = "nl_daily"; public const string Slider = "slider"; }
     public static class InterventionStates { public const string On = "on"; public const string Off = "off"; public const string Baseline = "baseline"; }
     public static class Triggers { public const string Spike = "spike"; public const string Idle = "idle"; public const string SessionEnd = "session_end"; public const string Manual = "manual"; }
+
+    /// <summary>Build an overlay-consent audit row (<c>kind=overlay_consent</c>). It carries the live
+    /// context — the VIMS tier and protection ON/OFF at the moment of the decision — so the consent
+    /// timeline joins to the same tier key as the FMS reports. It is NOT a measured or estimated value,
+    /// so <see cref="Value"/>/<see cref="Scale"/>/<see cref="Source"/> are left empty.
+    /// <paramref name="utcNow"/> is injected so the assembly is deterministically unit-testable.</summary>
+    public static SymptomEvent OverlayConsentRow(string decision, int contextTier, bool maskActive, DateTime utcNow)
+        => new()
+        {
+            TsUtc = utcNow.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture),
+            Kind = Kinds.OverlayConsent,
+            Decision = decision,
+            Measured = false,
+            Scale = string.Empty,
+            Source = string.Empty,
+            Value = 0,
+            ContextTier = contextTier,
+            InterventionState = maskActive ? InterventionStates.On : InterventionStates.Off,
+            Trigger = string.Empty,
+        };
 }

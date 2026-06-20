@@ -43,6 +43,20 @@ public sealed class SymptomEventRecorder
     /// two are never visually conflated. Internal for unit cover.</summary>
     internal static EventLogEntry BuildMirror(SymptomEvent ev)
     {
+        // W-E (2026-06-20): an overlay-consent row is NOT an FMS value — mirror it under its own durable
+        // category so it never reads as a misleading "FMS ~0/20 estimate" in the dashboard/forensic log.
+        if (ev.Kind == SymptomEvent.Kinds.OverlayConsent)
+        {
+            string cstate = string.IsNullOrEmpty(ev.InterventionState) ? "" : $", protection {ev.InterventionState}";
+            return new EventLogEntry
+            {
+                Timestamp = ParseTsOrNow(ev.TsUtc),
+                Category  = "Consent.Overlay",
+                Message   = string.Format(CultureInfo.InvariantCulture,
+                    "Overlay consent: {0} (tier {1}{2})", ev.Decision ?? "", ev.ContextTier, cstate),
+            };
+        }
+
         string category = ev.Measured ? "Symptom.Report" : "Symptom.Estimate";
         string qualifier = ev.Measured ? "measured" : "estimated";
         string approx = ev.Measured ? "" : "~";

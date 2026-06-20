@@ -43,6 +43,12 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         if (_controller is not null)
         {
             _controller.StateChanged += (_, _) => ApplyState(_controller.CurrentTier, _controller.IsPaused);
+            // H5: keep the quick-settings switches authoritative — re-read live state whenever it changes
+            // from ANY source: a controller signal (engine tick OR a direct toggle from another surface)
+            // AND a persisted-preference change (full Settings, reset, …). Both marshalled to the UI thread.
+            // The popup VM lives for the app lifetime (window is hidden, never recreated), so no unsubscribe.
+            _controller.QuickSettingsChanged += OnQuickSettingsChanged;
+            SenseEase.App.Configuration.UserPreferences.Changed += OnQuickSettingsChanged;
             ApplyState(_controller.CurrentTier, _controller.IsPaused);
         }
     }
@@ -161,8 +167,13 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         set { if (PersistentMaskOn == value) return; _persistentMaskOn = value; if (_controller is not null) _controller.PersistentMaskEnabled = value; OnPropertyChanged(); }
     }
 
-    /// <summary>True when the local chat LLM is loaded + available (drives the chat-header dot).</summary>
-    public bool IsLlmOnline => _controller?.IsLlmOnline ?? (Chat?.IsLlmOnline ?? false);
+    // 自動防護 / Auto Protect — overlay consent: ON = auto-engage on motion (no bubble), OFF = ask each time.
+    private bool _alwaysAllowOverlayOn;
+    public bool AlwaysAllowOverlayOn
+    {
+        get => _controller?.AlwaysAllowOverlay ?? _alwaysAllowOverlayOn;
+        set { if (AlwaysAllowOverlayOn == value) return; _alwaysAllowOverlayOn = value; if (_controller is not null) _controller.AlwaysAllowOverlay = value; OnPropertyChanged(); }
+    }
 
     // ── Commands ─────────────────────────────────────────────────────────────
     public ICommand PlayPauseCommand { get; }
@@ -193,6 +204,22 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         _applyingEngineLevel = true;
         try { VimsTier = tier; IsPaused = paused; }
         finally { _applyingEngineLevel = false; }
+    }
+
+    // H5: re-raise the four quick-settings switches whenever live state changes (controller event OR a
+    // persisted-preference change), marshalled to the UI thread (either signal can fire off-thread).
+    private readonly System.Windows.Threading.Dispatcher _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+    private void OnQuickSettingsChanged(object? sender, EventArgs e)
+    {
+        if (!_dispatcher.CheckAccess()) { _dispatcher.BeginInvoke(new Action(RaiseQuickSettings)); return; }
+        RaiseQuickSettings();
+    }
+    private void RaiseQuickSettings()
+    {
+        OnPropertyChanged(nameof(AnchorGridOn));
+        OnPropertyChanged(nameof(GradedExposureOn));
+        OnPropertyChanged(nameof(PersistentMaskOn));
+        OnPropertyChanged(nameof(AlwaysAllowOverlayOn));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

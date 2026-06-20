@@ -327,6 +327,20 @@ public partial class PopupBarWindow : Window, IShellSurface
         }
     }
 
+    /// <summary>A11Y (audit A2/H1): take keyboard focus on a DELIBERATE reveal (hotkey / tray) so a
+    /// keyboard user can Tab the bar's controls. The PASSIVE proximity/edge reveals stay no-activate
+    /// (ShowActivated=False) so they never steal focus from the user's app/game. Focus is deferred to
+    /// DispatcherPriority.Loaded — after AnimateReveal flips BarRoot from Hidden to Visible — so it lands
+    /// on a realized, focusable button. No animation geometry is touched (Activate is a foreground change).</summary>
+    public void ActivateForKeyboard()
+    {
+        try { Activate(); } catch { }
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try { PlayPauseButton?.Focus(); } catch { }
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
     private void AnimateReveal()
     {
         // R3-7: the window is a fixed size that never resizes, so the old SizeToContent width-latch

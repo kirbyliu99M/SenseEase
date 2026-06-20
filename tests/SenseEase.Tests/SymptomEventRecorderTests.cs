@@ -75,6 +75,30 @@ public sealed class SymptomEventRecorderTests : IDisposable
     }
 
     [Fact]
+    public void Record_OverlayConsent_WritesRow_AndMirrorsConsentCategory_NotFms()
+    {
+        var store = new FileSymptomEventStore(_path);
+        var log = new InMemoryEventLogStore();
+        var rec = new SymptomEventRecorder(store, log);
+
+        rec.Record(SymptomEvent.OverlayConsentRow(
+            SymptomEvent.Decisions.Declined, contextTier: 7, maskActive: false,
+            utcNow: new DateTime(2026, 6, 20, 9, 0, 0, DateTimeKind.Utc)));
+
+        // Structured row carries the consent discriminator + decision — never a measured FMS value.
+        var stored = Assert.Single(store.ReadAll());
+        Assert.Equal(SymptomEvent.Kinds.OverlayConsent, stored.Kind);
+        Assert.Equal(SymptomEvent.Decisions.Declined, stored.Decision);
+        Assert.False(stored.Measured);
+
+        // Mirror lands under its OWN durable category, and never reads as a misleading "FMS ~0/20".
+        var mirror = Assert.Single(log.Recent());
+        Assert.Equal("Consent.Overlay", mirror.Category);
+        Assert.Contains("declined", mirror.Message);
+        Assert.DoesNotContain("FMS", mirror.Message);
+    }
+
+    [Fact]
     public void BuildMirror_KeepsCategoryDurable_SoItPersistsInForensicLog()
     {
         // The Symptom. prefix must be a durable category (persists to event-log-*.jsonl + the

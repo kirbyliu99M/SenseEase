@@ -26,6 +26,7 @@ public sealed class ShellController : IShellController
     private PopupBarWindow? _popup;
     private NpsSurveyWindow? _npsWindow;
     private ConsentBubbleWindow? _consentBubble;
+    private WelcomeBubbleWindow? _welcome;
 
     public ShellController(MainWindow console, MainViewModel vm)
     {
@@ -38,6 +39,7 @@ public sealed class ShellController : IShellController
     public void Start()
     {
         _vm.StateChanged += OnVmStateChanged;
+        _vm.PropertyChanged += OnVmPropertyChangedForQuickSettings; // H5: surface direct toggle changes
 
         // Item 1 — consent bubble: the VM raises these on the UI thread when the comfort overlay
         // wants to engage (or when a pending ask is no longer relevant). This controller owns the
@@ -55,6 +57,11 @@ public sealed class ShellController : IShellController
         _sidebar.LocationChanged += (_, _) => _exclude.Update();
         _sidebar.Show();
 
+        // W-A first-run welcome: on the shell entry path the console (which hosted the onboarding strip)
+        // is never shown, so a fresh user would see only the edge handle + a context-free red dot. Surface
+        // a one-time welcome bubble that orients them to the edge tab.
+        MaybeShowWelcome();
+
         // NPS KPI: count this session, then surface the subtle survey only if the gate allows
         // (≥3 sessions, 30-day cooldown, first-run complete, not recently dismissed). Dormant by
         // default — a fresh install never sees it.
@@ -67,7 +74,9 @@ public sealed class ShellController : IShellController
         if (_npsWindow is not null || !_nps.ShouldAsk()) return;
         var vm = new NpsSurveyViewModel(
             onSubmit: (score, comment) => { _nps.RecordResponse(score, comment); CloseNpsSurvey(); },
-            onDismiss: () => { _nps.RecordDismissed(); CloseNpsSurvey(); });
+            onDismiss: () => { _nps.RecordDismissed(); CloseNpsSurvey(); },
+            // An idle auto-dismiss is a weaker signal than an explicit "Not now" → short cooldown, not 90-day.
+            onIdleDismiss: () => { _nps.RecordDismissed(explicitDecline: false); CloseNpsSurvey(); });
         _npsWindow = new NpsSurveyWindow(vm);
         _npsWindow.ContentRendered += (_, _) => _exclude.Register(_npsWindow!);
         _npsWindow.LocationChanged += (_, _) => _exclude.Update();
@@ -90,16 +99,16 @@ public sealed class ShellController : IShellController
     /// <summary>Reveal the glass popup bar (lazily created, condensed). Idempotent — a no-op if
     /// already visible. <paramref name="graceMs"/> = how long it stays open regardless of cursor
     /// distance before the proximity auto-close can vanish it (the reveal "cooldown").</summary>
-    public void RevealPopup(int graceMs = 0)
+    public void RevealPopup(int graceMs = 0, bool activate = false)
     {
         EnsurePopup();
-        if (_popup!.IsVisible) { if (graceMs > 0) _popup.GraceAutoClose(graceMs); return; }
-        ShowPopup(graceMs);
+        if (_popup!.IsVisible) { if (graceMs > 0) _popup.GraceAutoClose(graceMs); if (activate) _popup.ActivateForKeyboard(); return; }
+        ShowPopup(graceMs, activate);
     }
 
     /// <summary>Tray single-click reveal — the cursor is at the tray, far from the bar, so use the
     /// longer 10 s cooldown so the user has time to move to it.</summary>
-    public void RevealFromTray() => RevealPopup(TrayGraceMs);
+    public void RevealFromTray() => RevealPopup(TrayGraceMs, activate: true);
 
     /// <summary>Hotkey toggle: hide if shown, otherwise reveal with the tray-length cooldown (a
     /// hotkey summon, like the tray, leaves the cursor away from the bar).</summary>
@@ -107,7 +116,7 @@ public sealed class ShellController : IShellController
     {
         EnsurePopup();
         if (_popup!.IsVisible) _popup.DismissToHandle(); // condensed-baseline hide (no reopen flash) + VM reset
-        else ShowPopup(TrayGraceMs);
+        else ShowPopup(TrayGraceMs, activate: true); // hotkey = deliberate reveal → take keyboard focus (A2/H1)
     }
 
     private const int SidePanelGraceMs = 5_000;  // handle click / edge-throw — cursor is here
@@ -138,17 +147,18 @@ public sealed class ShellController : IShellController
         };
     }
 
-    private void ShowPopup(int graceMs = 0)
+    private void ShowPopup(int graceMs = 0, bool activate = false)
     {
         if (_popup is null) return;
         _popup.Show();
         PositionPopup();
         _popup.ReassertTopmost();
         if (graceMs > 0) _popup.GraceAutoClose(graceMs);
-        // NOTE: do NOT Activate() here — revealing the bar must not steal focus from the user's
-        // app/game (low-disturbance). The popup activates ONLY when the chat opens (typing needs
-        // the caret), handled in PopupBarWindow on IsChatOpen. ShowActivated=False keeps Show()
-        // from grabbing focus.
+        // A PASSIVE reveal (proximity / edge-throw / handle click) must NOT steal focus from the user's
+        // app/game — ShowActivated=False keeps Show() from grabbing it. A DELIBERATE reveal (hotkey / tray)
+        // DOES take keyboard focus (audit A2/H1) so a keyboard user can operate the bar; chat-open also
+        // activates for the caret (handled in PopupBarWindow on IsChatOpen).
+        if (activate) _popup.ActivateForKeyboard();
     }
 
     // ── Item 1: consent bubble ────────────────────────────────────────────────
@@ -195,6 +205,51 @@ public sealed class ShellController : IShellController
         _consentBubble.Top = Math.Max(work.Top, Math.Min(work.Bottom - _consentBubble.ActualHeight, top));
     }
 
+    // ── W-A: one-time first-run welcome bubble ──────────────────────────────────
+    private void MaybeShowWelcome()
+    {
+        if (!SenseEase.App.Configuration.AppConfig.IsFirstRun) return;
+        // Show-once: mark complete NOW (not on dismiss) so it never re-nags even if the user ignores it,
+        // and so the NPS gate's "first-run complete" precondition unblocks for future sessions. The flag
+        // lives in %LocalAppData%\SenseEase\, cleared by "Clear all my data".
+        SenseEase.App.Configuration.AppConfig.MarkFirstRunComplete();
+
+        var win = new WelcomeBubbleWindow();
+        _welcome = win;
+        win.Dismissed += (_, _) => HideWelcome();
+        win.ContentRendered += (_, _) => PositionWelcome();
+        win.SizeChanged += (_, _) => { PositionWelcome(); _exclude.Update(); };
+        win.IsVisibleChanged += (_, e) =>
+        {
+            if ((bool)e.NewValue) _exclude.Register(win);
+            else _exclude.Unregister(win);
+        };
+        win.Show();
+        PositionWelcome();
+        win.ReassertTopmost();
+    }
+
+    /// <summary>Anchor the welcome at the right edge near the bar's remembered centre — the same
+    /// arrangement as the consent bubble, so it reads as coming from the edge handle.</summary>
+    private void PositionWelcome()
+    {
+        if (_welcome is null) return;
+        var work = SystemParameters.WorkArea;
+        const double edgeGap = 12.0;
+        _welcome.Left = Math.Max(work.Left, work.Right - _welcome.ActualWidth - edgeGap);
+        double centreY = TryGetSavedBarCentreY() ?? (work.Top + work.Height / 2.0);
+        double top = centreY - (_welcome.ActualHeight / 2.0);
+        _welcome.Top = Math.Max(work.Top, Math.Min(work.Bottom - _welcome.ActualHeight, top));
+    }
+
+    private void HideWelcome()
+    {
+        if (_welcome is null) return;
+        var w = _welcome;
+        _welcome = null;
+        w.Close(); // IsVisibleChanged(false) unregisters it from the exclude union via the captured window
+    }
+
     private void PositionPopup()
     {
         if (_popup is null) return;
@@ -232,7 +287,24 @@ public sealed class ShellController : IShellController
         // The edge handle is now a neutral, discreet trapezoid (no tier tint) — only the
         // popup pulse reflects screen-motion, via StateChanged → PopupBarViewModel.ApplyState.
         StateChanged?.Invoke(this, EventArgs.Empty);
+        // H5: the engine tick can also flip a quick-settings-backed value (e.g. an auto-park of
+        // habituation) without a property-change — nudge the switches so they stay authoritative.
+        QuickSettingsChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>H5 — forward a direct change of any quick-settings-backed VM property (a toggle flipped
+    /// from full Settings, the slider, chat, etc.) to the popup so its switches re-read live state.</summary>
+    private void OnVmPropertyChangedForQuickSettings(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is { } p && System.Array.IndexOf(_quickSettingsProps, p) >= 0)
+            QuickSettingsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static readonly string[] _quickSettingsProps =
+    {
+        nameof(MainViewModel.AnchorGridEnabled), nameof(MainViewModel.GradedExposureEnabled),
+        nameof(MainViewModel.PersistentOverlayEnabled), nameof(MainViewModel.AlwaysAllowOverlay),
+    };
 
     // ── IShellController ────────────────────────────────────────────────────
     // The popup meter shows the DISPLAYED level (engine tier floored by the always-on
@@ -240,6 +312,7 @@ public sealed class ShellController : IShellController
     public int CurrentTier => _vm.CurrentState is { } s ? _vm.ResolveDisplayedTier(s.VimsTier) : _vm.VimsTier;
     public bool IsPaused => _console.IsPowerSaveActive;
     public event EventHandler? StateChanged;
+    public event EventHandler? QuickSettingsChanged;
 
     public void PlayPause()
     {
@@ -293,5 +366,9 @@ public sealed class ShellController : IShellController
         get => _vm.PersistentOverlayEnabled;
         set => _vm.PersistentOverlayEnabled = value;
     }
-    public bool IsLlmOnline => _vm.ChatbotVm?.IsLlmOnline ?? false;
+    public bool AlwaysAllowOverlay
+    {
+        get => _vm.AlwaysAllowOverlay;
+        set => _vm.AlwaysAllowOverlay = value;
+    }
 }

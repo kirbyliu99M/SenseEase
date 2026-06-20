@@ -82,8 +82,9 @@ public partial class NpsSurveyWindow : Window, IShellSurface
         _idleDismiss.Start();
     }
 
-    /// <summary>#6: the idle window elapsed with no response — fade the card out, then record it as a
-    /// dismissal (DismissCommand → NpsService.RecordDismissed + close). ReducedMotion skips the fade.</summary>
+    /// <summary>#6: the idle window elapsed with no response — fade the card out, then record it as an
+    /// IDLE dismissal (NotifyIdleDismiss → NpsService.RecordDismissed(explicitDecline:false) → the short
+    /// 30-day cooldown, NOT the 90-day "Not now" quiet window) + close. ReducedMotion skips the fade.</summary>
     private void OnIdleDismissTick(object? sender, EventArgs e)
     {
         _idleDismiss.Stop();
@@ -91,12 +92,12 @@ public partial class NpsSurveyWindow : Window, IShellSurface
         _idleFading = true;
         if (AccessibilityHelper.ReducedMotion())
         {
-            (DataContext as NpsSurveyViewModel)?.DismissCommand.Execute(null);
+            (DataContext as NpsSurveyViewModel)?.NotifyIdleDismiss();
             return;
         }
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
         var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(400))) { EasingFunction = ease };
-        fade.Completed += (_, _) => { if (_idleFading) (DataContext as NpsSurveyViewModel)?.DismissCommand.Execute(null); };
+        fade.Completed += (_, _) => { if (_idleFading) (DataContext as NpsSurveyViewModel)?.NotifyIdleDismiss(); };
         BeginAnimation(OpacityProperty, fade);
     }
 

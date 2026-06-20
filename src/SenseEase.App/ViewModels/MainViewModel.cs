@@ -1012,6 +1012,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             mockEngineForAutoProfiling.BackgroundPersistEnabled = true;
         }
 
+        // W-E (2026-06-20): re-seed the overlay-consent decline cooldown from the persisted last-decline
+        // so an explicit "Not now" survives a restart (the governor is otherwise in-memory) instead of
+        // re-nagging on the next impactful rise. No-op when never declined / the 30-min window elapsed.
+        _overlayConsent.RestoreDeclineCooldown(UserPreferences.Current.LastOverlayDeclineUtc);
+
         // D-1 (CW-1 step 3, 2026-06-11): hydrate the graded-exposure (habituation)
         // pause from the persisted opt-in BEFORE the first Update tick. Graded
         // exposure defaults PAUSED (HabituationEnabled = false); the Settings
@@ -1799,6 +1804,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _consentPending;
     private bool _consentInteracting; // user currently has the bubble's card expanded → suspend the tuck-away
 
+    /// <summary>"Always allow" overlay-consent mode (quick-settings, persisted, Kirby 2026-06-20). When
+    /// ON, the overlay auto-engages on motion with NO consent bubble — a standing, durable consent the
+    /// user can flip from the bar. OFF (default) = the per-session "ask each time" model. Distinct from
+    /// <see cref="PersistentOverlayEnabled"/> (which also floors an always-on baseline); this only
+    /// pre-grants consent — the overlay still follows the natural tier (invisible at rest).</summary>
+    public bool AlwaysAllowOverlay
+    {
+        get => UserPreferences.Current.AlwaysAllowOverlay;
+        set
+        {
+            if (AlwaysAllowOverlay == value) return;
+            UserPreferences.Current.AlwaysAllowOverlay = value;
+            UserPreferences.Current.Save();
+            if (value) CancelPendingConsent();  // turning it on hides any bubble waiting for an answer
+            UpdateFromState(_engine.Current);    // re-apply so the consent gate engages/clamps within a frame
+            OnPropertyChanged(nameof(AlwaysAllowOverlay));
+            AppendLog("OverlayConsent",
+                value ? Loc("已設為自動防護（不再先詢問）。", "Comfort overlay set to Auto Protect (no longer asks first).")
+                      : Loc("已恢復為先詢問再開啟防護。", "Comfort overlay will ask before engaging."),
+                CurrentState);
+        }
+    }
+
     /// <summary>Raised (UI thread) when the comfort overlay wants to engage but needs the user's
     /// agreement — the host shows the consent bubble. No-op when nothing is subscribed.</summary>
     public event EventHandler? OverlayConsentRequested;
@@ -1815,6 +1843,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// (headless tests).</summary>
     public bool ShouldHoldMaskForConsent(int naturalTier)
     {
+        // "Always allow" consent mode (quick-settings) = standing consent → run the session, no bubble,
+        // mirroring the PersistentOverlay branch below but WITHOUT an always-on baseline floor.
+        if (AlwaysAllowOverlay)
+        {
+            _overlaySessionActive = true;
+            _consentPending = false;
+            _calmSinceTick = 0;
+            return false;
+        }
+
         // Always-on baseline (slider / PersistentOverlay) = explicit consent → run the session, no bubble.
         if (PersistentOverlayEnabled)
         {
@@ -1847,6 +1885,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 _consentPending = true;
                 _consentAskedTick = ConsentTickProvider();
                 _overlayConsent.RecordAsked();                 // cooldown is timed from the ask
+                RecordOverlayConsentDecision(SymptomEvent.Decisions.Asked);
                 OverlayConsentRequested?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -1863,9 +1902,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _consentPending = false;
             _overlayConsent.RecordDismissedUnanswered();
+            RecordOverlayConsentDecision(SymptomEvent.Decisions.Ignored);
             OverlayConsentDismissRequested?.Invoke(this, EventArgs.Empty);
         }
         return true; // dormant ⇒ hold the overlay off
+    }
+
+    /// <summary>W-E/W-G/W-I (2026-06-20): append one overlay-consent decision to the durable symptom_log
+    /// timeline (<c>kind=overlay_consent</c>), mirroring <see cref="RecordFmsRating"/>'s best-effort
+    /// contract — a consent decision must never crash the gate. Stamps the live tier + protection state
+    /// so the consent timeline joins to the same tier key as the FMS reports.</summary>
+    private void RecordOverlayConsentDecision(string decision)
+    {
+        try { SymptomRecorder.Record(SymptomEvent.OverlayConsentRow(decision, VimsTier, MaskActive, DateTime.UtcNow)); }
+        catch { /* best-effort audit row — never disturb the consent gate */ }
     }
 
     /// <summary>User agreed → the overlay session is live; the overlay now follows the engine across
@@ -1877,6 +1927,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _consentInteracting = false;
         _calmSinceTick = 0;
         _overlayConsent.RecordAccepted();
+        RecordOverlayConsentDecision(SymptomEvent.Decisions.Accepted);
     }
 
     /// <summary>User explicitly tapped "Not now" → stay dormant; the LONG decline cooldown (30 min, Kirby
@@ -1886,6 +1937,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _consentPending = false;
         _consentInteracting = false;
         _overlayConsent.RecordDeclined();
+        RecordOverlayConsentDecision(SymptomEvent.Decisions.Declined);
+        // W-E: persist the decline so its 30-min cooldown survives a restart (re-seeded in the ctor).
+        try
+        {
+            UserPreferences.Current.LastOverlayDeclineUtc = DateTime.UtcNow;
+            UserPreferences.Current.OverlayDeclineCount++;
+            UserPreferences.Current.Save();
+        }
+        catch { /* best-effort — a prefs write must not break the consent decline */ }
     }
 
     /// <summary>The overlay was turned off (Power Save / manual toggle) while a consent prompt was still
