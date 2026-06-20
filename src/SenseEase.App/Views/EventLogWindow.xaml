@@ -53,6 +53,12 @@
                 <Setter Property="Padding" Value="8,6"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
                 <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                <!-- UX (audit 2026-06-20): these headers are display-only — there is NO sort handler, so the
+                     default clickable header chrome (hover/press + a resize gripper) was a false "sortable"
+                     affordance. IsHitTestVisible=False makes them inert (an event log's natural latest-first
+                     order makes column-sort low-value), and also drops the now-pointless column-resize drag —
+                     the fixed 90/440 layout is managed by OnEventLogListSizeChanged. -->
+                <Setter Property="IsHitTestVisible" Value="False"/>
             </Style>
 
             <!-- Round translucent X close button — sits at the right of the title row. 32x32 hit
@@ -103,7 +109,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- Slim custom title row — the drag handle (MouseLeftButtonDown → DragMove). -->
@@ -147,34 +152,48 @@
                                        FontSize="12" Foreground="{DynamicResource TextTertiary}"><Run Text="{loc:T Zh='最新 ', En='Latest '}"/><Run Text="{Binding EventLog.Count, Mode=OneWay}"/><Run Text="{loc:T Zh=' 筆', En=' entries'}"/></TextBlock>
                         </Grid>
 
-                        <ListView x:Name="EventLogList"
-                                  ItemsSource="{Binding EventLog}"
-                                  Background="Transparent" BorderThickness="0"
-                                  FontSize="12" Foreground="{DynamicResource TextSecondary}"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                  SizeChanged="OnEventLogListSizeChanged">
-                            <ListView.View>
-                                <GridView>
-                                    <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"  Width="90"
-                                                    DisplayMemberBinding="{Binding Time}"/>
-                                    <GridViewColumn x:Name="EventLogActionColumn"
-                                                    Header="{loc:T Zh='事件', En='Action'}" Width="440"
-                                                    DisplayMemberBinding="{Binding Message}"/>
-                                </GridView>
-                            </ListView.View>
-                        </ListView>
+                        <!-- ListView + an overlaid empty-state, sharing one fill cell so the placeholder
+                             centres over where the rows would be. -->
+                        <Grid>
+                            <ListView x:Name="EventLogList"
+                                      ItemsSource="{Binding EventLog}"
+                                      Background="Transparent" BorderThickness="0"
+                                      FontSize="12" Foreground="{DynamicResource TextSecondary}"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                      SizeChanged="OnEventLogListSizeChanged">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="{loc:T Zh='時間', En='Time'}"  Width="90"
+                                                        DisplayMemberBinding="{Binding Time}"/>
+                                        <GridViewColumn x:Name="EventLogActionColumn"
+                                                        Header="{loc:T Zh='事件', En='Action'}" Width="440"
+                                                        DisplayMemberBinding="{Binding Message}"/>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+
+                            <!-- Empty-state (audit 2026-06-20): a fresh log shows nothing — give it a calm,
+                                 honest placeholder instead of a blank pane. Visible only while Count==0
+                                 (ObservableCollection raises Count change-notification, so it self-hides on the
+                                 first logged event). -->
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       TextAlignment="Center" MaxWidth="320" TextWrapping="Wrap"
+                                       FontSize="13" Foreground="{DynamicResource TextTertiary}"
+                                       Text="{loc:T Zh='尚無事件 — 你的操作會顯示在這裡', En='No events yet — actions you take will appear here'}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding EventLog.Count}" Value="0">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
                     </DockPanel>
                 </Border>
-
-                <Button Grid.Row="2"
-                        Content="{loc:T Zh='關閉', En='Close'}"
-                        HorizontalAlignment="Right"
-                        Padding="18,8" Margin="0,12,0,0"
-                        Background="{DynamicResource AccentStrong}"
-                        Foreground="{DynamicResource TextOnComfort}"
-                        BorderThickness="0" FontSize="12" FontWeight="SemiBold"
-                        Cursor="Hand"
-                        Click="OnCloseClicked"/>
             </Grid>
         </Border>
     </Grid>
