@@ -2330,9 +2330,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         {
                             await analyzer.RunAsync(ct).ConfigureAwait(false);
                             ranToCompletion = true;
-                            // B5: consent-gated learning-loop tuning pass, using any sensitivity proposal
-                            // the analyzer captured this run. Best-effort; never blocks/breaks the loop.
-                            MaybeRunAdaptationTuning(analyzer.LastProposedSensitivityScale, analyzer.LastProposalRationale);
+                            // B5: consent-gated learning-loop tuning pass. The autonomous channel only
+                            // TIGHTENS (via the gate's measured authority); the analyzer never proposes a
+                            // loosen, so the LLM relax path was dead (W-E, 2026-06-20). Best-effort.
+                            MaybeRunAdaptationTuning();
                         }
                         catch (OperationCanceledException) { throw; } // app exiting / superseded
                         catch { /* transient fault → retry next interval (ranToCompletion stays false) */ }
@@ -2370,7 +2371,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// analysis loop and the engine are never disturbed. Runs on the background analysis thread: the file
     /// reads are off-UI, <c>ApplyAutoAdaptDelta</c> locks the engine gate, and the notice marshals to the
     /// dispatcher.</para></summary>
-    private void MaybeRunAdaptationTuning(double? proposedScale, string proposalRationale)
+    private void MaybeRunAdaptationTuning()
     {
         try
         {
@@ -2410,12 +2411,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 timing.HoursSinceLastManualTighten, timing.DaysSinceLastAutoChange,
                 timing.AutoChangesThisWeek, timing.NetRelaxTodayPp, timing.HasEverAutoRelaxed);
 
-            // Direction — the LLM's only influence; absent proposal ⇒ Hold (the gate still tightens on
-            // measured worsening via its independent authority).
-            AdaptDirection dir = proposedScale is double ps
-                ? AdaptationGate.DirectionFromSensitivityProposal(ps, snap.PersonalPressureScale)
-                : AdaptDirection.Hold;
-            var hint = new AdaptationHint(dir, proposalRationale ?? string.Empty);
+            // W-E (2026-06-20): the autonomous channel only TIGHTENS — the analyzer never emits a
+            // sensitivity proposal, so the LLM-proposed RELAX direction was unreachable (and its in-chat
+            // notice a dead false claim). Always Hold here; the gate still tightens on measured worsening
+            // via its own independent authority.
+            var hint = new AdaptationHint(AdaptDirection.Hold, string.Empty);
 
             _adaptationCoordinator.RunOnce(
                 consentEnabled: true,
@@ -2431,11 +2431,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// "tell the user in the chatbox" transparency policy). Direction-aware; points at the reversible
     /// path. Render-only text.</summary>
     private static string AdaptationNoticeText(GateDecision.Apply apply)
-        => apply.Direction == AdaptDirection.Relax
-            ? Loc("根據你最近的回報，我稍微放寬了畫面防護。若想調回，可隨時在設定中重置，或要求加強。",
-                  "Based on your recent check-ins, I eased the screen protection a little. You can undo this anytime in Settings (reset), or ask for more protection.")
-            : Loc("根據你最近的狀況，我略為加強了畫面防護。若想調整，可隨時在設定中重置。",
-                  "Based on your recent patterns, I strengthened the screen protection a little. You can adjust this anytime in Settings (reset).");
+        // W-E (2026-06-20): tighten-only — the autonomous relax path is unreachable (see
+        // MaybeRunAdaptationTuning), so the old direction-aware "I eased it" relax branch was a dead false
+        // claim and was removed. The gate only ever applies a tighten here.
+        => Loc("根據你最近的狀況，我略為加強了畫面防護。若想調整，可隨時在設定中重置。",
+              "Based on your recent patterns, I strengthened the screen protection a little. You can adjust this anytime in Settings (reset).");
 
     public void DisposeServices()
     {

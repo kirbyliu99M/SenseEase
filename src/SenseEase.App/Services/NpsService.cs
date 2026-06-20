@@ -47,6 +47,15 @@ public sealed class NpsState
 /// <para>Gating mirrors the existing engine cadence philosophy (long cooldown + a
 /// stronger post-dismiss quiet window + a minimum-usage floor); no new user-facing
 /// prompt cadence is invented.</para>
+///
+/// <para><b>Server-upload readiness (PREP only — no uploader exists; 2026-06-20).</b> Each
+/// <c>survey_log.jsonl</c> row is <c>{ts, score, scaleMax, comment, appVersion, lang}</c> — self-describing
+/// and POST-able as-is, but FOUR pieces are missing before a future upload: (1) a STABLE per-row id (rows
+/// are keyed only by <c>ts</c> → no server dedupe), (2) an anonymous install/device id (no per-install
+/// grouping), (3) a <c>sent</c>/upload-cursor marker (else a re-run re-sends everything), and (4) ANY
+/// network code (this service has zero <c>HttpClient</c>/<c>PostAsync</c> — nothing leaves the device).
+/// Add row-id + install-id + cursor before building an uploader. NB this is CSAT (1–5): send it labeled
+/// CSAT, never "NPS" (see <see cref="ComputeCsat"/>).</para>
 /// </summary>
 public sealed class NpsService
 {

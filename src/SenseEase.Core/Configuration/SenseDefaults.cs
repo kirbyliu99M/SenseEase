@@ -16,7 +16,7 @@ public static class SenseDefaults
     public const int GridSizePx = 32;
     public const double GridOpacity = 0.75;
     public const double NoiseGateThreshold = 8;
-    public const double TriggerPressure = 85;
+    public const double TriggerPressure = 85;   // W-D: UNTUNED GUESS, mutually-tuned with WgcMadNormFactor — awaiting production data, not a calibrated threshold.
     /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling): the
     /// neutral starting level (1..12) a brand-new auto-profiling user is seeded at — L5
     /// 「中」, the Set0 median — from which the AdaptiveFit selector converges. Used only by
@@ -383,8 +383,9 @@ public static class SenseDefaults
     public const int    WgcDownsampleWidth   = 160; // width of grayscale comparison frame
     public const int    WgcDownsampleHeight  = 90;  // height (preserves 16:9 aspect)
     // MAD (mean absolute difference per pixel, 0–255) × factor = raw OFI.
-    // Tune after first real WGC data: idle desktop ≈ MAD 0-1, scrolling video ≈ MAD 15-40.
-    // Lower factor => lower OFI from same MAD pixel-diff.
+    // W-D HONESTY: UNTUNED GUESS — not a calibrated value. Mutually-tuned with TriggerPressure against a
+    // few sample clips; awaiting production WGC data (idle desktop ≈ MAD 0-1, scrolling video ≈ MAD 15-40).
+    // Lower factor => lower OFI from same MAD pixel-diff. NormFactorRecommender is advisory-only (never auto-applies).
     public const double WgcMadNormFactor     = 4.0;
 
     // ── Phase 3 — Habituation Engine ──────────────────────────────────────────
