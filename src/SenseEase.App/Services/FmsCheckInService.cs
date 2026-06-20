@@ -64,6 +64,18 @@ public sealed class FmsCheckInService
         return window;
     }
 
+    /// <summary>W-F (2026-06-20): the next window UP from one starting at <paramref name="currentLow"/> — the
+    /// "worse than shown" escape. Shifts the low edge up by the window width (non-overlapping), clamped to keep
+    /// 7 values in [0,20]; returns null when already at the top window (no higher reach). 0-6 → 7-13 → 14-20 → null.</summary>
+    public static int[]? WindowAbove(int currentLow)
+    {
+        if (currentLow >= FmsMax - (WindowSize - 1)) return null;   // already at the top (lo 14) → no "worse"
+        int lo = Math.Clamp(currentLow + WindowSize, FmsMin, FmsMax - (WindowSize - 1));
+        var window = new int[WindowSize];
+        for (int i = 0; i < WindowSize; i++) window[i] = lo + i;
+        return window;
+    }
+
     /// <summary>Append one FMS response row to fms_log.jsonl. Out-of-range values are ignored.
     /// <paramref name="mode"/> + <paramref name="ofi"/> carry the EFFERENCE-COPY context (Driver/Passenger
     /// weighting + the raw on-screen motion it weighted) so each rating can be read against whether the

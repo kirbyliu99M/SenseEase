@@ -47,6 +47,33 @@ public class FmsCheckInServiceTests
         }
     }
 
+    // ── W-F: "worse than shown" escape — bump the window UP (FmsCheckInService.WindowAbove) ─────────────
+
+    [Theory]
+    [InlineData(0, new[] { 7, 8, 9, 10, 11, 12, 13 })]    // first window 0-6 → 7-13
+    [InlineData(7, new[] { 14, 15, 16, 17, 18, 19, 20 })] // 7-13 → 14-20 (the severe window)
+    public void WindowAbove_ShiftsUpOneWindow(int currentLow, int[] expected)
+        => Assert.Equal(expected, FmsCheckInService.WindowAbove(currentLow));
+
+    [Theory]
+    [InlineData(14)]  // already at the top window → no "worse"
+    [InlineData(20)]
+    public void WindowAbove_AtTop_ReturnsNull(int currentLow)
+        => Assert.Null(FmsCheckInService.WindowAbove(currentLow));
+
+    [Fact]
+    public void WindowAbove_ReachesSevere_FromFirstWindowInTwoBumps()
+    {
+        // Acute-severe first contact: 0-6 → (Worse) 7-13 → (Worse) 14-20, then 20 is offer-able.
+        int[] first = FmsCheckInService.WindowFor(null);          // 0-6
+        int[]? second = FmsCheckInService.WindowAbove(first[0]);  // 7-13
+        Assert.NotNull(second);
+        int[]? third = FmsCheckInService.WindowAbove(second![0]); // 14-20
+        Assert.NotNull(third);
+        Assert.Contains(20, third!);                              // severe is reachable
+        Assert.Null(FmsCheckInService.WindowAbove(third![0]));    // no window beyond the top
+    }
+
     // ── Dedicated log: roundtrip in an isolated temp dir ─────────────────────────────────
 
     private static string NewTempDir()

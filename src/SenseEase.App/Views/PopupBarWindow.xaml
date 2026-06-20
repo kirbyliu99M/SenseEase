@@ -441,6 +441,12 @@
                                         <!-- thin comfort-spectrum track: calm → warm, never alarming -->
                                         <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="1,5,1,0"
                                                    Fill="{Binding FmsTrackBrush}"/>
+                                        <!-- W-F: "worse than shown" escape — bumps the row up a window so an acute user reaches severe. -->
+                                        <Button Content="{loc:T Zh='更嚴重 →', En='Worse →'}"
+                                                Command="{Binding FmsWorseCommand}"
+                                                Visibility="{Binding FmsWorseVisibility}"
+                                                Style="{StaticResource GhostPanelBtn}"
+                                                HorizontalAlignment="Left" Padding="8,3" FontSize="10.5" MinHeight="22" Margin="1,5,0,0"/>
                                     </StackPanel>
                                     <!-- calm confirmation shown in place of the row after the user rates -->
                                     <TextBlock Visibility="{Binding FmsConfirmVisibility}" Text="{Binding FmsConfirmText}"

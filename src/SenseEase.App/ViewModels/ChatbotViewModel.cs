@@ -984,14 +984,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// callback) can't be rehydrated — persisting only the question text would leave an orphaned,
     /// un-answerable line after a reload, and re-post duplicates every launch (Kirby 2026-06-20). The
     /// answer is recorded separately to fms_log via the callback. Any thread.</summary>
-    public void RaiseFmsCheckIn(string question, string hint, int[] windowValues, Action<int> onPicked, string confirmText)
+    public void RaiseFmsCheckIn(string question, string hint, int[] windowValues, Action<int> onPicked, string confirmText,
+        Func<int[], int[]?>? worseWindow = null)
     {
         if (windowValues is null || windowValues.Length == 0 || onPicked is null) return;
         _dispatcher.Invoke(() =>
         {
             Messages.Add(new ChatMessageViewModel(question, hint, windowValues,
                 v => { try { onPicked(v); } catch { /* a record failure must never break the chat */ } },
-                confirmText));
+                confirmText, worseWindow));
         });
     }
 
@@ -1670,10 +1671,11 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
     // ── FMS 0–20 quick-rate check-in (chatbot-tuning sprint 2026-06-19) ──────────────────
     // The adaptive 7-square rating row rendered inline under a proactive assistant question. The pick is
     // captured DETERMINISTICALLY (OnFmsSelected → host records it) and NEVER routed through the LLM.
-    /// <summary>The 7 square buttons of the adaptive FMS window; null on non-FMS messages.</summary>
-    public IReadOnlyList<FmsButtonVm>? FmsButtons { get; }
+    /// <summary>The square buttons of the adaptive FMS window; null on non-FMS messages. Settable so the
+    /// W-F "更嚴重 / Worse →" escape can bump the SAME row up a window in place (no chat clutter).</summary>
+    public IReadOnlyList<FmsButtonVm>? FmsButtons { get; private set; }
     /// <summary>The calm→warm "comfort spectrum" track brush under the row.</summary>
-    public Brush? FmsTrackBrush { get; }
+    public Brush? FmsTrackBrush { get; private set; }
     /// <summary>One-line hint under the question (e.g. "Tap a number — 0 is great, higher is rougher").</summary>
     public string? FmsHint { get; }
     /// <summary>Invoked once with the chosen FMS value 0–20 when the user taps a square.</summary>
@@ -1681,14 +1683,25 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     private bool _fmsAnswered;
     private readonly string _fmsConfirmText;
+    // W-F (2026-06-20): the "worse than shown" escape. _worseWindow maps the current window → the next one
+    // UP (or null at the top); tapping FmsWorse bumps this row's window so an acute-severe user can reach
+    // the severe end on first contact without a hard-to-scan 0–20 strip.
+    private int[] _fmsWindow = System.Array.Empty<int>();
+    private Func<int[], int[]?>? _worseWindow;
+    private bool _hasWorse;
     public Visibility FmsVisibility =>
         FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FmsConfirmVisibility =>
         FmsButtons is { Count: > 0 } && _fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>The "更嚴重 →" escape chip — shown only while the row is unanswered AND a higher window exists.</summary>
+    public Visibility FmsWorseVisibility =>
+        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _hasWorse ? Visibility.Visible : Visibility.Collapsed;
     /// <summary>The calm confirmation shown in place of the row after the user answers.</summary>
     public string FmsConfirmText => _fmsConfirmText;
 
     public ICommand SelectFmsCommand { get; }
+    /// <summary>W-F: bump the FMS row UP one window (the "worse than shown" escape). No-op at the top.</summary>
+    public ICommand FmsWorseCommand { get; }
 
     public ChatMessageViewModel(
         string content,
@@ -1723,12 +1736,29 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
             OnFmsSelected?.Invoke(v.Value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsConfirmVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsWorseVisibility)));
+        });
+        // W-F: bump the row UP one window in place (the "worse than shown" escape); no-op once answered / at top.
+        FmsWorseCommand = new RelayCommand(_ =>
+        {
+            if (_fmsAnswered) return;
+            var next = _worseWindow?.Invoke(_fmsWindow);
+            if (next is null || next.Length == 0) return;
+            _fmsWindow = next;
+            var bumped = new List<FmsButtonVm>(next.Length);
+            foreach (int nv in next) bumped.Add(new FmsButtonVm(nv));
+            FmsButtons = bumped;
+            FmsTrackBrush = FmsScale.Track(next[0], next[^1]);
+            _hasWorse = _worseWindow?.Invoke(next) is { Length: > 0 };
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsButtons)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsTrackBrush)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsWorseVisibility)));
         });
     }
 
     /// <summary>FMS check-in message: a proactive assistant question + the adaptive 7-square rating row.</summary>
     public ChatMessageViewModel(string question, string hint, int[] fmsValues,
-        Action<int> onFmsSelected, string confirmText)
+        Action<int> onFmsSelected, string confirmText, Func<int[], int[]?>? worseWindow = null)
         : this(question, ChatRole.Assistant)
     {
         var buttons = new List<FmsButtonVm>(fmsValues.Length);
@@ -1740,6 +1770,10 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FmsHint = hint;
         OnFmsSelected = onFmsSelected;
         _fmsConfirmText = confirmText ?? string.Empty;
+        // W-F: the "worse than shown" escape — _worseWindow maps the current window → the next one up.
+        _fmsWindow = fmsValues;
+        _worseWindow = worseWindow;
+        _hasWorse = worseWindow?.Invoke(fmsValues) is { Length: > 0 };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
