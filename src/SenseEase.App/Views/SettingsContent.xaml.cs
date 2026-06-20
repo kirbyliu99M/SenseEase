@@ -239,7 +239,6 @@ public partial class SettingsContent : UserControl
             RevealHotkeyDisplay.Text =
                 GetRevealHotkey?.Invoke() ?? UserPreferences.Current.RevealHotkey;
 
-            ToggleAuto.IsChecked           = UserPreferences.Current.AutoExpandNotifications;
             ToggleMinimizeToTray.IsChecked = UserPreferences.Current.MinimizeToTrayOnClose;
             // Prefer the registry's actual state for run-at-startup so an
             // externally-edited registry doesn't desync from what we display.
@@ -309,13 +308,9 @@ public partial class SettingsContent : UserControl
         RefreshFromPreferences();
     }
 
-    private void OnToggleAutoChanged(object sender, RoutedEventArgs e)
-    {
-        if (_wiring) return;
-        UserPreferences.Current.AutoExpandNotifications = ToggleAuto.IsChecked == true;
-        UserPreferences.Current.Save();
-        PreferencesChanged?.Invoke(this, EventArgs.Empty);
-    }
+    // #5 (2026-06-21): OnToggleAutoChanged removed with the 通知與顯示 / 主動提醒 toggle. The
+    // AutoExpandNotifications pref is retained (defaults off → auto-show inert) until the
+    // NotificationCard retirement removes it; see docs/NOTIFICATIONCARD_RETIREMENT_PLAN.md.
 
     private void OnToggleProactiveCheckInsChanged(object sender, RoutedEventArgs e)
     {

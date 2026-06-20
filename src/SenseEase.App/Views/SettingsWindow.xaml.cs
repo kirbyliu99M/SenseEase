@@ -74,9 +74,12 @@ public partial class SettingsWindow : Window
         // us) or an owned child dialog (reset confirm / hotkey picker) keeps it open.
         _dismissPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _dismissPoll.Tick += OnDismissPollTick;
-        Activated += (_, _) => _dismissArmed = true;   // confirm we held focus at least once
+        // 閃退 FIX (2026-06-21): arming moved INTO the poll (it sets _dismissArmed only once it has
+        // actually OBSERVED us foreground). The old Activated arming fired too early — during the churny
+        // open transition, before the window settled — which is exactly what let the next churn tick
+        // rug-pull the window the instant it appeared. See OnDismissPollTick.
 
-        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _shownTick = Environment.TickCount64; _dismissPoll.Start(); };
+        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _dismissPoll.Start(); };
         Closed += (_, _) => { SettingsGlassTheme.Untrack(this); _dismissPoll.Stop(); };
 
         // GREY-CORNERS FIX (2026-06-19): NO window-wide acrylic. ACCENT_ENABLE_ACRYLICBLURBEHIND frosts
@@ -93,42 +96,49 @@ public partial class SettingsWindow : Window
     private const uint GA_ROOTOWNER = 3; // root of the owner chain — a Win32 dialog we own resolves to us
 
     private readonly DispatcherTimer _dismissPoll;
-    private bool _dismissArmed;   // true once the window has actually held foreground — guards the open transition
-    private long _shownTick;      // when the window was shown — feeds the open/launcher-close settle grace below
-    private const long DismissSettleMs = 800; // don't light-dismiss within this window of opening (focus churn settles)
+    private bool _dismissArmed;   // true once a poll has OBSERVED us foreground — never close before that (open-transition guard)
+    private int  _foreignTicks;   // consecutive polls where ANOTHER window held foreground; light-dismiss at ForeignTicksToClose
+    private const int ForeignTicksToClose = 4; // 4 × 200 ms = 800 ms of SUSTAINED foreign foreground before closing
 
-    /// <summary>R3 #7 (light-dismiss, poll-based): close the Settings window once the user clicks
+    /// <summary>R3 #7 (light-dismiss, poll-based): close the Settings window once the user settles on
     /// ANOTHER top-level window or the desktop. Cheap 200 ms GetForegroundWindow poll (the same proven
     /// approach as <see cref="NotificationCardWindow"/>), which — unlike the Deactivated event — fires
     /// reliably for this frameless Topmost window. Stays open while WE are foreground (an in-window
     /// combo/dropdown keeps the foreground on us) or while an owned child dialog (reset confirm / hotkey
-    /// picker) is up. The <c>_dismissArmed</c> latch means we never close during the open transition
-    /// (before the window has held focus once), so it can't rug-pull the instant it appears.</summary>
+    /// picker) is up.
+    /// <para>閃退 FIX (2026-06-21): the close is gated on SUSTAINED foreign foreground, not a one-shot
+    /// observation behind a fixed time grace. The launching popup bar collapses a beat after we open —
+    /// the user's first click into us lands outside the bar's content rect, firing the bar's INSTANT
+    /// light-dismiss (PopupBarWindow.OnAutoCloseTick), which re-shows the edge handle and briefly churns
+    /// the foreground OFF us. The previous 800 ms <c>DismissSettleMs</c> grace tried to out-wait that
+    /// churn but still rug-pulled whenever it ran long. Now we (a) arm only after a poll has actually
+    /// OBSERVED us foreground (not on the early Activated event), and (b) require
+    /// <see cref="ForeignTicksToClose"/> CONSECUTIVE foreign-foreground polls before closing — so a
+    /// transient churn (foreground returns to us within a tick or two as the user keeps interacting)
+    /// can never close us, while a genuine, settled click-away still dismisses. An interop hiccup is
+    /// treated as "wait" (fail-OPEN), never as a reason to close.</para></summary>
     private void OnDismissPollTick(object? sender, EventArgs e)
     {
         if (!IsVisible) { _dismissPoll.Stop(); return; }
         try
         {
             IntPtr fg = GetForegroundWindow();
-            if (fg == IntPtr.Zero) return;                                  // transient — wait
+            if (fg == IntPtr.Zero) { _foreignTicks = 0; return; }          // transient null — wait, don't count it
             IntPtr self = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (fg == self) { _dismissArmed = true; return; }              // focused (or in-window popup) — stay
+            if (fg == self) { _dismissArmed = true; _foreignTicks = 0; return; }   // we hold focus — arm + stay
             foreach (Window w in OwnedWindows)                              // child dialog / picker — stay
             {
-                if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) { _dismissArmed = true; return; }
+                if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) { _foreignTicks = 0; return; }
             }
             // H4: a Win32 modal we OWN (the export SaveFileDialog) is NOT a WPF OwnedWindow, so the loop
             // above misses it — without this the picker pulled Settings out from under itself. Walk the
             // Win32 owner chain: a dialog whose root owner is us keeps Settings open.
-            if (GetAncestor(fg, GA_ROOTOWNER) == self) { _dismissArmed = true; return; }
-            if (!_dismissArmed) return;                                     // not yet focused since opening — don't pre-close
-            // R3 #7 HOTFIX (2026-06-20): also survive the open-transition + LAUNCHER-CLOSE focus churn — the
-            // popup bar that opened us auto-closes a beat later, briefly shifting the foreground, and the
-            // _dismissArmed latch arms on the opening Activate(); without this the very next tick rug-pulled
-            // the window the instant it appeared (the "閃退" bug). Hold the light-dismiss off until it settles.
-            if (Environment.TickCount64 - _shownTick < DismissSettleMs) return;
+            if (GetAncestor(fg, GA_ROOTOWNER) == self) { _foreignTicks = 0; return; }
+            // Foreground is some OTHER top-level window.
+            if (!_dismissArmed) { _foreignTicks = 0; return; }             // never held focus yet — don't pre-close (open transition)
+            if (++_foreignTicks < ForeignTicksToClose) return;             // require SUSTAINED foreign foreground (absorbs the launcher-close churn)
         }
-        catch { /* on any interop hiccup, fall through and close (the safe light-dismiss) */ }
+        catch { _foreignTicks = 0; return; }   // interop hiccup — wait; NEVER fail-closed (a transient error must not yank the window)
         _dismissPoll.Stop();
         Close();
     }

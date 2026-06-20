@@ -70,6 +70,12 @@ public sealed class SurfaceExcludeCoordinator
                 catch { /* a surface mid-teardown can't report — skip it this pass */ }
             }
         }
-        _sink(rects.Count == 0 ? null : rects);
+        // Hardening (2026-06-21): a sink throw (a surface mid-teardown / a disposed WGC provider)
+        // must never propagate out of Refresh — Refresh runs from window Closed / IsVisibleChanged
+        // handlers (ShellController), and an unhandled throw there reaches
+        // App.DispatcherUnhandledException, which does NOT set e.Handled → the process terminates.
+        // Swallow so a register/unregister storm during the settings-open teardown can't hard-crash.
+        try { _sink(rects.Count == 0 ? null : rects); }
+        catch { /* fail-soft: the next Update() pushes a correct union */ }
     }
 }
