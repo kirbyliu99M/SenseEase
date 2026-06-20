@@ -13,7 +13,7 @@ namespace SenseEase.Core.AdaptiveFit;
 /// median set (default L5) whose 12-level curve reproduces today's engine exactly.</para>
 ///
 /// <para>Pure Core type — no engine / WPF dependency. Reachable on the hot path ONLY
-/// when <c>AppConfig.AdaptiveFitSelectorEnabled == true</c> (default OFF).</para>
+/// when <c>AppConfig.AdaptiveFitSelectorEnabled == true</c> (default TRUE since c1461a9).</para>
 /// </summary>
 public readonly record struct GridCoord(int Band, int Shape)
 {

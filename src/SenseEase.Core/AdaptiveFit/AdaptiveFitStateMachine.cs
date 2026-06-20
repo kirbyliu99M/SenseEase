@@ -34,7 +34,7 @@ namespace SenseEase.Core.AdaptiveFit;
 /// <para>This machine governs timing/eligibility ONLY. It NEVER touches the engine's
 /// <c>_offset</c> (habituation credit) — that invariant is the whole reason it is a
 /// dedicated type. Pure Core, deterministic, no I/O, no engine/WPF dependency; read only
-/// behind the default-OFF <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag.</para>
+/// behind the <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag (default TRUE since c1461a9).</para>
 /// </summary>
 public sealed class AdaptiveFitStateMachine
 {

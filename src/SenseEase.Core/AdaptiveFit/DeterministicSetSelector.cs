@@ -25,7 +25,7 @@ namespace SenseEase.Core.AdaptiveFit;
 ///
 /// <para>Pure, deterministic, allocation-light, NO I/O and NO engine/WPF dependency. Single
 /// user's own stats only — this is NOT collaborative filtering. Reachable only behind the
-/// default-OFF <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag.</para>
+/// <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag (default TRUE since c1461a9).</para>
 /// </summary>
 public static class DeterministicSetSelector
 {

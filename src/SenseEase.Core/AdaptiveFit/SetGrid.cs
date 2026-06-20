@@ -6,9 +6,9 @@ namespace SenseEase.Core.AdaptiveFit;
 /// <summary>
 /// The deterministic 10×5 = 50-set Adaptive Fit grid (Alpha-2 P3/P4, GROUP A foundation).
 ///
-/// <para><b>Reachable only behind the default-OFF flag.</b> Nothing here is read on the
-/// hot path unless <c>AppConfig.AdaptiveFitSelectorEnabled == true</c>. When the flag is
-/// OFF (the default) the engine behaves byte-identically to today and never consults this grid.</para>
+/// <para><b>Gated by <c>AppConfig.AdaptiveFitSelectorEnabled</c> (default TRUE since c1461a9).</b> Nothing
+/// here is read on the hot path unless that flag is on. With the flag OFF the engine behaves
+/// byte-identically to today and never consults this grid.</para>
 ///
 /// <para><b>set0 ≡ today (the pinned invariant).</b> <see cref="GridCoord.Set0"/> =
 /// <c>(Band 5, Shape 2)</c>, the median set. Its 12-level curve reproduces the live engine:

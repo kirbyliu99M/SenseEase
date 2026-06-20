@@ -12,7 +12,7 @@ namespace SenseEase.Core.AdaptiveFit;
 /// </list>
 ///
 /// <para>Pure Core — no engine / WPF dependency, immutable, value-equatable. Read only
-/// behind the default-OFF <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag.</para>
+/// behind the <c>AppConfig.AdaptiveFitSelectorEnabled</c> flag (default TRUE since c1461a9).</para>
 /// </summary>
 public abstract record SelectorDecision
 {

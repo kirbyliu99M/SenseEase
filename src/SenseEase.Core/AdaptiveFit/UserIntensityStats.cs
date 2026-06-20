@@ -12,7 +12,7 @@ namespace SenseEase.Core.AdaptiveFit;
 /// trigger so they are comparable across calibration scales.</para>
 ///
 /// <para>Reachable on the hot path ONLY when the Adaptive Fit selector flag is on
-/// (default OFF); this type itself is inert Core data with no engine wiring.</para>
+/// (default TRUE since c1461a9); this type itself is inert Core data with no engine wiring.</para>
 /// </summary>
 /// <param name="PressureP50">
 /// Median of (Pressure / EffectiveTrigger) over the window, ~[0..1+].</param>
