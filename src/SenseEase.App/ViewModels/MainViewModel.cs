@@ -2336,10 +2336,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         {
                             await analyzer.RunAsync(ct).ConfigureAwait(false);
                             ranToCompletion = true;
-                            // B5: consent-gated learning-loop tuning pass. The autonomous channel only
-                            // TIGHTENS (via the gate's measured authority); the analyzer never proposes a
-                            // loosen, so the LLM relax path was dead (W-E, 2026-06-20). Best-effort.
-                            MaybeRunAdaptationTuning();
+                            // B6 Stage 1: consent-gated learning-loop tuning pass. The analyzer may now emit an
+                            // OPTIONAL [ADAPT_DIRECTION] proposal — pass its captured scale + rationale + freshness
+                            // through to the gate, which owns DIRECTION→magnitude + measured-only re-validation.
+                            // Best-effort.
+                            MaybeRunAdaptationTuning(
+                                analyzer.LastProposedSensitivityScale,
+                                analyzer.LastProposalRationale,
+                                analyzer.LastProposalExpiresUtc);
                         }
                         catch (OperationCanceledException) { throw; } // app exiting / superseded
                         catch { /* transient fault → retry next interval (ranToCompletion stays false) */ }
@@ -2377,7 +2381,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// analysis loop and the engine are never disturbed. Runs on the background analysis thread: the file
     /// reads are off-UI, <c>ApplyAutoAdaptDelta</c> locks the engine gate, and the notice marshals to the
     /// dispatcher.</para></summary>
-    private void MaybeRunAdaptationTuning()
+    private void MaybeRunAdaptationTuning(double? proposedScale, string? proposalRationale, DateTime? proposalExpiresUtc)
     {
         try
         {
@@ -2417,31 +2421,62 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 timing.HoursSinceLastManualTighten, timing.DaysSinceLastAutoChange,
                 timing.AutoChangesThisWeek, timing.NetRelaxTodayPp, timing.HasEverAutoRelaxed);
 
-            // W-E (2026-06-20): the autonomous channel only TIGHTENS — the analyzer never emits a
-            // sensitivity proposal, so the LLM-proposed RELAX direction was unreachable (and its in-chat
-            // notice a dead false claim). Always Hold here; the gate still tightens on measured worsening
-            // via its own independent authority.
-            var hint = new AdaptationHint(AdaptDirection.Hold, string.Empty);
+            // B6 Stage 1: map the analyzer's OPTIONAL [ADAPT_DIRECTION] proposal to a gate DIRECTION (the LLM
+            // owns DIRECTION ONLY; the gate sizes the step + re-validates against measured data). Holds when
+            // there's no proposal or it's stale (RT-2s). The gate still tightens on measured worsening via its
+            // own independent authority regardless; the proposed RELAX stays evidence-unreachable until Stage 2.
+            var hint = BuildAdaptationHint(proposedScale, proposalRationale, proposalExpiresUtc, snap.PersonalPressureScale, now);
 
             _adaptationCoordinator.RunOnce(
                 consentEnabled: true,
                 hint: hint,
                 state: state,
                 applyAutoDelta: d => mock.ApplyAutoAdaptDelta(d),
-                onApplied: (apply, _) => ChatbotVm?.AddAdaptationNotice(AdaptationNoticeText(apply)));
+                // B6 Stage 1 (RT-relax-notice): pass a notice FACTORY, not a fixed string — ChatbotVm invokes
+                // it at render time on the UI thread, where it re-reads the LIVE auto-delta so a relax notice
+                // can't claim an ease that a concurrent protective event clawed back between apply and render.
+                onApplied: (apply, _) => ChatbotVm?.AddAdaptationNotice(
+                    () => AdaptationNoticeText(apply, mock.SnapshotForAdaptation().AutoDeltaPp)));
         }
         catch { /* advisory tuning — never disturb the analysis loop or the engine */ }
     }
 
-    /// <summary>B5 — the subtle bilingual in-chat notice for an applied auto-adaptation (Kirby's
-    /// "tell the user in the chatbox" transparency policy). Direction-aware; points at the reversible
-    /// path. Render-only text.</summary>
-    private static string AdaptationNoticeText(GateDecision.Apply apply)
-        // W-E (2026-06-20): tighten-only — the autonomous relax path is unreachable (see
-        // MaybeRunAdaptationTuning), so the old direction-aware "I eased it" relax branch was a dead false
-        // claim and was removed. The gate only ever applies a tighten here.
-        => Loc("根據你最近的狀況，我略為加強了畫面防護。若想調整，可隨時在設定中重置。",
-              "Based on your recent patterns, I strengthened the screen protection a little. You can adjust this anytime in Settings (reset).");
+    /// <summary>B6 Stage 1 — map the analyzer's OPTIONAL [ADAPT_DIRECTION] proposal to a gate hint. The LLM
+    /// owns DIRECTION ONLY: a present, non-expired proposed scale is collapsed to a sign vs the live personal
+    /// scale (<see cref="AdaptationGate.DirectionFromSensitivityProposal"/>); a null or STALE proposal (RT-2s:
+    /// <paramref name="nowUtc"/> past <paramref name="expiresUtc"/>) yields Hold. Pure + internal so the
+    /// freshness + direction mapping is unit-tested without the engine/analyzer.</summary>
+    internal static AdaptationHint BuildAdaptationHint(
+        double? proposedScale, string? rationale, DateTime? expiresUtc, double currentScale, DateTime nowUtc)
+    {
+        if (proposedScale is { } ps && (expiresUtc is not { } exp || nowUtc <= exp))
+            return new AdaptationHint(
+                AdaptationGate.DirectionFromSensitivityProposal(ps, currentScale), rationale ?? string.Empty);
+        return new AdaptationHint(AdaptDirection.Hold, string.Empty);
+    }
+
+    /// <summary>B6 Stage 1 — the subtle bilingual in-chat notice for an applied auto-adaptation (Kirby's
+    /// "tell the user in the chatbox" transparency policy). Direction-aware + RENDER-HONEST: a RELAX claims
+    /// "I eased it" ONLY when the LIVE auto-delta still reflects the ease (<paramref name="liveDeltaPp"/> ≥
+    /// the applied relax); if a concurrent protective event clawed it back, it falls to a neutral, non-false
+    /// line (the W-E lesson — never claim an ease that no longer stands). Render-only text.</summary>
+    internal static string AdaptationNoticeText(GateDecision.Apply apply, double liveDeltaPp)
+    {
+        if (apply.Direction == AdaptDirection.Relax)
+        {
+            // Sign: relax moves the auto-delta MORE POSITIVE. If the live delta has since dropped below the
+            // applied value, a protective event clawed (part of) the ease back → don't claim "I eased it".
+            bool easeStillStands = liveDeltaPp >= apply.NewAutoDeltaPp - 1e-9;
+            return easeStillStands
+                ? Loc("根據你最近的狀況，我略為放寬了畫面防護。若想調整，可隨時在設定中重置。",
+                      "Based on your recent patterns, I eased the screen protection a little. You can adjust this anytime in Settings (reset).")
+                : Loc("根據你最近的狀況，我為你保留了目前的畫面防護。若想調整，可隨時在設定中重置。",
+                      "Based on your recent patterns, I kept your screen protection where it was. You can adjust this anytime in Settings (reset).");
+        }
+        // Tighten (the only other applied direction): the existing honest "strengthened" line.
+        return Loc("根據你最近的狀況，我略為加強了畫面防護。若想調整，可隨時在設定中重置。",
+                  "Based on your recent patterns, I strengthened the screen protection a little. You can adjust this anytime in Settings (reset).");
+    }
 
     public void DisposeServices()
     {

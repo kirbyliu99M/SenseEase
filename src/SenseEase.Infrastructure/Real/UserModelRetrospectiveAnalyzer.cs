@@ -32,15 +32,19 @@ public sealed class UserModelRetrospectiveAnalyzer
     /// <summary>Hard cap on chat turns analysed in a single run (resource guard).</summary>
     public const int MaxTurnsPerRun = 100;
 
-    /// <summary>B5 Stage 4: the last AdjustSensitivity scale the LLM proposed during this run (null if it
-    /// emitted none). Captured from the SAME parse that extracts observations — no extra LLM call, no
-    /// prompt change. The App maps it to a gate DIRECTION only; the deterministic AdaptationGate validates
-    /// it against MEASURED data before anything changes, so a wrong/absent value is harmless (no relax).</summary>
+    /// <summary>B6 Stage 1 (was B5 Stage 4): the sensitivity scale the LLM proposed via an
+    /// <c>[ADAPT_DIRECTION]</c> block during this run (null if none). The App maps it to a gate DIRECTION
+    /// only; the deterministic AdaptationGate validates it against MEASURED data and sizes the step, so a
+    /// wrong / absent / expired value is harmless — it can never relax protection the data doesn't support.</summary>
     public double? LastProposedSensitivityScale { get; private set; }
 
     /// <summary>The rationale text accompanying <see cref="LastProposedSensitivityScale"/> (render-only,
-    /// for the in-chat notice; never re-enters any computation).</summary>
+    /// for the in-chat notice; already injection-defanged by the parser; never re-enters any computation).</summary>
     public string LastProposalRationale { get; private set; } = string.Empty;
+
+    /// <summary>B6 Stage 1 (RT-2s): when the captured proposal goes stale. Parsed from the block's
+    /// <c>expires_at_iso</c>, else the run time + 72h. The wiring treats the hint as Hold once past this.</summary>
+    public DateTime? LastProposalExpiresUtc { get; private set; }
 
     /// <summary>Analysis-only system prompt (UM4 brief). Appended as the [SYSTEM]
     /// message for this task; the conversation slice is the chat history.</summary>
@@ -50,7 +54,20 @@ public sealed class UserModelRetrospectiveAnalyzer
         "[OBSERVATION_ADD] block (same format as real-time extraction). Only emit " +
         "observations about symptoms, triggers, improvement, task context, or tolerance " +
         "patterns. Do not emit observations about app preferences or UI questions. " +
-        "Emit nothing if the slice contains no clinically relevant content.";
+        "Emit nothing if the slice contains no clinically relevant content.\n\n" +
+        // B6 Stage 1: a SEPARATE, optional adaptation-direction hint on a DISTINCT block name
+        // ([ADAPT_DIRECTION], never [PROFILE_OVERRIDE]) so it can't reach the live-chat Accept-card (RT-1b).
+        // DIRECTION only — the system sizes the change and re-checks it against measured data.
+        "SEPARATELY, ONLY if the slice shows a CLEAR, SUSTAINED pattern in the user's comfort that implies " +
+        "their protection level should change, you MAY emit ONE [ADAPT_DIRECTION] block:\n" +
+        "[ADAPT_DIRECTION]\n" +
+        "{\"intent\": \"adjust_sensitivity\", \"proposed_value\": <number near 1.0>, " +
+        "\"rationale\": \"<short reason>\", \"expires_at_iso\": \"<UTC ISO-8601>\"}\n" +
+        "[/ADAPT_DIRECTION]\n" +
+        "proposed_value is a sensitivity scale near 1.0: a LOWER value (e.g. 0.8) means EASE protection — " +
+        "emit it ONLY when the user has clearly tolerated their current level comfortably over time; a HIGHER " +
+        "value (e.g. 1.2) means STRENGTHEN it — when discomfort is rising. Emit at most one [ADAPT_DIRECTION], " +
+        "and OMIT it entirely unless the pattern is clear: the system ignores an absent or unsupported proposal.";
 
     private readonly ICalibrationLlmClient _llm;
     private readonly FileChatHistoryStore _chatHistory;
@@ -120,15 +137,16 @@ public sealed class UserModelRetrospectiveAnalyzer
         int written = 0;
         var parsed = HabituationOverrideParser.TryParse(raw);
 
-        // B5 Stage 4: capture an OPTIONAL sensitivity proposal the LLM may have emitted (it is NOT
-        // prompted to — no prompt change here, to keep observation extraction intact — but if one
-        // appears we surface its DIRECTION to the gate). The gate validates it against measured data;
-        // an absent or wrong proposal is harmless. ProposedValue is normalised to a boxed double.
-        if (parsed.Proposal is { Intent: OverrideIntent.AdjustSensitivity } prop &&
-            TryUnwrapScale(prop.ProposedValue, out double scale) && double.IsFinite(scale))
+        // B6 Stage 1: capture the OPTIONAL adaptation-direction hint from a DISTINCT [ADAPT_DIRECTION] block
+        // (NOT [PROFILE_OVERRIDE] — RT-1b keeps it off the live-chat Accept-card path). Direction-only: the
+        // gate maps it to a sign vs the live scale, sizes the step, and re-validates against measured data,
+        // so an absent / wrong / expired proposal can never relax protection the data doesn't support.
+        var adapt = AdaptDirectionParser.TryParse(raw, DateTime.UtcNow);
+        if (adapt is not null)
         {
-            LastProposedSensitivityScale = scale;
-            LastProposalRationale = prop.Rationale ?? string.Empty;
+            LastProposedSensitivityScale = adapt.ProposedScale;
+            LastProposalRationale = adapt.Rationale;
+            LastProposalExpiresUtc = adapt.ExpiresAtUtc;
         }
 
         foreach (var obs in parsed.Observations)
@@ -151,21 +169,6 @@ public sealed class UserModelRetrospectiveAnalyzer
     /// <summary>Beta-1 #16: a process-stable marker for a chat message (string.GetHashCode is
     /// randomised per process, so it cannot persist across runs). FNV-1a over role+content;
     /// stores a hash, never the content itself, so the index carries no transcript text.</summary>
-    /// <summary>Unwrap the parser's normalised proposed value to a double. <c>NormaliseProposedValue</c>
-    /// boxes a whole-number JSON value as <c>long</c> and a fractional one as <c>double</c>, so an
-    /// <c>is double</c> test alone silently misses integer scales like 1/2/3 (a boxed long does not match
-    /// a double pattern). Accept both — mirrors the engine's <c>TryUnwrapDouble</c>.</summary>
-    private static bool TryUnwrapScale(object? value, out double result)
-    {
-        switch (value)
-        {
-            case double d: result = d;        return true;
-            case long l:   result = l;        return true;
-            case int i:    result = i;        return true;
-            default:       result = 0.0;      return false;
-        }
-    }
-
     private static string MarkerOf(ChatMessage m)
     {
         string s = ((int)m.Role).ToString() + ":" + (m.Content ?? string.Empty);

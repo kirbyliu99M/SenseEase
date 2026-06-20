@@ -446,7 +446,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // phrase is NEVER persisted: chat_history gets a redacted placeholder
         // (H2), not the raw text. The bubble still shows the user's own words in
         // the live session; only the on-disk record is redacted.
-        if (SafetyFloor.Trips(text, out string crisisResponse))
+        if (SafetyFloor.Trips(text, LocalizationManager.Current.IsEnglish, out string crisisResponse))
         {
             InputText = string.Empty;
             _dispatcher.Invoke(() =>
@@ -1025,16 +1025,22 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// transparency for an auto-applied protection tweak (Kirby's "tell the user in the chatbox" policy).
     /// A plain assistant line, no picker. Marshals to the UI thread; best-effort (a notice failure must
     /// never disturb the background tuning loop). Safe to call from any thread.</summary>
-    public void AddAdaptationNotice(string text)
+    public void AddAdaptationNotice(Func<string> noticeFactory)
     {
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (noticeFactory is null) return;
         try
         {
             // BeginInvoke (fire-and-forget): a transparency notice must NEVER block its caller — a
             // synchronous Invoke from the long-lived background tuning loop can wedge if the UI pump is
             // draining (shutdown) or absent (headless). The notice has no return value, so async is fine.
+            // B6 Stage 1 (RT-relax-notice): the factory is invoked HERE — at render time, on the UI thread —
+            // so it re-reads the LIVE auto-delta and can downgrade a stale "I eased it" claim if a protective
+            // event clawed the relax back between the gate's apply and this marshalled render (the W-E lesson:
+            // never claim an ease that no longer stands).
             _dispatcher.BeginInvoke(new Action(() =>
             {
+                string text = noticeFactory();
+                if (string.IsNullOrWhiteSpace(text)) return;
                 Messages.Add(new ChatMessageViewModel(text, ChatRole.Assistant));
                 PersistMessage(ChatRole.Assistant, text);
             }));
@@ -1708,25 +1714,34 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     private bool _fmsAnswered;
     private readonly string _fmsConfirmText;
-    // W-F (2026-06-20): the "worse than shown" escape. _worseWindow maps the current window → the next one
-    // UP (or null at the top); tapping FmsWorse bumps this row's window so an acute-severe user can reach
-    // the severe end on first contact without a hard-to-scan 0–20 strip.
+    // W-F (2026-06-20) / W-F2 (2026-06-21): the FMS window navigation. _worseWindow maps the current window
+    // → the next one UP (or null at the top). The ‹ › arrows (top-right of the row) step the window: › goes
+    // UP (worse / higher numbers), ‹ steps BACK to the EXACT prior window via _fmsBackStack — so a user who
+    // tapped › by accident can undo it. Replaces the old single "更嚴重 →" chip.
     private int[] _fmsWindow = System.Array.Empty<int>();
     private Func<int[], int[]?>? _worseWindow;
     private bool _hasWorse;
+    private readonly List<int[]> _fmsBackStack = new();
     public Visibility FmsVisibility =>
         FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FmsConfirmVisibility =>
         FmsButtons is { Count: > 0 } && _fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
-    /// <summary>The "更嚴重 →" escape chip — shown only while the row is unanswered AND a higher window exists.</summary>
-    public Visibility FmsWorseVisibility =>
-        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _hasWorse ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>› (worse / higher range) arrow — ENABLED only while the row is unanswered AND a higher
+    /// window exists (greyed at the top of the scale).</summary>
+    public bool FmsCanGoWorse =>
+        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _hasWorse;
+    /// <summary>‹ (back / lower range) arrow — ENABLED only while the row is unanswered AND the user has
+    /// stepped up at least once, so there is a prior window to return to (greyed at the start).</summary>
+    public bool FmsCanGoBack =>
+        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _fmsBackStack.Count > 0;
     /// <summary>The calm confirmation shown in place of the row after the user answers.</summary>
     public string FmsConfirmText => _fmsConfirmText;
 
     public ICommand SelectFmsCommand { get; }
-    /// <summary>W-F: bump the FMS row UP one window (the "worse than shown" escape). No-op at the top.</summary>
+    /// <summary>› : step the FMS row UP one window (worse / higher numbers). No-op at the top.</summary>
     public ICommand FmsWorseCommand { get; }
+    /// <summary>‹ : step BACK to the exact prior window (undo an accidental ›). No-op with no history.</summary>
+    public ICommand FmsBackCommand { get; }
 
     public ChatMessageViewModel(
         string content,
@@ -1761,24 +1776,42 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
             OnFmsSelected?.Invoke(v.Value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsConfirmVisibility)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsWorseVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoWorse)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoBack)));
         });
-        // W-F: bump the row UP one window in place (the "worse than shown" escape); no-op once answered / at top.
+        // › : step the row UP one window in place (worse / higher); remember the prior window so ‹ can undo it.
         FmsWorseCommand = new RelayCommand(_ =>
         {
             if (_fmsAnswered) return;
             var next = _worseWindow?.Invoke(_fmsWindow);
             if (next is null || next.Length == 0) return;
-            _fmsWindow = next;
-            var bumped = new List<FmsButtonVm>(next.Length);
-            foreach (int nv in next) bumped.Add(new FmsButtonVm(nv));
-            FmsButtons = bumped;
-            FmsTrackBrush = FmsScale.Track(next[0], next[^1]);
-            _hasWorse = _worseWindow?.Invoke(next) is { Length: > 0 };
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsButtons)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsTrackBrush)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsWorseVisibility)));
+            _fmsBackStack.Add(_fmsWindow);
+            ApplyFmsWindow(next);
         });
+        // ‹ : step BACK to the exact prior window (undo an accidental ›); no-op once answered / with no history.
+        FmsBackCommand = new RelayCommand(_ =>
+        {
+            if (_fmsAnswered || _fmsBackStack.Count == 0) return;
+            int[] prev = _fmsBackStack[^1];
+            _fmsBackStack.RemoveAt(_fmsBackStack.Count - 1);
+            ApplyFmsWindow(prev);
+        });
+    }
+
+    /// <summary>Swap the live FMS window to <paramref name="window"/> in place (no new chat row), refresh the
+    /// squares + comfort-spectrum track, and re-evaluate which ‹ › arrows are reachable.</summary>
+    private void ApplyFmsWindow(int[] window)
+    {
+        _fmsWindow = window;
+        var buttons = new List<FmsButtonVm>(window.Length);
+        foreach (int v in window) buttons.Add(new FmsButtonVm(v));
+        FmsButtons = buttons;
+        FmsTrackBrush = FmsScale.Track(window[0], window[^1]);
+        _hasWorse = _worseWindow?.Invoke(window) is { Length: > 0 };
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsButtons)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsTrackBrush)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoWorse)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoBack)));
     }
 
     /// <summary>FMS check-in message: a proactive assistant question + the adaptive 7-square rating row.</summary>
