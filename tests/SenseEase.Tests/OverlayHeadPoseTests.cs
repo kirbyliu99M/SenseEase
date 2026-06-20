@@ -1134,7 +1134,7 @@ public class OverlayHeadPoseTests
                 // Rebuild the SAME r²-window LUT the renderer uses (default feather start 0.35).
                 const int lutSize = 2048;
                 var lut = new float[lutSize + 1];
-                OverlayWindow.BuildWindowLut(lut, lutSize, featherStart, 0.95);
+                OverlayWindow.BuildWindowLut(lut, lutSize, featherStart, OverlayWindow.FeatherEnd);
 
                 // The expected window byte at pixel (col,row) for a given center — the EXACT same
                 // arithmetic ComputeFieldRows runs (aspect-corrected d², damped denom, r² LUT).
@@ -1248,10 +1248,10 @@ public class OverlayHeadPoseTests
             // The SAME r²-window LUT the renderer used: built at the RESOLVED featherStart.
             const int lutSize = 2048;
             var lutResolved = new float[lutSize + 1];
-            OverlayWindow.BuildWindowLut(lutResolved, lutSize, featherStart, 0.95);
+            OverlayWindow.BuildWindowLut(lutResolved, lutSize, featherStart, OverlayWindow.FeatherEnd);
             // A counterfactual LUT at the DEFAULT 0.35 start — the window would NOT match this.
             var lutDefault = new float[lutSize + 1];
-            OverlayWindow.BuildWindowLut(lutDefault, lutSize, 0.35, 0.95);
+            OverlayWindow.BuildWindowLut(lutDefault, lutSize, 0.35, OverlayWindow.FeatherEnd);
 
             double denom = OverlayWindow.EffectiveCornerDenom(0.5, 0.5, aspect, SenseDefaults.OverlayFieldCornerGrowthDamping);
             double invDenomSq = 1.0 / (denom * denom);
@@ -1352,7 +1352,7 @@ public class OverlayHeadPoseTests
             byte mr = OverlayWindow.VimsLevels[7].R, mg = OverlayWindow.VimsLevels[7].G, mb = OverlayWindow.VimsLevels[7].B;
             double peak = OverlayWindow.VimsLevels[7].Alpha;
             double featherStart = OverlayWindow.ResolveFeatherStart(0.5);
-            const double featherEnd = 0.95;
+            const double featherEnd = OverlayWindow.FeatherEnd;
             double aspect = (double)W / H;
             const double cellStrength = 0.5;
 
@@ -1537,10 +1537,12 @@ public class OverlayHeadPoseTests
     /// imperceptible and is the unavoidable floating-point rounding-boundary chatter — NOT a visible
     /// step). At several base poses (incl. near a clamp edge where the falloff is steepest), nudge
     /// the center by 0.9× the quarter-texel quantum on each axis and confirm a full recompute at the
-    /// nudged pose differs from the base by no more than 1 per byte. (At a HALF-texel quantum this
-    /// reached 2 LSB — the reason OverlayFieldRenderTexelFraction is 4, not 2.)</summary>
+    /// nudged pose differs from the base by no more than 2 per byte. (Was ≤1 with the wide 0.35→0.95 band;
+    /// the 2026-06-20 sharp feather edge — FeatherEnd pulled in — steepened the ramp, so a skipped
+    /// sub-quarter-texel jitter now shifts the edge by ≤2 LSB = 2/255 ≈ 0.8%, still imperceptible. Real
+    /// head motion exceeds the quantum and re-renders, so there is no visible crawl.)</summary>
     [Fact]
-    public void ParkedPump_SubTexelPose_RendersWithinOneByte()
+    public void ParkedPump_SubTexelPose_RendersWithinTwoBytes()
     {
         RunOnSta(() =>
         {
@@ -1568,9 +1570,10 @@ public class OverlayHeadPoseTests
                         maxDelta = Math.Max(maxDelta, Math.Abs(baseField[i] - n[i]));
                 }
             }
-            Assert.True(maxDelta <= 1,
-                $"a sub-quarter-texel pose nudge ({nudge:E2}) must change the field by <= 1 LSB " +
-                $"(invisible); max byte delta was {maxDelta}");
+            Assert.True(maxDelta <= 2,
+                $"a sub-quarter-texel pose nudge ({nudge:E2}) must change the field by <= 2 LSB " +
+                $"(invisible — the sharp feather edge steepened the ramp; was <= 1 with the wide band); " +
+                $"max byte delta was {maxDelta}");
         });
     }
 

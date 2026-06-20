@@ -237,6 +237,14 @@ public sealed class TrayIconService : IDisposable
             DoubleClicked?.Invoke(this, EventArgs.Empty);
         };
 
+        // First-right-click 閃退 fix (Kirby 2026-06-20): raise the tray-refresh gate from the moment the
+        // context menu STARTS opening — NOT on menu.Opened, which fires only AFTER layout. The themed menu's
+        // FIRST open does a slow lazy resource/visual realization, leaving a race window in which an engine
+        // tick's ApplyState (icon NIM_MODIFY + RefreshLabels touching the menu items) landed mid-open and
+        // dismissed the just-appearing menu — the "first right-click flashes" bug. PreviewTrayContextMenuOpen
+        // fires before any menu layout, so the gate is already up; menu.Closed clears it.
+        _tray.PreviewTrayContextMenuOpen += (_, _) => _menuOpen = true;
+
         // Initial labels reflect current state; refreshed on every state change.
         RefreshLabels(_vm.CurrentState);
 

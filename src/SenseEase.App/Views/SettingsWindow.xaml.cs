@@ -76,7 +76,7 @@ public partial class SettingsWindow : Window
         _dismissPoll.Tick += OnDismissPollTick;
         Activated += (_, _) => _dismissArmed = true;   // confirm we held focus at least once
 
-        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _dismissPoll.Start(); };
+        Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _shownTick = Environment.TickCount64; _dismissPoll.Start(); };
         Closed += (_, _) => { SettingsGlassTheme.Untrack(this); _dismissPoll.Stop(); };
 
         // GREY-CORNERS FIX (2026-06-19): NO window-wide acrylic. ACCENT_ENABLE_ACRYLICBLURBEHIND frosts
@@ -91,6 +91,8 @@ public partial class SettingsWindow : Window
 
     private readonly DispatcherTimer _dismissPoll;
     private bool _dismissArmed;   // true once the window has actually held foreground — guards the open transition
+    private long _shownTick;      // when the window was shown — feeds the open/launcher-close settle grace below
+    private const long DismissSettleMs = 800; // don't light-dismiss within this window of opening (focus churn settles)
 
     /// <summary>R3 #7 (light-dismiss, poll-based): close the Settings window once the user clicks
     /// ANOTHER top-level window or the desktop. Cheap 200 ms GetForegroundWindow poll (the same proven
@@ -113,6 +115,11 @@ public partial class SettingsWindow : Window
                 if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) { _dismissArmed = true; return; }
             }
             if (!_dismissArmed) return;                                     // not yet focused since opening — don't pre-close
+            // R3 #7 HOTFIX (2026-06-20): also survive the open-transition + LAUNCHER-CLOSE focus churn — the
+            // popup bar that opened us auto-closes a beat later, briefly shifting the foreground, and the
+            // _dismissArmed latch arms on the opening Activate(); without this the very next tick rug-pulled
+            // the window the instant it appeared (the "閃退" bug). Hold the light-dismiss off until it settles.
+            if (Environment.TickCount64 - _shownTick < DismissSettleMs) return;
         }
         catch { /* on any interop hiccup, fall through and close (the safe light-dismiss) */ }
         _dismissPoll.Stop();

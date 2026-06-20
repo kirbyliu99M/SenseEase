@@ -999,10 +999,18 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     /// At FeatherWidth's default (0.50) the start resolves to exactly 0.35 ⇒ the locked
     /// 0.35→0.95 envelope. Clamped so the start never crosses 0 or the end. Pure +
     /// internal for unit coverage.</summary>
+    /// <summary>HOTFIX 2026-06-20 (Kirby): the feather-band OUTER end, pulled in from the old 0.95 to NARROW
+    /// the smoothstep band → a SHARP clean→dim edge. The wide 0.35→0.95 band quantized into concentric
+    /// contour "lines" that swept with the head-tracked hole and smeared into 殘影 (ghosting) — the artifact
+    /// testers reported. Beyond this radius the field + the grid-window saturate to full dim (so the
+    /// periphery dims a touch more firmly — the deliberate trade for the sharp edge). UVHS-tunable:
+    /// LOWER = sharper edge + firmer periphery, HIGHER (toward 0.95) = softer/wider.</summary>
+    internal const double FeatherEnd = 0.55;
+
     internal static double ResolveFeatherStart(double featherWidth)
     {
         const double baseStart = 0.35;
-        const double end       = 0.95;
+        const double end       = FeatherEnd;
         // featherWidth > 0.5 → wider band → start moves toward 0; < 0.5 → start moves toward end.
         double start = baseStart - (featherWidth - ShaderParams.DefaultFeatherWidth)
                                   * 2.0 * SenseDefaults.OverlayFeatherStartSpan;
@@ -1417,7 +1425,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
     private void EnsureWindowLut()
     {
         if (_windowLutFeatherStart == _featherStart) return;
-        BuildWindowLut(_windowLut, WindowLutSize, _featherStart, 0.95);
+        BuildWindowLut(_windowLut, WindowLutSize, _featherStart, FeatherEnd);
         _windowLutFeatherStart = _featherStart;
     }
 
