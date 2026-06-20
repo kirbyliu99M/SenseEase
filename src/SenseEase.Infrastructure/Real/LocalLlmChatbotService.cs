@@ -156,6 +156,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
     // this to bring up a FastFlowLM server on the AMD NPU. Success switches the service to external mode pointed
     // at it; failure (null) falls through to the bundled Vulkan launch. Null on machines/builds without an NPU.
     private readonly Func<CancellationToken, Task<ManagedBackend?>>? _managedBackendStarter;
+    // Local server build (ultrabook #5): Vulkan (universal default) or the Intel OpenVINO build. Affects only
+    // the LOCAL launch path — the FLM managed-NPU path is separate. Both are llama.cpp servers (grammar+bearer).
+    private readonly LocalServerKind _localServerKind;
     private bool IsExternal => !string.IsNullOrWhiteSpace(_externalBaseUrl);
     private string ServerUrl => IsExternal ? _externalBaseUrl! : $"http://127.0.0.1:{ServerPort}";
     // The model id sent in each chat request. External backends require it; the bundled llama-server serves
@@ -500,7 +503,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null,
         Func<DateTime>? utcNow = null, TimeSpan? idleTimeout = null,
         string? externalBaseUrl = null, string? externalModelName = null,
-        Func<CancellationToken, Task<ManagedBackend?>>? managedBackendStarter = null)
+        Func<CancellationToken, Task<ManagedBackend?>>? managedBackendStarter = null,
+        LocalServerKind localServerKind = LocalServerKind.Vulkan)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -517,6 +521,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _externalModelName = string.IsNullOrWhiteSpace(externalModelName)
             ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_MODEL") : externalModelName;
         _managedBackendStarter = managedBackendStarter;
+        _localServerKind = localServerKind;
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -536,11 +541,17 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// App startup H32 gate so both verify/launch the SAME file — passing a bare
     /// "llama-server.exe" to the verifier would resolve next to BaseDirectory and
     /// miss the nested exe, failing the gate closed once a manifest ships.</summary>
-    public static string ResolveServerExePath()
+    public static string ResolveServerExePath() => ResolveServerExePath(LocalServerKind.Vulkan);
+
+    /// <summary>Resolves the bundled <c>llama-server.exe</c> for the given local build — the universal Vulkan
+    /// server, or the Intel OpenVINO server (same nested layout, different leaf dir). The OpenVINO exe ships
+    /// only on Intel-targeted installs, so callers check <c>File.Exists</c> before selecting it.</summary>
+    public static string ResolveServerExePath(LocalServerKind kind)
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory
                             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return Path.Combine(baseDir, "runtimes", "win-x64", "native", "vulkan", "llama-server.exe");
+        string sub = kind == LocalServerKind.OpenVino ? "openvino" : "vulkan";
+        return Path.Combine(baseDir, "runtimes", "win-x64", "native", sub, "llama-server.exe");
     }
 
     /// <summary>Spawns llama-server.exe as a child process bound to localhost:8181
@@ -647,7 +658,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
             // Resolve via the shared helper so App's startup H32 gate and this
             // per-spawn gate verify the SAME absolute path (the exe ships nested
             // under runtimes/.../vulkan/, not next to BaseDirectory).
-            string serverExe = ResolveServerExePath();
+            string serverExe = ResolveServerExePath(_localServerKind);
             string serverDir = Path.GetDirectoryName(serverExe) ?? string.Empty;
             if (!File.Exists(serverExe))
                 throw new FileNotFoundException($"llama-server.exe not found at: {serverExe}");
@@ -753,6 +764,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
             // require an elevated/own-process handle to read, which the H9 attacker
             // class (unprivileged same-user code) does not have.
             psi.EnvironmentVariables["LLAMA_ARG_API_KEY"] = _apiKey;
+            // Intel OpenVINO build (ultrabook #5): request the NPU — OpenVINO auto-falls-back to CPU if the NPU
+            // is unavailable. No-op for the Vulkan build, which ignores this env var. (A future NPU→iGPU→CPU
+            // preference would launch-probe each device in turn; for now NPU-or-CPU is the battery target.)
+            if (_localServerKind == LocalServerKind.OpenVino)
+                psi.EnvironmentVariables["GGML_OPENVINO_DEVICE"] = "NPU";
 
             _serverProcess = Process.Start(psi);
             if (_serverProcess is null)
@@ -778,7 +794,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
             await WaitForServerReadyAsync(TimeSpan.FromMinutes(2)).ConfigureAwait(false);
             IsModelLoaded = true;
             LoadError = null;
-            ActiveBackend = "Vulkan llama-server (local)";
+            ActiveBackend = _localServerKind == LocalServerKind.OpenVino ? "OpenVINO NPU (local)" : "Vulkan llama-server (local)";
             // Idle-unload (#1): a fresh load counts as activity; arm the 60 s poll (once, reused on reload).
             Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
             StartIdleTimer();

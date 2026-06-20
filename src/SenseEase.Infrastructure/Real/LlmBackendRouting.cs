@@ -79,6 +79,19 @@ public static class HardwareProbe
 /// it didn't start. Produced by <see cref="FlmServerLauncher"/>.</summary>
 public sealed record ManagedBackend(string BaseUrl, string ModelTag, Process? OwnedProcess);
 
+/// <summary>Which bundled llama-server build the LOCAL path launches. Both are llama.cpp servers — same GGUF,
+/// grammar, and bearer key — differing only in compute backend + device env, so the chatbot client code is
+/// identical for both.</summary>
+public enum LocalServerKind
+{
+    /// <summary>The universal Vulkan build (any iGPU/GPU/CPU) under runtimes/.../vulkan/. The default.</summary>
+    Vulkan,
+    /// <summary>The Intel OpenVINO build under runtimes/.../openvino/ — runs the SAME GGUF on an Intel
+    /// NPU/iGPU/CPU, device chosen by GGML_OPENVINO_DEVICE (we request NPU; OpenVINO auto-falls-back to CPU if
+    /// the NPU is unavailable). Bundled only on Intel-targeted installs.</summary>
+    OpenVino,
+}
+
 /// <summary>The RUNTIME backend decision (ultrabook #5): does this machine try the FastFlowLM NPU backend for
 /// the active model? Pure + unit-tested; the live inputs (CPU vendor, flm presence, env override) are gathered
 /// by the caller. The decision is deliberately optimistic — the actual NPU/serve capability is verified by the
@@ -95,5 +108,16 @@ public static class LlmBackendSelector
         if (!flmInstalled) return false;
         string v = (cpuVendor ?? string.Empty).ToLowerInvariant();
         return v.Contains("amd") || v.Contains("ryzen");
+    }
+
+    /// <summary>Whether to launch the Intel OpenVINO local server for the active model: an Intel CPU, the
+    /// OpenVINO build actually present (bundled only on Intel-targeted installs), and no explicit external
+    /// override. AMD takes the FastFlowLM path (<see cref="ShouldTryFlmNpu"/>); everything else stays on the
+    /// universal Vulkan build. NPU presence isn't probed here — OpenVINO selects NPU→CPU itself at launch.</summary>
+    public static bool ShouldUseOpenVino(string? cpuVendor, bool openVinoServerPresent, bool externalOverrideSet)
+    {
+        if (externalOverrideSet) return false;
+        if (!openVinoServerPresent) return false;
+        return (cpuVendor ?? string.Empty).ToLowerInvariant().Contains("intel");
     }
 }

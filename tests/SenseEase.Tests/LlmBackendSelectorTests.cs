@@ -43,4 +43,26 @@ public class LlmBackendSelectorTests
     public void EmptyVendor_DoesNotTryFlm()
         => Assert.False(LlmBackendSelector.ShouldTryFlmNpu("qwen3-it:4b",
             "", flmInstalled: true, externalOverrideSet: false));
+
+    // ── OpenVINO (Intel) selection ───────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void IntelCpu_WithOpenVinoServer_NoOverride_UsesOpenVino()
+        => Assert.True(LlmBackendSelector.ShouldUseOpenVino(
+            "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel", openVinoServerPresent: true, externalOverrideSet: false));
+
+    [Fact]
+    public void AmdCpu_DoesNotUseOpenVino()   // AMD takes the FastFlowLM path instead
+        => Assert.False(LlmBackendSelector.ShouldUseOpenVino(
+            "AMD64 Family 26 Model 36 Stepping 0, AuthenticAMD", openVinoServerPresent: true, externalOverrideSet: false));
+
+    [Fact]
+    public void IntelCpu_WithoutOpenVinoServerBundled_FallsBackToVulkan()
+        => Assert.False(LlmBackendSelector.ShouldUseOpenVino(
+            "GenuineIntel", openVinoServerPresent: false, externalOverrideSet: false));
+
+    [Fact]
+    public void ExternalOverride_DisablesOpenVino()
+        => Assert.False(LlmBackendSelector.ShouldUseOpenVino(
+            "GenuineIntel", openVinoServerPresent: true, externalOverrideSet: true));
 }

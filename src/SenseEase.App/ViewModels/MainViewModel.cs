@@ -1114,8 +1114,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // SENSEEASE_LLM_BASEURL (dev/validation) bypasses all of this (handled in the service ctor). The probe
         // is cheap + synchronous (env var + a file check); the real launch happens later, async, in LoadAsync.
         Func<CancellationToken, Task<ManagedBackend?>>? npuStarter = null;
+        LocalServerKind localServerKind = LocalServerKind.Vulkan;
         bool llmExternalOverride = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SENSEEASE_LLM_BASEURL"));
-        if (LlmBackendSelector.ShouldTryFlmNpu(chatModel.NpuModelTag, HardwareProbe.DetectCpuVendor(),
+        string llmCpuVendor = HardwareProbe.DetectCpuVendor();
+        if (LlmBackendSelector.ShouldTryFlmNpu(chatModel.NpuModelTag, llmCpuVendor,
                 flmInstalled: FlmServerLauncher.FindExe() is not null, externalOverrideSet: llmExternalOverride))
         {
             string npuTag = chatModel.NpuModelTag!;
@@ -1124,9 +1126,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Action<string> npuTrace = m => { try { _log?.Append(new EventLogEntry { Timestamp = DateTime.UtcNow, Category = "Llm.Backend", Message = m }); } catch { } };
             npuStarter = ct => FlmServerLauncher.TryAcquireAsync(npuTag, FlmServerLauncher.DefaultPort, npuTrace, ct);
         }
+        else if (LlmBackendSelector.ShouldUseOpenVino(llmCpuVendor,
+                     openVinoServerPresent: File.Exists(LocalLlmChatbotService.ResolveServerExePath(LocalServerKind.OpenVino)),
+                     externalOverrideSet: llmExternalOverride))
+        {
+            localServerKind = LocalServerKind.OpenVino;   // Intel NPU/iGPU via the OpenVINO local server (same GGUF, grammar + bearer kept)
+        }
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
-            nGpuLayers: chatModel.NGpuLayers, managedBackendStarter: npuStarter);
+            nGpuLayers: chatModel.NGpuLayers, managedBackendStarter: npuStarter, localServerKind: localServerKind);
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
