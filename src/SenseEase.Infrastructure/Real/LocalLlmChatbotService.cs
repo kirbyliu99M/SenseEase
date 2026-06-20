@@ -122,6 +122,18 @@ public sealed class LocalLlmChatbotService : IChatbotService
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private Process? _serverProcess;
+
+    // ── Idle-unload (ultrabook plan #1, 2026-06-21) ─────────────────────────────────────────────
+    // Free the ~3 GB the llama-server holds once the user stops chatting. SendAsync stamps
+    // _lastActivityTicks; a 60 s poll calls MaybeUnloadIfIdle, which kills the server after
+    // _idleTimeout of inactivity (IsModelLoaded → false). The next SendAsync transparently re-loads via
+    // the existing load-on-demand path (≈3–8 s). The clock + timeout are injectable so tests drive the
+    // timing with no real server and no real-time wait; _idleTimeout ≤ 0 disables it (stays resident).
+    private readonly Func<DateTime> _utcNow;
+    private readonly TimeSpan _idleTimeout;
+    private long _lastActivityTicks;
+    private System.Threading.Timer? _idleTimer;
+
     // H34: cap the response buffer (512 KiB — chat completions are <<256 tokens)
     // and drop the per-call timeout to 60 s so a wedged server can't hang the
     // chat turn for minutes. The /props readiness poll during startup is well under 60 s.
@@ -451,7 +463,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// <param name="extraServerArgs">Per-model extra llama-server flags (e.g. non-thinking flags).</param>
     /// <param name="nGpuLayers">Per-model GPU-offload layer count (null → 99 = full offload).</param>
     public LocalLlmChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null,
-        string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null)
+        string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null,
+        Func<DateTime>? utcNow = null, TimeSpan? idleTimeout = null)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -459,6 +472,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _nGpuLayers = nGpuLayers;
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        // Idle-unload window (ultrabook plan #1): default 10 min; ≤ 0 keeps the model resident.
+        _idleTimeout = idleTimeout ?? TimeSpan.FromMinutes(10);
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -634,6 +650,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
             await WaitForServerReadyAsync(TimeSpan.FromMinutes(2)).ConfigureAwait(false);
             IsModelLoaded = true;
             LoadError = null;
+            // Idle-unload (#1): a fresh load counts as activity; arm the 60 s poll (once, reused on reload).
+            Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
+            StartIdleTimer();
         }
         catch (Exception ex)
         {
@@ -781,6 +800,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
 
     public async Task<NluResult> SendAsync(string userMessage, CancellationToken ct = default)
     {
+        // Idle-unload (#1): every message resets the inactivity clock so the model stays warm mid-chat.
+        Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
         string input = userMessage ?? string.Empty;
         string pureUserText = ExtractUserText(input);
         string stateSummary = ExtractStateSummary(input);
@@ -1346,8 +1367,57 @@ public sealed class LocalLlmChatbotService : IChatbotService
     // source of truth shared with CalibrationChatbotService and ChatbotViewModel.
     // Called as SafetyFloor.Trips(...) from SendAsync above.
 
+    // ── Idle-unload helpers (ultrabook plan #1) ─────────────────────────────────────────────────
+
+    /// <summary>Arm the 60 s idle-unload poll. Created once and reused across reload cycles; a no-op when
+    /// unloading is disabled (_idleTimeout ≤ 0) or the timer is already running.</summary>
+    private void StartIdleTimer()
+    {
+        if (_idleTimeout <= TimeSpan.Zero || _idleTimer is not null) return;
+        var period = TimeSpan.FromSeconds(60);
+        _idleTimer = new System.Threading.Timer(
+            _ => { try { MaybeUnloadIfIdle(); } catch { /* poll is best-effort */ } }, null, period, period);
+    }
+
+    /// <summary>True once the model has sat untouched for ≥ <c>_idleTimeout</c> (disabled when the timeout
+    /// is ≤ 0). Pure read of the injected clock — no side effects.</summary>
+    private bool IdleWindowElapsed()
+        => _idleTimeout > TimeSpan.Zero
+           && _utcNow().Ticks - Volatile.Read(ref _lastActivityTicks) >= _idleTimeout.Ticks;
+
+    /// <summary>Idle-unload (#1): when the model is loaded and the idle window has elapsed, kill the
+    /// llama-server to free its ~3 GB; the next <see cref="SendAsync"/> re-loads on demand. Best-effort +
+    /// synchronous; acquires the request lock non-blockingly so it never interrupts an in-flight call or a
+    /// concurrent load (it simply retries on the next poll). Internal so tests can drive it directly.</summary>
+    internal void MaybeUnloadIfIdle()
+    {
+        if (!IsModelLoaded || !IdleWindowElapsed()) return;
+        if (!_lock.Wait(0)) return;                 // a request/load holds the lock → skip, retry next poll
+        try
+        {
+            // Re-check under the lock — state may have changed since the lock-free fast path above.
+            if (!IsModelLoaded || !IdleWindowElapsed()) return;
+            try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
+            try { _serverProcess?.Dispose(); } catch { }
+            _serverProcess = null;
+            IsModelLoaded = false;
+            // Mirror the load-failure cleanup: drop the per-process key + bearer so a re-load mints fresh.
+            if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
+                LlamaSessionKey.Set(null);
+            _apiKey = null;
+            _http.DefaultRequestHeaders.Authorization = null;
+        }
+        finally { _lock.Release(); }
+    }
+
+    // Test seams (idle-unload timing): stamp "now" as the last activity + read whether the idle window has
+    // elapsed, so the 10-min unload decision is verifiable with an injected clock and no real server.
+    internal void MarkActivityNowForTest() => Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
+    internal bool IdleWindowElapsedForTest() => IdleWindowElapsed();
+
     public void Dispose()
     {
+        try { _idleTimer?.Dispose(); } catch { }
         try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
         try { _serverProcess?.Dispose(); } catch { }
         _serverProcess = null;
