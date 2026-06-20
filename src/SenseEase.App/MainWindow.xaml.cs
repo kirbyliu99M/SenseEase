@@ -22,13 +22,11 @@ public partial class MainWindow : Window
     private SpikePopupWindow? _spikePopup;
     // Phase-1 rev: the contextual discomfort check-in is an IN-WINDOW overlay (CheckInOverlayHost),
     // NOT a separate window — it never appears outside the console (which would clash with the
-    // pop-up bar / interrupt over other apps). _checkInGovernor rate-limits it; a spike that fires
-    // while the console is backgrounded is DEFERRED via _pendingSpikeCheckIn and surfaced (with its
-    // context captured at spike time) when the console is next activated.
+    // pop-up bar / interrupt over other apps). _checkInGovernor rate-limits it. (The old
+    // defer-while-backgrounded + in-console 5-point survey path was retired by the 2026-06-19
+    // FMS-owner migration — the check-in now lives in the chat and never reveals the popup.)
     private readonly CheckInGovernor _checkInGovernor = new();
     private bool _checkInAnswered;
-    private bool _pendingSpikeCheckIn;
-    private string? _pendingCheckInContext;
     // FMS owner-migration (UVHS 2026-06-20): the app's OWN startup produces a transient pressure spike as
     // the sensing baseline settles — that is NOT user discomfort, so a proactive check-in must not react to
     // it. Suppress check-ins for the first minute after launch (a self-generated spike, not a real one).
@@ -1075,34 +1073,14 @@ public partial class MainWindow : Window
         catch { /* never crash the spike handler */ }
     }
 
-    /// <summary>MainWindow.Activated: surface a deferred spike check-in (queued while the console was
-    /// backgrounded) IN the app on return, with the context captured at spike time. Never throws.</summary>
+    /// <summary>MainWindow.Activated: re-warrant the Eye-Care inline check-in on return (the tier may have
+    /// risen or the cooldown elapsed while the console was backgrounded on that tab). Never throws.</summary>
     private void OnConsoleActivated(object? sender, EventArgs e)
     {
         // Phase-2: re-warrant the Eye-Care inline check-in on activation (the tier may have risen or
         // the cooldown elapsed while the console was backgrounded on that tab).
         if (MainTabs is not null && ReferenceEquals(MainTabs.SelectedItem, EyeCareTab))
             RefreshEyeCareCheckIns();
-
-        if (!_pendingSpikeCheckIn) return;
-        _pendingSpikeCheckIn = false;
-        try
-        {
-            if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Declined) return;
-            if (CheckInOverlayHost is { Visibility: Visibility.Visible }) return;
-            if (!_checkInGovernor.ShouldPrompt()) return;
-            ShowSpikeCheckInOverlay(_pendingCheckInContext);
-        }
-        catch { }
-    }
-
-    /// <summary>Route to the in-console consent card (first run, Unset) or the 5-point survey.</summary>
-    private void ShowSpikeCheckInOverlay(string? ctx)
-    {
-        if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Unset)
-            ShowConsentOverlay(ctx);
-        else
-            ShowCheckInSurveyOverlay(ctx);
     }
 
     /// <summary>First-run opt-in card (Unset). Sets the persisted consent; collects no FMS value.
@@ -1148,47 +1126,6 @@ public partial class MainWindow : Window
                     HideCheckInOverlay();
             });
     }
-
-    /// <summary>The contextual 5-point discomfort survey (formal, no slider) attributed to the spike
-    /// (+ app category when consent allows). The chosen point records a MEASURED FMS PRO with
-    /// trigger="spike". The five points map evenly across FMS 0/5/10/15/20.</summary>
-    private void ShowCheckInSurveyOverlay(string? ctx)
-    {
-        string q = ctx is null
-            ? PickLoc("剛才偵測到較多畫面動態。你現在的感受如何？",
-                      "Lots of on-screen motion just now. How are you feeling?")
-            : PickLoc($"剛才在使用{ctx}時偵測到較多畫面動態。你現在的感受如何？",
-                      $"Lots of on-screen motion just now while using {ctx}. How are you feeling?");
-
-        var bands = FivePointBands();
-        var labels = new string[bands.Length];
-        for (int i = 0; i < bands.Length; i++) labels[i] = bands[i].label;
-
-        ShowCheckInOverlay(
-            header:   PickLoc("動態提醒", "Motion check-in"),
-            question: q,
-            footer:   PickLoc("健康自我紀錄 — 並非醫療診斷。", "A wellness check-in — not a medical assessment."),
-            options:  labels,
-            onOption: idx =>
-            {
-                _viewModel.RecordFmsRating(bands[idx].fms, SymptomEvent.Triggers.Spike);
-                _checkInGovernor.RecordAnswered();
-                RefreshEyeCareCheckIns();   // reflect the new row in the Eye-Care list immediately
-                HideCheckInOverlay();
-            });
-    }
-
-    /// <summary>The 5-point formal discomfort survey shared by every check-in surface — none → very
-    /// severe, evenly spaced across FMS 0/5/10/15/20 (the same even mapping as the retired 5★, in a
-    /// formal survey style rather than stars).</summary>
-    private static (string label, int fms)[] FivePointBands() => new[]
-    {
-        (PickLoc("沒有",     "None"),        0),
-        (PickLoc("輕微",     "Slight"),      5),
-        (PickLoc("中等",     "Moderate"),   10),
-        (PickLoc("嚴重",     "Severe"),     15),
-        (PickLoc("非常嚴重", "Very severe"), 20),
-    };
 
     /// <summary>Populate + reveal the IN-WINDOW proactive overlay (a Panel.ZIndex layer of the root
     /// Grid — never a separate window). Teams-style: a translucent scrim dims and CAPTURES clicks to
