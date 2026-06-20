@@ -55,7 +55,11 @@ public enum HabituationProfile
 /// <summary>Severe-event handling mode. Only "halve" is used today; the "zero"
 /// path triggers via SevereStrikeLimit overflow, not via this enum. Enum kept
 /// as a future hook for profiles that might want immediate-zero on first
-/// strike without a counter.</summary>
+/// strike without a counter.
+/// <para>RESERVED (B6 §3, 2026-06-21): a dormant POLICY switch, not a personalization signal — all three
+/// profiles hardcode <c>Halve</c> and <c>RegisterSevereStrike</c> ignores this field. The "zero on first
+/// strike" behaviour is already reachable via <c>SevereStrikeLimit=1</c>, so the enum is redundant; do NOT
+/// wire it into the learning loop.</para></summary>
 public enum SevereClearMode
 {
     Halve,

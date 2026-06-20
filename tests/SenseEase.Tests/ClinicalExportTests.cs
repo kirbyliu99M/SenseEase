@@ -36,6 +36,11 @@ public sealed class ClinicalExportTests
             Source = SymptomEvent.Sources.NlDaily, Value = value, TsUtc = ts,
         };
 
+    private static SymptomEvent Consent(string decision, string ts)
+        => SymptomEvent.OverlayConsentRow(decision, contextTier: 5, maskActive: true,
+               utcNow: DateTime.Parse(ts, System.Globalization.CultureInfo.InvariantCulture,
+                                      System.Globalization.DateTimeStyles.RoundtripKind));
+
     private static List<SymptomEvent> Sample() => new()
     {
         Measured(14, SymptomEvent.InterventionStates.Off, 5, "video/youtube", Day1A),
@@ -73,6 +78,28 @@ public sealed class ClinicalExportTests
         // Estimated = the single nl_daily estimate, on its own.
         Assert.Equal(1, e.Estimated.Count);
         Assert.Equal(12, e.Estimated.Mean!.Value, 2);
+    }
+
+    [Fact]
+    public void OverlayConsentRows_DoNotContaminateTheEstimatedBucket_NorTheSampleCount()
+    {
+        // B6 Stage 0 regression: overlay_consent rows (Measured=false, Value=0, Scale="") must NEVER enter
+        // the FMS partition. Before the FMS-kind filter they fell into Estimated (e => !e.Measured) as phantom
+        // FMS=0 reports — inflating its count and dragging its mean toward 0 — and inflated TotalSamples.
+        var withConsent = Sample();
+        withConsent.Add(Consent(SymptomEvent.Decisions.Declined, Day1A));
+        withConsent.Add(Consent(SymptomEvent.Decisions.Accepted, Day1B));
+        withConsent.Add(Consent(SymptomEvent.Decisions.Ignored,  Day2));
+
+        var e = ClinicalExportBuilder.Build(withConsent);
+
+        // Estimated is STILL just the single nl_daily estimate (12): the 3 consent rows did not join it and
+        // its mean is not dragged toward 0.
+        Assert.Equal(1, e.Estimated.Count);
+        Assert.Equal(12, e.Estimated.Mean!.Value, 2);
+        // Measured untouched, and the total sample count excludes the consent rows.
+        Assert.Equal(3, e.Measured.Count);
+        Assert.Equal(4, e.Exposure.TotalSamples);   // 3 measured + 1 estimate — NOT 4 + 3 consent
     }
 
     [Fact]

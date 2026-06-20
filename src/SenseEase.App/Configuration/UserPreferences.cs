@@ -252,7 +252,10 @@ public sealed class UserPreferences
     public DateTime? LastOverlayDeclineUtc { get; set; }
 
     /// <summary>Running count of explicit overlay-consent declines (prompt-fatigue analytics). Additive;
-    /// reset by "Clear all my data".</summary>
+    /// reset by "Clear all my data". RESERVED — written on each decline but READ by no runtime path as of
+    /// B6 (2026-06-21); only <see cref="LastOverlayDeclineUtc"/> drives the re-prompt cooldown. A decline is
+    /// an ambiguous UI-friction-vs-symptom signal, so any future wire-in must be tighten/promotion BIAS only
+    /// (never a relax input) and gated behind a working downgrade path. See docs/B6 §3 (orphan ledger).</summary>
     [JsonPropertyName("overlay_decline_count")]
     public int OverlayDeclineCount { get; set; }
 

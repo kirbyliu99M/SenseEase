@@ -15,7 +15,9 @@ namespace SenseEase.Core.AdaptiveFit;
 /// (default TRUE since c1461a9); this type itself is inert Core data with no engine wiring.</para>
 /// </summary>
 /// <param name="PressureP50">
-/// Median of (Pressure / EffectiveTrigger) over the window, ~[0..1+].</param>
+/// Median of (Pressure / EffectiveTrigger) over the window, ~[0..1+]. RESERVED — computed but never
+/// SCORED by <c>DeterministicSetSelector</c> (which keys on the P90 tail); kept for parity/future use.
+/// See docs/B6 §3 (orphan ledger).</param>
 /// <param name="PressureP90">
 /// 90th percentile of the same normalised-pressure samples.</param>
 /// <param name="SpikeRecurrencePerHour">

@@ -26,7 +26,11 @@ public class EventLogEntry
     /// nullable: historical entries (and every entry written while consent is off)
     /// deserialize to null and fall into the global bucket, so the per-app stats
     /// pipeline degrades to today's app-agnostic behaviour. Never a raw window title —
-    /// it is the same coarse key already stamped on FMS <c>SymptomEvent</c>s.</summary>
+    /// it is the same coarse key already stamped on FMS <c>SymptomEvent</c>s.
+    /// <para>RESERVED scaffolding as of B6 (2026-06-21): stamped on every durable entry but READ by no
+    /// selector path — the active set is single-global; this is the foundation for the PAUSED B3.2 per-app
+    /// bucketing (docs/B6 §3). Do NOT conflate with <c>SymptomEvent.ForegroundKey</c>, which IS consumed by
+    /// the per-app clinical export (output ②).</para></summary>
     public string? ForegroundKey { get; set; }
 
     /// <summary>Display helper for the dashboard ListView. CW-12/UX-15: Timestamp is

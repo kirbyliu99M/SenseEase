@@ -154,6 +154,13 @@ public static class ClinicalExportBuilder
     {
         var all = (events ?? Enumerable.Empty<SymptomEvent>())
             .Where(e => e is not null)
+            // B6 Stage 0 (2026-06-21): the clinical export is FMS-only. An overlay_consent row (and any future
+            // non-FMS kind) carries Measured=false / Value=0 / Scale="" — without this filter it falls into the
+            // ESTIMATED partition (`e => !e.Measured` below) as a phantom FMS=0 report, inflating the estimated
+            // count and pulling its mean toward 0, and inflates TotalSamples / Window. Keep only the FMS-bearing
+            // kinds so the D-17/18/19 measured-vs-estimated separation stays clean. The gate is already immune
+            // (AdaptationEvidence.MeasuredOnFms hard-filters Kind==FmsReport); this protects the export too.
+            .Where(e => e.Kind == SymptomEvent.Kinds.FmsReport || e.Kind == SymptomEvent.Kinds.FmsEstimate)
             .OrderBy(e => ParseTsTicks(e.TsUtc))   // oldest-first, robust to unsorted input
             .ToList();
 

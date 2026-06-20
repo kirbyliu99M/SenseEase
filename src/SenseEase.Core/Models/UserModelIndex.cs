@@ -1,13 +1,14 @@
-using System.Collections.Generic;
-
 namespace SenseEase.Core.Models;
 
 /// <summary>
-/// UM3 (User Model sprint): incremental analysis state + monthly-bucket manifest,
-/// persisted to <c>%LOCALAPPDATA%\SenseEase\user_model_index.json</c> via the
-/// atomic writer. Lets the UM4 retrospective pipeline resume from where it left
-/// off without re-reading the whole chat history, and lets summaries know each
-/// observation bucket's size without loading the profile.
+/// UM3 (User Model sprint): incremental analysis state, persisted to
+/// <c>%LOCALAPPDATA%\SenseEase\user_model_index.json</c> via the atomic writer.
+/// Lets the UM4 retrospective pipeline resume from where it left off without
+/// re-reading the whole chat history.
+///
+/// <para>B6 Stage 0 (2026-06-21): the per-month <c>BucketManifest</c>/<c>BucketMeta</c> were
+/// retired — they were never written or read by any production path (only the resume cursor +
+/// content marker are consumed). Old on-disk indexes simply drop the unknown field on load.</para>
 ///
 /// <para>Schema v1 carries the sprint-locked PII annotations
 /// <see cref="Exportable"/>=false and <see cref="DeletableOnClear"/>=true from the
@@ -37,16 +38,4 @@ public sealed class UserModelIndex
     /// the analyzer re-scans the whole current window instead of silently stopping. Null on a
     /// legacy index / before the first successful run (positional fallback applies).</summary>
     public string? LastAnalyzedMarker { get; set; }
-
-    /// <summary>UM2/UM3: per-month observation-bucket metadata, keyed by "YYYY-MM".</summary>
-    public Dictionary<string, BucketMeta> BucketManifest { get; set; } = new();
-}
-
-/// <summary>UM3: lightweight per-month bucket metadata for the manifest.</summary>
-public sealed class BucketMeta
-{
-    public int EntryCount { get; set; }
-
-    /// <summary>ISO-8601 UTC timestamp of the last write into this bucket.</summary>
-    public string? LastUpdated { get; set; }
 }

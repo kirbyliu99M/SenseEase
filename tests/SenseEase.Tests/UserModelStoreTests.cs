@@ -47,23 +47,19 @@ public class UserModelStoreTests : IDisposable
         Assert.False(idx.Exportable);        // sprint-locked
         Assert.True(idx.DeletableOnClear);   // sprint-locked
         Assert.Equal(0, idx.LastAnalyzedChatTurnIndex);
-        Assert.Empty(idx.BucketManifest);
     }
 
     [Fact]
     public void SaveThenLoad_Index_RoundTrips()
     {
         var store = new UserModelIndexStore(_indexPath);
-        var idx = new UserModelIndex { LastAnalyzedChatTurnIndex = 42 };
-        idx.BucketManifest["2026-06"] = new BucketMeta { EntryCount = 12, LastUpdated = "2026-06-07T14:22:00Z" };
+        var idx = new UserModelIndex { LastAnalyzedChatTurnIndex = 42, LastAnalyzedMarker = "fnv:abc123" };
 
         store.SaveIndex(idx);
         var loaded = store.LoadIndex();
 
         Assert.Equal(42, loaded.LastAnalyzedChatTurnIndex);
-        Assert.True(loaded.BucketManifest.ContainsKey("2026-06"));
-        Assert.Equal(12, loaded.BucketManifest["2026-06"].EntryCount);
-        Assert.Equal("2026-06-07T14:22:00Z", loaded.BucketManifest["2026-06"].LastUpdated);
+        Assert.Equal("fnv:abc123", loaded.LastAnalyzedMarker);
     }
 
     [Fact]
@@ -75,7 +71,7 @@ public class UserModelStoreTests : IDisposable
         string raw = File.ReadAllText(_indexPath);
         Assert.Contains("\"schema_version\"", raw);
         Assert.Contains("\"last_analyzed_chat_turn_index\"", raw);
-        Assert.Contains("\"bucket_manifest\"", raw);
+        Assert.DoesNotContain("\"bucket_manifest\"", raw); // B6 Stage 0: retired
         Assert.Contains("\"exportable\": false", raw);
         Assert.Contains("\"deletable_on_clear\": true", raw);
     }
@@ -249,9 +245,8 @@ public class UserModelStoreTests : IDisposable
         new DailyBehaviorAggregateWriter(_logPath).Write(Row("2026-06-07"));
         var store = new UserModelIndexStore(_indexPath, _logPath, profile);
         var seed = new UserModelIndex { LastAnalyzedChatTurnIndex = 5 };
-        seed.BucketManifest["2026-06"] = new BucketMeta { EntryCount = 1 };
         store.SaveIndex(seed);
-        Assert.NotEmpty(store.LoadIndex().BucketManifest); // precondition: non-empty before clear
+        Assert.Equal(5, store.LoadIndex().LastAnalyzedChatTurnIndex); // precondition: non-default before clear
 
         // Act
         store.ClearUserModel();
@@ -260,7 +255,6 @@ public class UserModelStoreTests : IDisposable
         Assert.False(File.Exists(_logPath));
         var idx = store.LoadIndex();
         Assert.Equal(0, idx.LastAnalyzedChatTurnIndex);
-        Assert.Empty(idx.BucketManifest);
 
         var after = profile.Load()!;
         Assert.Empty(after.LongitudinalObservationsV2);  // observation memory cleared
