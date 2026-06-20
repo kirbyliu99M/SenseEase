@@ -91,7 +91,7 @@ public static class HabituationOverrideProcessor
         DateTime utcNow = now ?? DateTime.UtcNow;
 
         // ── Reading A (2026-06-06): switch_profile sever ──────────────────────
-        // The habituation PROFILE (Resilient / Typical / Sensitive) is set ONLY
+        // The habituation PROFILE (Reactive / Adapting / Resilient) is set ONLY
         // at calibration (ApplyCalibrationResult -> SetProfile(..., "calibration_demo")).
         // The chatbot can no longer switch the profile live. This EARLY gate
         // rejects ALL SwitchProfile proposals — known or unknown value — before
@@ -180,7 +180,7 @@ public static class HabituationOverrideProcessor
                     rejectionReason = "proposed_value for switch_profile must be a profile name string";
                     return false;
                 }
-                if (!Enum.TryParse<HabituationProfile>(s, ignoreCase: true, out _))
+                if (!HabituationProfileAlias.TryParse(s, out _))
                 {
                     rejectionReason = $"unknown profile '{s}'";
                     return false;
@@ -262,8 +262,8 @@ public static class HabituationOverrideProcessor
 
             case OverrideIntent.SwitchProfile:
                 if (proposal.ProposedValue is string s
-                    && Enum.TryParse<HabituationProfile>(s, ignoreCase: true, out var proposedProfile)
-                    && Enum.TryParse<HabituationProfile>(snapshot.Profile, ignoreCase: true, out var currentProfile))
+                    && HabituationProfileAlias.TryParse(s, out var proposedProfile)
+                    && HabituationProfileAlias.TryParse(snapshot.Profile, out var currentProfile))
                 {
                     return IsLessRestrictive(proposedProfile, currentProfile);
                 }
@@ -282,13 +282,17 @@ public static class HabituationOverrideProcessor
 
     private static bool IsLessRestrictive(HabituationProfile proposed, HabituationProfile current)
     {
-        // Profile order from least to most restrictive: Resilient → Typical → Sensitive.
-        // "Less restrictive" = lower index in this order.
+        // Restrictiveness rank (least → most): Resilient → Adapting → Reactive.
+        // "Less restrictive" = more elastic / higher offset cap = LOWER rank here.
+        // NOTE: this is the INVERSE of the enum's int order (which ascends with elasticity:
+        // Reactive=0 … Resilient=2 after the B6 Stage 4a reorder), so this MUST stay an explicit
+        // name-keyed switch — do NOT simplify to (int)p (that would rank Resilient as MORE
+        // restrictive than Reactive, inverting the relaxation check).
         static int Order(HabituationProfile p) => p switch
         {
             HabituationProfile.Resilient => 0,
-            HabituationProfile.Typical   => 1,
-            HabituationProfile.Sensitive => 2,
+            HabituationProfile.Adapting  => 1,
+            HabituationProfile.Reactive  => 2,
             _                            => 1,
         };
         return Order(proposed) < Order(current);

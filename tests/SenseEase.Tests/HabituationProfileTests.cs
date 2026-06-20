@@ -32,7 +32,7 @@ public class HabituationProfileTests
     [Fact]
     public void Typical_MatchesSpecTable()
     {
-        var p = HabituationProfileParams.Typical;
+        var p = HabituationProfileParams.Adapting;
         Assert.Equal(180_000, p.StableWindowMs);
         Assert.Equal( 45_000, p.StepIntervalMs);
         Assert.Equal(    1.5, p.StepMagnitudePp);
@@ -47,7 +47,7 @@ public class HabituationProfileTests
     [Fact]
     public void Sensitive_MatchesSpecTable()
     {
-        var p = HabituationProfileParams.Sensitive;
+        var p = HabituationProfileParams.Reactive;
         Assert.Equal(360_000, p.StableWindowMs);
         Assert.Equal( 60_000, p.StepIntervalMs);
         Assert.Equal(    1.0, p.StepMagnitudePp);
@@ -65,8 +65,8 @@ public class HabituationProfileTests
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
-    [InlineData(HabituationProfile.Typical)]
-    [InlineData(HabituationProfile.Sensitive)]
+    [InlineData(HabituationProfile.Adapting)]
+    [InlineData(HabituationProfile.Reactive)]
     public void For_RoundTripsAllEnumValues(HabituationProfile profile)
     {
         HabituationProfileParams resolved = HabituationProfileParams.For(profile);
@@ -76,8 +76,8 @@ public class HabituationProfileTests
         int expectedCap = profile switch
         {
             HabituationProfile.Resilient => 30,
-            HabituationProfile.Typical   => 25,
-            HabituationProfile.Sensitive => 15,
+            HabituationProfile.Adapting   => 25,
+            HabituationProfile.Reactive => 15,
             _ => -1,
         };
         Assert.Equal(expectedCap, resolved.HabOffsetCapPp);
@@ -115,7 +115,7 @@ public class HabituationProfileTests
     [InlineData(12, true,      -1)]
     public void GetPostSpikePauseMs_Typical(int vimsTier, bool expectConfirm, int expectMs)
     {
-        int ms = HabituationProfileParams.Typical.GetPostSpikePauseMs(vimsTier, out bool confirm);
+        int ms = HabituationProfileParams.Adapting.GetPostSpikePauseMs(vimsTier, out bool confirm);
         Assert.Equal(expectConfirm, confirm);
         Assert.Equal(expectMs, ms);
     }
@@ -134,7 +134,7 @@ public class HabituationProfileTests
     [InlineData(12, true,      -1)]
     public void GetPostSpikePauseMs_Sensitive(int vimsTier, bool expectConfirm, int expectMs)
     {
-        int ms = HabituationProfileParams.Sensitive.GetPostSpikePauseMs(vimsTier, out bool confirm);
+        int ms = HabituationProfileParams.Reactive.GetPostSpikePauseMs(vimsTier, out bool confirm);
         Assert.Equal(expectConfirm, confirm);
         Assert.Equal(expectMs, ms);
     }
@@ -143,8 +143,8 @@ public class HabituationProfileTests
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
-    [InlineData(HabituationProfile.Typical)]
-    [InlineData(HabituationProfile.Sensitive)]
+    [InlineData(HabituationProfile.Adapting)]
+    [InlineData(HabituationProfile.Reactive)]
     public void GetPostSpikePauseMs_TopLevel_AlwaysRequiresUserConfirm(HabituationProfile profile)
     {
         int ms = HabituationProfileParams.For(profile).GetPostSpikePauseMs(10, out bool confirm);

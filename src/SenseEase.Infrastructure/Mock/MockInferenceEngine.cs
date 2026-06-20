@@ -268,8 +268,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _profileExistedAtLoad = savedSnapshot is not null;
         if (savedSnapshot is not null)
         {
-            if (Enum.TryParse<HabituationProfile>(savedSnapshot.Profile, ignoreCase: true,
-                                                   out var prof))
+            // B6 Stage 4a: alias-parse so legacy persisted strings (SENSITIVE/TYPICAL) still load
+            // to the renamed members; new files already hold REACTIVE/ADAPTING/RESILIENT.
+            if (HabituationProfileAlias.TryParse(savedSnapshot.Profile, out var prof))
             {
                 _habituation.SetProfile(prof, savedSnapshot.ProfileSource);
             }
@@ -854,12 +855,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
     {
         lock (_gate)
         {
-            // FEAT-07 / D-8: NO _autoProfilingEnabled gate here — fresh users seed TYPICAL/L5
+            // FEAT-07 / D-8: NO _autoProfilingEnabled gate here — fresh users seed ADAPTING/L5
             // whether or not the flag is on (the flag gates only App-side vestibular/console/
             // selector-UI). The fresh-user guard is the only thing that may early-return.
             if (_profileExistedAtLoad || _loadedCalibrationCount > 0 || _vestibularProtection) return;
 
-            _habituation.SetProfile(HabituationProfile.Typical, "auto_profiling_default");
+            _habituation.SetProfile(HabituationProfile.Adapting, "auto_profiling_default");
             _vimsTier             = SenseDefaults.AutoProfilingStartLevel; // L5 median seed
             _pendingTierCandidate = _vimsTier;
             _pendingTierSinceUtc  = DateTime.MinValue;
@@ -1271,7 +1272,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
 
         // A weaker (protection-reducing) move is blocked for the protected cohorts.
         if (IsVestibularActive) return false;
-        if (_habituation.CurrentProfile == SenseEase.Core.Inference.HabituationProfile.Sensitive) return false;
+        if (_habituation.CurrentProfile == SenseEase.Core.Inference.HabituationProfile.Reactive) return false;
         return true;
     }
 

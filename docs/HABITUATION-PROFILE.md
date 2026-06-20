@@ -7,6 +7,14 @@ review, marketing, or onboarding documentation.
 For the clinical / IRB-facing parameter snapshot, see `VALIDATION-REFERENCE.md`
 (separate document — cross-ref added once both are committed together).
 
+> **⚠ B6 Stage 4a rename (2026-06-21):** the `HabituationProfile` enum members were renamed + reordered
+> **low→high adaptive capacity**: **SENSITIVE → `Reactive`**, **TYPICAL → `Adapting`**, **RESILIENT → `Resilient`** (name kept).
+> New int order: `Reactive=0, Adapting=1, Resilient=2`. Params per member are **byte-identical** (zero numeric drift);
+> old persisted strings (`RESILIENT/TYPICAL/SENSITIVE`) still load via `HabituationProfileAlias`, and new writes
+> emit the new canonical strings. The tables and prose below still use the OLD names — read **SENSITIVE as Reactive,
+> TYPICAL as Adapting**. Canonical naming + the bidirectional-elasticity design (the *why* of the reorder):
+> `docs/B6_STAGE4_BIDIRECTIONAL_ELASTICITY.md`.
+
 ---
 
 ## 1 · Three profiles

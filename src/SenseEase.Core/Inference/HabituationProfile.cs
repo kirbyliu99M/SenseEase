@@ -20,8 +20,10 @@ namespace SenseEase.Core.Inference;
 //   Rationale: untested users inherit historical baseline behaviour (which
 //   matches the RESILIENT numerics exactly), while calibration / chatbot
 //   override stratifies users INTO tighter profiles based on measured signal.
-//   Defaulting to the tightest profile (SENSITIVE) would suppress long-term
+//   Defaulting to the tightest profile (REACTIVE) would suppress long-term
 //   habituation progress, contradicting the Chang-Hain framework.
+//   (B6 Stage 4a: the fresh-user *seed* is ADAPTING/L5; this engine field
+//   default is reachable only before any seed/restore — see §3.4.)
 //
 // Unit convention (locked):
 //   Internal engine state remains in SECONDS (preserves existing test
@@ -34,22 +36,26 @@ namespace SenseEase.Core.Inference;
 //         Never mix within the same scope.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// <summary>Three-tier user reactivity profile. Determines how aggressively
-/// the habituation engine relaxes the FOV mask over time, and how harshly it
-/// reacts to spikes.</summary>
+/// <summary>Three-tier user reactivity / neural-elasticity profile, ordered LOW→HIGH adaptive
+/// capacity (Reactive → Adapting → Resilient). Determines how aggressively the habituation engine
+/// relaxes the FOV mask over time (the earned-offset cap + relax cadence), and how harshly it reacts
+/// to spikes. The int order ASCENDS with elasticity, so a patient "moves up" the scale as they
+/// habituate (B6 Stage 4 bidirectional elasticity).</summary>
 public enum HabituationProfile
 {
-    /// <summary>Default. Low reactivity / fast habituation. Numerics match
-    /// the current SenseDefaults values exactly so existing tests pin.</summary>
-    Resilient,
-
-    /// <summary>Moderate reactivity. Slower relaxation, tighter cap.</summary>
-    Typical,
-
-    /// <summary>High reactivity. Cautious relaxation, low cap, strict
-    /// strike limit, mid-level spikes get longer pauses. Level ≥ 10 spikes
+    /// <summary>High reactivity / LOW adaptive capacity (= the former SENSITIVE). Cautious relaxation,
+    /// low cap (15pp), strict strike limit (1), mid-level spikes get longer pauses. Level ≥ 10 spikes
     /// require explicit user confirmation to resume.</summary>
-    Sensitive,
+    Reactive,
+
+    /// <summary>Moderate reactivity / mid adaptive capacity (= the former TYPICAL). Slower relaxation,
+    /// tighter cap (25pp). The fresh-user seed.</summary>
+    Adapting,
+
+    /// <summary>Low reactivity / HIGH adaptive capacity (= the former, identically-named RESILIENT).
+    /// Fast habituation, highest cap (30pp). Engine field default (reachable only pre-seed/restore).
+    /// Numerics match the current SenseDefaults values exactly so existing tests pin.</summary>
+    Resilient,
 }
 
 /// <summary>Severe-event handling mode. Only "halve" is used today; the "zero"
@@ -151,9 +157,10 @@ public sealed class HabituationProfileParams
         severeClearMode:                SevereClearMode.Halve,
         severeStrikeLimit:              2);
 
-    /// <summary>The TYPICAL profile — moderately cautious. Calibration-demo
+    /// <summary>The ADAPTING profile (formerly TYPICAL) — moderately cautious / mid adaptive
+    /// capacity; the fresh-user seed. Calibration-demo
     /// users with peak pressure &gt; 50 OR mask activations ≥ 1 land here.</summary>
-    public static readonly HabituationProfileParams Typical = new(
+    public static readonly HabituationProfileParams Adapting = new(
         stableWindowMs:           180_000,
         stepIntervalMs:            45_000,
         stepMagnitudePp:               1.5,
@@ -164,11 +171,12 @@ public sealed class HabituationProfileParams
         severeClearMode:                SevereClearMode.Halve,
         severeStrikeLimit:              2);
 
-    /// <summary>The SENSITIVE profile — very cautious. Calibration-demo users
+    /// <summary>The REACTIVE profile (formerly SENSITIVE) — very cautious / lowest adaptive
+    /// capacity. Calibration-demo users
     /// with peak pressure &gt; 85 OR mask activations ≥ 3 land here. Strike
     /// limit 1 means the FIRST severe event after a profile reset zeros the
     /// offset (instead of halving twice before zeroing).</summary>
-    public static readonly HabituationProfileParams Sensitive = new(
+    public static readonly HabituationProfileParams Reactive = new(
         stableWindowMs:           360_000,
         stepIntervalMs:            60_000,
         stepMagnitudePp:               1.0,
@@ -182,9 +190,9 @@ public sealed class HabituationProfileParams
     /// <summary>Resolve a profile enum value to its parameter set.</summary>
     public static HabituationProfileParams For(HabituationProfile profile) => profile switch
     {
+        HabituationProfile.Reactive  => Reactive,
+        HabituationProfile.Adapting  => Adapting,
         HabituationProfile.Resilient => Resilient,
-        HabituationProfile.Typical   => Typical,
-        HabituationProfile.Sensitive => Sensitive,
         _ => throw new ArgumentOutOfRangeException(nameof(profile)),
     };
 
@@ -192,12 +200,12 @@ public sealed class HabituationProfileParams
     /// engine should re-seed when a user is (re)classified into a profile —
     /// backlog A7, the "what overlay do we open with?" question.
     /// <list type="bullet">
-    ///   <item>RESILIENT / TYPICAL → the neutral calibrated baseline
+    ///   <item>RESILIENT / ADAPTING → the neutral calibrated baseline
     ///         (<see cref="ShaderParams.Default"/>): MaskDepth 0.74,
     ///         GridVisibility 0.75, FeatherWidth 0.50. These are read straight
     ///         from <see cref="ShaderParams"/> so the literals live in exactly
     ///         one place; if the baseline retunes, both profiles follow.</item>
-    ///   <item>SENSITIVE → a tightened start: lower MaskDepth (0.80 mask
+    ///   <item>REACTIVE → a tightened start: lower MaskDepth (0.80 mask
     ///         opacity… see note), reduced GridVisibility 0.60, and a softer
     ///         FeatherWidth 0.55. The intent is a calmer, less stimulating
     ///         opening overlay for high-reactivity users; long-term habituation
@@ -213,23 +221,23 @@ public sealed class HabituationProfileParams
     /// and mutate.</returns>
     public static ShaderParams ResolveDefaultsFor(HabituationProfile profile)
     {
-        // RESILIENT / TYPICAL inherit the neutral baseline verbatim. Reading from
+        // RESILIENT / ADAPTING inherit the neutral baseline verbatim. Reading from
         // ShaderParams.Default (rather than re-stating 0.74 / 0.75 / 0.50) keeps a
         // single source of truth for the baseline numerics.
-        if (profile != HabituationProfile.Sensitive)
+        if (profile != HabituationProfile.Reactive)
         {
             return ShaderParams.Default;
         }
 
-        // SENSITIVE — tightened opening overlay for high-reactivity users.
-        var sensitive = new ShaderParams
+        // REACTIVE (formerly SENSITIVE) — tightened opening overlay for high-reactivity users.
+        var reactive = new ShaderParams
         {
             MaskDepth      = 0.80,
             GridVisibility = 0.60,
             FeatherWidth   = 0.55,
         };
-        sensitive.Clamp(); // defensive: keep in [0,1] even if literals later drift
-        return sensitive;
+        reactive.Clamp(); // defensive: keep in [0,1] even if literals later drift
+        return reactive;
     }
 
     /// <summary>Level-aware post-spike pause selector (native 12-level scale,

@@ -96,7 +96,7 @@ prepends to every user-message turn:
 [habituation_state]
 tier: <1-10>
 level: <F1>
-profile: <RESILIENT|TYPICAL|SENSITIVE>
+profile: <REACTIVE|ADAPTING|RESILIENT>
 state: <RUNNING|COOLDOWN|PAUSED_AWAITING_USER_CONFIRM>
 [awaiting_user_confirm: true]               (omitted if false)
 [power_save_active: true]                   (omitted if false)

@@ -277,11 +277,11 @@ public class HabituationProfileStoreTests : IDisposable
         var store = new FileHabituationProfileStore(_path);
         var engine = new MockInferenceEngine(profileStore: store);
 
-        engine.SetHabituationProfile(HabituationProfile.Sensitive, "calibration_demo");
+        engine.SetHabituationProfile(HabituationProfile.Reactive, "calibration_demo");
 
         var loaded = store.Load();
         Assert.NotNull(loaded);
-        Assert.Equal("SENSITIVE", loaded!.Profile);
+        Assert.Equal("REACTIVE", loaded!.Profile);   // Stage 4a: Sensitive→Reactive; persisted string follows the rename
         Assert.Equal("calibration_demo", loaded.ProfileSource);
     }
 

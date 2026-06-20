@@ -148,7 +148,7 @@ public class MockInferenceEngineWaveB1aTests : IDisposable
         engine.ApplyAutoProfilingStartDefaults();
 
         // Seed still applied (the flag no longer gates it).
-        Assert.Equal(HabituationProfile.Typical, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Adapting, engine.HabituationProfile);
         Assert.Equal(SenseDefaults.AutoProfilingStartLevel, engine.CurrentLevel);
         Assert.Equal(5, engine.CurrentLevel);
     }
@@ -170,13 +170,13 @@ public class MockInferenceEngineWaveB1aTests : IDisposable
         });
 
         var engine = new MockInferenceEngine(profileStore: store);
-        Assert.Equal(HabituationProfile.Sensitive, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Reactive, engine.HabituationProfile);
 
         Assert.False(engine.AutoProfilingEnabled); // flag OFF
         engine.ApplyAutoProfilingStartDefaults();
 
         // Unchanged — the existing SENSITIVE profile survives.
-        Assert.Equal(HabituationProfile.Sensitive, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Reactive, engine.HabituationProfile);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -210,12 +210,12 @@ public class MockInferenceEngineWaveB1aTests : IDisposable
         var engine = new MockInferenceEngine(profileStore: store) { BackgroundPersistEnabled = true };
 
         // A profile change is a guaranteed persist trigger.
-        engine.SetHabituationProfile(HabituationProfile.Sensitive, "calibration_demo");
+        engine.SetHabituationProfile(HabituationProfile.Reactive, "calibration_demo");
         engine.FlushPendingPersists();
 
         var loaded = store.Load();
         Assert.NotNull(loaded);
-        Assert.Equal("SENSITIVE", loaded!.Profile);
+        Assert.Equal("REACTIVE", loaded!.Profile);   // Stage 4a: persisted string follows the rename
         Assert.Equal("calibration_demo", loaded.ProfileSource);
     }
 

@@ -399,14 +399,14 @@ public class HabituationTests
         Assert.Single(store.Load()!.LongitudinalObservationsV2[month]);   // precondition (UM2 bucket)
 
         var engine = new MockInferenceEngine(profileStore: store);
-        engine.SetHabituationProfile(HabituationProfile.Sensitive, "calibration_demo"); // triggers a profile-snapshot Save
+        engine.SetHabituationProfile(HabituationProfile.Reactive, "calibration_demo"); // triggers a profile-snapshot Save
 
         // EM2 + UM2: BuildProfileSnapshot carries the observation buckets forward,
         // so the observation survives the engine's persist.
         var after = store.Load()!;
         Assert.Single(after.LongitudinalObservationsV2[month]);
         Assert.Contains("Mondays", after.LongitudinalObservationsV2[month][0].Text);
-        Assert.Equal("SENSITIVE", after.Profile);                // the engine's change also landed
+        Assert.Equal("REACTIVE", after.Profile);                 // Stage 4a: the engine's change also landed (Reactive)
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public class HabituationTests
         var engine = new MockInferenceEngine(profileStore: store); // ctor Load succeeds -> existed-at-boot
         store.FailLoads = true;                                     // now every Load returns null
 
-        engine.SetHabituationProfile(HabituationProfile.Typical, "force"); // triggers a persist attempt
+        engine.SetHabituationProfile(HabituationProfile.Adapting, "force"); // triggers a persist attempt
 
         Assert.Equal(0, store.SaveCount);                          // persist skipped
         Assert.Equal(MedicalAdvisory.Vestibular, store.Stored!.MedicalAdvisoryShown); // advisory survived

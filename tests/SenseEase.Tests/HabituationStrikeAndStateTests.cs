@@ -104,12 +104,12 @@ public class HabituationStrikeAndStateTests
     [InlineData(HabituationProfile.Resilient, 10)]
     [InlineData(HabituationProfile.Resilient, 11)]
     [InlineData(HabituationProfile.Resilient, 12)]
-    [InlineData(HabituationProfile.Typical, 10)]
-    [InlineData(HabituationProfile.Typical, 11)]
-    [InlineData(HabituationProfile.Typical, 12)]
-    [InlineData(HabituationProfile.Sensitive, 10)]
-    [InlineData(HabituationProfile.Sensitive, 11)]
-    [InlineData(HabituationProfile.Sensitive, 12)]
+    [InlineData(HabituationProfile.Adapting, 10)]
+    [InlineData(HabituationProfile.Adapting, 11)]
+    [InlineData(HabituationProfile.Adapting, 12)]
+    [InlineData(HabituationProfile.Reactive, 10)]
+    [InlineData(HabituationProfile.Reactive, 11)]
+    [InlineData(HabituationProfile.Reactive, 12)]
     public void HighTierSpike_EntersPausedAwaitingUserConfirmAndStays_AcrossProfiles(
         HabituationProfile profile, int tier)
     {
@@ -143,8 +143,8 @@ public class HabituationStrikeAndStateTests
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
-    [InlineData(HabituationProfile.Typical)]
-    [InlineData(HabituationProfile.Sensitive)]
+    [InlineData(HabituationProfile.Adapting)]
+    [InlineData(HabituationProfile.Reactive)]
     public void Tier9Spike_NeverEntersConfirmGate_AcrossProfiles(HabituationProfile profile)
     {
         var engine = new HabituationEngine();
@@ -233,7 +233,7 @@ public class HabituationStrikeAndStateTests
         Assert.True(engine.IsAwaitingUserConfirm);
 
         // User (via chatbot) switches profile mid-pause.
-        engine.SetProfile(HabituationProfile.Sensitive, "test_param");
+        engine.SetProfile(HabituationProfile.Reactive, "test_param");
 
         // Pause state MUST survive — current safety requirement is orthogonal
         // to which profile they'll resume into.
@@ -241,7 +241,7 @@ public class HabituationStrikeAndStateTests
         Assert.True(engine.IsPaused);
         Assert.Equal(EngineState.PausedAwaitingUserConfirm, engine.CurrentEngineState);
         // Profile change DID take effect for the profile fields.
-        Assert.Equal(HabituationProfile.Sensitive, engine.CurrentProfile);
+        Assert.Equal(HabituationProfile.Reactive, engine.CurrentProfile);
         Assert.Equal("test_param", engine.ProfileSource);
     }
 
@@ -281,7 +281,7 @@ public class HabituationStrikeAndStateTests
         Assert.Equal(1.0, engine.SevereStrikeCount);
 
         int offsetBefore = engine.HabituationOffset;
-        engine.SetProfile(HabituationProfile.Typical, "test_param");
+        engine.SetProfile(HabituationProfile.Adapting, "test_param");
 
         Assert.Equal(0.0, engine.SevereStrikeCount);                // strikes RESET
         Assert.Equal(offsetBefore, engine.HabituationOffset);       // offset PRESERVED
@@ -297,7 +297,7 @@ public class HabituationStrikeAndStateTests
         Assert.Equal(30, engine.HabituationOffset);
 
         // SENSITIVE cap = 15. Offset must be clamped down.
-        engine.SetProfile(HabituationProfile.Sensitive, "test_param");
+        engine.SetProfile(HabituationProfile.Reactive, "test_param");
 
         Assert.Equal(15, engine.HabituationOffset);
     }
@@ -372,11 +372,11 @@ public class HabituationStrikeAndStateTests
             lastSource = s;
         };
 
-        engine.SetProfile(HabituationProfile.Typical, "calibration_demo");
-        engine.SetProfile(HabituationProfile.Typical, "calibration_demo"); // no-op, same profile + source
+        engine.SetProfile(HabituationProfile.Adapting, "calibration_demo");
+        engine.SetProfile(HabituationProfile.Adapting, "calibration_demo"); // no-op, same profile + source
 
         Assert.Equal(1, callCount);
-        Assert.Equal(HabituationProfile.Typical, lastProfile);
+        Assert.Equal(HabituationProfile.Adapting, lastProfile);
         Assert.Equal("calibration_demo", lastSource);
     }
 }

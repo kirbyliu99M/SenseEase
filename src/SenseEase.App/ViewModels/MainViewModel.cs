@@ -589,7 +589,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void OnUserProfileSelected(string profileName)
     {
         string canon = (profileName ?? string.Empty).Trim().ToUpperInvariant();
-        if (!Enum.TryParse<HabituationProfile>(canon, ignoreCase: true, out var profile))
+        // B6 Stage 4a: alias-parse so legacy strings (SENSITIVE/TYPICAL) from older callers/tests
+        // still resolve to the renamed members.
+        if (!HabituationProfileAlias.TryParse(canon, out var profile))
             return; // unknown profile string — ignore the click
 
         if (_engine is MockInferenceEngine mock)
@@ -2422,7 +2424,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // against a concurrent engine mutate (this runs off the UI thread).
             var snap = mock.SnapshotForAdaptation();
             Cohort cohort = snap.Vestibular ? Cohort.Vestibular
-                          : (snap.Profile == HabituationProfile.Sensitive ? Cohort.Sensitive : Cohort.Typical);
+                          : (snap.Profile == HabituationProfile.Reactive ? Cohort.Sensitive : Cohort.Typical);
             double baseTrigger = snap.EffectiveTrigger - snap.AutoDeltaPp;
 
             var state = AdaptationEvidence.BuildMeasuredState(

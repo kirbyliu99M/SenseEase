@@ -102,16 +102,16 @@ public static class HabituationProposalLexicon
     /// <summary>M3 7e+: canonical descriptions for each profile, surfaced as
     /// the option-card subtitle in the chatbot's profile picker. Mirrors the
     /// docstring blurbs on <see cref="HabituationProfileParams.Resilient"/>
-    /// / .Typical / .Sensitive — kept here (not in Core) so the wording can
+    /// / .Adapting / .Reactive — kept here (not in Core) so the wording can
     /// evolve with UX needs without rebuilding engine logic.</summary>
     public static IReadOnlyList<(HabituationProfile profile, string description)> ProfileDescriptions { get; } =
         new[]
         {
             (HabituationProfile.Resilient,
              "為逐步適應族群設計。視覺保護觸發較緩慢、回復較快。適合對視覺刺激較不敏感的使用者。"),
-            (HabituationProfile.Typical,
+            (HabituationProfile.Adapting,
              "一般使用者預設。反應速度與保護強度間取得平衡，適合多數人的日常使用。"),
-            (HabituationProfile.Sensitive,
+            (HabituationProfile.Reactive,
              "為敏感族群設計。視覺保護更早觸發、保持時間更長。適合容易頭暈、疲勞的使用者。"),
         };
 

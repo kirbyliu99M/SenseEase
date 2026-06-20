@@ -591,7 +591,7 @@ public class AdaptiveFitWiringTests
             {
                 AdaptiveFitSelectorEnabled = true,
             };
-            sensitive.SetHabituationProfile(SenseEase.Core.Inference.HabituationProfile.Sensitive, "test");
+            sensitive.SetHabituationProfile(SenseEase.Core.Inference.HabituationProfile.Reactive, "test");
 
             var typical = new MockInferenceEngine(null, null, null, typicalLog)
             {

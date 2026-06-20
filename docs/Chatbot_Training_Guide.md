@@ -127,7 +127,7 @@ AnalyzeRequest + PROFILE_OVERRIDE（envelope 後另起一行附 override 區塊�
 - `expires_at_iso` = 今天 + 1 天的 ISO 8601 UTC（host 對超過 7 天者上限封頂）。
 - `target_field` 必須是 snake_case 引擎欄位：
   - `adjust_sensitivity` → `personal_pressure_scale`，範圍 **[0.7, 1.5]**（高=更敏感，低=更放鬆）。
-  - `switch_profile` → `profile`，值 ∈ `{RESILIENT, TYPICAL, SENSITIVE}`。
+  - `switch_profile` → `profile`，值 ∈ `{REACTIVE, ADAPTING, RESILIENT}`（舊字串 SENSITIVE/TYPICAL 仍可相容解析）。
   - `adjust_strike_limit` → `severe_strike_limit`，範圍 **[1, 5]**。
 - 若 `[habituation_state]` 顯示 `advisory=vestibular`，**不可**提出放鬆提案（host 會硬性拒絕並向使用者顯示安全訊息）。
 

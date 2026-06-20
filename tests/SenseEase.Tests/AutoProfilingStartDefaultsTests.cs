@@ -68,7 +68,7 @@ public class AutoProfilingStartDefaultsTests : IDisposable
         Assert.False(engine.AutoProfilingEnabled);
         engine.ApplyAutoProfilingStartDefaults();
 
-        Assert.Equal(HabituationProfile.Typical, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Adapting, engine.HabituationProfile);
         Assert.Equal(SenseDefaults.AutoProfilingStartLevel, engine.CurrentLevel);
         Assert.Equal(5, engine.CurrentLevel);
     }
@@ -99,7 +99,7 @@ public class AutoProfilingStartDefaultsTests : IDisposable
         engine.AutoProfilingEnabled = true;
         engine.ApplyAutoProfilingStartDefaults();
 
-        Assert.Equal(HabituationProfile.Typical, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Adapting, engine.HabituationProfile);
         Assert.Equal(SenseDefaults.AutoProfilingStartLevel, engine.CurrentLevel);
         Assert.Equal(5, engine.CurrentLevel); // belt-and-suspenders: L5 median seed
     }
@@ -131,7 +131,7 @@ public class AutoProfilingStartDefaultsTests : IDisposable
         var engine = new MockInferenceEngine(profileStore: store);
 
         // Preconditions: the engine restored the existing user's state.
-        Assert.Equal(HabituationProfile.Sensitive, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Reactive, engine.HabituationProfile);
         Assert.True(engine.LoadedCalibrationCount > 0);
 
         // Flag ON, but the fresh-user guard must protect the existing profile.
@@ -139,7 +139,7 @@ public class AutoProfilingStartDefaultsTests : IDisposable
         engine.ApplyAutoProfilingStartDefaults();
 
         // UNCHANGED — still the persisted SENSITIVE profile, NOT TYPICAL.
-        Assert.Equal(HabituationProfile.Sensitive, engine.HabituationProfile);
-        Assert.NotEqual(HabituationProfile.Typical, engine.HabituationProfile);
+        Assert.Equal(HabituationProfile.Reactive, engine.HabituationProfile);
+        Assert.NotEqual(HabituationProfile.Adapting, engine.HabituationProfile);
     }
 }

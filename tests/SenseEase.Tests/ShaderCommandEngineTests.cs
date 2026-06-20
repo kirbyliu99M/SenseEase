@@ -128,14 +128,14 @@ public class ShaderCommandEngineTests
     public void ResetShaderToProfileDefault_UsesCurrentProfileDefaults()
     {
         var engine = new MockInferenceEngine();
-        engine.SetHabituationProfile(HabituationProfile.Sensitive, "test");
+        engine.SetHabituationProfile(HabituationProfile.Reactive, "test");
         engine.SetShaderParam(ShaderParam.MaskDepth, 0.30); // user tweak
         Assert.Equal(0.30, engine.Current.Shader.MaskDepth, 6);
 
         engine.ResetShaderToProfileDefault();
 
         // SENSITIVE's tightened default MaskDepth is 0.80 (A7 / ResolveDefaultsFor).
-        var sensitiveDefault = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Sensitive);
+        var sensitiveDefault = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Reactive);
         Assert.Equal(sensitiveDefault.MaskDepth, engine.Current.Shader.MaskDepth, 6);
     }
 

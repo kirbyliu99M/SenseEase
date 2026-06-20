@@ -339,6 +339,35 @@ public class HabituationOverrideProcessorTests
         Assert.False(HabituationOverrideProcessor.IsRelaxationProposal(proposal, snapshot));
     }
 
+    // B6 Stage 4a: pin the restrictiveness rank with the NEW names + the middle tier, and
+    // explicitly guard the INVERSION trap — Order() ranks restrictiveness (the INVERSE of the
+    // enum's int order), so a naive (int)p would wrongly call Reactive less-restrictive than Resilient.
+
+    [Fact]
+    public void IsRelaxationProposal_ResilientOverAdapting_IsRelaxation_True()
+    {
+        var proposal = MakeProposal(OverrideIntent.SwitchProfile, "RESILIENT");
+        var snapshot = MakeSnapshot(profile: "ADAPTING");
+        Assert.True(HabituationOverrideProcessor.IsRelaxationProposal(proposal, snapshot));
+    }
+
+    [Fact]
+    public void IsRelaxationProposal_AdaptingOverReactive_IsRelaxation_True()
+    {
+        var proposal = MakeProposal(OverrideIntent.SwitchProfile, "ADAPTING");
+        var snapshot = MakeSnapshot(profile: "REACTIVE");
+        Assert.True(HabituationOverrideProcessor.IsRelaxationProposal(proposal, snapshot));
+    }
+
+    [Fact]
+    public void IsRelaxationProposal_ReactiveOverResilient_NotRelaxation_False()
+    {
+        // The inversion guard: Reactive (most restrictive) over Resilient (least) is NOT a relaxation.
+        var proposal = MakeProposal(OverrideIntent.SwitchProfile, "REACTIVE");
+        var snapshot = MakeSnapshot(profile: "RESILIENT");
+        Assert.False(HabituationOverrideProcessor.IsRelaxationProposal(proposal, snapshot));
+    }
+
     [Fact]
     public void IsRelaxationProposal_HigherStrikeLimit_True()
     {

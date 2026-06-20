@@ -16,7 +16,7 @@ public class PerProfileShaderDefaultsTests
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
-    [InlineData(HabituationProfile.Typical)]
+    [InlineData(HabituationProfile.Adapting)]
     public void ResolveDefaultsFor_ResilientAndTypical_MatchShaderDefault(HabituationProfile profile)
     {
         var resolved = HabituationProfileParams.ResolveDefaultsFor(profile);
@@ -31,7 +31,7 @@ public class PerProfileShaderDefaultsTests
     public void ResolveDefaultsFor_ResilientEqualsTypical()
     {
         var resilient = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Resilient);
-        var typical   = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Typical);
+        var typical   = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Adapting);
 
         Assert.Equal(resilient.MaskDepth,      typical.MaskDepth);
         Assert.Equal(resilient.GridVisibility, typical.GridVisibility);
@@ -54,7 +54,7 @@ public class PerProfileShaderDefaultsTests
     [Fact]
     public void ResolveDefaultsFor_Sensitive_DiffersFromResilientOnMaskDepth()
     {
-        var sensitive = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Sensitive);
+        var sensitive = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Reactive);
         var resilient = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Resilient);
 
         Assert.NotEqual(resilient.MaskDepth, sensitive.MaskDepth);
@@ -63,7 +63,7 @@ public class PerProfileShaderDefaultsTests
     [Fact]
     public void ResolveDefaultsFor_Sensitive_ReturnsTightenedSpecValues()
     {
-        var sensitive = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Sensitive);
+        var sensitive = HabituationProfileParams.ResolveDefaultsFor(HabituationProfile.Reactive);
         Assert.Equal(0.80, sensitive.MaskDepth);
         Assert.Equal(0.60, sensitive.GridVisibility);
         Assert.Equal(0.55, sensitive.FeatherWidth);
@@ -73,8 +73,8 @@ public class PerProfileShaderDefaultsTests
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
-    [InlineData(HabituationProfile.Typical)]
-    [InlineData(HabituationProfile.Sensitive)]
+    [InlineData(HabituationProfile.Adapting)]
+    [InlineData(HabituationProfile.Reactive)]
     public void ResolveDefaultsFor_AlwaysInRange(HabituationProfile profile)
     {
         var resolved = HabituationProfileParams.ResolveDefaultsFor(profile);
@@ -85,8 +85,8 @@ public class PerProfileShaderDefaultsTests
 
     [Theory]
     [InlineData(HabituationProfile.Resilient)]
-    [InlineData(HabituationProfile.Typical)]
-    [InlineData(HabituationProfile.Sensitive)]
+    [InlineData(HabituationProfile.Adapting)]
+    [InlineData(HabituationProfile.Reactive)]
     public void ResolveDefaultsFor_ReturnsFreshInstance_CallerOwnsIt(HabituationProfile profile)
     {
         // Pure resolver must hand back a private, mutable instance — never a

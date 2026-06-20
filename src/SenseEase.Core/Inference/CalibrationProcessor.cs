@@ -105,25 +105,25 @@ public static class CalibrationProcessor
     }
 
     /// <summary>Spec §5 Step 1 base mapping.
-    /// Q3 ∈ {4,5} → SENSITIVE. Q3=3 + Q4=worse → SENSITIVE.
-    /// Q3 ∈ {2,3} → TYPICAL. Q3=1 + Q4=worse → TYPICAL.
+    /// Q3 ∈ {4,5} → REACTIVE. Q3=3 + Q4=worse → REACTIVE.
+    /// Q3 ∈ {2,3} → ADAPTING. Q3=1 + Q4=worse → ADAPTING.
     /// Else (Q3=1 + Q4 ≠ worse) → RESILIENT.</summary>
     private static HabituationProfile DeriveBaseProfile(int intensity, BaselineComparison? q4)
     {
-        if (intensity >= 4) return HabituationProfile.Sensitive;
-        if (intensity == 3 && q4 == BaselineComparison.Worse) return HabituationProfile.Sensitive;
-        if (intensity == 2 || intensity == 3) return HabituationProfile.Typical;
+        if (intensity >= 4) return HabituationProfile.Reactive;
+        if (intensity == 3 && q4 == BaselineComparison.Worse) return HabituationProfile.Reactive;
+        if (intensity == 2 || intensity == 3) return HabituationProfile.Adapting;
         // intensity == 1
-        if (q4 == BaselineComparison.Worse) return HabituationProfile.Typical;
+        if (q4 == BaselineComparison.Worse) return HabituationProfile.Adapting;
         return HabituationProfile.Resilient;
     }
 
-    /// <summary>RESILIENT → TYPICAL → SENSITIVE → SENSITIVE (stays at top).</summary>
+    /// <summary>RESILIENT → ADAPTING → REACTIVE → REACTIVE (stays at the most-cautious top).</summary>
     private static HabituationProfile EscalateOneLevel(HabituationProfile p) => p switch
     {
-        HabituationProfile.Resilient => HabituationProfile.Typical,
-        HabituationProfile.Typical   => HabituationProfile.Sensitive,
-        HabituationProfile.Sensitive => HabituationProfile.Sensitive,
+        HabituationProfile.Resilient => HabituationProfile.Adapting,
+        HabituationProfile.Adapting  => HabituationProfile.Reactive,
+        HabituationProfile.Reactive  => HabituationProfile.Reactive,
         _                            => p,
     };
 
