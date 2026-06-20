@@ -88,6 +88,9 @@ public partial class SettingsWindow : Window
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    private const uint GA_ROOTOWNER = 3; // root of the owner chain — a Win32 dialog we own resolves to us
 
     private readonly DispatcherTimer _dismissPoll;
     private bool _dismissArmed;   // true once the window has actually held foreground — guards the open transition
@@ -114,6 +117,10 @@ public partial class SettingsWindow : Window
             {
                 if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) { _dismissArmed = true; return; }
             }
+            // H4: a Win32 modal we OWN (the export SaveFileDialog) is NOT a WPF OwnedWindow, so the loop
+            // above misses it — without this the picker pulled Settings out from under itself. Walk the
+            // Win32 owner chain: a dialog whose root owner is us keeps Settings open.
+            if (GetAncestor(fg, GA_ROOTOWNER) == self) { _dismissArmed = true; return; }
             if (!_dismissArmed) return;                                     // not yet focused since opening — don't pre-close
             // R3 #7 HOTFIX (2026-06-20): also survive the open-transition + LAUNCHER-CLOSE focus churn — the
             // popup bar that opened us auto-closes a beat later, briefly shifting the foreground, and the

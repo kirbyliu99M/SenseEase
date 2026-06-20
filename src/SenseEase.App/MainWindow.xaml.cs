@@ -1447,7 +1447,11 @@ public partial class MainWindow : Window
     {
         if (_eventLogWindow is null)
         {
-            _eventLogWindow = new EventLogWindow(_viewModel) { Owner = this };
+            // M1: own the log to the Settings window when IT launched us (the gear's "Event log" button)
+            // so the Settings light-dismiss poll keeps Settings open while the log is foreground; otherwise
+            // own it to the console (tray/console launch). Owned-to-Settings closes with Settings — accepted.
+            Window owner = (_settingsWindow is { IsLoaded: true } sw) ? sw : this;
+            _eventLogWindow = new EventLogWindow(_viewModel) { Owner = owner };
             _eventLogWindow.Closed += (_, _) => _eventLogWindow = null;
         }
         _eventLogWindow.Show();
