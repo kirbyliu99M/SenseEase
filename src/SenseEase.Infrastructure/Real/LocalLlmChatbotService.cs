@@ -143,7 +143,18 @@ public sealed class LocalLlmChatbotService : IChatbotService
         MaxResponseContentBufferSize = 512 * 1024,
     };
     private const int ServerPort = 8181;
-    private string ServerUrl => $"http://127.0.0.1:{ServerPort}";
+    // External-backend mode (ultrabook plan #5): when _externalBaseUrl is set — via the constructor or the
+    // SENSEEASE_LLM_BASEURL env var — SenseEase does NOT launch the bundled Vulkan server. It connects to an
+    // already-running OpenAI-compatible server (e.g. FastFlowLM on the AMD NPU at http://127.0.0.1:<port>)
+    // and sends _externalModelName as the request "model" (FLM serves several). No bearer (open on localhost);
+    // the idle-unload never touches it (we don't own its lifecycle).
+    private readonly string? _externalBaseUrl;
+    private readonly string? _externalModelName;
+    private bool IsExternal => !string.IsNullOrWhiteSpace(_externalBaseUrl);
+    private string ServerUrl => IsExternal ? _externalBaseUrl! : $"http://127.0.0.1:{ServerPort}";
+    // The model id sent in each chat request. External backends require it; the bundled llama-server serves
+    // one model and ignores it, so a stable label is fine there.
+    private string RequestModelId => _externalModelName ?? "qwen3-4b";
 
     // H9/H10: per-process random Bearer key minted at LoadAsync. llama-server
     // receives it via the LLAMA_ARG_API_KEY child environment variable (SEC-06 —
@@ -464,7 +475,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// <param name="nGpuLayers">Per-model GPU-offload layer count (null → 99 = full offload).</param>
     public LocalLlmChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null,
         string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null,
-        Func<DateTime>? utcNow = null, TimeSpan? idleTimeout = null)
+        Func<DateTime>? utcNow = null, TimeSpan? idleTimeout = null,
+        string? externalBaseUrl = null, string? externalModelName = null)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -475,6 +487,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         // Idle-unload window (ultrabook plan #1): default 10 min; ≤ 0 keeps the model resident.
         _idleTimeout = idleTimeout ?? TimeSpan.FromMinutes(10);
+        // External backend (ultrabook #5): an explicit arg wins, else the env override (dev/validation seam).
+        _externalBaseUrl = string.IsNullOrWhiteSpace(externalBaseUrl)
+            ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_BASEURL") : externalBaseUrl;
+        _externalModelName = string.IsNullOrWhiteSpace(externalModelName)
+            ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_MODEL") : externalModelName;
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -505,10 +522,42 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// </summary>
     public async Task LoadAsync()
     {
-        if (!IsModelAvailable || IsModelLoaded) return;
+        if (IsModelLoaded) return;
+        // External backend (ultrabook #5): an already-running OpenAI server (e.g. FastFlowLM on the NPU).
+        // We connect rather than launch; the local GGUF need not even be present.
+        if (IsExternal) { await ConnectExternalAsync().ConfigureAwait(false); return; }
+        if (!IsModelAvailable) return;
         // Qwen is the sole model (Mistral fallback removed 2026-06-19). On failure LaunchAsync sets
         // LoadError + throws → the caller drops to the deterministic lexicon path. No in-process swap.
         await LaunchAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>External-backend connect (ultrabook #5): confirm the already-running OpenAI server answers
+    /// (<c>GET /v1/models</c>), then mark loaded. We do NOT launch or supervise it — no bearer, no
+    /// idle-unload, no child process. Never throws; a failure leaves <see cref="IsModelLoaded"/> false so the
+    /// caller drops to the deterministic lexicon, exactly as a local launch failure would.</summary>
+    private async Task ConnectExternalAsync()
+    {
+        try
+        {
+            using var resp = await _http.GetAsync($"{ServerUrl}/v1/models").ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                IsModelLoaded = true;
+                LoadError = null;
+                Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
+            }
+            else
+            {
+                IsModelLoaded = false;
+                LoadError = $"External LLM at {ServerUrl} returned HTTP {(int)resp.StatusCode}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            IsModelLoaded = false;
+            LoadError = $"External LLM unreachable at {ServerUrl}: {ex.Message}";
+        }
     }
 
     private async Task LaunchAsync()
@@ -961,6 +1010,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
 
             var requestBody = new
             {
+                model       = RequestModelId,   // external backend (FastFlowLM) requires it; local ignores it
                 messages = new[]
                 {
                     new { role = "system", content = SystemPrompt },
@@ -979,7 +1029,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 // is always in-enum (llama.cpp server extension on /v1/chat/completions). If a bundled
                 // server build ignores `grammar` here, the tolerant parser + lexicon fallback still
                 // catch it — and `response_format` json_schema is the documented alternative.
-                grammar     = EnvelopeGrammar,
+                // External backends (FastFlowLM) are not llama.cpp and don't do GBNF — omit it for them so a
+                // strict server can't reject the request; the tolerant parser handles the looser output.
+                grammar     = IsExternal ? null : EnvelopeGrammar,
             };
 
             // NE3: never let a network error or a malformed-200 body throw past
@@ -1034,6 +1086,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         {
             var requestBody = new
             {
+                model       = RequestModelId,   // external backend (FastFlowLM) requires it; local ignores it
                 messages = new[]
                 {
                     new { role = "system", content = systemPrompt },
@@ -1391,6 +1444,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// concurrent load (it simply retries on the next poll). Internal so tests can drive it directly.</summary>
     internal void MaybeUnloadIfIdle()
     {
+        if (IsExternal) return;                     // we don't own an external server's lifecycle — never kill it
         if (!IsModelLoaded || !IdleWindowElapsed()) return;
         if (!_lock.Wait(0)) return;                 // a request/load holds the lock → skip, retry next poll
         try

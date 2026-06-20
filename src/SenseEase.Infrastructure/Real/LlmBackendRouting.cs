@@ -41,21 +41,26 @@ public sealed record HardwareProfile(string CpuVendor, bool HasAmdNpu, bool HasI
 /// hardware before shipping. Never throws — any failure resolves to <see cref="AcceleratorKind.VulkanFallback"/>.</summary>
 public static class HardwareProbe
 {
-    // Case-insensitive substrings that identify each NPU in the Windows PnP device-name list.
-    // ⚠️ CONFIRM against the dev box's Device Manager string before shipping (HX 370 NPU name TBD).
-    internal static readonly string[] AmdNpuMarkers   = { "amd ipu", "ipu device", "ryzen ai", "npu compute" };
-    internal static readonly string[] IntelNpuMarkers = { "ai boost", "intel(r) ai boost", "intel ai boost" };
+    // The NPU appears under the Microsoft "ComputeAccelerator" device class with a GENERIC name — on the
+    // HX 370 it's "NPU Compute Accelerator Device" (no vendor in the string), and an Intel NPU reports the
+    // same generic name. So NPU PRESENCE is matched by these markers, and the CPU VENDOR decides whose NPU
+    // it is (the NPU is on the CPU die, so NPU-vendor == CPU-vendor). Confirmed on the HX 370, 2026-06-21.
+    internal static readonly string[] NpuMarkers =
+        { "npu compute accelerator", "npu compute", "ipu device", "amd ipu", "ai boost", "neural processor" };
 
     /// <summary>Pure classification (no I/O): given the CPU-vendor string and the list of PnP device names,
-    /// decide the <see cref="HardwareProfile"/>. NPU presence is a marker substring match (case-insensitive).</summary>
+    /// decide the <see cref="HardwareProfile"/>. An NPU device (generic marker match) is attributed to the
+    /// CPU vendor; an unknown vendor or no NPU lands on the Vulkan fallback.</summary>
     internal static HardwareProfile Classify(string? cpuVendor, IEnumerable<string>? deviceNames)
     {
-        var names = (deviceNames ?? Enumerable.Empty<string>())
+        string vendor = (cpuVendor ?? string.Empty).Trim();
+        string v = vendor.ToLowerInvariant();
+        bool isAmd   = v.Contains("amd") || v.Contains("ryzen");    // "AuthenticAMD" / "AMD Ryzen AI 9 HX 370…"
+        bool isIntel = v.Contains("intel");                         // "GenuineIntel" / "Intel(R) Core(TM) Ultra…"
+        bool npuPresent = (deviceNames ?? Enumerable.Empty<string>())
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Select(n => n!.ToLowerInvariant())
-            .ToArray();
-        bool amd   = names.Any(n => AmdNpuMarkers.Any(n.Contains));
-        bool intel = names.Any(n => IntelNpuMarkers.Any(n.Contains));
-        return new HardwareProfile((cpuVendor ?? string.Empty).Trim(), amd, intel);
+            .Any(n => NpuMarkers.Any(n.Contains));
+        return new HardwareProfile(vendor, HasAmdNpu: isAmd && npuPresent, HasIntelNpu: isIntel && npuPresent);
     }
 }

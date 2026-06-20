@@ -50,19 +50,42 @@ public class HardwareProbeTests
             HardwareProbe.Classify("GenuineIntel", System.Array.Empty<string>()).Preferred);
 
     [Fact]
-    public void BothNpusPresent_AmdWins()
+    public void RealHx370_GenericNpuName_AttributedToAmdByCpuVendor()
     {
-        // Defensive: if a device list somehow reports both, AMD-NPU takes precedence (single, deterministic pick).
-        var p = HardwareProbe.Classify("AuthenticAMD", new[] { "AMD IPU Device", "Intel(R) AI Boost" });
+        // The exact dev-box case (2026-06-21): the NPU reports the GENERIC "NPU Compute Accelerator Device"
+        // (no vendor in the name) — it must be attributed to AMD via the CPU vendor string.
+        var p = HardwareProbe.Classify("AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+            new[] { "AMD Radeon 890M", "NPU Compute Accelerator Device" });
         Assert.True(p.HasAmdNpu);
-        Assert.True(p.HasIntelNpu);
+        Assert.False(p.HasIntelNpu);
         Assert.Equal(AcceleratorKind.AmdNpu, p.Preferred);
+    }
+
+    [Fact]
+    public void SameGenericNpuName_OnIntelCpu_AttributedToIntel()
+    {
+        // The same generic NPU name on an Intel chip must resolve to the Intel-NPU path, NOT AMD.
+        var p = HardwareProbe.Classify("Intel(R) Core(TM) Ultra 7 155H",
+            new[] { "NPU Compute Accelerator Device" });
+        Assert.True(p.HasIntelNpu);
+        Assert.False(p.HasAmdNpu);
+        Assert.Equal(AcceleratorKind.IntelNpu, p.Preferred);
+    }
+
+    [Fact]
+    public void NpuPresent_UnknownCpuVendor_FallsBackToVulkan()
+    {
+        // An NPU we can't attribute to a known vendor → don't guess a backend; use the universal baseline.
+        var p = HardwareProbe.Classify("SomeOtherVendor", new[] { "NPU Compute Accelerator Device" });
+        Assert.False(p.HasAmdNpu);
+        Assert.False(p.HasIntelNpu);
+        Assert.Equal(AcceleratorKind.VulkanFallback, p.Preferred);
     }
 
     [Fact]
     public void Markers_AreCaseInsensitive()
     {
-        var p = HardwareProbe.Classify("AuthenticAMD", new[] { "amd ipu device" });
+        var p = HardwareProbe.Classify("authenticamd", new[] { "amd ipu device" });
         Assert.True(p.HasAmdNpu);
     }
 }
