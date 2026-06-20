@@ -74,6 +74,31 @@ public class FmsCheckInServiceTests
         Assert.Null(FmsCheckInService.WindowAbove(third![0]));    // no window beyond the top
     }
 
+    // ── W-F2: ‹ "back / lower numbers" — page the window DOWN (FmsCheckInService.WindowBelow) ──────────
+
+    [Theory]
+    [InlineData(14, new[] { 7, 8, 9, 10, 11, 12, 13 })]   // top 14-20 → 7-13
+    [InlineData(7, new[] { 0, 1, 2, 3, 4, 5, 6 })]        // 7-13 → 0-6
+    public void WindowBelow_ShiftsDownOneWindow(int currentLow, int[] expected)
+        => Assert.Equal(expected, FmsCheckInService.WindowBelow(currentLow));
+
+    [Fact]
+    public void WindowBelow_AtBottom_ReturnsNull()
+        => Assert.Null(FmsCheckInService.WindowBelow(0));   // already at the lowest numbers
+
+    [Theory]
+    // ‹ undoes › for the canonical windows: WindowBelow(WindowAbove(lo)) returns to the original window.
+    [InlineData(0)]
+    [InlineData(7)]
+    public void WindowBelow_UndoesWindowAbove(int lo)
+    {
+        int[]? up = FmsCheckInService.WindowAbove(lo);
+        Assert.NotNull(up);
+        int[]? backDown = FmsCheckInService.WindowBelow(up![0]);
+        Assert.NotNull(backDown);
+        Assert.Equal(lo, backDown![0]);                    // returned to the exact starting window
+    }
+
     // ── Dedicated log: roundtrip in an isolated temp dir ─────────────────────────────────
 
     private static string NewTempDir()

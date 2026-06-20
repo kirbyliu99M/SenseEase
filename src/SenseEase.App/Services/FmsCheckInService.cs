@@ -76,6 +76,19 @@ public sealed class FmsCheckInService
         return window;
     }
 
+    /// <summary>W-F2 (2026-06-21): the next window DOWN from one starting at <paramref name="currentLow"/> — the
+    /// ‹ "back to lower / more comfortable numbers" arrow. Shifts the low edge down by the window width
+    /// (non-overlapping), clamped to keep 7 values in [0,20]; returns null when already at the bottom window
+    /// (lo 0). 14-20 → 7-13 → 0-6 → null. Symmetric with <see cref="WindowAbove"/> so ‹ undoes a › step.</summary>
+    public static int[]? WindowBelow(int currentLow)
+    {
+        if (currentLow <= FmsMin) return null;                      // already at the bottom (lo 0) → no lower
+        int lo = Math.Clamp(currentLow - WindowSize, FmsMin, FmsMax - (WindowSize - 1));
+        var window = new int[WindowSize];
+        for (int i = 0; i < WindowSize; i++) window[i] = lo + i;
+        return window;
+    }
+
     /// <summary>Append one FMS response row to fms_log.jsonl. Out-of-range values are ignored.
     /// <paramref name="mode"/> + <paramref name="ofi"/> carry the EFFERENCE-COPY context (Driver/Passenger
     /// weighting + the raw on-screen motion it weighted) so each rating can be read against whether the

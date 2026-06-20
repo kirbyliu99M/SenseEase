@@ -81,11 +81,22 @@ public static class SafetyFloor
     private static readonly string[] SaleIdiomMarkers =
         { "拍賣", "拍卖", "特賣", "特卖", "促銷", "促销", "清倉", "清仓", "跳樓價", "跳楼价", "大特價", "大特价", "折扣" };
 
-    /// <summary>Detects self-harm / severe-distress phrases. Returns <c>true</c>
-    /// and the localised crisis-line response when triggered. The user's CURRENT
-    /// message language (Han vs not) selects the response — independent of any LLM
-    /// state.</summary>
+    /// <summary>Back-compat overload — selects the crisis-line language from the user's
+    /// INPUT script (Han → Chinese). Kept for callers that only consume the <c>bool</c>
+    /// (e.g. voice-log redaction) or genuinely have no UI-language toggle. Any call site that
+    /// shows the response to the user should use the <see cref="Trips(string?, bool?, out string)"/>
+    /// overload so the crisis line follows the language toggle, not the typed script (the
+    /// EN-user-gets-the-Chinese-crisis-line fix, 2026-06-21).</summary>
     public static bool Trips(string? userText, out string response)
+        => Trips(userText, null, out response);
+
+    /// <summary>Detects self-harm / severe-distress phrases. Returns <c>true</c> and the
+    /// crisis-line response when triggered. The response LANGUAGE follows
+    /// <paramref name="uiEnglish"/> when the host supplies it (<c>true</c> → English,
+    /// <c>false</c> → Traditional Chinese), independent of the script the user typed; when
+    /// <c>null</c> it falls back to the user's input script (Han → Chinese). Detection itself
+    /// is language-agnostic and unchanged — tuned to favour false positives over misses.</summary>
+    public static bool Trips(string? userText, bool? uiEnglish, out string response)
     {
         response = string.Empty;
         if (string.IsNullOrWhiteSpace(userText)) return false;
@@ -96,7 +107,10 @@ public static class SafetyFloor
         // variants to ASCII first (review #1).
         string normalized = userText.Normalize(NormalizationForm.FormKC).ToLowerInvariant()
             .Replace('’', '\'').Replace('‘', '\'').Replace('ʼ', '\'');
-        bool zh = IsHan(userText);
+        // Reply language follows the UI toggle when the host knows it (Kirby: "replies follow the
+        // language toggle"); else fall back to the input script. NOTE: with a null toggle a Han
+        // phrase still yields zh==true (the input has Han chars), so the 2-arg path is unchanged.
+        bool zh = uiEnglish is bool en ? !en : IsHan(userText);
 
         foreach (string p in PhrasesHan)
         {
@@ -105,7 +119,7 @@ public static class SafetyFloor
             // If a sale marker is present, skip THIS phrase and keep checking the
             // rest (so "我要跳樓" still trips, but "跳樓大拍賣" alone does not).
             if ((p == "跳樓" || p == "跳楼") && IsBenignSaleIdiom(normalized)) continue;
-            response = CrisisResponseZh;
+            response = zh ? CrisisResponseZh : CrisisResponseEn;
             return true;
         }
 

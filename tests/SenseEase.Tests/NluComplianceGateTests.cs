@@ -10,6 +10,7 @@ namespace SenseEase.Tests;
 /// AdaptationGateTests). Grown across Stages A→D; the convergence test (Model vs Lexicon source
 /// produce the same compliant result) lands in Stage D.
 /// </summary>
+[Collection("ChatbotUiLanguage")] // Check → Scrub/BuildFallbackResponse read the UI-language pin — serialize
 public class NluComplianceGateTests
 {
     private static NluComplianceGate.RawNluDecision Raw(
@@ -120,7 +121,7 @@ public class NluComplianceGateTests
         var r = NluComplianceGate.Check(
             Raw("Unknown", reply: "SenseEase reduces visual motion.",
                 source: NluComplianceGate.DecisionSource.Model),
-            "what is SenseEase?");
+            "what is SenseEase?", uiEnglishPin: true);
 
         Assert.Equal("Unknown", r.Intent);
         Assert.Null(r.FollowupOptions);
@@ -174,7 +175,7 @@ public class NluComplianceGateTests
     public void QuestionGuard_RecordOnlyInquiry_DropsRecordedClaim_ZeroesDeltas(string utterance)
     {
         var r = NluComplianceGate.Check(
-            Raw("ReportDiscomfort", reply: "了解，已記錄。如再有不適請告知。"), utterance);
+            Raw("ReportDiscomfort", reply: "了解，已記錄。如再有不適請告知。"), utterance, uiEnglishPin: false);
 
         Assert.Equal(0, r.FovDelta);
         Assert.Equal(0.0, r.MaskDepthDelta, 6);

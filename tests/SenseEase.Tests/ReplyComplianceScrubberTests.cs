@@ -9,6 +9,7 @@ namespace SenseEase.Tests;
 /// <see cref="ReplyComplianceScrubber"/> reply-text rules. Assertions are outcome-based (the forbidden
 /// phrase is absent / a safe phrase survives) so they don't depend on the live UI language pin.
 /// </summary>
+[Collection("ChatbotUiLanguage")] // Scrub now reads the UI-language pin (output backstop) — serialize
 public class ReplyComplianceScrubberTests
 {
     private static NluComplianceGate.RawNluDecision Raw(
@@ -126,7 +127,7 @@ public class ReplyComplianceScrubberTests
     [Fact]
     public void Scrub_StripsZhEmotiveParticlesAndWaveDash()
     {
-        string s = ReplyComplianceScrubber.Scrub("已記錄您的回饋喔～", "ReportComfort", actuated: false, "好多了");
+        string s = ReplyComplianceScrubber.Scrub("已記錄您的回饋喔～", "ReportComfort", actuated: false, "好多了", uiEnglishPin: false);
         Assert.DoesNotContain("喔", s);
         Assert.DoesNotContain("～", s);
         Assert.Contains("已記錄", s);
@@ -135,7 +136,7 @@ public class ReplyComplianceScrubberTests
     [Fact]
     public void Scrub_DropsClingyZhCompanionClause()
     {
-        string s = ReplyComplianceScrubber.Scrub("已了解。我會一直守著您。", "ReportComfort", actuated: false, "好");
+        string s = ReplyComplianceScrubber.Scrub("已了解。我會一直守著您。", "ReportComfort", actuated: false, "好", uiEnglishPin: false);
         Assert.DoesNotContain("守著", s);
         Assert.Contains("已了解", s);
     }
@@ -145,7 +146,7 @@ public class ReplyComplianceScrubberTests
     {
         string s = ReplyComplianceScrubber.Scrub(
             "The screen got busier and the overlay kicked in.", "AnalyzeRequest", actuated: false,
-            "what happened earlier?");
+            "what happened earlier?", uiEnglishPin: true);
         // (no timestamp in this reply) — a clean analyze reply with no boundary/claim survives intact
         Assert.Contains("overlay kicked in", s);
     }
@@ -154,7 +155,7 @@ public class ReplyComplianceScrubberTests
     public void Scrub_RemovesTimestamp()
     {
         string s = ReplyComplianceScrubber.Scrub(
-            "Activity rose around 21:10 and settled after.", "AnalyzeRequest", actuated: false, "why?");
+            "Activity rose around 21:10 and settled after.", "AnalyzeRequest", actuated: false, "why?", uiEnglishPin: true);
         Assert.DoesNotContain("21:10", s);
     }
 }

@@ -145,6 +145,41 @@
                 <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
             </Style>
 
+            <!-- W-F2 (2026-06-21): ‹ › window-navigation arrows for the FMS rating row (replaces the single
+                 "更嚴重 →" chip). Small square "blocks" that echo the rating squares — flat brushes only, no
+                 effects/cache (software-render safe). The pair reads as pagination: the IsEnabled=False state
+                 greys an arrow when there is no window in that direction (‹ at the start, › at the top). -->
+            <Style x:Key="FmsNavArrowBtn" TargetType="Button">
+                <Setter Property="Width" Value="22"/>
+                <Setter Property="Height" Value="22"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="ab" CornerRadius="6" BorderThickness="1"
+                                    Background="{DynamicResource Popup.ChipRest}"
+                                    BorderBrush="{DynamicResource Popup.Bdr}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ab" Property="BorderBrush" Value="{DynamicResource Popup.Ink2}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="ab" Property="Opacity" Value="0.6"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.35"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- ── Intensity vertical slider (R3 #6) — a THICK, SEAMLESS fill bar (like the user's
                  reference progress bar, vertical, our accent). Restyled from the standard 3-part Track
                  (decrease repeat / thumb / increase repeat) so dragging + snapping work natively.
@@ -239,6 +274,57 @@
                                     </Track.Thumb>
                                 </Track>
                             </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- (item 3) Quick-settings help affordance: a small "?" glyph + a dark, opaque hover
+                 bubble describing each toggle. A styled ToolTip (NOT a Popup — :565 rationale) so it
+                 renders in its own layered window, unclipped by the fixed 360×496 frame; flat brushes
+                 only, no DropShadow/effect (software-render — see R3-6 notes above). -->
+            <Style x:Key="HelpTip" TargetType="ToolTip">
+                <Setter Property="MaxWidth" Value="224"/>
+                <Setter Property="HasDropShadow" Value="False"/>
+                <Setter Property="Placement" Value="Bottom"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToolTip">
+                            <Border Background="{DynamicResource Popup.PanelBg}"
+                                    BorderBrush="{DynamicResource Popup.Bdr}" BorderThickness="1"
+                                    CornerRadius="{StaticResource Radius.sm}" Padding="10,8"
+                                    SnapsToDevicePixels="True">
+                                <TextBlock Text="{TemplateBinding Content}" TextWrapping="Wrap"
+                                           FontSize="12" Foreground="{DynamicResource Popup.Ink1}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <!-- The 18px "?" chip. Non-interactive (no command, not a tab stop) — a pure hover/AT
+                 affordance; the description is its ToolTip + the toggle's AutomationProperties.HelpText. -->
+            <Style x:Key="HelpGlyph" TargetType="Button">
+                <Setter Property="Width" Value="18"/>
+                <Setter Property="Height" Value="18"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Focusable" Value="False"/>
+                <Setter Property="IsTabStop" Value="False"/>
+                <Setter Property="ToolTipService.InitialShowDelay" Value="150"/>
+                <Setter Property="ToolTipService.ShowDuration" Value="30000"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="g" Width="18" Height="18" CornerRadius="9"
+                                    Background="{DynamicResource Popup.ChipRest}">
+                                <TextBlock Text="?" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Popup.Ink2}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="g" Property="Background" Value="{DynamicResource Popup.BtnHover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
@@ -400,8 +486,30 @@
                                          Lives directly under the proactive question — no separate card. Software-render
                                          safe (flat brushes only, no effects/cache; state via brush only). -->
                                     <StackPanel Visibility="{Binding FmsVisibility}" Margin="2,5,2,2" HorizontalAlignment="Left">
-                                        <TextBlock Text="{Binding FmsHint}" Foreground="{DynamicResource Popup.Ink2}"
-                                                   FontSize="10.5" Margin="1,0,0,4" TextWrapping="Wrap"/>
+                                        <!-- header: hint on the left, ‹ › window arrows pinned to the very top-right of the box -->
+                                        <Grid Margin="1,0,0,4">
+                                            <TextBlock Text="{Binding FmsHint}" Foreground="{DynamicResource Popup.Ink2}"
+                                                       FontSize="10.5" TextWrapping="Wrap" VerticalAlignment="Center"
+                                                       Margin="0,0,52,0"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+                                                <Button Style="{StaticResource FmsNavArrowBtn}"
+                                                        Command="{Binding FmsBackCommand}" IsEnabled="{Binding FmsCanGoBack}"
+                                                        ToolTip="{loc:T Zh='回到較舒適的數字', En='Back to lower numbers'}"
+                                                        AutomationProperties.Name="{loc:T Zh='上一組數字', En='Back to lower numbers'}">
+                                                    <Path Data="M 6,0 L 0,6 L 6,12" Stroke="{DynamicResource Popup.Ink1}"
+                                                          StrokeThickness="1.6" StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                                </Button>
+                                                <Button Style="{StaticResource FmsNavArrowBtn}" Margin="4,0,0,0"
+                                                        Command="{Binding FmsWorseCommand}" IsEnabled="{Binding FmsCanGoWorse}"
+                                                        ToolTip="{loc:T Zh='更嚴重的數字', En='Higher numbers (worse)'}"
+                                                        AutomationProperties.Name="{loc:T Zh='更嚴重數字', En='Worse — higher numbers'}">
+                                                    <Path Data="M 0,0 L 6,6 L 0,12" Stroke="{DynamicResource Popup.Ink1}"
+                                                          StrokeThickness="1.6" StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
                                         <ItemsControl ItemsSource="{Binding FmsButtons}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
@@ -441,12 +549,6 @@
                                         <!-- thin comfort-spectrum track: calm → warm, never alarming -->
                                         <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="1,5,1,0"
                                                    Fill="{Binding FmsTrackBrush}"/>
-                                        <!-- W-F: "worse than shown" escape — bumps the row up a window so an acute user reaches severe. -->
-                                        <Button Content="{loc:T Zh='更嚴重 →', En='Worse →'}"
-                                                Command="{Binding FmsWorseCommand}"
-                                                Visibility="{Binding FmsWorseVisibility}"
-                                                Style="{StaticResource GhostPanelBtn}"
-                                                HorizontalAlignment="Left" Padding="8,3" FontSize="10.5" MinHeight="22" Margin="1,5,0,0"/>
                                     </StackPanel>
                                     <!-- calm confirmation shown in place of the row after the user rates -->
                                     <TextBlock Visibility="{Binding FmsConfirmVisibility}" Text="{Binding FmsConfirmText}"
@@ -567,7 +669,7 @@
              Application.Exit + mis-places over a topmost no-activate transparent window). -->
         <!-- Distinct from the chat card: uses the BAR's glass (not the chat's PanelBg), is
              narrower, a smaller pill radius, and a compact toggle list — a different "template". -->
-        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="190" Margin="0,0,8,12"
+        <Border x:Name="SettingsFlyout" Grid.Column="0" Width="214" Margin="0,0,8,12"
                 VerticalAlignment="Bottom" HorizontalAlignment="Right" Panel.ZIndex="10"
                 Visibility="Collapsed" Opacity="0" RenderTransformOrigin="1,1"
                 Background="{DynamicResource Popup.BarBg}" BorderBrush="{DynamicResource Popup.Bdr}"
@@ -575,25 +677,61 @@
             <!-- R3-6: no DropShadowEffect (see ChatPanel note) — kills the ClearType re-raster flash. -->
             <Border.RenderTransform><ScaleTransform x:Name="SettingsScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <StackPanel>
-                <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
-                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
-                          Content="{loc:T Zh='錨點格線', En='Anchor grid'}"/>
-                <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding GradedExposureOn}"
-                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
-                          Content="{loc:T Zh='漸進適應', En='Graded exposure'}"/>
-                <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding PersistentMaskOn}"
-                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
-                          Content="{loc:T Zh='常駐遮罩', En='Persistent mask'}"/>
+                <!-- (item 3) Each toggle carries a ? help glyph whose dark hover bubble describes the
+                     control + its effect. Copy is transplanted from the app's established descriptions
+                     where they exist (Graded exposure = full-settings subtitle; Auto Protect = its prior
+                     tooltip); 格線 / 常駐遮罩 get calm bilingual copy in the same voice. The toggle also
+                     carries AutomationProperties.HelpText so screen readers announce the same text. -->
+                <StackPanel Orientation="Horizontal" Margin="0,2">
+                    <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
+                              Foreground="{DynamicResource Popup.Ink1}"
+                              Content="{loc:T Zh='格線', En='Grid'}"
+                              AutomationProperties.HelpText="{loc:T Zh='在畫面上疊加淡淡的參考格線，作為固定的視覺參考框以減輕晃動不適；關閉則隱藏。', En='Faint reference lines that give your eyes a fixed frame to ease motion discomfort. Off hides them.'}"/>
+                    <Button Style="{StaticResource HelpGlyph}" Margin="6,0,0,0" VerticalAlignment="Center"
+                            AutomationProperties.Name="{loc:T Zh='格線說明', En='Grid help'}">
+                        <Button.ToolTip><ToolTip Style="{StaticResource HelpTip}"
+                            Content="{loc:T Zh='在畫面上疊加淡淡的參考格線，作為固定的視覺參考框以減輕晃動不適；關閉則隱藏。', En='Faint reference lines that give your eyes a fixed frame to ease motion discomfort. Off hides them.'}"/></Button.ToolTip>
+                    </Button>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,2">
+                    <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding GradedExposureOn}"
+                              Foreground="{DynamicResource Popup.Ink1}"
+                              Content="{loc:T Zh='漸進適應', En='Graded exposure'}"
+                              AutomationProperties.HelpText="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"/>
+                    <Button Style="{StaticResource HelpGlyph}" Margin="6,0,0,0" VerticalAlignment="Center"
+                            AutomationProperties.Name="{loc:T Zh='漸進適應說明', En='Graded exposure help'}">
+                        <Button.ToolTip><ToolTip Style="{StaticResource HelpTip}"
+                            Content="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"/></Button.ToolTip>
+                    </Button>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,2">
+                    <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding PersistentMaskOn}"
+                              Foreground="{DynamicResource Popup.Ink1}"
+                              Content="{loc:T Zh='常駐遮罩', En='Persistent mask'}"
+                              AutomationProperties.HelpText="{loc:T Zh='讓舒適防護遮罩持續顯示，即使目前未偵測到晃動。', En='Keeps a gentle comfort overlay on at all times, even when no motion is detected.'}"/>
+                    <Button Style="{StaticResource HelpGlyph}" Margin="6,0,0,0" VerticalAlignment="Center"
+                            AutomationProperties.Name="{loc:T Zh='常駐遮罩說明', En='Persistent mask help'}">
+                        <Button.ToolTip><ToolTip Style="{StaticResource HelpTip}"
+                            Content="{loc:T Zh='讓舒適防護遮罩持續顯示，即使目前未偵測到晃動。', En='Keeps a gentle comfort overlay on at all times, even when no motion is detected.'}"/></Button.ToolTip>
+                    </Button>
+                </StackPanel>
                 <!-- 自動防護 / Auto Protect (backing flag: AlwaysAllowOverlay) — overlay-consent mode:
                      ON = auto-engage on motion (no bubble), OFF = ask each time. -->
-                <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AlwaysAllowOverlayOn}"
-                          Foreground="{DynamicResource Popup.Ink1}" Margin="0,2"
-                          Content="{loc:T Zh='自動防護', En='Auto Protect'}"
-                          ToolTip="{loc:T Zh='開啟後，偵測到晃動會自動開啟舒適防護，不再先詢問。', En='When on, the comfort overlay auto-engages on motion without asking first.'}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,2">
+                    <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AlwaysAllowOverlayOn}"
+                              Foreground="{DynamicResource Popup.Ink1}"
+                              Content="{loc:T Zh='自動防護', En='Auto Protect'}"
+                              AutomationProperties.HelpText="{loc:T Zh='開啟後，偵測到晃動會自動開啟舒適防護，不再先詢問。', En='When on, the comfort overlay auto-engages on motion without asking first.'}"/>
+                    <Button Style="{StaticResource HelpGlyph}" Margin="6,0,0,0" VerticalAlignment="Center"
+                            AutomationProperties.Name="{loc:T Zh='自動防護說明', En='Auto Protect help'}">
+                        <Button.ToolTip><ToolTip Style="{StaticResource HelpTip}"
+                            Content="{loc:T Zh='開啟後，偵測到晃動會自動開啟舒適防護，不再先詢問。', En='When on, the comfort overlay auto-engages on motion without asking first.'}"/></Button.ToolTip>
+                    </Button>
+                </StackPanel>
                 <Border Height="1" Background="{DynamicResource Popup.Ink3}" Margin="0,9,0,7" Opacity="0.4"/>
-                <Button Content="{loc:T Zh='完整設定頁面', En='Full settings'}" Style="{StaticResource PanelBtn}"
+                <Button Content="{loc:T Zh='更多設定', En='More settings'}" Style="{StaticResource PanelBtn}"
                         HorizontalAlignment="Stretch" Command="{Binding OpenFullSettingsCommand}"
-                        AutomationProperties.Name="{loc:T Zh='開啟完整設定頁面', En='Open full settings'}"/>
+                        AutomationProperties.Name="{loc:T Zh='開啟更多設定', En='Open more settings'}"/>
             </StackPanel>
         </Border>
 

@@ -64,7 +64,7 @@ internal static class NluComplianceGate
     /// Run the untrusted proposal through every deterministic compliance rule and return the
     /// trusted, deliverable <see cref="NluResult"/>. Pure; never throws on ordinary input.
     /// </summary>
-    internal static NluResult Check(RawNluDecision d, string userText)
+    internal static NluResult Check(RawNluDecision d, string userText, bool? uiEnglishPin = null)
     {
         string intent = d.Intent;
         int severity = Math.Clamp(d.Severity, 1, 5);
@@ -122,7 +122,7 @@ internal static class NluComplianceGate
         else if (intent == "ReportDiscomfort"
             && !FeedbackLexicon.MentionsSpecificSymptom(userText))
         {
-            var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "ReportDiscomfort", severity);
+            var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "ReportDiscomfort", severity, uiEnglishPin);
             if (clarifyQ is not null)
             {
                 intent = "FollowupRequest";
@@ -138,7 +138,7 @@ internal static class NluComplianceGate
         // single TryBuildFollowup call site (BuildFallbackResult no longer calls it itself).
         else if (d.Source == DecisionSource.Lexicon && intent == "Unknown")
         {
-            var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity);
+            var (clarifyQ, clarifyOpts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity, uiEnglishPin);
             if (clarifyQ is not null)
             {
                 intent = "FollowupRequest";
@@ -232,7 +232,7 @@ internal static class NluComplianceGate
                 // R1 deliberately tolerates "已記錄"/"recorded" for a GENUINE report, but for a symptom
                 // INQUIRY it's wrong (the user asked, they didn't report). Replace it with an honest line;
                 // the reply now carries the clarify, so skip the duplicate "looks like a question" note.
-                reply = FeedbackLexicon.LooksChinese(userText)
+                reply = (uiEnglishPin is bool enTrap ? !enTrap : FeedbackLexicon.PreferZh(userText))
                     ? "這比較像是一個問題，我沒有變更任何設定；想調整的話直接告訴我。"
                     : "That sounded like a question, so I haven't changed anything — just tell me if you'd like an adjustment.";
                 suppressedAsQuestion = false;
@@ -241,7 +241,7 @@ internal static class NluComplianceGate
 
         string response = (reply ?? string.Empty).Trim();
         if (response.Length == 0)
-            response = FeedbackLexicon.BuildFallbackResponse(userText, intent);
+            response = FeedbackLexicon.BuildFallbackResponse(userText, intent, uiEnglishPin);
 
         // P1 (symptom-denial backstop 2026-06-18): on a discomfort turn, never SHIP a reply that
         // CLAIMS the user's symptom is gone/eased or PREDICTS it will improve — unless the user
@@ -258,7 +258,7 @@ internal static class NluComplianceGate
                 "will pass", "you're better", "feeling better now",
             };
             if (resolutionClaims.Any(p => response.Contains(p, StringComparison.OrdinalIgnoreCase)))
-                response = FeedbackLexicon.BuildFallbackResponse(userText, intent);
+                response = FeedbackLexicon.BuildFallbackResponse(userText, intent, uiEnglishPin);
         }
 
         // Sanitize followup payload: trust the proposal only if it gave both a
@@ -285,7 +285,7 @@ internal static class NluComplianceGate
                 // returned null here and EVERY options-less FollowupRequest dead-ended to a pickerless
                 // Unknown. Passing "Unknown" lets the lexicon offer the generic symptom picker; only
                 // genuinely empty / over-long input still downgrades.
-                var (q, opts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity);
+                var (q, opts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity, uiEnglishPin);
                 if (q is null)
                 {
                     // Nothing the lexicon can clarify (empty / 200+ chars) — keep the visible
@@ -306,7 +306,7 @@ internal static class NluComplianceGate
         // and the ZH tone backstop. "actuated" includes an applied ResetRequest (it really changed state,
         // even though its deltas are 0). Runs LAST so it sees the final intent + clamped deltas.
         bool actuated = fov != 0 || md != 0.0 || gv != 0.0 || intent == "ResetRequest";
-        response = ReplyComplianceScrubber.Scrub(response, intent, actuated, userText);
+        response = ReplyComplianceScrubber.Scrub(response, intent, actuated, userText, uiEnglishPin);
 
         return new NluResult
         {

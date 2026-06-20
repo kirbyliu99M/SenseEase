@@ -3,6 +3,7 @@ using Xunit;
 
 namespace SenseEase.Tests;
 
+[Collection("ChatbotUiLanguage")] // TryBuildFollowup → PreferZh reads the UI-language pin — serialize
 public class FollowupLexiconTests
 {
     [Fact]
@@ -18,7 +19,9 @@ public class FollowupLexiconTests
     [Fact]
     public void Vague_Chinese_Input_Asks_In_Chinese()
     {
-        var (q, _) = FeedbackLexicon.TryBuildFollowup("怪怪的", "Unknown", 1);
+        // Pin the ZH UI explicitly: replies now follow the language toggle (not the typed script), so
+        // assert the toggle path deterministically rather than relying on the contaminable global.
+        var (q, _) = FeedbackLexicon.TryBuildFollowup("怪怪的", "Unknown", 1, uiEnglishPin: false);
         Assert.NotNull(q);
         Assert.Contains("不適", q!);
     }

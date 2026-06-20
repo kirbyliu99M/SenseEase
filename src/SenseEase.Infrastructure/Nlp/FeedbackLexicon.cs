@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using SenseEase.Core.Configuration;
+using SenseEase.Infrastructure.Real;
 
 namespace SenseEase.Infrastructure.Nlp;
 
@@ -311,12 +312,12 @@ internal static class FeedbackLexicon
     /// clarification offered when the user input is unambiguously vague).
     /// </summary>
     public static (string? question, string[]? options) TryBuildFollowup(
-        string? text, string intent, int severity)
+        string? text, string intent, int severity, bool? uiEnglishPin = null)
     {
         string t = Normalize(text);
         if (string.IsNullOrEmpty(t)) return (null, null);
 
-        bool isZh = LooksChinese(text);
+        bool isZh = uiEnglishPin is bool en ? !en : PreferZh(text);
         bool mentionsDizzy    = ContainsAny(t, DizzyMarkers);
         bool mentionsNausea   = ContainsAny(t, NauseaMarkers);
         bool mentionsHeadache = ContainsAny(t, HeadacheMarkers);
@@ -451,9 +452,9 @@ internal static class FeedbackLexicon
         return (question, options);
     }
 
-    public static string BuildFallbackResponse(string? text, string intent)
+    public static string BuildFallbackResponse(string? text, string intent, bool? uiEnglishPin = null)
     {
-        bool zh = LooksChinese(text);
+        bool zh = uiEnglishPin is bool en ? !en : PreferZh(text);
         return intent switch
         {
             "ReportDiscomfort" => zh
@@ -516,4 +517,14 @@ internal static class FeedbackLexicon
 
     internal static bool LooksChinese(string? text)
         => !string.IsNullOrEmpty(text) && text.Any(c => c >= 0x4E00 && c <= 0x9FFF);
+
+    /// <summary>Reply-language selector: the live UI-language toggle WINS (Kirby's decision —
+    /// "AI replies follow the language toggle"), independent of the script the user happened to
+    /// type in. Falls back to the input's own script (<see cref="LooksChinese"/>) only when the
+    /// host hasn't wired the toggle — headless / lexicon-only / tests. Single-sources the EN/ZH
+    /// precedence used by the canned fallback reply, the follow-up card, and the gate's
+    /// question-trap line so they can't drift, and mirrors
+    /// <c>LocalLlmChatbotService.BuildLanguagePin</c> / <c>ReplyComplianceScrubber.IsEnglishReply</c>.</summary>
+    internal static bool PreferZh(string? text)
+        => ChatbotUiLanguage.IsEnglish is bool en ? !en : LooksChinese(text);
 }

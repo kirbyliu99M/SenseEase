@@ -99,6 +99,38 @@ public class SafetyFloorTests
         Assert.DoesNotContain("988", r);
     }
 
+    // ── UI-language overload (2026-06-21): the crisis-line language follows the toggle, not the
+    // typed script — the fix for "EN user typed/pasted Chinese and got the Chinese crisis line." ──
+
+    [Theory]
+    [InlineData("我想死了")]                 // Han self-harm, but the user is in English
+    [InlineData("今天真的 want to die 了")]  // mixed script, English UI
+    public void Trips_UiEnglish_ReturnsEnglishResponse_RegardlessOfScript(string text)
+    {
+        Assert.True(SafetyFloor.Trips(text, uiEnglish: true, out string r));
+        Assert.Equal(SafetyFloor.CrisisResponseEn, r);
+        Assert.Contains("988", r);
+    }
+
+    [Theory]
+    [InlineData("I want to die")]           // English self-harm, but the user is in Chinese
+    [InlineData("might kill myself today")]
+    public void Trips_UiChinese_ReturnsChineseResponse_RegardlessOfScript(string text)
+    {
+        Assert.True(SafetyFloor.Trips(text, uiEnglish: false, out string r));
+        Assert.Equal(SafetyFloor.CrisisResponseZh, r);
+        Assert.Contains("1925", r);
+    }
+
+    [Fact]
+    public void Trips_NullUiPin_FallsBackToInputScript_MatchesTwoArgOverload()
+    {
+        Assert.True(SafetyFloor.Trips("我想死了", null, out string zhR));
+        Assert.Equal(SafetyFloor.CrisisResponseZh, zhR);
+        Assert.True(SafetyFloor.Trips("I want to die", null, out string enR));
+        Assert.Equal(SafetyFloor.CrisisResponseEn, enR);
+    }
+
     [Fact]
     public void RedactedPlaceholder_IsTheNonPiiToken()
     {

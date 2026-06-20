@@ -793,7 +793,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         // defense-in-depth: ChatbotViewModel.SendAsync also runs the floor as its
         // line-1 intercept. Both call the single SenseEase.Core.Safety.SafetyFloor
         // so the vocabulary cannot drift between call sites (C3 / H3).
-        if (SafetyFloor.Trips(pureUserText, out string crisisResponse))
+        if (SafetyFloor.Trips(pureUserText, ChatbotUiLanguage.IsEnglish, out string crisisResponse))
         {
             // EM5-10: record the user turn only once the floor has decided. The
             // user text + fixed crisis reply are paired in history; the LLM is

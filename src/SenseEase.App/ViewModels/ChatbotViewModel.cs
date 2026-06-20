@@ -1010,14 +1010,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// un-answerable line after a reload, and re-post duplicates every launch (Kirby 2026-06-20). The
     /// answer is recorded separately to fms_log via the callback. Any thread.</summary>
     public void RaiseFmsCheckIn(string question, string hint, int[] windowValues, Action<int> onPicked, string confirmText,
-        Func<int[], int[]?>? worseWindow = null)
+        Func<int[], int[]?>? worseWindow = null, Func<int[], int[]?>? betterWindow = null)
     {
         if (windowValues is null || windowValues.Length == 0 || onPicked is null) return;
         _dispatcher.Invoke(() =>
         {
             Messages.Add(new ChatMessageViewModel(question, hint, windowValues,
                 v => { try { onPicked(v); } catch { /* a record failure must never break the chat */ } },
-                confirmText, worseWindow));
+                confirmText, worseWindow, betterWindow));
         });
     }
 
@@ -1714,33 +1714,37 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     private bool _fmsAnswered;
     private readonly string _fmsConfirmText;
-    // W-F (2026-06-20) / W-F2 (2026-06-21): the FMS window navigation. _worseWindow maps the current window
-    // → the next one UP (or null at the top). The ‹ › arrows (top-right of the row) step the window: › goes
-    // UP (worse / higher numbers), ‹ steps BACK to the EXACT prior window via _fmsBackStack — so a user who
-    // tapped › by accident can undo it. Replaces the old single "更嚴重 →" chip.
+    // W-F (2026-06-20) / W-F2 (2026-06-21): bidirectional FMS window navigation. The ‹ › arrows (top-right of
+    // the row) page the 7-number window: › → the next window UP (higher / worse numbers), ‹ → the next window
+    // DOWN (lower / more-comfortable numbers — also how you "go back" after an accidental ›). Each arrow is
+    // enabled only while a window exists that way, so at least one is always live (you're never stuck). The
+    // host supplies the two pure mappings (FmsCheckInService.WindowAbove / WindowBelow). Replaces the old
+    // one-way "更嚴重 →" chip.
     private int[] _fmsWindow = System.Array.Empty<int>();
     private Func<int[], int[]?>? _worseWindow;
+    private Func<int[], int[]?>? _betterWindow;
     private bool _hasWorse;
-    private readonly List<int[]> _fmsBackStack = new();
+    private bool _hasBetter;
     public Visibility FmsVisibility =>
         FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FmsConfirmVisibility =>
         FmsButtons is { Count: > 0 } && _fmsAnswered ? Visibility.Visible : Visibility.Collapsed;
-    /// <summary>› (worse / higher range) arrow — ENABLED only while the row is unanswered AND a higher
-    /// window exists (greyed at the top of the scale).</summary>
+    /// <summary>› (higher / worse range) arrow — ENABLED while the row is unanswered AND a higher window
+    /// exists (greyed only at the very top of the scale).</summary>
     public bool FmsCanGoWorse =>
         FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _hasWorse;
-    /// <summary>‹ (back / lower range) arrow — ENABLED only while the row is unanswered AND the user has
-    /// stepped up at least once, so there is a prior window to return to (greyed at the start).</summary>
+    /// <summary>‹ (lower / more-comfortable range) arrow — ENABLED while the row is unanswered AND a lower
+    /// window exists (greyed only at the very bottom of the scale). This is also how you step back after
+    /// tapping › by accident.</summary>
     public bool FmsCanGoBack =>
-        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _fmsBackStack.Count > 0;
+        FmsButtons is { Count: > 0 } && !IsUser && !_fmsAnswered && _hasBetter;
     /// <summary>The calm confirmation shown in place of the row after the user answers.</summary>
     public string FmsConfirmText => _fmsConfirmText;
 
     public ICommand SelectFmsCommand { get; }
-    /// <summary>› : step the FMS row UP one window (worse / higher numbers). No-op at the top.</summary>
+    /// <summary>› : page the FMS row UP one window (higher / worse numbers). No-op at the top.</summary>
     public ICommand FmsWorseCommand { get; }
-    /// <summary>‹ : step BACK to the exact prior window (undo an accidental ›). No-op with no history.</summary>
+    /// <summary>‹ : page the FMS row DOWN one window (lower numbers / step back). No-op at the bottom.</summary>
     public ICommand FmsBackCommand { get; }
 
     public ChatMessageViewModel(
@@ -1779,22 +1783,19 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoWorse)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoBack)));
         });
-        // › : step the row UP one window in place (worse / higher); remember the prior window so ‹ can undo it.
+        // › : page the row UP one window in place (higher / worse numbers); no-op once answered / at the top.
         FmsWorseCommand = new RelayCommand(_ =>
         {
             if (_fmsAnswered) return;
             var next = _worseWindow?.Invoke(_fmsWindow);
-            if (next is null || next.Length == 0) return;
-            _fmsBackStack.Add(_fmsWindow);
-            ApplyFmsWindow(next);
+            if (next is { Length: > 0 }) ApplyFmsWindow(next);
         });
-        // ‹ : step BACK to the exact prior window (undo an accidental ›); no-op once answered / with no history.
+        // ‹ : page the row DOWN one window (lower numbers / step back); no-op once answered / at the bottom.
         FmsBackCommand = new RelayCommand(_ =>
         {
-            if (_fmsAnswered || _fmsBackStack.Count == 0) return;
-            int[] prev = _fmsBackStack[^1];
-            _fmsBackStack.RemoveAt(_fmsBackStack.Count - 1);
-            ApplyFmsWindow(prev);
+            if (_fmsAnswered) return;
+            var prev = _betterWindow?.Invoke(_fmsWindow);
+            if (prev is { Length: > 0 }) ApplyFmsWindow(prev);
         });
     }
 
@@ -1808,6 +1809,7 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FmsButtons = buttons;
         FmsTrackBrush = FmsScale.Track(window[0], window[^1]);
         _hasWorse = _worseWindow?.Invoke(window) is { Length: > 0 };
+        _hasBetter = _betterWindow?.Invoke(window) is { Length: > 0 };
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsButtons)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsTrackBrush)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FmsCanGoWorse)));
@@ -1816,7 +1818,8 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
 
     /// <summary>FMS check-in message: a proactive assistant question + the adaptive 7-square rating row.</summary>
     public ChatMessageViewModel(string question, string hint, int[] fmsValues,
-        Action<int> onFmsSelected, string confirmText, Func<int[], int[]?>? worseWindow = null)
+        Action<int> onFmsSelected, string confirmText,
+        Func<int[], int[]?>? worseWindow = null, Func<int[], int[]?>? betterWindow = null)
         : this(question, ChatRole.Assistant)
     {
         var buttons = new List<FmsButtonVm>(fmsValues.Length);
@@ -1828,10 +1831,12 @@ public sealed class ChatMessageViewModel : INotifyPropertyChanged
         FmsHint = hint;
         OnFmsSelected = onFmsSelected;
         _fmsConfirmText = confirmText ?? string.Empty;
-        // W-F: the "worse than shown" escape — _worseWindow maps the current window → the next one up.
+        // ‹ › navigation: _worseWindow pages up, _betterWindow pages down (host passes the pure mappings).
         _fmsWindow = fmsValues;
         _worseWindow = worseWindow;
+        _betterWindow = betterWindow;
         _hasWorse = worseWindow?.Invoke(fmsValues) is { Length: > 0 };
+        _hasBetter = betterWindow?.Invoke(fmsValues) is { Length: > 0 };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

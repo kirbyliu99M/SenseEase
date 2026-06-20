@@ -1064,9 +1064,10 @@ public partial class MainWindow : Window
                 _checkInGovernor.RecordAnswered();
                 RefreshEyeCareCheckIns();   // reflect the new row in the Eye-Care list immediately
             }, confirm,
-            // W-F: "worse than shown" escape — bump the row up a window (0-6 → 7-13 → 14-20) so an acute user
-            // can report severe on first contact; null at the top window.
-            w => SenseEase.App.Services.FmsCheckInService.WindowAbove(w[0]));
+            // W-F2: bidirectional ‹ › window paging — › up (0-6 → 7-13 → 14-20, null at top), ‹ down
+            // (14-20 → 7-13 → 0-6, null at bottom) so the user can reach any range and step back.
+            worseWindow:  w => SenseEase.App.Services.FmsCheckInService.WindowAbove(w[0]),
+            betterWindow: w => SenseEase.App.Services.FmsCheckInService.WindowBelow(w[0]));
             _checkInGovernor.RecordShown();   // starts the 8h cooldown
             // Intentionally NO RevealShellPanel() — "never auto-pop the popup" (Kirby 2026-06-20). The
             // rating row is now queued in the chat; the user finds it when they open the chat.

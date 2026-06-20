@@ -10,6 +10,7 @@ namespace SenseEase.Tests;
 /// fix at the lexicon level: a bare location is NOT a specific symptom (→ clarify), while a real eye
 /// symptom still is (→ act).
 /// </summary>
+[Collection("ChatbotUiLanguage")] // TryBuildFollowup → PreferZh reads the UI-language pin — serialize
 public class FeedbackLexiconClarifyTests
 {
     [Theory]

@@ -9,6 +9,7 @@ namespace SenseEase.Tests;
 /// <summary>Item 4 — the per-turn language pin must flip with the UI toggle (read live), regardless
 /// of the language of any earlier context, and fall back to per-message Han detection when no
 /// toggle is wired.</summary>
+[Collection("ChatbotUiLanguage")] // mutates ChatbotUiLanguage.IsEnglishProvider — serialize with pin readers
 public class BuildLanguagePinTests
 {
     [Fact]

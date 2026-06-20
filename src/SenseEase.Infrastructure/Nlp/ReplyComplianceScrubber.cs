@@ -105,11 +105,16 @@ internal static class ReplyComplianceScrubber
     /// <summary>Run the reply through every grammar-safe compliance rule and return the cleaned text.
     /// <paramref name="actuated"/> is true when this turn made a real change (any non-zero delta OR an
     /// applied ResetRequest) — when false, R1 forbids action claims. Pure; never throws.</summary>
-    internal static string Scrub(string? reply, string intent, bool actuated, string? userText)
+    internal static string Scrub(string? reply, string intent, bool actuated, string? userText,
+                                 bool? uiEnglishPin = null)
     {
         string s = (reply ?? string.Empty).Trim();
         if (s.Length == 0) return s;
-        bool english = IsEnglishReply(userText, s);
+        // The host UI-language pin: an explicit arg (a caller that already resolved it, or a test that
+        // needs determinism without touching the process-global) wins; else the live ChatbotUiLanguage
+        // toggle. null → no pin wired (headless / lexicon-only host) → fall back to the reply's script.
+        bool? pin = uiEnglishPin ?? ChatbotUiLanguage.IsEnglish;
+        bool english = IsEnglishReply(userText, s, pin);
 
         if (intent == "AnalyzeRequest")
         {
@@ -141,6 +146,31 @@ internal static class ReplyComplianceScrubber
         // Strip stray clock timestamps anywhere (jargon leak), tidy double spaces.
         s = Timestamp.Replace(s, string.Empty);
         s = MultiSpace.Replace(s, " ").Trim();
+
+        // ── R-lang: output-side language backstop (2026-06-21). When the host pins a UI language,
+        // NEVER ship a reply whose script contradicts the pin. The prompt's LANGUAGE pin is advisory
+        // to a temperature-0.4, China-trained 3 B model that samples past it on short/ambiguous input
+        // (logged: an EN-pinned "Hi, how are you" reliably returned Traditional Chinese), and nothing
+        // upstream of here guarantees the reply language. This is the deterministic last line of
+        // defence: when the reply's script contradicts the pin, swap WHOLESALE to an honest canned
+        // line in the pinned language — mid-sentence translation is impossible and partial deletion
+        // breaks grammar (see header). Acts only when the toggle is wired (non-null), so the
+        // headless / lexicon-only fallback keeps its own-script behaviour. Symmetric (EN- and ZH-pinned).
+        if (pin is bool wantEnglish && s.Length > 0
+            && (wantEnglish ? ContainsCjk(s) : !ContainsCjk(s)))
+        {
+            string repl = intent == "AnalyzeRequest"
+                ? AnalyzeNeutralLine(wantEnglish)
+                : FeedbackLexicon.BuildFallbackResponse(userText, intent, wantEnglish);
+            // Preserve R1 action-honesty: a canned acknowledgement must not claim a change that
+            // didn't actually happen this turn.
+            if (!actuated && ClaimsAction(repl)) repl = HonestNoActionLine(wantEnglish);
+            // Defence in depth: guarantee the replacement itself matches the pin (the honest/analyze
+            // lines are hardcoded per-language, so this only ever guards the lexicon-built branch).
+            if (wantEnglish && ContainsCjk(repl)) repl = HonestNoActionLine(true);
+            else if (!wantEnglish && !ContainsCjk(repl)) repl = HonestNoActionLine(false);
+            return repl;
+        }
         return s;
     }
 
@@ -191,10 +221,9 @@ internal static class ReplyComplianceScrubber
 
     // Prefer the live UI-language pin (authoritative per the host); fall back to the reply's own script,
     // then the user's. Mirrors LocalLlmChatbotService.BuildLanguagePin's precedence.
-    private static bool IsEnglishReply(string? userText, string reply)
+    private static bool IsEnglishReply(string? userText, string reply, bool? pin)
     {
-        bool? ui = ChatbotUiLanguage.IsEnglish;
-        if (ui is bool en) return en;
+        if (pin is bool en) return en;
         if (ContainsCjk(reply)) return false;
         return !ContainsCjk(userText);
     }
