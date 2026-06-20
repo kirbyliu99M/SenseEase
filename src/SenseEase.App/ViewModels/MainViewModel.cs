@@ -1101,7 +1101,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
             nGpuLayers: chatModel.NGpuLayers);
-        ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log);
+        ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
         // engine type is OK here because MainViewModel constructed it above
@@ -1799,6 +1799,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // durations are independent (no ordering invariant). internal so the linger/persist tests can read it.
     internal const long ConsentLingerMs = 45_000;
     private bool _overlaySessionActive;
+
+    /// <summary>W-G (2026-06-20): true when the comfort overlay may engage WITHOUT holding for consent —
+    /// Auto Protect (always-allow), a live granted session, or a standing always-on baseline. The chatbot
+    /// gates its engine actuation on this so a chat-driven change can't mutate persistent protection state
+    /// before the user has consented to the overlay.</summary>
+    internal bool IsOverlayConsented => AlwaysAllowOverlay || _overlaySessionActive || PersistentOverlayEnabled;
     private long _calmSinceTick;    // tick when calm began; 0 = not currently calm
     private long _consentAskedTick; // tick when the bubble was last raised; 0 = not pending
     private bool _consentPending;

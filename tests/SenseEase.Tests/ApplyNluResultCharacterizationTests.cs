@@ -70,7 +70,7 @@ public class ApplyNluResultCharacterizationTests
     }
 
     private static (ChatbotViewModel vm, ScriptedChatbotService bot, MockInferenceEngine engine, RecordingAdjustmentLog log)
-        BuildVm(Func<NluResult> next, bool overlayVisible = true)
+        BuildVm(Func<NluResult> next, bool overlayVisible = true, Func<bool>? isOverlayConsented = null)
     {
         var bot = new ScriptedChatbotService(next);
         var engine = new MockInferenceEngine();
@@ -79,7 +79,8 @@ public class ApplyNluResultCharacterizationTests
             chatbot: bot,
             engine: engine,
             adjustmentLog: log,
-            isOverlayVisible: () => overlayVisible);
+            isOverlayVisible: () => overlayVisible,
+            isOverlayConsented: isOverlayConsented);
         return (vm, bot, engine, log);
     }
 
@@ -277,5 +278,79 @@ public class ApplyNluResultCharacterizationTests
             Assert.Empty(log.Records);
             Assert.False(AnyAssistant(vm, "System adjustment"));
             Assert.False(AnyAssistant(vm, "looked like a question"));
+        });
+
+    // ── W-G: chat-driven actuation is gated on overlay CONSENT ──────────────────────────────
+    //    When the overlay has NOT been consented (no granted session / Auto Protect / baseline),
+    //    a chat "make it stronger" must NOT mutate persistent engine state — it would silently
+    //    change protection the user can't see and let the warm reply falsely claim a change. The
+    //    gate is delta-driven (any FOV/mask/grid/feather delta), independent of the intent label.
+
+    [Fact]
+    public void Actuation_WithoutConsent_IsDeferred_NoEngineMutation_NoFalseClaim()
+        => WithLanguage(UILanguage.English, () =>
+        {
+            var (vm, _, engine, log) = BuildVm(
+                () => new NluResult
+                {
+                    Intent = "AnalyzeRequest", // non-discomfort → no rest-advice hold; gate is delta-driven
+                    FovDelta = -8,
+                    Response = "Tightening the protection a little.", // the LLM's (would-be false) claim
+                },
+                isOverlayConsented: () => false); // overlay NOT consented → defer
+
+            vm.InputText = "make it stronger";
+            vm.SendCommand.Execute(null);
+
+            Assert.Equal(0, engine.UserFovOffset);   // engine NOT mutated pre-consent (the W-G safety core)
+            Assert.Empty(log.Records);                // nothing actuated → nothing logged
+            Assert.False(AnyAssistant(vm, "Protection up")); // and NO false "✓ Protection up" confirmation
+            // The honest "I'll apply that once the overlay is on" line replaces the LLM's "Tightening…"
+            // claim in visibleReply — but that warm reply is revealed by FakeStreamAsync on a background
+            // task, so it is not synchronously observable in this harness (same as every warm reply here;
+            // existing tests assert the synchronous ✓ summary instead). The substitution mirrors the
+            // already-tested NEW-B14 rest-advice hold; the synchronous proof above is that NOTHING actuated
+            // and NO ✓ confirmation shipped — i.e. the bot cannot have truthfully claimed a change.
+        });
+
+    [Fact]
+    public void Actuation_WithConsent_AppliesAsBefore()
+        => WithLanguage(UILanguage.English, () =>
+        {
+            var (vm, _, engine, log) = BuildVm(
+                () => new NluResult
+                {
+                    Intent = "AnalyzeRequest",
+                    FovDelta = -8,
+                    Response = "Tightening the protection a little.",
+                },
+                isOverlayConsented: () => true); // overlay consented → actuate as normal
+
+            vm.InputText = "make it stronger";
+            vm.SendCommand.Execute(null);
+
+            Assert.Equal(-8, engine.UserFovOffset); // actuation proceeds when consented
+            Assert.NotNull(log.Records.SingleOrDefault(r => r.Parameter == "FovRadius"));
+            Assert.True(AnyAssistant(vm, "Protection up")); // and the ✓ confirmation IS shown
+        });
+
+    // ── W-G: a null consent provider (the legacy 4-arg construction) leaves the gate INERT ──
+    //    so existing call sites / tests that don't wire consent keep their pre-W-G behaviour.
+
+    [Fact]
+    public void Actuation_NullConsentProvider_GateInert_AppliesAsBefore()
+        => WithLanguage(UILanguage.English, () =>
+        {
+            var (vm, _, engine, _) = BuildVm(() => new NluResult
+            {
+                Intent = "AnalyzeRequest",
+                FovDelta = -8,
+                Response = "Tightening the protection a little.",
+            }); // isOverlayConsented omitted → null → gate skipped
+
+            vm.InputText = "make it stronger";
+            vm.SendCommand.Execute(null);
+
+            Assert.Equal(-8, engine.UserFovOffset); // unchanged from pre-W-G behaviour
         });
 }

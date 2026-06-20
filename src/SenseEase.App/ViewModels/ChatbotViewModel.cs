@@ -31,6 +31,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private readonly IEventLogStore? _eventLog;
     private readonly Dispatcher _dispatcher;
     private readonly Func<bool> _isOverlayVisible;
+    private readonly Func<bool>? _isOverlayConsented; // W-G: overlay-consent gate for chat-driven actuation
     private readonly FileChatHistoryStore _historyStore;
     private CancellationTokenSource _streamCts = new();
 
@@ -215,12 +216,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         IInferenceEngine engine,
         IAdjustmentLog adjustmentLog,
         Func<bool> isOverlayVisible,
-        IEventLogStore? eventLog = null)
+        IEventLogStore? eventLog = null,
+        Func<bool>? isOverlayConsented = null)
     {
         _chatbot = chatbot;
         _engine = engine;
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
+        _isOverlayConsented = isOverlayConsented;
         // Production: bound to the WPF UI thread's dispatcher.
         // Headless tests: Application.Current is null, so we fall back to the
         // CALLING thread's dispatcher (xunit's). Async methods that call
@@ -653,6 +656,28 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 result.FeatherWidthDelta = 0;
                 string regenerated = await GenerateRestAdviceAsync(callCts.Token).ConfigureAwait(false);
                 visibleReply = !string.IsNullOrWhiteSpace(regenerated) ? regenerated : DeterministicRestAdvice();
+            }
+
+            // W-G (2026-06-20): gate chat-driven engine actuation on overlay CONSENT. A chat "make it
+            // stronger" must not mutate persistent FOV/shader state before the user has actually started the
+            // comfort overlay (a granted session, Auto Protect, or a standing baseline) — that silently
+            // changes protection they can't see, and the upstream gate already scrubbed the reply with
+            // actuated=true, so it would falsely claim a change. Mirror the rest-advice hold: zero the deltas
+            // BEFORE ApplyNluResult (→ it applies nothing, empty summary, no false ✓ row) and replace the
+            // reply with an honest "I'll apply that once the overlay is on" line. A held rest turn already
+            // zeroed the deltas above, so this never double-fires; the consent gate the overlay itself
+            // enforces stays the source of truth — this is defense-in-depth at the chat seam.
+            bool wantsActuation = result.FovDelta != 0 || result.MaskDepthDelta != 0
+                               || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0;
+            if (wantsActuation && _isOverlayConsented is { } consented && !consented())
+            {
+                result.FovDelta = 0;
+                result.MaskDepthDelta = 0;
+                result.GridVisibilityDelta = 0;
+                result.FeatherWidthDelta = 0;
+                visibleReply = LocalizationManager.Current.Pick(
+                    "好的，我記下了。等你開啟舒適防護（從工具列開啟，或在快速設定開啟「自動防護」）後，我就會幫你套用這個調整。",
+                    "Got it — I'll apply that once the comfort overlay is on (start it from the bar, or turn on Auto Protect in quick settings).");
             }
 
             ChatMessageViewModel? assistantBubble = null;
