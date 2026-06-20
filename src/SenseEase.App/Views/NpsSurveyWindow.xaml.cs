@@ -41,6 +41,10 @@ public partial class NpsSurveyWindow : Window, IShellSurface
     {
         InitializeComponent();
         DataContext = viewModel;
+        // Submit flips IsSubmitted (the XAML swaps to the thank-you state); the window owns the close from
+        // there, so the acknowledgment is actually seen. Unsubscribed on Closed to avoid a leak.
+        viewModel.PropertyChanged += OnVmPropertyChanged;
+        Closed += (_, _) => viewModel.PropertyChanged -= OnVmPropertyChanged;
         Opacity = 0;                       // fade in via OnEntrance (avoids an unsettled-position flash)
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) => AnchorBottomRight();
@@ -67,11 +71,37 @@ public partial class NpsSurveyWindow : Window, IShellSurface
     private readonly DispatcherTimer _idleDismiss;
     private static readonly TimeSpan NpsIdleTimeout = TimeSpan.FromSeconds(15);
     private bool _idleFading;
+    private bool _submitted;
+    private static readonly TimeSpan ThanksDwell = TimeSpan.FromMilliseconds(1600);
+
+    /// <summary>The user submitted — the XAML has swapped to the thank-you state. Stop the idle timer (an
+    /// explicit answer is NOT an idle dismissal), dwell briefly so the acknowledgment is readable, then
+    /// gently fade-close (the host's onSubmit only records now, so this is the sole post-submit close path).
+    /// ReducedMotion skips the fade. Idempotent — the one-way latch fires this once.</summary>
+    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(NpsSurveyViewModel.IsSubmitted)) return;
+        if (_submitted || (DataContext as NpsSurveyViewModel)?.IsSubmitted != true) return;
+        _submitted = true;
+        _idleDismiss.Stop();
+        var dwell = new DispatcherTimer { Interval = ThanksDwell };
+        dwell.Tick += (_, _) =>
+        {
+            dwell.Stop();
+            if (AccessibilityHelper.ReducedMotion()) { Close(); return; }
+            var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+            var fade = new DoubleAnimation(0, new Duration(TimeSpan.FromMilliseconds(300))) { EasingFunction = ease };
+            fade.Completed += (_, _) => Close();
+            BeginAnimation(OpacityProperty, fade);
+        };
+        dwell.Start();
+    }
 
     /// <summary>Restart the no-response idle window on any interaction. If a fade-out is already running,
     /// abort it and restore the card to full opacity so a late answer is never lost.</summary>
     private void RestartIdle()
     {
+        if (_submitted) return; // post-submit: the thank-you close sequence owns the window; don't re-arm idle
         if (_idleFading)
         {
             _idleFading = false;
@@ -88,6 +118,7 @@ public partial class NpsSurveyWindow : Window, IShellSurface
     private void OnIdleDismissTick(object? sender, EventArgs e)
     {
         _idleDismiss.Stop();
+        if (_submitted) return; // a submit landed first → the thank-you close path wins; never idle-dismiss
         if (_idleFading) return;
         _idleFading = true;
         if (AccessibilityHelper.ReducedMotion())

@@ -69,6 +69,21 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
         set { if (_comment != value) { _comment = value; OnPropertyChanged(); } }
     }
 
+    private bool _isSubmitted;
+    /// <summary>True once the user has submitted — the window swaps the form for a brief thank-you
+    /// acknowledgment, then self-closes (see <c>NpsSurveyWindow</c>). One-way latch; never reset.</summary>
+    public bool IsSubmitted
+    {
+        get => _isSubmitted;
+        private set { if (_isSubmitted != value) { _isSubmitted = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>Post-submit acknowledgment headline shown in place of the form.</summary>
+    public string ThankYouText => LocalizationManager.Current.Pick("感謝您的回饋！", "Thanks for your feedback!");
+
+    /// <summary>Post-submit sub-line confirming the response was recorded.</summary>
+    public string ThankYouSubText => LocalizationManager.Current.Pick("您的回饋已送出", "Your feedback was sent");
+
     public ICommand SelectScoreCommand { get; }
     public ICommand SubmitCommand { get; }
     public ICommand DismissCommand { get; }
@@ -77,6 +92,10 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
     {
         if (!SelectedScore.HasValue) return;
         _onSubmit?.Invoke(SelectedScore.Value, string.IsNullOrWhiteSpace(Comment) ? null : Comment!.Trim());
+        // The host's onSubmit now only RECORDS (it no longer closes the window) — flip the latch so the
+        // window shows the brief thank-you state and self-closes. Idempotent: the SubmitCommand path is the
+        // only caller, but the one-way set guards a double-submit.
+        IsSubmitted = true;
     }
 
     /// <summary>The card timed out un-answered (idle auto-dismiss) — a WEAKER signal than an explicit

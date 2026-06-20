@@ -159,7 +159,21 @@
             CornerRadius="{StaticResource Radius.md}" Padding="16,13,16,16"
             RenderTransformOrigin="1,1">
         <Border.RenderTransform><TranslateTransform x:Name="CardRise"/></Border.RenderTransform>
-        <StackPanel>
+        <Grid>
+        <!-- The feedback form and the post-submit thank-you state share one cell; the VM's IsSubmitted
+             latch swaps them. Visibility lives in a Style (NOT a local attribute, which would out-rank
+             the DataTrigger). -->
+        <StackPanel x:Name="FormPanel">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSubmitted}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
             <!-- Header: app identity (left) + dismiss (right) — Teams-style feedback card chrome. -->
             <Grid Margin="0,0,0,10">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -237,5 +251,33 @@
                         AutomationProperties.Name="{loc:T Zh='送出評分', En='Submit score'}"/>
             </StackPanel>
         </StackPanel>
+
+        <!-- Thank-you state (audit 2026-06-20): shown after submit so the response is acknowledged
+             instead of the card vanishing instantly; the window dwells briefly then self-closes. -->
+        <StackPanel x:Name="ThanksPanel" VerticalAlignment="Center" Margin="0,22"
+                    AutomationProperties.LiveSetting="Polite">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSubmitted}" Value="True">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Border Width="44" Height="44" CornerRadius="22" HorizontalAlignment="Center"
+                    Background="{DynamicResource Popup.Blue}">
+                <Path Data="M5,12 L10,17 L19,7" Stretch="Uniform" Width="22" Height="22"
+                      Stroke="White" StrokeThickness="2.4"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <TextBlock Text="{Binding ThankYouText}" HorizontalAlignment="Center" Margin="0,12,0,0"
+                       FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Popup.Ink1}"/>
+            <TextBlock Text="{Binding ThankYouSubText}" HorizontalAlignment="Center" Margin="0,3,0,0"
+                       FontSize="12" Foreground="{DynamicResource Popup.Ink2}"/>
+        </StackPanel>
+        </Grid>
     </Border>
 </Window>

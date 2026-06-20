@@ -73,7 +73,9 @@ public sealed class ShellController : IShellController
     {
         if (_npsWindow is not null || !_nps.ShouldAsk()) return;
         var vm = new NpsSurveyViewModel(
-            onSubmit: (score, comment) => { _nps.RecordResponse(score, comment); CloseNpsSurvey(); },
+            // onSubmit only RECORDS now — the window shows a brief thank-you state and self-closes (so the
+            // acknowledgment is actually seen). Dismiss/idle still close immediately (no thanks to show).
+            onSubmit: (score, comment) => _nps.RecordResponse(score, comment),
             onDismiss: () => { _nps.RecordDismissed(); CloseNpsSurvey(); },
             // An idle auto-dismiss is a weaker signal than an explicit "Not now" → short cooldown, not 90-day.
             onIdleDismiss: () => { _nps.RecordDismissed(explicitDecline: false); CloseNpsSurvey(); });
