@@ -33,6 +33,9 @@ public partial class EventLogWindow : Window
         // slate scrim in Dark mode, a soft near-white scrim in Light — so the frameless glass holds
         // together in either theme. ABGR order (0xAABBGGRR).
         SourceInitialized += (_, _) => ApplyThemeAwareAcrylic();
+
+        // Esc closes the window (matches SettingsWindow's keyboard dismiss).
+        KeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
     }
 
     /// <summary>UI-reshape Task 9: pick an acrylic scrim that suits the current theme so the

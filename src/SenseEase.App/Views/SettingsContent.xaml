@@ -498,7 +498,7 @@
                            Text="{loc:T Zh='資料與隱私', En='Data &amp; privacy'}"/>
                 <!-- UX-09 + FEAT-13 (B1b): the caption + confirm dialog plainly enumerate
                      everything deleted and everything kept, so the label never overstates. -->
-                <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, and legacy calibration history SenseEase has built about you. Your graded-exposure progress and preferences are kept. This cannot be undone.'}"
+                <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄、感受紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, check-in history, and legacy calibration history SenseEase has built about you. Your graded-exposure progress and preferences are kept. This cannot be undone.'}"
                            FontSize="12"
                            Foreground="{DynamicResource TextTertiary}"
                            TextWrapping="Wrap"

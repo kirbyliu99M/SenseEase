@@ -54,9 +54,13 @@ public sealed class NpsSurveyViewModel : INotifyPropertyChanged
             if (_selectedScore == value) return;
             _selectedScore = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(NeedsScore));
             (SubmitCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>True while no score is picked yet — drives the "pick a score" hint + the disabled Submit.</summary>
+    public bool NeedsScore => !SelectedScore.HasValue;
 
     private string? _comment;
     public string? Comment

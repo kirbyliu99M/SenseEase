@@ -26,6 +26,7 @@
 
             <conv:ScoreIsSelectedConverter x:Key="ScoreSelected"/>
             <conv:ScoreToAccessibleNameConverter x:Key="ScoreA11yName"/>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
             <!-- 5-point QA tile: a faint glass chip at rest; the accent fill (+ white ink)
                  on hover AND while selected, so the chosen score stays lit after the click. -->
@@ -53,6 +54,9 @@
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.Blue}"/>
                                     <Setter Property="Foreground" Value="White"/>
                                 </DataTrigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Opacity" Value="0.6"/>
+                                </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
@@ -77,8 +81,12 @@
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
                                 </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Opacity" Value="0.6"/>
+                                </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.4"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -107,6 +115,9 @@
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.ChipHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Opacity" Value="0.6"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -212,6 +223,11 @@
                          AutomationProperties.Name="{Binding CommentLabel}"/>
             </Border>
 
+            <!-- Hint: explain why Submit stays disabled until a score is picked (hidden once chosen). -->
+            <TextBlock Text="{loc:T Zh='請先選擇分數', En='Select a score to submit'}"
+                       Visibility="{Binding NeedsScore, Converter={StaticResource BoolToVis}}"
+                       HorizontalAlignment="Right" Margin="0,12,2,0" FontSize="11"
+                       Foreground="{DynamicResource Popup.Ink2}"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                 <Button Content="{loc:T Zh='暫時不要', En='Not now'}" Style="{StaticResource NpsGhostBtn}"
                         Command="{Binding DismissCommand}" Margin="0,0,8,0"

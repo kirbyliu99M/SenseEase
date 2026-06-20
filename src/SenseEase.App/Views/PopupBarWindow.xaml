@@ -81,7 +81,7 @@
                         <ControlTemplate TargetType="Button">
                             <!-- 44×44 hit area; 32×32 visible filled circle centred. -->
                             <Border Background="Transparent">
-                                <Border x:Name="bd" Width="32" Height="32" CornerRadius="16"
+                                <Border x:Name="bd" Width="32" Height="32" CornerRadius="{StaticResource Radius.md}"
                                         Background="{TemplateBinding Background}"
                                         HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -90,6 +90,13 @@
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Opacity" Value="0.6"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.5"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -116,6 +123,13 @@
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource Popup.BlueHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Opacity" Value="0.6"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.5"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -495,7 +509,7 @@
                         <!-- send / stop, with a soft accent glow behind the chip (brightens while a reply
                              is generating). The Button (Send↔Stop command + icon morph) is verbatim. -->
                         <Grid Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Bottom">
-                            <Border Width="32" Height="32" CornerRadius="16" Background="{DynamicResource Popup.Blue}"
+                            <Border Width="32" Height="32" CornerRadius="{StaticResource Radius.md}" Background="{DynamicResource Popup.Blue}"
                                     IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <Border.Style>
                                     <Style TargetType="Border">
