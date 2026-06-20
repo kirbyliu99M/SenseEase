@@ -1107,9 +1107,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // stop tokens + server flags. Mistral fallback removed — if the model can't load, chat drops to
         // the deterministic lexicon path (no second bundled model).
         var chatModel = AppConfig.ActiveModel;
+        // Ultrabook #5 — backend selection. On an AMD Ryzen-AI box with FastFlowLM installed, run the assistant
+        // on the NPU (the model's paired NpuModelTag, e.g. qwen3-it:4b) via the managed-backend seam: the
+        // launcher reuses a running flm server or starts one, and ANY failure to come up falls back to the
+        // bundled Vulkan server inside LoadAsync — so chat works on every machine. An explicit
+        // SENSEEASE_LLM_BASEURL (dev/validation) bypasses all of this (handled in the service ctor). The probe
+        // is cheap + synchronous (env var + a file check); the real launch happens later, async, in LoadAsync.
+        Func<CancellationToken, Task<ManagedBackend?>>? npuStarter = null;
+        bool llmExternalOverride = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SENSEEASE_LLM_BASEURL"));
+        if (LlmBackendSelector.ShouldTryFlmNpu(chatModel.NpuModelTag, HardwareProbe.DetectCpuVendor(),
+                flmInstalled: FlmServerLauncher.FindExe() is not null, externalOverrideSet: llmExternalOverride))
+        {
+            string npuTag = chatModel.NpuModelTag!;
+            npuStarter = ct => FlmServerLauncher.TryAcquireAsync(npuTag, FlmServerLauncher.DefaultPort, null, ct);
+        }
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
-            nGpuLayers: chatModel.NGpuLayers);
+            nGpuLayers: chatModel.NGpuLayers, managedBackendStarter: npuStarter);
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete

@@ -83,8 +83,11 @@ public static class AppConfig
     // so swapping or adding a model later is one entry here plus the pref/env key. If the GGUF is absent
     // or fails to load, chat drops to the deterministic lexicon path (LocalLlmChatbotService leaves
     // IsModelLoaded=false) — no in-process model fallback.
-    public sealed record ChatModel(string Key, string ModelPath, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
-    private sealed record ChatModelSpec(string Key, string Relative, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers);
+    // NpuModelTag (ultrabook #5): the FastFlowLM catalog tag for the SAME model on the AMD Ryzen-AI NPU
+    // (e.g. "qwen3-it:4b" = Qwen3-4B-Instruct-2507 in Q4NX). Null when no NPU equivalent is paired. The GGUF
+    // path drives the universal Vulkan backend; NpuModelTag drives the NPU backend — both describe one model.
+    public sealed record ChatModel(string Key, string ModelPath, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers, string? NpuModelTag = null);
+    private sealed record ChatModelSpec(string Key, string Relative, string[] StopTokens, string[] ExtraServerArgs, int? NGpuLayers, string? NpuModelTag = null);
 
     /// <summary>The primary (and currently only) chat model — Qwen3-4B-Instruct-2507 (non-thinking). The
     /// default selection (UserPreferences.ChatModelKey) and the fallback for an unknown/garbage pref key.</summary>
@@ -93,7 +96,7 @@ public static class AppConfig
     {
         // Qwen3-4B-Instruct-2507 is the DEDICATED non-thinking variant → no enable_thinking flags needed.
         new(PrimaryModelKey, "models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-            new[] { "<|im_end|>", "User:" }, Array.Empty<string>(), null),
+            new[] { "<|im_end|>", "User:" }, Array.Empty<string>(), null, NpuModelTag: "qwen3-it:4b"),
     };
 
     private static readonly Lazy<ChatModel> _activeModel = new(ResolveActiveModel);
@@ -110,7 +113,7 @@ public static class AppConfig
     }
 
     private static ChatModel BuildModel(ChatModelSpec s)
-        => new(s.Key, ResolveModelPath(s.Relative), s.StopTokens, s.ExtraServerArgs, s.NGpuLayers);
+        => new(s.Key, ResolveModelPath(s.Relative), s.StopTokens, s.ExtraServerArgs, s.NGpuLayers, s.NpuModelTag);
 
     private static ChatModel ResolveActiveModel()
     {

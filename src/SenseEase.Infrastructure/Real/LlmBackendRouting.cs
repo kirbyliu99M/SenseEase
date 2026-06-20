@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace SenseEase.Infrastructure.Real;
@@ -62,5 +64,36 @@ public static class HardwareProbe
             .Select(n => n!.ToLowerInvariant())
             .Any(n => NpuMarkers.Any(n.Contains));
         return new HardwareProfile(vendor, HasAmdNpu: isAmd && npuPresent, HasIntelNpu: isIntel && npuPresent);
+    }
+
+    /// <summary>The CPU vendor/brand string for the RUNTIME backend decision — read from the env var
+    /// <c>PROCESSOR_IDENTIFIER</c> (e.g. "AMD64 Family 26 … AuthenticAMD" / "… GenuineIntel"). Dependency-free
+    /// and non-throwing; empty when unavailable. Only "amd"/"intel" matter, not the marketing name. (Live NPU
+    /// presence is proven by a successful FastFlowLM launch, so no PnP device enumeration is needed here.)</summary>
+    public static string DetectCpuVendor()
+        => (Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? string.Empty).Trim();
+}
+
+/// <summary>A local OpenAI backend the chatbot can drive: its base URL + model tag, plus the process we OWN
+/// (launched ourselves) — null when we reused an already-running server, so the chatbot never kills a server
+/// it didn't start. Produced by <see cref="FlmServerLauncher"/>.</summary>
+public sealed record ManagedBackend(string BaseUrl, string ModelTag, Process? OwnedProcess);
+
+/// <summary>The RUNTIME backend decision (ultrabook #5): does this machine try the FastFlowLM NPU backend for
+/// the active model? Pure + unit-tested; the live inputs (CPU vendor, flm presence, env override) are gathered
+/// by the caller. The decision is deliberately optimistic — the actual NPU/serve capability is verified by the
+/// launch attempt, which falls back to Vulkan on failure — so we never enumerate devices here.</summary>
+public static class LlmBackendSelector
+{
+    /// <summary>True only when: the model has a paired NPU tag, the CPU is AMD (FastFlowLM/Ryzen-AI is the one
+    /// NPU runtime we bundle today), FastFlowLM is installed, and no explicit external override is set (a dev
+    /// <c>SENSEEASE_LLM_BASEURL</c> wins and is handled directly by the service).</summary>
+    public static bool ShouldTryFlmNpu(string? npuModelTag, string? cpuVendor, bool flmInstalled, bool externalOverrideSet)
+    {
+        if (externalOverrideSet) return false;
+        if (string.IsNullOrWhiteSpace(npuModelTag)) return false;
+        if (!flmInstalled) return false;
+        string v = (cpuVendor ?? string.Empty).ToLowerInvariant();
+        return v.Contains("amd") || v.Contains("ryzen");
     }
 }

@@ -148,13 +148,36 @@ public sealed class LocalLlmChatbotService : IChatbotService
     // already-running OpenAI-compatible server (e.g. FastFlowLM on the AMD NPU at http://127.0.0.1:<port>)
     // and sends _externalModelName as the request "model" (FLM serves several). No bearer (open on localhost);
     // the idle-unload never touches it (we don't own its lifecycle).
-    private readonly string? _externalBaseUrl;
-    private readonly string? _externalModelName;
+    // Mutable: set in the ctor (explicit arg / env), OR assigned by the managed-NPU path in LoadAsync when a
+    // FastFlowLM backend is acquired — then IsExternal flips true and the request path targets it.
+    private string? _externalBaseUrl;
+    private string? _externalModelName;
+    // Managed NPU backend (ultrabook #5): when set AND no explicit/env external URL is present, LoadAsync asks
+    // this to bring up a FastFlowLM server on the AMD NPU. Success switches the service to external mode pointed
+    // at it; failure (null) falls through to the bundled Vulkan launch. Null on machines/builds without an NPU.
+    private readonly Func<CancellationToken, Task<ManagedBackend?>>? _managedBackendStarter;
     private bool IsExternal => !string.IsNullOrWhiteSpace(_externalBaseUrl);
     private string ServerUrl => IsExternal ? _externalBaseUrl! : $"http://127.0.0.1:{ServerPort}";
     // The model id sent in each chat request. External backends require it; the bundled llama-server serves
     // one model and ignores it, so a stable label is fine there.
     private string RequestModelId => _externalModelName ?? "qwen3-4b";
+
+    // /no_think (ultrabook #5, 2026-06-21): an EXTERNAL Qwen3 *thinking* model (FastFlowLM's "qwen3:4b")
+    // emits a hidden <think> reasoning block (~150+ tokens) before every answer — pure NPU-latency/battery
+    // cost, and noise on SenseEase's compact-JSON envelope, since the prompt is tuned for the non-thinking
+    // Instruct-2507 behaviour. Qwen3 honours the "/no_think" soft switch appended to the system message
+    // (verified on FastFlowLM 2026-06-21: 183 -> 18 completion tokens). Apply it only to external Qwen3 ids
+    // that aren't an explicit Instruct build ("-it", already non-thinking); a harmless no-op on the local
+    // server and on non-Qwen backends. Best long-term: point SENSEEASE_LLM_MODEL at "qwen3-it:4b" (= the
+    // exact Qwen3-4B-Instruct-2507 SenseEase is tuned for), where thinking is off natively.
+    private bool DisableExternalThinking =>
+        IsExternal
+        && RequestModelId.IndexOf("qwen3", StringComparison.OrdinalIgnoreCase) >= 0
+        && RequestModelId.IndexOf("-it", StringComparison.OrdinalIgnoreCase) < 0;
+
+    // Append the /no_think soft switch to a system prompt when driving an external Qwen3 thinking model.
+    private string WithThinkingPolicy(string systemPrompt) =>
+        DisableExternalThinking ? systemPrompt + "\n/no_think" : systemPrompt;
 
     // H9/H10: per-process random Bearer key minted at LoadAsync. llama-server
     // receives it via the LLAMA_ARG_API_KEY child environment variable (SEC-06 —
@@ -476,7 +499,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
     public LocalLlmChatbotService(string modelPath, IAdjustmentLog? adjustmentLog = null, IEventLogStore? eventLog = null,
         string[]? stopTokens = null, string[]? extraServerArgs = null, int? nGpuLayers = null,
         Func<DateTime>? utcNow = null, TimeSpan? idleTimeout = null,
-        string? externalBaseUrl = null, string? externalModelName = null)
+        string? externalBaseUrl = null, string? externalModelName = null,
+        Func<CancellationToken, Task<ManagedBackend?>>? managedBackendStarter = null)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -492,6 +516,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
             ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_BASEURL") : externalBaseUrl;
         _externalModelName = string.IsNullOrWhiteSpace(externalModelName)
             ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_MODEL") : externalModelName;
+        _managedBackendStarter = managedBackendStarter;
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -526,10 +551,44 @@ public sealed class LocalLlmChatbotService : IChatbotService
         // External backend (ultrabook #5): an already-running OpenAI server (e.g. FastFlowLM on the NPU).
         // We connect rather than launch; the local GGUF need not even be present.
         if (IsExternal) { await ConnectExternalAsync().ConfigureAwait(false); return; }
+        // Managed NPU backend (ultrabook #5): on an AMD Ryzen-AI box, bring up FastFlowLM (reuse-or-launch) and
+        // drive it over the same external seam. A null result (no flm / model not installed / never answered)
+        // falls through to the bundled Vulkan launch below, so the chatbot still works on any machine.
+        if (_managedBackendStarter is not null && await TryStartManagedBackendAsync().ConfigureAwait(false))
+            return;
         if (!IsModelAvailable) return;
         // Qwen is the sole model (Mistral fallback removed 2026-06-19). On failure LaunchAsync sets
         // LoadError + throws → the caller drops to the deterministic lexicon path. No in-process swap.
         await LaunchAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Managed NPU backend (ultrabook #5): ask the injected starter to acquire a FastFlowLM server
+    /// (reuse an already-running one, else launch + own it), then switch this service to external mode pointed
+    /// at it. Returns true only when connected. On any failure it clears external state (and kills a process we
+    /// launched but couldn't reach) so the caller falls cleanly back to the bundled Vulkan launch. Never throws.</summary>
+    private async Task<bool> TryStartManagedBackendAsync()
+    {
+        ManagedBackend? mb;
+        try { mb = await _managedBackendStarter!(CancellationToken.None).ConfigureAwait(false); }
+        catch { mb = null; }
+        if (mb is null) return false;
+
+        _externalBaseUrl = mb.BaseUrl;
+        _externalModelName = mb.ModelTag;
+        _serverProcess = mb.OwnedProcess;          // killed on Dispose iff we launched it (else null = reused)
+        await ConnectExternalAsync().ConfigureAwait(false);
+        if (IsModelLoaded) return true;
+
+        // Acquired but couldn't connect (rare race) — undo external mode + don't leak a process we own.
+        _externalBaseUrl = null;
+        _externalModelName = null;
+        if (_serverProcess is not null)
+        {
+            try { _serverProcess.Kill(entireProcessTree: true); } catch { }
+            try { _serverProcess.Dispose(); } catch { }
+            _serverProcess = null;
+        }
+        return false;
     }
 
     /// <summary>External-backend connect (ultrabook #5): confirm the already-running OpenAI server answers
@@ -1013,7 +1072,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 model       = RequestModelId,   // external backend (FastFlowLM) requires it; local ignores it
                 messages = new[]
                 {
-                    new { role = "system", content = SystemPrompt },
+                    new { role = "system", content = WithThinkingPolicy(SystemPrompt) },
                     new { role = "user",   content = body.ToString() },
                 },
                 // 512 (was 256): the envelope reply alone runs ~150-180 tokens; when the model also
@@ -1089,7 +1148,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 model       = RequestModelId,   // external backend (FastFlowLM) requires it; local ignores it
                 messages = new[]
                 {
-                    new { role = "system", content = systemPrompt },
+                    new { role = "system", content = WithThinkingPolicy(systemPrompt) },
                     new { role = "user",   content = userPrompt },
                 },
                 max_tokens  = 96,        // 1-2 short sentences — bounded so it can't grow context/latency
