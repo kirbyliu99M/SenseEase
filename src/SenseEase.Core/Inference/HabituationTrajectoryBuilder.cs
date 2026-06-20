@@ -58,6 +58,12 @@ public static class HabituationTrajectoryBuilder
         // default impl is Recent().Where(>= since), so behaviour there is unchanged.
         var events = eventLog.ReadDurable(cutoff)
             .Where(e => e.Category.StartsWith("Habituation.", StringComparison.Ordinal))
+            // B6 Stage 4b (F6 = AUDIT-ONLY): an AUTO elasticity profile move is durably recorded in the
+            // Event Log (diagnostics) but is BACKGROUND-SILENT — exclude it from the chatbot trajectory so
+            // the silent mechanism never surfaces in conversation. The move's message ends with
+            // "(source: auto_elasticity)"; explicit/calibration profile moves (other sources) are kept.
+            .Where(e => !(e.Category == "Habituation.Profile"
+                          && e.Message.Contains("(source: auto_elasticity)", StringComparison.Ordinal)))
             .OrderBy(e => e.Timestamp)
             .ToList();
 

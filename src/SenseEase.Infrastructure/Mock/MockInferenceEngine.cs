@@ -1,4 +1,5 @@
 using SenseEase.Core.Abstractions;
+using SenseEase.Core.Adaptation;
 using SenseEase.Core.AdaptiveFit;
 using SenseEase.Core.Configuration;
 using SenseEase.Core.Inference;
@@ -25,6 +26,7 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private readonly object _gate = new();
     private readonly HabituationEngine _habituation = new();
     private readonly IAdjustmentLog? _adjustmentLog;
+    private readonly IProfileEvalHistoryStore? _profileEvalHistory;   // B6 Stage 4b streak store (clear-on-reset)
     private readonly IHabituationStore? _habituationStore;
     private readonly IHabituationProfileStore? _profileStore;
     private double _personalizationAccumulator;
@@ -224,6 +226,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private double                _autoAdaptTriggerDeltaPp = 0.0;
     private const double          AutoAdaptTriggerSpanPp   = 12.0;
 
+    /// <summary>Audit-log Parameter the trigger auto-channel writes (shared so the App's budget derive
+    /// matches the literal at <see cref="ApplyAutoAdaptDelta"/>).</summary>
+    public const string AutoAdaptTriggerParameter      = "AutoAdaptTrigger";
+    /// <summary>B6 Stage 4b: audit-log Parameter for a profile UP-move (Delta=0). Counts toward the shared
+    /// weekly relax budget but NEVER toward net-relax/HasEverAutoRelaxed. Shared with the App's derive.</summary>
+    public const string AutoReclassifyProfileParameter = "AutoReclassifyProfile";
+    /// <summary>B6 Stage 4b: the profile_source an AUTO elasticity move stamps. Used by the Reset revert
+    /// guard + the boot-load source whitelist.</summary>
+    public const string AutoElasticitySource           = "auto_elasticity";
+
     public SenseState Current { get; } = new()
     {
         FovRadiusPercent = 100,
@@ -243,9 +255,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
     public MockInferenceEngine(IAdjustmentLog? adjustmentLog = null,
                                IHabituationStore? habituationStore = null,
                                IHabituationProfileStore? profileStore = null,
-                               IEventLogStore? eventLog = null)
+                               IEventLogStore? eventLog = null,
+                               IProfileEvalHistoryStore? profileEvalHistory = null)
     {
         _adjustmentLog = adjustmentLog;
+        _profileEvalHistory = profileEvalHistory;   // B6 Stage 4b: cleared on ResetPersonalization
         _habituationStore = habituationStore;
         _profileStore = profileStore;
         _eventLog = eventLog;
@@ -714,6 +728,16 @@ public sealed class MockInferenceEngine : IInferenceEngine
     {
         lock (_gate)
         {
+            // B6 Stage 4b: an AUTO-moved profile must return toward the fresh-user seed on Reset, BEFORE the
+            // shader is seeded (so the shader reflects the reverted profile) and BEFORE the auto-delta is
+            // zeroed (so the cohort is already at-seed when the delta is removed — no permissive-cohort +
+            // nonzero-delta transient). Explicit-user (user_dashboard) / calibration profiles are LEFT
+            // untouched (a deliberate pick survives a personalization reset). The streak store is cleared
+            // unconditionally so a stale UP-streak can never fire right after a Reset.
+            if (_habituation.ProfileSource == AutoElasticitySource)
+                _habituation.AutoReclassifyProfile(HabituationProfile.Adapting, "auto_profiling_default");
+            _profileEvalHistory?.Clear();
+
             _userFovOffset = 0;
             _shader.ResetToDefault();
             // A7: reset returns to the CURRENT profile's defaults (not just the global
@@ -1739,6 +1763,135 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
+    /// <summary>B6 Stage 4b — the SINGLE locked commit for one adaptation pass: it folds the profile flip
+    /// (the FOV-offset elasticity axis) AND the trigger auto-delta (the EffectiveTrigger axis) under ONE
+    /// <c>_gate</c> acquisition, re-reading live state inside the lock and aborting to Hold on any protective
+    /// change between the off-lock snapshot and the commit. The pure gate + classifier run OFF-lock; this is
+    /// the only mutate. Deliberately does NOT call the self-locking/self-persisting public
+    /// <see cref="ApplyAutoAdaptDelta"/> / <c>SetHabituationProfile</c> (that would double-lock + double-
+    /// persist); the trigger arithmetic is inlined from <see cref="ApplyAutoAdaptDelta"/> without the re-lock,
+    /// and the profile flip routes through <see cref="HabituationEngine.AutoReclassifyProfile"/> (NO shader
+    /// re-seed — F6).</summary>
+    public AdaptationCommitResult ApplyGateOutcome(AdaptationCommitRequest req)
+    {
+        if (req is null) return AdaptationCommitResult.Hold("null-request");
+
+        // Cheap pre-lock no-op — keep the consent-ON / nothing-to-do cost identical to today.
+        if (req.ProfileMove == ProfileMove.Hold && req.TriggerDecision is GateDecision.Hold)
+            return AdaptationCommitResult.Hold("no-op");
+
+        lock (_gate)
+        {
+            // (1) LIVE RE-READ — the verdict was computed off-lock; re-read what it depended on.
+            var    liveProfile = _habituation.CurrentProfile;
+            double liveDelta   = _autoAdaptTriggerDeltaPp;
+            bool   liveVest    = _vestibularProtection;
+            int    liveLevel   = _habituation.HabituationLevel;
+            double liveStrk    = _habituation.SevereStrikeCount;
+
+            // (2) MISMATCH ABORT (fail-closed): the snapshot the verdict assumed must still hold.
+            if (liveProfile != req.SnapProfile
+                || Math.Abs(liveDelta - req.SnapAutoDelta) > 1e-9
+                || liveVest != req.SnapVestibular)
+                return AdaptationCommitResult.Hold("snapshot-vs-live-mismatch");
+
+            // (2b) UP-ONLY PROTECTIVE-RACE ABORT: an UP verdict's justification is "at/near cap +
+            // demonstrated tolerance". A severe strike between snapshot and commit collapses _offset /
+            // bumps the strike count WITHOUT changing profile/delta/vestibular, so (2) passes. Abort UP
+            // (never DOWN — DOWN fails toward protection) on any protective drift.
+            if (req.ProfileMove == ProfileMove.Up
+                && (liveLevel < req.SnapHabituationLevel || liveStrk > req.SnapStrikeCount + 1e-9))
+                return AdaptationCommitResult.Hold("up-stale-protective-change");
+
+            // (3) LIVE BUDGET RE-DERIVE inside the lock (catches a budget/eval row racing the off-lock read).
+            var liveTiming = AdaptationEvidence.DeriveAutoChannelTiming(
+                _adjustmentLog?.All(), DateTime.UtcNow, AutoAdaptTriggerParameter, AutoReclassifyProfileParameter);
+            bool budgetSpent = liveTiming.AutoChangesThisWeek >= AdaptationGateConfig.Default.MaxAutoChangesPerWeek;
+
+            // (4) PROFILE FLIP — vestibular hard-hold (never auto-move a vestibular user); an UP move
+            // consumes a relax slot (blocked when the budget is spent), a DOWN move is protective + exempt.
+            bool profileMoved = false;
+            bool profileWouldRelax = req.ProfileMove == ProfileMove.Up;
+            if (req.ProfileMove != ProfileMove.Hold && !liveVest
+                && !(profileWouldRelax && budgetSpent))
+            {
+                _habituation.AutoReclassifyProfile(req.ProfileTarget, AutoElasticitySource);
+                profileMoved = true;
+            }
+
+            // (4b) DOWN-INTO-REACTIVE RETRACT: a DOWN into Reactive (→ Cohort.Sensitive) lowers the floor a
+            // standing positive (relaxed) delta was never permitted under. DOWN must tighten NET protection,
+            // so retract any standing positive auto-delta in the same locked body.
+            if (profileMoved && req.ProfileMove == ProfileMove.Down
+                && req.ProfileTarget == HabituationProfile.Reactive && _autoAdaptTriggerDeltaPp > 0.0)
+            {
+                _habituation.EffectiveTrigger -= _autoAdaptTriggerDeltaPp;
+                _adjustmentLog?.Append(new AdjustmentRecord
+                {
+                    Parameter = AutoAdaptTriggerParameter, Delta = -_autoAdaptTriggerDeltaPp, Source = "system",
+                });
+                _autoAdaptTriggerDeltaPp = 0.0;
+            }
+
+            // (5) PROFILE BUDGET AUDIT ROW — only a relax-direction (UP) profile move consumes the shared
+            // weekly budget (DOWN is protective, exempt). Delta=0 + a distinct Parameter so it never pollutes
+            // net-relax / HasEverAutoRelaxed.
+            if (profileMoved && req.ProfileMove == ProfileMove.Up)
+                _adjustmentLog?.Append(new AdjustmentRecord
+                {
+                    Parameter = AutoReclassifyProfileParameter, Delta = 0.0, Source = "system",
+                });
+
+            // (6) COHERENCE GUARD for the trigger axis.
+            var apt = req.TriggerDecision as GateDecision.Apply;
+            bool wantTriggerApply = apt is not null;
+            // A TRUE net-relax only (NewAutoDeltaPp > 0 AND above the current delta) — a benign unwind of a
+            // prior tighten (positive diff but still ≤ 0) keeps the user MORE protected, so it may stack.
+            bool triggerIsNetRelax = apt is not null && apt.Direction == AdaptDirection.Relax
+                                     && apt.NewAutoDeltaPp > 0.0 && apt.NewAutoDeltaPp > _autoAdaptTriggerDeltaPp;
+            // §5.3 never-both-NET-relax (UP) + §5.4 down-move-no-auto-unlock (DOWN): suppress a net-relax
+            // trigger whenever the profile also moved this pass.
+            if (wantTriggerApply && triggerIsNetRelax && req.ProfileMove != ProfileMove.Hold)
+                wantTriggerApply = false;
+            // A relax-direction trigger move also consumes a relax slot — block on the live budget.
+            if (wantTriggerApply && triggerIsNetRelax && budgetSpent)
+                wantTriggerApply = false;
+
+            // (7) TRIGGER DELTA inline (mirror ApplyAutoAdaptDelta, NO re-lock, NO self-persist).
+            bool triggerMoved = false;
+            if (wantTriggerApply)
+            {
+                double nd = Math.Clamp(apt!.NewAutoDeltaPp, -AutoAdaptTriggerSpanPp, AutoAdaptTriggerSpanPp);
+                if (liveVest && nd > 0.0) nd = 0.0;
+                double diff = nd - _autoAdaptTriggerDeltaPp;
+                if (Math.Abs(diff) >= 1e-9)
+                {
+                    _habituation.EffectiveTrigger += diff;
+                    if (liveVest && _habituation.EffectiveTrigger > CalibrationProcessor.VestibularTriggerPressureOverride)
+                        _habituation.EffectiveTrigger = CalibrationProcessor.VestibularTriggerPressureOverride;
+                    _autoAdaptTriggerDeltaPp = nd;
+                    _adjustmentLog?.Append(new AdjustmentRecord
+                    {
+                        Parameter = AutoAdaptTriggerParameter, Delta = diff, Source = "system",
+                    });
+                    Current.FovRadiusPercent = ComposeFovRadius(Current.Pressure);
+                    triggerMoved = true;
+                }
+            }
+
+            // (8) PERSIST ONCE for both axes.
+            if (profileMoved || triggerMoved)
+            {
+                Current.HabituationPaused = _habituation.IsPaused;
+                _profileSnapshotDirty = true;
+                MaybePersistProfileSnapshot();
+            }
+
+            return new AdaptationCommitResult(profileMoved, triggerMoved,
+                triggerMoved ? "applied" : (profileMoved ? "profile-only" : "hold"));
+        }
+    }
+
     /// <summary>B5 — re-apply the auto-adaptation delta on top of a freshly-set BASE EffectiveTrigger
     /// (call right after boot restore / AdjustSensitivity / SetVestibularProtection set the base), then
     /// re-assert the vestibular cap so a positive (relax) delta can never push a vestibular user's
@@ -1765,12 +1918,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// <summary>B5: an ATOMIC snapshot of the adaptation-relevant engine state, taken under the gate lock
     /// so the (base = effective − delta) pairing the App computes can never tear against a concurrent
     /// mutate (the App's tuning pass runs off the UI thread). Replaces several lock-free reads.</summary>
-    public (double EffectiveTrigger, double AutoDeltaPp, double PersonalPressureScale, bool Vestibular, HabituationProfile Profile) SnapshotForAdaptation()
+    public (double EffectiveTrigger, double AutoDeltaPp, double PersonalPressureScale, bool Vestibular,
+            HabituationProfile Profile, int HabituationLevel, double OffsetPp, double CapPp, double StrikeCount)
+            SnapshotForAdaptation()
     {
         lock (_gate)
         {
             return (_habituation.EffectiveTrigger, _autoAdaptTriggerDeltaPp, _personalPressureScale,
-                    _vestibularProtection, _habituation.CurrentProfile);
+                    _vestibularProtection, _habituation.CurrentProfile,
+                    // B6 Stage 4b: profile-axis inputs for the classifier + the in-lock protective-race recheck.
+                    _habituation.HabituationLevel, (double)_habituation.HabituationOffset,
+                    _habituation.CurrentParams.HabOffsetCapPp, _habituation.SevereStrikeCount);
         }
     }
 

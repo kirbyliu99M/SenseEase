@@ -214,6 +214,11 @@ public static class AppConfig
     public static string HabituationProfilePath => Path.Combine(
         DataRoot, "SenseEase", "habituation_profile.json");
 
+    // B6 Stage 4b: the bidirectional elasticity classifier's durable UP-qualify streak (consecutive-eval
+    // count + LastQualifyUtc spacing). Written only on a consent-ON tuning pass; cleared on a Reset.
+    public static string ProfileEvalHistoryPath => Path.Combine(
+        DataRoot, "SenseEase", "profile_eval_history.json");
+
     // First-run flag. Touched once after the user completes (or skips) the
     // setup-demo calibration. Used to drive the welcome banner on the dashboard:
     // banner is shown only when the flag file does NOT exist. Flag file is empty

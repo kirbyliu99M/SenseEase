@@ -212,9 +212,13 @@ public static class AdaptationEvidence
     /// CUMULATIVE auto-delta crossed above baseline (a genuine net relax) — NOT merely that a positive
     /// diff was logged: the audit Delta is the per-apply DIFF, so unwinding a prior tighten (e.g. −3→0)
     /// logs a +3 diff but never goes net-positive, and must NOT trip cold-start. <paramref name="autoParameter"/>
-    /// is the audit Parameter the engine writes ("AutoAdaptTrigger").</summary>
+    /// is the audit Parameter the engine writes ("AutoAdaptTrigger"). <paramref name="profileParameter"/>
+    /// (B6 Stage 4b, optional) is the profile UP-move audit Parameter — when supplied, profile UP-rows
+    /// share the SAME weekly relax budget (spacing + weekly cap) as the trigger axis; null = today's
+    /// trigger-only behaviour (so existing callers are byte-identical).</summary>
     public static AutoChannelTiming DeriveAutoChannelTiming(
-        IReadOnlyList<AdjustmentRecord>? records, DateTime nowUtc, string autoParameter)
+        IReadOnlyList<AdjustmentRecord>? records, DateTime nowUtc, string autoParameter,
+        string? profileParameter = null)
     {
         var none = new AutoChannelTiming(double.PositiveInfinity, 0, 0.0, false, double.PositiveInfinity);
         if (records is null || records.Count == 0) return none;
@@ -230,9 +234,17 @@ public static class AdaptationEvidence
 
         var auto = live.Where(r => r.Parameter == autoParameter).OrderBy(r => r.TimestampUtc).ToList();
 
-        double daysSinceLast = auto.Count > 0
-            ? Math.Max(0.0, (nowUtc - auto[^1].TimestampUtc).TotalDays) : double.PositiveInfinity;
-        int thisWeek = auto.Count(r => (nowUtc - r.TimestampUtc).TotalDays <= 7.0);
+        // B6 Stage 4b: the BUDGET timing (spacing + weekly cap) counts BOTH the trigger auto-channel rows
+        // AND the profile UP-move audit rows (profileParameter), so profile + trigger share ONE weekly relax
+        // budget. netRelaxToday / cumulative / manualTightens stay on the trigger param ALONE — profile rows
+        // carry Delta=0 + no trigger sign, so they must never skew net-relax / HasEverAutoRelaxed. When
+        // profileParameter is null, only the trigger rows count (today's behaviour, byte-identical).
+        var countedForBudget = live
+            .Where(r => r.Parameter == autoParameter || r.Parameter == profileParameter)
+            .OrderBy(r => r.TimestampUtc).ToList();
+        double daysSinceLast = countedForBudget.Count > 0
+            ? Math.Max(0.0, (nowUtc - countedForBudget[^1].TimestampUtc).TotalDays) : double.PositiveInfinity;
+        int thisWeek = countedForBudget.Count(r => (nowUtc - r.TimestampUtc).TotalDays <= 7.0);
         // Gross same-day relax (Delta>0 only). Deliberately gross, not net: a same-day tighten does NOT
         // earn back relax budget, so the per-day cap fails toward protection (the desired direction).
         double netRelaxToday = auto.Where(r => r.TimestampUtc.Date == nowUtc.Date && r.Delta > 0).Sum(r => r.Delta);

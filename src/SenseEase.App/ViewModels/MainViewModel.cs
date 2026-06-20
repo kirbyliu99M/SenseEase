@@ -304,6 +304,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
     private readonly IAdjustmentLog _adjustmentLog = new FileAdjustmentLog(AppConfig.AdjustmentLogPath);
+    // B6 Stage 4b: durable UP-qualify streak for the bidirectional elasticity classifier. Shared with the
+    // engine (passed to its ctor) so a Reset clears it; read/written by MaybeRunAdaptationTuning each pass.
+    private readonly IProfileEvalHistoryStore _profileEvalHistory =
+        new FileProfileEvalHistoryStore(AppConfig.ProfileEvalHistoryPath);
     // B2: nominal FOV-equivalent (pp) charged to the habituation caution per manual level nudge —
     // ~one tier's FOV step (15-100 range / 12 tiers). Logged under the "LevelNudge" parameter.
     private const int ManualNudgeFovEquivalentPp = 8;
@@ -990,7 +994,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // M1 (Phase 6-pre): pass _log so the engine wrapper emits habituation
         // lifecycle events (profile change, level transition, spike, engine-
         // state change) for the chatbot's Phase 6c trajectory builder.
-        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log);
+        _engine = new MockInferenceEngine(_adjustmentLog, _habituationStore, _habituationProfileStore, _log,
+                                          _profileEvalHistory);
 
         // Alpha-2 GROUP D flag-mirror: the single App↔engine seam that arms the
         // adaptive-fit set-selector post-M1. SenseEase.Infrastructure cannot read
@@ -2443,7 +2448,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // net-relax; HasEverAutoRelaxed is "cumulative crossed baseline", NOT "any positive diff").
             IReadOnlyList<AdjustmentRecord> records =
                 (_adjustmentLog as FileAdjustmentLog)?.All() ?? System.Array.Empty<AdjustmentRecord>();
-            var timing = AdaptationEvidence.DeriveAutoChannelTiming(records, now, AutoAdaptParameter);
+            var timing = AdaptationEvidence.DeriveAutoChannelTiming(
+                records, now, AutoAdaptParameter, MockInferenceEngine.AutoReclassifyProfileParameter);
 
             // Engine state — ATOMIC snapshot under the gate lock so base = effective − auto can't tear
             // against a concurrent engine mutate (this runs off the UI thread).
@@ -2463,16 +2469,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // own independent authority regardless; the proposed RELAX stays evidence-unreachable until Stage 2.
             var hint = BuildAdaptationHint(proposedScale, proposalRationale, proposalExpiresUtc, snap.PersonalPressureScale, now);
 
-            _adaptationCoordinator.RunOnce(
-                consentEnabled: true,
-                hint: hint,
-                state: state,
-                applyAutoDelta: d => mock.ApplyAutoAdaptDelta(d),
-                // B6 (Kirby 2026-06-21): the adaptation is fully BACKGROUND — NO per-change in-chat notice.
-                // Transparency lives at the opt-in moment (the AdaptiveAutoTune toggle discloses the quiet
-                // fine-tuning + the Settings-reset escape) plus the durable Source="system" audit record in
-                // the adjustment log. So there is nothing to surface on apply.
-                onApplied: (_, _) => { });
+            // B6 Stage 4b: BOTH axis decisions are computed OFF-lock against the SAME snapshot; the engine's
+            // ApplyGateOutcome re-reads live state under ONE lock and commits (or aborts to Hold). The trigger
+            // gate keeps its existing authority; the bidirectional classifier adds the profile (elasticity)
+            // axis. The adaptation stays fully BACKGROUND — no per-change in-chat notice (transparency lives at
+            // the AdaptiveAutoTune opt-in + the durable Source="system" audit); an AUTO profile move is logged
+            // to the Event Log but kept out of the chatbot trajectory (F6 audit-only).
+            var triggerDecision = AdaptationGate.Evaluate(hint, state, cfg);
+
+            var hist = _profileEvalHistory.Load();   // durable streak — reconstructed each pass, never in-memory
+            double overCap = Math.Max(0.0, snap.OffsetPp - snap.CapPp);
+            bool upSpacingMet = (now - hist.LastQualifyUtc).TotalDays >= cfg.RelaxMinIntervalDays;
+            var verdict = ProfileElasticityClassifier.Classify(
+                state, snap.Profile, snap.Vestibular, snap.HabituationLevel, overCap,
+                hist.ConsecutiveUpQualify, upSpacingMet, ProfileElasticityConfig.Default, cfg);
+
+            // Persist the durable streak BEFORE the commit (so a later throw can't leave it un-advanced/
+            // un-reset): a qualify advances it only when properly spaced; any non-qualify resets it; a fired
+            // UP consumes it back to 0.
+            bool spaced = verdict.QualifiesUp && upSpacingMet;
+            int newStreak = !verdict.QualifiesUp ? 0
+                          : spaced ? hist.ConsecutiveUpQualify + 1
+                          : hist.ConsecutiveUpQualify;
+            if (verdict.Move == ProfileMove.Up) newStreak = 0;          // consumed
+            DateTime newLastQualify = spaced ? now : hist.LastQualifyUtc;
+            _profileEvalHistory.Save(new ProfileEvalHistory(newStreak, newLastQualify));
+
+            mock.ApplyGateOutcome(new AdaptationCommitRequest(
+                snap.Profile, snap.AutoDeltaPp, snap.Vestibular, snap.HabituationLevel, snap.StrikeCount,
+                verdict.Move, verdict.Target, triggerDecision));
         }
         catch { /* advisory tuning — never disturb the analysis loop or the engine */ }
     }

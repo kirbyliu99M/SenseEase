@@ -231,6 +231,48 @@ public sealed class HabituationEngine
         ProfileChanged?.Invoke(profile, source);
     }
 
+    /// <summary>B6 Stage 4b — AUTO bidirectional elasticity profile move. Distinct from
+    /// <see cref="SetProfile"/> on three points, all to keep a self-correcting classifier safe:
+    /// <list type="bullet">
+    ///   <item>It TARES (does NOT zero) the in-flight strike count, so a relax-direction move cannot wipe
+    ///         near-threshold strike evidence (SetProfile zeros it — correct for a deliberate switch).</item>
+    ///   <item>It does NOT hard-clamp <c>_offset</c> to a lower cap; the unconditional cap-bleed near the top
+    ///         of <see cref="Step"/> converges an over-cap offset gradually instead of truncating earned
+    ///         progress (so a noisy classifier can't ratchet habituation down).</item>
+    ///   <item>It re-checks the tared count against the NEW profile's limit (honoring
+    ///         <see cref="SevereStrikeLimitOverride"/> + the epsilon, exactly as
+    ///         <see cref="RegisterSevereStrike"/>), zeroing the offset+count if already at/over the new limit.</item>
+    /// </list>
+    /// The caller (<c>MockInferenceEngine.ApplyGateOutcome</c>) holds the gate AND enforces the vestibular
+    /// hold — this method is never invoked for a vestibular user. Does NOT touch <c>_awaitingUserConfirm</c>,
+    /// <c>_pauseCooldown</c>, <c>_externallyPaused</c>, <c>_stableElapsed</c>, <c>_stepAccumulator</c>,
+    /// <c>_phase</c>, or <see cref="EffectiveTrigger"/>.</summary>
+    public void AutoReclassifyProfile(HabituationProfile target, string source = "auto_elasticity")
+    {
+        if (target == _currentProfile && source == _profileSource) return;   // no-op parity (cf. SetProfile)
+
+        _params         = HabituationProfileParams.For(target);
+        _currentProfile = target;
+        _profileSource  = source;
+        // SetProfile zeros _severeStrikeCount here; this AUTO path TARES-NOT-ZEROS it on purpose.
+
+        _effectiveWindow       = _params.StableWindowSeconds;
+        _effectiveStepInterval = _params.StepIntervalSeconds;
+
+        // Re-check the tared count against the NEW limit — same comparison as RegisterSevereStrike
+        // (override + epsilon). This is the ONLY place this method writes _offset.
+        double effectiveLimit = SevereStrikeLimitOverride ?? _params.SevereStrikeLimit;
+        if (_severeStrikeCount >= effectiveLimit - StrikeLimitEpsilon)
+        {
+            _offset = 0.0;
+            _severeStrikeCount = 0.0;
+        }
+        // NO hard clamp (cf. SetProfile's `if (_offset > cap) _offset = cap`): an over-cap _offset is bled
+        // toward the cap by Step()'s unconditional cap-bleed, never truncated.
+
+        ProfileChanged?.Invoke(target, source);
+    }
+
     /// <summary>Resume from <see cref="EngineState.PausedAwaitingUserConfirm"/>.
     /// No-op if the engine is not in that state. Clears the await flag and
     /// the (infinite) cooldown; phase returns to Observing. The user / chatbot
@@ -283,6 +325,15 @@ public sealed class HabituationEngine
             _pressureWasAtRecurrence = atRecurrence;
             return;
         }
+
+        // B6 Stage 4b: lazy convergence after an AUTO down-move (AutoReclassifyProfile) deliberately left
+        // _offset above the lowered cap. Explicit/calibration SetProfile hard-clamps on the flip, so this
+        // only ever bleeds the auto-deferred case. Gradual (one StepMagnitudePp/tick), never an instant
+        // truncate, so a noisy classifier cannot ratchet earned habituation down. Placed BEFORE the
+        // recurrence/stability branches (which can early-return) so it is calm-INDEPENDENT — a worsening
+        // user, the only one who triggers an auto DOWN, still converges to the new cap.
+        if (_offset > _params.HabOffsetCapPp)
+            _offset = Math.Max(_params.HabOffsetCapPp, _offset - _params.StepMagnitudePp);
 
         // Pressure-spike recurrence: sensor-derived severe event (weight 1.0).
         // EM1 — EDGE-triggered: fire only on the rising crossing of the recurrence
