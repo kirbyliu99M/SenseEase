@@ -456,7 +456,7 @@
                           Margin="0,14,0,0"
                           Checked="OnToggleAdaptiveAutoTuneChanged"
                           Unchecked="OnToggleAdaptiveAutoTuneChanged"/>
-                <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會依你最近的感受回報與使用情況，自動且小幅地調整防護強度（每次幅度有上限、可隨時在設定中重置）。每次調整都會在對話中告知你。完全選用、預設關閉；所有判斷皆在本機進行。', En='When on, SenseEase makes small automatic adjustments to protection strength based on your recent check-ins and usage (each step is capped and can be reset anytime). Every change is announced in the chat. Fully optional, off by default; all decisions happen on this device.'}"
+                <TextBlock Text="{loc:T Zh='開啟後，SenseEase 會依你最近的感受回報與使用情況，在背景自動且小幅地調整防護強度（每次幅度有上限，可隨時在設定中重置）。完全選用、預設關閉；所有判斷皆在本機進行。', En='When on, SenseEase quietly makes small automatic adjustments to protection strength based on your recent check-ins and usage (each step is capped, and you can reset it anytime in Settings). Fully optional, off by default; all decisions happen on this device.'}"
                            FontSize="12" Foreground="{DynamicResource TextTertiary}"
                            TextWrapping="Wrap" Margin="22,6,0,0"/>
 

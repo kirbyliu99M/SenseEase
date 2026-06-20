@@ -2432,11 +2432,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 hint: hint,
                 state: state,
                 applyAutoDelta: d => mock.ApplyAutoAdaptDelta(d),
-                // B6 Stage 1 (RT-relax-notice): pass a notice FACTORY, not a fixed string — ChatbotVm invokes
-                // it at render time on the UI thread, where it re-reads the LIVE auto-delta so a relax notice
-                // can't claim an ease that a concurrent protective event clawed back between apply and render.
-                onApplied: (apply, _) => ChatbotVm?.AddAdaptationNotice(
-                    () => AdaptationNoticeText(apply, mock.SnapshotForAdaptation().AutoDeltaPp)));
+                // B6 (Kirby 2026-06-21): the adaptation is fully BACKGROUND — NO per-change in-chat notice.
+                // Transparency lives at the opt-in moment (the AdaptiveAutoTune toggle discloses the quiet
+                // fine-tuning + the Settings-reset escape) plus the durable Source="system" audit record in
+                // the adjustment log. So there is nothing to surface on apply.
+                onApplied: (_, _) => { });
         }
         catch { /* advisory tuning — never disturb the analysis loop or the engine */ }
     }
@@ -2455,28 +2455,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return new AdaptationHint(AdaptDirection.Hold, string.Empty);
     }
 
-    /// <summary>B6 Stage 1 — the subtle bilingual in-chat notice for an applied auto-adaptation (Kirby's
-    /// "tell the user in the chatbox" transparency policy). Direction-aware + RENDER-HONEST: a RELAX claims
-    /// "I eased it" ONLY when the LIVE auto-delta still reflects the ease (<paramref name="liveDeltaPp"/> ≥
-    /// the applied relax); if a concurrent protective event clawed it back, it falls to a neutral, non-false
-    /// line (the W-E lesson — never claim an ease that no longer stands). Render-only text.</summary>
-    internal static string AdaptationNoticeText(GateDecision.Apply apply, double liveDeltaPp)
-    {
-        if (apply.Direction == AdaptDirection.Relax)
-        {
-            // Sign: relax moves the auto-delta MORE POSITIVE. If the live delta has since dropped below the
-            // applied value, a protective event clawed (part of) the ease back → don't claim "I eased it".
-            bool easeStillStands = liveDeltaPp >= apply.NewAutoDeltaPp - 1e-9;
-            return easeStillStands
-                ? Loc("根據你最近的狀況，我略為放寬了畫面防護。若想調整，可隨時在設定中重置。",
-                      "Based on your recent patterns, I eased the screen protection a little. You can adjust this anytime in Settings (reset).")
-                : Loc("根據你最近的狀況，我為你保留了目前的畫面防護。若想調整，可隨時在設定中重置。",
-                      "Based on your recent patterns, I kept your screen protection where it was. You can adjust this anytime in Settings (reset).");
-        }
-        // Tighten (the only other applied direction): the existing honest "strengthened" line.
-        return Loc("根據你最近的狀況，我略為加強了畫面防護。若想調整，可隨時在設定中重置。",
-                  "Based on your recent patterns, I strengthened the screen protection a little. You can adjust this anytime in Settings (reset).");
-    }
+    // B6 (Kirby 2026-06-21): the per-change in-chat adaptation notice was removed — the mechanism is fully
+    // background, with transparency disclosed once at the AdaptiveAutoTune opt-in toggle + the Settings-reset
+    // escape + the durable Source="system" audit record. (BuildAdaptationHint above still feeds the gate.)
 
     public void DisposeServices()
     {

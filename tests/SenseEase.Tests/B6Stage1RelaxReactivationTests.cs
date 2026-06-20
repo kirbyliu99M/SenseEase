@@ -115,25 +115,6 @@ public sealed class B6Stage1RelaxReactivationTests
         Assert.Equal(AdaptDirection.Tighten, apply.Direction); // data wins — never a relax
     }
 
-    // ── Eval 4 (render honesty): the notice never claims an ease that the live delta no longer reflects ─
-
-    [Fact]
-    public void AdaptationNotice_RelaxClawedBack_DoesNotClaimEased()
-    {
-        // Relax moves the auto-delta MORE POSITIVE (here +3pp).
-        var relax = new GateDecision.Apply(NewAutoDeltaPp: 3.0, ResultingEffectiveTrigger: 88.0,
-            Direction: AdaptDirection.Relax, Reason: "relax-ok");
-
-        string easeStands = MainViewModel.AdaptationNoticeText(relax, liveDeltaPp: 3.0);   // live still reflects the ease
-        string clawedBack = MainViewModel.AdaptationNoticeText(relax, liveDeltaPp: -2.0);  // a protective event clawed it back
-
-        // Relative (language-agnostic): the clawed-back notice is a DIFFERENT line — not the "I eased it" claim.
-        Assert.NotEqual(easeStands, clawedBack);
-
-        // And both differ from the tighten line — the notice is genuinely direction-aware, not one-size.
-        var tighten = new GateDecision.Apply(-3.0, 82.0, AdaptDirection.Tighten, "measured-worsening");
-        string tightenText = MainViewModel.AdaptationNoticeText(tighten, liveDeltaPp: -3.0);
-        Assert.NotEqual(easeStands, tightenText);
-        Assert.NotEqual(clawedBack, tightenText);
-    }
+    // (B6 2026-06-21: the per-change in-chat notice was removed — the mechanism is fully background, disclosed
+    //  once at the opt-in toggle — so the former render-honest-notice eval no longer applies.)
 }

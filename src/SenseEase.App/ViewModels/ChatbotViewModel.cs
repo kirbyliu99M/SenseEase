@@ -1021,32 +1021,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         });
     }
 
-    /// <summary>B5: surface a SUBTLE, system-styled adaptation notice in the chat — the user-facing
-    /// transparency for an auto-applied protection tweak (Kirby's "tell the user in the chatbox" policy).
-    /// A plain assistant line, no picker. Marshals to the UI thread; best-effort (a notice failure must
-    /// never disturb the background tuning loop). Safe to call from any thread.</summary>
-    public void AddAdaptationNotice(Func<string> noticeFactory)
-    {
-        if (noticeFactory is null) return;
-        try
-        {
-            // BeginInvoke (fire-and-forget): a transparency notice must NEVER block its caller — a
-            // synchronous Invoke from the long-lived background tuning loop can wedge if the UI pump is
-            // draining (shutdown) or absent (headless). The notice has no return value, so async is fine.
-            // B6 Stage 1 (RT-relax-notice): the factory is invoked HERE — at render time, on the UI thread —
-            // so it re-reads the LIVE auto-delta and can downgrade a stale "I eased it" claim if a protective
-            // event clawed the relax back between the gate's apply and this marshalled render (the W-E lesson:
-            // never claim an ease that no longer stands).
-            _dispatcher.BeginInvoke(new Action(() =>
-            {
-                string text = noticeFactory();
-                if (string.IsNullOrWhiteSpace(text)) return;
-                Messages.Add(new ChatMessageViewModel(text, ChatRole.Assistant));
-                PersistMessage(ChatRole.Assistant, text);
-            }));
-        }
-        catch { /* advisory — never disturb the caller */ }
-    }
+    // B6 (Kirby 2026-06-21): AddAdaptationNotice removed — the auto-adaptation is fully BACKGROUND with no
+    // per-change in-chat surfacing. Transparency is disclosed once at the AdaptiveAutoTune opt-in toggle +
+    // the Settings-reset escape + the durable Source="system" audit record. (Re-add a notice path here if a
+    // future decision reverses that; the gate's apply currently has a no-op onApplied.)
 
     /// <summary>
     /// Build the state-annotated model input. Prepends terse [RecentAdjustments] and
