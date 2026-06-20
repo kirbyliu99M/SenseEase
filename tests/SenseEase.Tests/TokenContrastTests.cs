@@ -65,6 +65,25 @@ public class TokenContrastTests
         }
     }
 
+    [Fact]
+    public void SettingsGlassComfortTextPairs_ClearWcagAa()
+    {
+        // The light-blue Settings glass (SettingsGlassPalette) colours the head-tracking / comfort STATUS
+        // text with the comfort-band *Text tokens on its own Surface (#F2D7E4FC). This pair set is NOT
+        // covered by the SenseEaseTheme/Palette.Dark sweep above, so guard it here — the Steady-band green
+        // sat at 4.24:1 (below AA) until 2026-06-20.
+        var tokens = ParseBrushes(Path.Combine(ThemeDir(), "SettingsGlassPalette.xaml"));
+        Assert.True(tokens.ContainsKey("Surface"), "SettingsGlassPalette missing Surface.");
+        foreach (var tk in new[] { "ComfortSteadyText", "ComfortRisingText", "ComfortHighText" })
+        {
+            Assert.True(tokens.ContainsKey(tk), $"SettingsGlassPalette missing {tk}.");
+            double ratio = ContrastRatio(tokens[tk], tokens["Surface"]);
+            Assert.True(ratio >= AaNormal,
+                $"[settings-glass] {tk} on Surface contrast {ratio:0.00}:1 is below WCAG AA 4.5:1. " +
+                "Darken the comfort-text token until it clears.");
+        }
+    }
+
     private static void AssertAllPairs(
         IReadOnlyDictionary<string, (int r, int g, int b)> textSource,
         IReadOnlyDictionary<string, (int r, int g, int b)> surfaceSource,

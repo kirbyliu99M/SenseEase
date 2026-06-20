@@ -851,14 +851,18 @@ public partial class SettingsContent : UserControl
 
         try
         {
-            ClearAllUserData();
+            int stillLocked = ClearAllUserData();
 
             ThemedDialog.Notify(
                 Window.GetWindow(this),
-                LocalizationManager.Current.Pick(
-                    "已清除所有使用者資料。",
-                    "All user data cleared."),
-                DialogKind.Info);
+                stillLocked == 0
+                    ? LocalizationManager.Current.Pick(
+                        "已清除所有使用者資料。",
+                        "All user data cleared.")
+                    : LocalizationManager.Current.Pick(
+                        $"已清除大部分資料，但有 {stillLocked} 個檔案仍在使用中（可能是防毒掃描），暫時無法移除。請稍候再試一次。",
+                        $"Cleared most of your data, but {stillLocked} file(s) were still in use (possibly an antivirus scan) and couldn't be removed. Please try again in a moment."),
+                stillLocked == 0 ? DialogKind.Info : DialogKind.Warning);
         }
         catch (Exception ex)
         {
@@ -891,30 +895,36 @@ public partial class SettingsContent : UserControl
     /// only truncates observation memory and zeroes the index, and the two file deletes
     /// added here are unrelated transcript files. Graded-exposure progress and
     /// preferences therefore survive a full clear.</para></summary>
-    internal static void ClearAllUserData()
+    internal static int ClearAllUserData()
     {
+        int failed = 0;   // content files still locked after retries — drives the honest partial-result message
+
         // H24 step 4: ClearUserModel() (behaviour log + index + observations,
         // structured deltas preserved — Q4.5-safe).
-        var profileStore = new FileHabituationProfileStore(AppConfig.HabituationProfilePath);
-        var userModel = new UserModelIndexStore(
-            AppConfig.UserModelIndexPath, AppConfig.BehaviorLogPath, profileStore);
-        userModel.ClearUserModel();
+        try
+        {
+            var profileStore = new FileHabituationProfileStore(AppConfig.HabituationProfilePath);
+            var userModel = new UserModelIndexStore(
+                AppConfig.UserModelIndexPath, AppConfig.BehaviorLogPath, profileStore);
+            userModel.ClearUserModel();
+        }
+        catch { failed++; }
 
         // ... + the ClearOnDiskTrace() target (the model trace), best-effort.
-        BestEffortDelete(AppConfig.ModelTracePath);
+        if (!BestEffortDelete(AppConfig.ModelTracePath)) failed++;
 
         // UX-09 + FEAT-13: the two designated content-bearing PII transcript files the
         // old clear path skipped — now included so the "all my data" label is honest.
-        BestEffortDelete(AppConfig.ChatHistoryPath);
-        BestEffortDelete(AppConfig.CalibrationHistoryPath);
+        if (!BestEffortDelete(AppConfig.ChatHistoryPath)) failed++;
+        if (!BestEffortDelete(AppConfig.CalibrationHistoryPath)) failed++;
 
         // Beta-1 Phase-1: the structured symptom/comfort event log (FMS self-reports +
         // daily estimates) — DeletableOnClear=true on every row, so the H24 "all my data"
         // clear must remove it too.
-        BestEffortDelete(AppConfig.SymptomLogPath);
+        if (!BestEffortDelete(AppConfig.SymptomLogPath)) failed++;
 
         // Chatbot-tuning sprint (2026-06-19): the dedicated in-chat FMS quick-rate dev log.
-        BestEffortDelete(AppConfig.FmsLogPath);
+        if (!BestEffortDelete(AppConfig.FmsLogPath)) failed++;
 
         // W-E (2026-06-20): the overlay-consent decline cooldown is BEHAVIOURAL data, not a kept
         // preference — clear it (the asked/accepted/declined/ignored rows in symptom_log are deleted
@@ -927,14 +937,31 @@ public partial class SettingsContent : UserControl
             UserPreferences.Current.Save();
         }
         catch { /* best-effort — a prefs write failure must not abort the data clear */ }
+
+        return failed;
     }
 
-    /// <summary>Best-effort PII file delete — a missing file is success (nothing to
-    /// clear), and a transient lock (e.g. the known AV lock) is swallowed so one stuck
-    /// file can never abort the whole clear. Used by <see cref="ClearAllUserData"/>.</summary>
-    private static void BestEffortDelete(string path)
+    private const int ClearRetries = 3;          // the Trend Micro AV lock is transient (~400ms worst) — retry briefly
+    private const int ClearRetryDelayMs = 150;
+
+    /// <summary>Best-effort PII file delete with a short retry for the known TRANSIENT AV lock. Returns
+    /// true if the file is gone (deleted or never existed), false if it is STILL locked after the retries —
+    /// so <see cref="ClearAllUserData"/> reports an honest partial result instead of a blanket "all cleared".</summary>
+    private static bool BestEffortDelete(string path)
     {
-        try { if (File.Exists(path)) File.Delete(path); }
-        catch { /* best-effort PII cleanup — never abort the clear on one locked file */ }
+        for (int attempt = 0; attempt <= ClearRetries; attempt++)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                return true;                                 // deleted, or nothing to delete
+            }
+            catch
+            {
+                if (attempt >= ClearRetries) return false;   // still in use after the retries — report it
+                try { System.Threading.Thread.Sleep(ClearRetryDelayMs); } catch { /* ignore */ }
+            }
+        }
+        return false;
     }
 }

@@ -55,7 +55,7 @@
          on the near-white glass (the slate's light *Text would vanish on light). -->
     <SolidColorBrush x:Key="ComfortSteady"     Color="#FF22C55E"/>
     <SolidColorBrush x:Key="ComfortSteadyWeak" Color="#2622C55E"/>
-    <SolidColorBrush x:Key="ComfortSteadyText" Color="#FF0F7A3A"/>
+    <SolidColorBrush x:Key="ComfortSteadyText" Color="#FF0D6A33"/>
     <SolidColorBrush x:Key="ComfortRising"     Color="#FFF59E0B"/>
     <SolidColorBrush x:Key="ComfortRisingWeak" Color="#26F59E0B"/>
     <SolidColorBrush x:Key="ComfortRisingText" Color="#FF8A5500"/>
