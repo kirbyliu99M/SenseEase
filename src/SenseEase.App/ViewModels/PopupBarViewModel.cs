@@ -108,7 +108,11 @@ public sealed class PopupBarViewModel : INotifyPropertyChanged
         {
             if (_isChatOpen == value) return;
             _isChatOpen = value;
-            if (value) IsSettingsOpen = false; // mutually exclusive — only one panel open at a time
+            if (value)
+            {
+                IsSettingsOpen = false;   // mutually exclusive — only one panel open at a time
+                Chat?.Prewarm();          // start the model / NPU load on OPEN so the first reply isn't stalled by cold spin-up
+            }
             OnPropertyChanged();
         }
     }

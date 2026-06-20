@@ -266,11 +266,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         if (!chatbot.IsModelAvailable)
             LogModelDiagnostic("model not found", AppConfig.ModelPathProbes);
 
-        // Lazy model load (startup speed): the GGUF no longer loads at app startup —
-        // EnsureModelLoadedAsync kicks it on the FIRST chat message that reaches the LLM
-        // (SendAsync). Launch stays fast and the heavy model read / AV scan only happens
-        // when the user actually chats. Safety-floor + slash-command + profile-picker
-        // short-circuits never need the model, so they stay instant.
+        // Lazy model load (startup speed): the model no longer loads at app startup —
+        // EnsureModelLoadedAsync kicks it when the user OPENS the chat (Prewarm, fired from the bar's
+        // IsChatOpen setter) so the model / NPU spin-up overlaps reading the greeting + typing; the first
+        // SendAsync then just awaits the in-flight load instead of paying the full cold start. Launch stays
+        // fast and the heavy model read / NPU spin-up only happens once the user reaches for the assistant.
+        // Safety-floor + slash-command + profile-picker short-circuits never need the model, so they stay instant.
 
         // Phase 4: persist transcript across restarts. Load existing history first;
         // if any prior bubbles exist they replace the welcome (returning user — the
@@ -328,8 +329,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
     }
 
-    // Lazy-load guard: InitModelAsync runs at most once, on the first chat message that
-    // reaches the LLM (see SendAsync). Interlocked so concurrent first-sends can't double-load.
+    // Lazy-load guard: InitModelAsync runs at most once — kicked by Prewarm() when the chat panel OPENS
+    // (so the model / NPU spin-up overlaps the user typing), else by the first SendAsync that reaches the
+    // LLM. Interlocked so the open-prewarm and a fast first-send can't double-load.
     private int _modelInitStarted;
     private Task _modelInitTask = Task.CompletedTask;
 
@@ -344,6 +346,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         }
         return _modelInitTask;
     }
+
+    /// <summary>Begin loading the model NOW (idempotent) — called when the chat panel opens so the server /
+    /// NPU spin-up overlaps the user reading the greeting + typing. The first <see cref="SendAsync"/> then
+    /// just awaits the already-running load instead of paying the full cold start. A no-op once started;
+    /// errors are handled inside InitModelAsync (→ lexicon fallback), so fire-and-forget is safe.</summary>
+    public void Prewarm() => _ = EnsureModelLoadedAsync();
 
     private async Task InitModelAsync()
     {
@@ -664,9 +672,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // changes protection they can't see, and the upstream gate already scrubbed the reply with
             // actuated=true, so it would falsely claim a change. Mirror the rest-advice hold: zero the deltas
             // BEFORE ApplyNluResult (→ it applies nothing, empty summary, no false ✓ row) and replace the
-            // reply with an honest "I'll apply that once the overlay is on" line. A held rest turn already
-            // zeroed the deltas above, so this never double-fires; the consent gate the overlay itself
-            // enforces stays the source of truth — this is defense-in-depth at the chat seam.
+            // reply with an honest record-and-learn acknowledgement — NOT a "turn protection on" instruction.
+            // Post-symptom feedback (the common case) arrives AFTER the episode with the overlay legitimately
+            // off; the chatbot records + learns rather than pushing the user to enable protection. The
+            // longitudinal-observation learner (below) still records the turn regardless of this gate. A held
+            // rest turn already zeroed the deltas above, so this never double-fires; the consent gate the
+            // overlay itself enforces stays the source of truth — this is defense-in-depth at the chat seam.
             bool wantsActuation = result.FovDelta != 0 || result.MaskDepthDelta != 0
                                || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0;
             if (wantsActuation && _isOverlayConsented is { } consented && !consented())
@@ -676,8 +687,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 result.GridVisibilityDelta = 0;
                 result.FeatherWidthDelta = 0;
                 visibleReply = LocalizationManager.Current.Pick(
-                    "好的，我記下了。等你開啟舒適防護（從工具列開啟，或在快速設定開啟「自動防護」）後，我就會幫你套用這個調整。",
-                    "Got it — I'll apply that once the comfort overlay is on (start it from the bar, or turn on Auto Protect in quick settings).");
+                    "好的，我記下了，會用這個來調整往後給你的防護。",
+                    "Got it — I've noted that, and I'll use it to tune your protection going forward.");
             }
 
             ChatMessageViewModel? assistantBubble = null;
