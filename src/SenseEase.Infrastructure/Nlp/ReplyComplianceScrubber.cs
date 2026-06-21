@@ -208,9 +208,13 @@ internal static class ReplyComplianceScrubber
         return ZhParticle.Replace(s, string.Empty);
     }
 
+    // 2026-06-21: the bar's "+/-" buttons became a drag SLIDER (PopupIntensitySlider, "保護強度") — copy
+    // updated to match. NOTE: "control on the bar" (EN) + "工具列上的"/"未變更任何設定" (ZH) are LOAD-BEARING —
+    // ClinicalReportNarrator.LooksLikeChatArtifact keys on them to reject this chat-only line if it leaks into
+    // a clinical report; keep those substrings when editing the copy.
     private static string HonestNoActionLine(bool english) => english
-        ? "I haven't changed anything just now. Tell me how you're feeling and I can ease the visuals, or use the +/- control on the bar."
-        : "目前未變更任何設定。若需調整請告知，或使用工具列上的 +/- 控制。";
+        ? "I haven't changed anything just now. Tell me how you're feeling and I can ease the visuals, or drag the strength control on the bar."
+        : "目前未變更任何設定。若需調整請告知，或拖曳工具列上的強度滑桿。";
 
     private static string AnalyzeNeutralLine(bool english) => english
         ? "Looking at the recent activity, the on-screen motion was the likely driver — let me know how you're feeling now."
