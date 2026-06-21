@@ -230,6 +230,22 @@ date-bucketed, outer-join, null-gaps) keyed on `ExtractCategory`; golden tests +
 `category/app`" assertion (build-gate 2). No UI, no I/O in the pure method. → P2 renderer → P3
 narrative+guard (vocab expansion) → P4 wire-up (add HTML beside JSON, after the #4 fix lands) → P5 UVHS.
 
+### Status — BUILT 2026-06-21 (P1 `6b011ad`, P2–P4 `b2c4072`)
+- **P1** ✅ `ClinicalExportBuilder.BuildDailySeries` + `DailySeriesPoint` + 5 golden tests.
+- **P2** ✅ `ClinicalReportHtmlRenderer` (pure HTML + inline SVG, calm LIGHT palette pinned to concrete hex,
+  per-day line breaks at null gaps, all dynamic content HTML-escaped). Tests cover palette/escaping/both-langs/placeholders.
+- **P3** ✅ `ReportClaimGuard` (pure Core, single-source banned vocab, stem-level, both-langs-always) +
+  `ClinicalReportNarrator` (per-section, two-wall: scrub → guard → language + chat-artifact gate → deterministic
+  fallback) + `ReportFallbacks` (templates pass the guard, golden). Q4 `CompleteShortAsync(…, maxTokens, …)` added.
+  `BannedPhraseLintTests` now asserts guard ⊇ lint (build-gate 4); `ReportClaimGuard.cs` is the vocab-definition
+  file so it is fully exempt from the lint scan (its own tests + the anti-drift test cover it).
+- **P4** ✅ `ClinicalReportService` composes the stores + narrator + renderer and writes the HTML atomically;
+  "Export health report" now writes the HTML report **and** the JSON beside it (JSON KEPT). Posture reads
+  allowlisted numeric/coarse-enum fields only (build-gate 1). Wired via `GetChatbotService` (reuses the loaded model).
+- **P5 UVHS** — markup verified line-by-line + unit-tested; representative EN/ZH samples generated to the Desktop
+  for Kirby's own browser eyeball (the report is a standalone HTML artifact, not a claude.ai-native widget).
+- **Unblocks** the dashboard-dismantle **Stage 2** (Eye Care deletion): the agreed re-home now exists.
+
 ---
 
 *Cited files: `SettingsContent.xaml(.cs)`, `ClinicalExportService.cs`, `ClinicalExport.cs`,
