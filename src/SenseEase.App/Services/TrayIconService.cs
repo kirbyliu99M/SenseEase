@@ -91,6 +91,12 @@ public sealed class TrayIconService : IDisposable
     private readonly System.Windows.Threading.DispatcherTimer _clickDebounce =
         new() { Interval = TimeSpan.FromMilliseconds(260) };
 
+    // 閃退 fix (Kirby 2026-06-21): the tray context menu needs a real foreground WINDOW to own it, or Windows'
+    // focus model dismisses it ~185 ms after it opens (KB135788). With MainWindow parked off-screen (headless
+    // host, ShowInTaskbar=false) the app has no foreground window, so we SetForegroundWindow it as the menu opens.
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     /// <summary>Raised when the user single-left-clicks the tray icon.
     /// Task 3 has no card to expand, so this event has no subscribers in
     /// Task 3 wiring. Task 4 will subscribe and open the notification card.</summary>
@@ -243,7 +249,27 @@ public sealed class TrayIconService : IDisposable
         // tick's ApplyState (icon NIM_MODIFY + RefreshLabels touching the menu items) landed mid-open and
         // dismissed the just-appearing menu — the "first right-click flashes" bug. PreviewTrayContextMenuOpen
         // fires before any menu layout, so the gate is already up; menu.Closed clears it.
-        _tray.PreviewTrayContextMenuOpen += (_, _) => _menuOpen = true;
+        _tray.PreviewTrayContextMenuOpen += (_, _) =>
+        {
+            _menuOpen = true;
+            // 閃退 fix (Kirby 2026-06-21): give the about-to-open menu a real foreground owner so Windows
+            // doesn't dismiss it ~185 ms later (root cause: MainWindow is parked off-screen / no taskbar, so
+            // the menu had no foreground window backing it — KB135788). The parked window is off-screen, so
+            // this stays invisible to the user. Best-effort; a failure just leaves the prior flash behaviour.
+            try
+            {
+                var hwnd = Application.Current?.MainWindow is { } mw
+                    ? new System.Windows.Interop.WindowInteropHelper(mw).Handle : IntPtr.Zero;
+                bool ok = hwnd != IntPtr.Zero && SetForegroundWindow(hwnd);
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [TrayMenu] PreviewOpen → SetForeground hwnd=0x{hwnd.ToInt64():X} ok={ok}");
+            }
+            catch (Exception ex)
+            {
+                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                    $"[{DateTime.UtcNow:O}] [TrayMenu] SetForeground threw: {ex.GetType().Name}");
+            }
+        };
 
         // Initial labels reflect current state; refreshed on every state change.
         RefreshLabels(_vm.CurrentState);
