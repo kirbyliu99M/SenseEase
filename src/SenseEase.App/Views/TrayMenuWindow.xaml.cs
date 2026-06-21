@@ -50,8 +50,15 @@ public partial class TrayMenuWindow : Window
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X; public int Y; }
 
-    // Physical-pixel cursor position captured at the right-click (the menu anchors up-left from here).
+    // Physical-pixel cursor position captured at the right-click (the menu anchors at the icon's top-right).
     private int _cursorXPhysical, _cursorYPhysical;
+
+    // Flicker fix (2026-06-22): stay invisible (Opacity 0, parked off-screen) until positioned at the SETTLED
+    // SizeToContent size, then reveal exactly once — so the menu's first visible frame is already at the right
+    // spot (no open-flash / reposition jump).
+    private bool _revealPending;
+    private const double OffScreenPark = -32000;
+    private const double AnchorGapPx = 6;   // small gap so the menu sits just above the tray icon
 
     // True for a brief window after Show so an activation BOUNCE (the menu gets foreground then instantly
     // loses it on a headless app) can't fire the Deactivated → Hide and reproduce the flash. Genuine
@@ -68,6 +75,8 @@ public partial class TrayMenuWindow : Window
         Activated   += (_, _) => _wasActivated = true;
         Deactivated += (_, _) => { if (!_graceActive && _wasActivated) Hide(); };
         IsVisibleChanged += (_, e) => { if (e.NewValue is false) StopGrace(); };
+        // Re-anchor as SizeToContent settles, and reveal once we have a real size (flicker fix).
+        SizeChanged += OnSizeChangedReveal;
     }
 
     /// <summary>Esc closes the menu (matches every other dismissible surface).</summary>
@@ -84,19 +93,44 @@ public partial class TrayMenuWindow : Window
     {
         if (GetCursorPos(out var p)) { _cursorXPhysical = p.X; _cursorYPhysical = p.Y; }
         BuildItems(items);
-
         _wasActivated = false;
-        if (!IsVisible) { Opacity = 0; Show(); }
 
-        // Position + activate after the SizeToContent layout pass so ActualWidth/Height are known.
-        Dispatcher.BeginInvoke(new Action(() =>
+        if (!IsVisible)
         {
+            // Park off-screen + invisible so no stray frame paints at the default (0,0). The reveal moves it
+            // on-screen at the settled size — the menu's first visible frame is already correctly placed.
+            Left = OffScreenPark; Top = OffScreenPark;
+            Opacity = 0;
+            _revealPending = true;
+            Show();
+            // Fallback reveal if SizeChanged doesn't fire (window reused at an identical size).
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_revealPending && ActualWidth > 0 && ActualHeight > 0) { PositionAtCursor(); Reveal(); }
+            }), DispatcherPriority.Loaded);
+        }
+        else
+        {
+            // Already open (a second right-click): re-anchor at the new cursor + re-activate in place.
             PositionAtCursor();
-            Opacity = 1;
-            try { Activate(); } catch { }
-            ForceForeground();
-            ArmGrace();
-        }), DispatcherPriority.Loaded);
+            Reveal();
+        }
+    }
+
+    private void OnSizeChangedReveal(object? sender, SizeChangedEventArgs e)
+    {
+        if (ActualWidth <= 0 || ActualHeight <= 0) return;
+        PositionAtCursor();
+        if (_revealPending) Reveal();
+    }
+
+    private void Reveal()
+    {
+        _revealPending = false;
+        Opacity = 1;
+        try { Activate(); } catch { }
+        ForceForeground();
+        ArmGrace();
     }
 
     private void BuildItems(IReadOnlyList<TrayMenuItem> items)
@@ -109,7 +143,7 @@ public partial class TrayMenuWindow : Window
                 ItemsPanel.Children.Add(new Border
                 {
                     Height = 1,
-                    Margin = new Thickness(8, 4, 8, 4),
+                    Margin = new Thickness(6, 2, 6, 2),
                     Background = TryBrush("Separator"),
                     SnapsToDevicePixels = true,
                 });
@@ -137,11 +171,13 @@ public partial class TrayMenuWindow : Window
         double cx = _cursorXPhysical / dpi.DpiScaleX;
         double cy = _cursorYPhysical / dpi.DpiScaleY;
 
-        double w = ActualWidth  > 0 ? ActualWidth  : (double.IsNaN(Width)  ? 208 : Width);
+        double w = ActualWidth  > 0 ? ActualWidth  : (double.IsNaN(Width)  ? 150 : Width);
         double h = ActualHeight > 0 ? ActualHeight : (double.IsNaN(Height) ? 0   : Height);
 
-        double left = cx - w;   // grow up-left toward the screen, away from the tray corner
-        double top  = cy - h;
+        // Anchor the menu's BOTTOM-RIGHT just above the click (= the tray icon), so it opens up-left and sits at
+        // the icon's top-right, hugging the right edge — the conventional tray-menu placement.
+        double left = cx - w;
+        double top  = cy - h - AnchorGapPx;
 
         double vl = SystemParameters.VirtualScreenLeft;
         double vt = SystemParameters.VirtualScreenTop;

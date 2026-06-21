@@ -24,13 +24,15 @@
                 <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- One menu row: mirrors SenseEaseMenuItem (transparent, calm SurfaceMuted highlight, 6px radius). -->
+            <!-- One menu row: mirrors SenseEaseMenuItem (transparent, calm SurfaceMuted highlight). Compact
+                 sizing (2026-06-22): tighter padding + 12px font (the legibility floor) so the card stays small
+                 and covers less of the screen. -->
             <Style x:Key="TrayMenuItemButton" TargetType="Button">
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
                 <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="Padding" Value="12,7"/>
+                <Setter Property="Padding" Value="9,4"/>
                 <Setter Property="FontFamily" Value="{DynamicResource Font.UI}"/>
-                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontSize" Value="12"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="HorizontalAlignment" Value="Stretch"/>
                 <Setter Property="Cursor" Value="Hand"/>
@@ -39,7 +41,7 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                                    CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                    CornerRadius="5" Padding="{TemplateBinding Padding}"
                                     SnapsToDevicePixels="True">
                                 <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left"/>
                             </Border>
@@ -67,9 +69,9 @@
             Background="{DynamicResource Surface}"
             BorderBrush="{DynamicResource CardBorder}"
             BorderThickness="1"
-            CornerRadius="10"
-            Padding="4"
-            MinWidth="208"
+            CornerRadius="8"
+            Padding="3"
+            MinWidth="150"
             SnapsToDevicePixels="True">
         <StackPanel x:Name="ItemsPanel"/>
     </Border>
