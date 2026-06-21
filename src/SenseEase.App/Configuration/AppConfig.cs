@@ -280,6 +280,14 @@ public static class AppConfig
     public static string FmsLogPath => Path.Combine(
         DataRoot, "SenseEase", "fms_log.jsonl");
 
+    // Learning-loop Part D / Idea #2 (2026-06-21): one row per app-launch recording the FIRST discomfort
+    // signal of the session (consent-accept | FMS | chatbot ReportDiscomfort) + its elapsed offset — the
+    // "typical time to first discomfort" capture (see SessionOnsetLog). DELIBERATELY separate from the
+    // collision-hot behavior_log.jsonl the health-report build reads. Same %LOCALAPPDATA%\SenseEase home so
+    // H24 clear + H25 uninstall cover it; numeric/categorical only (no PII).
+    public static string SessionOnsetLogPath => Path.Combine(
+        DataRoot, "SenseEase", "session_onset_log.jsonl");
+
     // H24: the chatbot model trace (the ClearOnDiskTrace target). Mirrors the path
     // LocalLlmChatbotService writes to (Infrastructure can't see this App config, so
     // both sides compute %LOCALAPPDATA%\SenseEase\model_trace.jsonl independently).

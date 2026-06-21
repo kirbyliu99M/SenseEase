@@ -633,6 +633,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 st?.Mode ?? "Passenger", st?.RawOpticalFlowIndex ?? 0.0);
         }
         catch { /* best-effort dev sink — never disturb the rating path */ }
+        // Idea #2: a manual FMS check-in is a direct discomfort signal — clause (b) of the first-of-session
+        // onset timing. (The FMS value/partition is untouched here; this only stamps the per-session TIMING.)
+        NoteFirstDiscomfortSignal(SenseEase.Core.Inference.SessionOnsetChannels.Fms);
         PushFmsContextToEngine();   // B1: reflect the just-logged report in the selector immediately
     }
 
@@ -1065,6 +1068,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             eventLog:     _log,
             actionLog:    _chatbotActionLog);
         ChatbotVm.LongitudinalObservationCallback = obs => _observationWriter.Append(obs);
+        // Idea #2 (clause c): a chatbot ReportDiscomfort turn is the chatbot leg of the first-of-session
+        // discomfort-onset timing (the callback is first-of-session-guarded inside NoteFirstDiscomfortSignal).
+        ChatbotVm.DiscomfortReportedCallback = () => NoteFirstDiscomfortSignal(SenseEase.Core.Inference.SessionOnsetChannels.Chat);
         ChatbotVm.ProposalReceived += OnChatbotProposalReceived;
         // Phase 7 (RESUME_ACKNOWLEDGE): the chatbot relays the user's in-chat confirmation to
         // continue from a tier>=8 PausedAwaitingUserConfirm check-in. The engine method is a
@@ -1667,6 +1673,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public  string SessionMaskActiveText => FormatDuration(SessionMaskActiveDuration);
 
     private DateTime _sessionStartUtc = DateTime.UtcNow;
+
+    // Learning-loop Part D / Idea #2 (2026-06-21): the FIRST discomfort signal of THIS app-launch session.
+    // _sessionStartUtc above is the fixed wall-clock origin; the first of the three channels (consent-accept
+    // | FMS | chatbot ReportDiscomfort) to fire stamps its elapsed offset durably via _sessionOnset, and the
+    // null guard makes only the first win per launch. Report-only timing — NEVER a relax-gate / MeasuredState
+    // input (see docs/LEARNING_LOOP_PLAN.md §D2).
+    private DateTime? _firstSignalThisSession;
+    private readonly SenseEase.App.Services.SessionOnsetLog _sessionOnset = new();
+
     private TimeSpan _sessionUptime;
     public  TimeSpan SessionUptime { get => _sessionUptime; private set { if (Set(ref _sessionUptime, value)) OnPropertyChanged(nameof(SessionUptimeText)); } }
     public  string SessionUptimeText => FormatDuration(SessionUptime);
@@ -1882,6 +1897,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch { /* best-effort audit row — never disturb the consent gate */ }
     }
 
+    /// <summary>Learning-loop Part D / Idea #2 (2026-06-21): record the FIRST discomfort signal of THIS
+    /// app-launch session — the earliest of consent-accept / FMS check-in / chatbot ReportDiscomfort. Stamps
+    /// the elapsed offset (UtcNow − <see cref="_sessionStartUtc"/>, a DURATION, D-17-safe) durably the first
+    /// time only; subsequent calls this session are no-ops (the null guard makes the first channel win). This
+    /// is REPORT-ONLY timing (the health report's median-minutes-to-first-signal) — it never feeds the relax
+    /// gate / MeasuredState (see docs/LEARNING_LOOP_PLAN.md §D2). Best-effort: a capture failure must never
+    /// disturb the calling channel.</summary>
+    internal void NoteFirstDiscomfortSignal(string channel)
+    {
+        if (_firstSignalThisSession is not null) return;   // first-of-session wins
+        var now = DateTime.UtcNow;
+        _firstSignalThisSession = now;
+        try
+        {
+            double offsetSec = Math.Max(0, (now - _sessionStartUtc).TotalSeconds);
+            _sessionOnset.Record(channel, offsetSec, VimsTier, MaskActive ? "on" : "off");
+        }
+        catch { /* best-effort onset capture — never disturb the discomfort channel */ }
+    }
+
     /// <summary>User agreed → the overlay session is live; the overlay now follows the engine across
     /// all levels until sustained calm ends the session.</summary>
     public void GrantOverlayConsent()
@@ -1892,6 +1927,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _calmSinceTick = 0;
         _overlayConsent.RecordAccepted();
         RecordOverlayConsentDecision(SymptomEvent.Decisions.Accepted);
+        // Idea #2: accepting the overlay is a deliberate discomfort signal — clause (a) of the
+        // first-of-session onset timing. (Decline is intentionally NOT counted — "Not now" is ambiguous,
+        // often "I'm fine", not a discomfort report.)
+        NoteFirstDiscomfortSignal(SenseEase.Core.Inference.SessionOnsetChannels.Consent);
     }
 
     /// <summary>User explicitly tapped "Not now" → stay dormant; the LONG decline cooldown (30 min, Kirby

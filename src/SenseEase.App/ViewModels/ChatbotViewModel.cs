@@ -662,6 +662,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // two-bubble contradiction. We zero the deltas BEFORE ApplyNluResult and regenerate the reply as
             // the chatbot's own brief rest advice (history-free, so the context window can't grow); a fixed
             // honest line backstops an empty/failed regeneration, so neither a false nor an empty bubble ships.
+            // Idea #2 (clause c): a ReportDiscomfort turn is a genuine chatbot help-seek — ping the
+            // first-of-session onset timing (host-wired to NoteFirstDiscomfortSignal, itself first-of-session
+            // guarded). Fire on the INTENT classification alone (a pure read, no side-effect), so it is
+            // independent of the rest-advice governor's threshold below; carry no content. Report-only timing,
+            // never a protection signal.
+            if (result.Intent == "ReportDiscomfort")
+            {
+                try { DiscomfortReportedCallback?.Invoke(); } catch { /* timing ping must never break the turn */ }
+            }
             bool restAdvised = result.Intent == "ReportDiscomfort" && _safetyGovernor.RecordAndShouldAdvise();
             if (restAdvised)
             {
@@ -1417,6 +1426,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// trail. Host wires this to <c>MockInferenceEngine.AcknowledgeAndResumeHabituation</c>
     /// (a guarded no-op unless actually awaiting confirm). Null = no host wiring (test contexts).</summary>
     public Action<string>? AcknowledgeResumeCallback { get; set; }
+
+    /// <summary>Learning-loop Part D / Idea #2 (2026-06-21): invoked at most once per turn when the NLU
+    /// classifies the user's message as <c>ReportDiscomfort</c> — the chatbot leg (clause c) of the
+    /// first-of-session onset timing. Host wires this to <c>MainViewModel.NoteFirstDiscomfortSignal("chat")</c>
+    /// (itself first-of-session-guarded). Null = no host wiring (test contexts). Carries NO content — it is a
+    /// pure timing ping, never a protection-changing signal.</summary>
+    public Action? DiscomfortReportedCallback { get; set; }
 
     /// <summary>M3 7e+: host-side helper for the profile picker reply path.
     /// Pushes an assistant message into <see cref="Messages"/> on the
