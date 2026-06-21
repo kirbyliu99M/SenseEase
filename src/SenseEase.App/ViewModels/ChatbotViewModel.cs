@@ -211,6 +211,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// (graceful for test contexts / no behaviour history).</summary>
     public Func<IReadOnlyList<DailyBehaviorAggregate>>? LoadBehaviorAggregates { get; set; }
 
+    /// <summary>The underlying on-device chatbot service. Exposed (read-only) so a host that already owns
+    /// this VM can reuse the SAME loaded model for an off-band one-shot completion (e.g. the health-report
+    /// narrator's per-section <c>CompleteShortAsync</c>) instead of spinning up a second service. Callers
+    /// must treat it as available-only-when-loaded; the narrator already degrades to deterministic prose
+    /// when <see cref="IChatbotService.IsModelLoaded"/> is false.</summary>
+    public IChatbotService Service => _chatbot;
+
     public ChatbotViewModel(
         IChatbotService chatbot,
         IInferenceEngine engine,

@@ -1178,9 +1178,16 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// <see cref="ReplyComplianceScrubber"/> with actuated:false, so a slipped "I eased it" can never
     /// survive. Returns null on any failure / when the server is not loaded → the host uses its
     /// deterministic fallback line.</summary>
-    public async Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+    public Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+        => CompleteShortAsync(systemPrompt, userPrompt, maxTokens: 96, ct);
+
+    public async Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, int maxTokens, CancellationToken ct = default)
     {
         if (!IsModelLoaded) return null; // no server → host falls back; never fire a doomed HTTP call
+        // Clamp the budget: the rest-advice path passes 96; the report narrator asks for a per-section
+        // budget. Floor keeps a degenerate 0 from yielding an empty body; ceiling keeps a section bounded
+        // so it can't run away in latency/context.
+        int boundedMaxTokens = Math.Clamp(maxTokens, 32, 512);
         await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -1192,7 +1199,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
                     new { role = "system", content = WithThinkingPolicy(systemPrompt) },
                     new { role = "user",   content = userPrompt },
                 },
-                max_tokens  = 96,        // 1-2 short sentences — bounded so it can't grow context/latency
+                max_tokens  = boundedMaxTokens,  // bounded so it can't grow context/latency
                 temperature = 0.4,
                 top_p       = 0.9,
                 top_k       = 40,

@@ -1230,6 +1230,8 @@ public partial class MainWindow : Window
         // FEAT-08 (CW-10, B1b UI half): same live head-tracking health read as the console
         // 設定 tab so the tray/gear Settings window's status caption is honest too (both hosts).
         _settingsWindow.GetHeadTrackingHealth   = GetHeadTrackingHealth;
+        // Health-report redesign §8 (P4): let "Export health report" narrate via the already-loaded model.
+        _settingsWindow.GetChatbotService       = () => _viewModel.ChatbotVm.Service;
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.PreferencesChanged += (_, _) => RefreshSettingsDependentSurfaces();
         _settingsWindow.Show();

@@ -8,6 +8,7 @@ using SenseEase.App.Configuration;
 using SenseEase.App.Localization;
 using SenseEase.App.Theme;
 using SenseEase.Infrastructure.Real;
+using SenseEase.Infrastructure.Reporting;
 using SenseEase.Infrastructure.Storage;
 
 namespace SenseEase.App.Views;
@@ -109,6 +110,13 @@ public partial class SettingsContent : UserControl
     /// MainViewModel and therefore no reader) the status row stays hidden — there is
     /// no honest health to show there. Read-only consumption; surfacing-only.</summary>
     public Func<HeadTrackingHealth>? GetHeadTrackingHealth { get; set; }
+
+    /// <summary>Health-report redesign §8 (P4): host-wired provider of the live on-device chatbot service,
+    /// so "Export health report" can reuse the ALREADY-loaded model to narrate the report's sections (via
+    /// <c>CompleteShortAsync</c>) instead of starting a second engine. Same Infra-out-of-the-View
+    /// host-delegate pattern as <see cref="GetHeadTrackingHealth"/>. Null (or a null return, or a
+    /// not-loaded model) ⇒ the report renders with its deterministic narrative — never a hard failure.</summary>
+    public Func<SenseEase.Core.Abstractions.IChatbotService?>? GetChatbotService { get; set; }
 
     /// <summary>UX-08 (B1b): the value of <see cref="UserPreferences.HeadTrackingEnabled"/>
     /// the APP started with, captured ONCE the first time any
@@ -393,43 +401,67 @@ public partial class SettingsContent : UserControl
             = desired;
     }
 
-    /// <summary>Beta-1 D-17 (2026-06-14): export a de-identified clinical summary the user can
-    /// hand to a clinician. The numeric aggregation (measured vs estimated kept separate, raw app
-    /// names stripped to category) lives in <see cref="ClinicalExportService"/>; this handler just
-    /// runs the Save dialog and surfaces success/failure. The export is user-initiated, so unlike
-    /// the best-effort telemetry writers a failure is reported, not swallowed.</summary>
-    private void OnExportClinicalClicked(object sender, RoutedEventArgs e)
+    /// <summary>Beta-1 D-17 / health-report redesign §8 (2026-06-21): export a de-identified health report
+    /// the user can read or hand to a clinician. Produces a self-contained HTML report (key indicators +
+    /// inline-SVG charts + an on-device-narrated plain-language summary) via <see cref="ClinicalReportService"/>,
+    /// and KEEPS the raw <see cref="ClinicalExportService"/> JSON beside it (the HTML augments, does not
+    /// replace, the data file — Kirby 2026-06-21). Both artifacts are de-identified (numbers + categories,
+    /// dates only). The narrative reuses the already-loaded chatbot model when available and silently falls
+    /// back to deterministic prose otherwise — so a cold model never blocks or fails the export. User-
+    /// initiated, so a failure is reported, not swallowed.</summary>
+    private async void OnExportClinicalClicked(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
             Title        = LocalizationManager.Current.Pick("匯出健康報告", "Export health report"),
-            Filter       = "JSON (*.json)|*.json",
-            FileName     = $"senseease-health-export-{DateTime.UtcNow:yyyyMMdd}.json",
+            Filter       = LocalizationManager.Current.Pick("健康報告 (*.html)", "Health report (*.html)") + "|*.html",
+            FileName     = $"senseease-health-report-{DateTime.UtcNow:yyyyMMdd}.html",
             AddExtension = true,
-            DefaultExt   = ".json",
+            DefaultExt   = ".html",
         };
         if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
 
+        var owner     = Window.GetWindow(this);
+        string htmlPath = dlg.FileName;
+        string jsonPath = Path.ChangeExtension(htmlPath, ".json");
+        bool english    = LocalizationManager.Current.IsEnglish;
+
+        Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            var svc = new ClinicalExportService(
-                new FileSymptomEventStore(AppConfig.SymptomLogPath));
-            svc.WriteJson(dlg.FileName, DateTime.UtcNow);
-            ThemedDialog.Notify(
-                Window.GetWindow(this),
+            var symptomStore = new FileSymptomEventStore(AppConfig.SymptomLogPath);
+
+            // Rich HTML report: numbers + charts + narrated prose. The narrator reuses the host's loaded
+            // model (GetChatbotService) when warm, else renders the deterministic narrative.
+            var reportSvc = new ClinicalReportService(
+                symptomStore,
+                new DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath),
+                new FileHabituationProfileStore(AppConfig.HabituationProfilePath),
+                GetChatbotService?.Invoke());
+            await reportSvc.WriteHtmlAsync(htmlPath, english, DateTime.UtcNow);
+
+            // KEEP the JSON beside the HTML — the de-identified raw-numbers data file (unchanged path).
+            new ClinicalExportService(symptomStore).WriteJson(jsonPath, DateTime.UtcNow);
+
+            Mouse.OverrideCursor = null;
+            ThemedDialog.Notify(owner,
                 LocalizationManager.Current.Pick(
-                    "已匯出去識別化的健康報告（僅數字與類別）。",
-                    "Exported a de-identified health report (numbers and categories only)."),
+                    "已匯出去識別化的健康報告（HTML 報告與 JSON 數據，僅含數字與類別）。",
+                    "Exported a de-identified health report (an HTML report plus the JSON data — numbers and categories only)."),
                 DialogKind.Info);
         }
         catch
         {
-            ThemedDialog.Notify(
-                Window.GetWindow(this),
+            Mouse.OverrideCursor = null;
+            ThemedDialog.Notify(owner,
                 LocalizationManager.Current.Pick(
                     "匯出失敗。請再試一次，或改存到其他位置（例如桌面）。",
                     "Export failed. Please try again, or save to another location (such as your Desktop)."),
                 DialogKind.Error);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
         }
     }
 

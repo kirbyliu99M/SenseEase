@@ -28,4 +28,12 @@ public interface IChatbotService : IDisposable
     /// back without a network call.</summary>
     Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
         => Task.FromResult<string?>(null);
+
+    /// <summary>Health-report redesign §8 (Q4): a per-section narrative completion with an EXPLICIT token
+    /// budget. A report section needs more than the 96-token rest-advice cap, but each section is still
+    /// bounded + failure-isolated. Same history-free / grammar-free / honesty-scrubbed contract as the
+    /// 3-arg overload. Default delegates to it (ignoring the budget) so lexicon-only services + test stubs
+    /// keep their existing fallback-to-null behaviour with no extra surface to implement.</summary>
+    Task<string?> CompleteShortAsync(string systemPrompt, string userPrompt, int maxTokens, CancellationToken ct = default)
+        => CompleteShortAsync(systemPrompt, userPrompt, ct);
 }

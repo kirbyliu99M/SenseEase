@@ -288,6 +288,15 @@ public partial class SettingsWindow : Window
         set => ContentHost.GetHeadTrackingHealth = value;
     }
 
+    /// <summary>Health-report redesign §8 (P4): pass-through for the live chatbot-service provider so the
+    /// tray/gear Settings window's "Export health report" can narrate the report with the already-loaded
+    /// model. Wired by the host (MainWindow) to the MainViewModel's ChatbotVm.Service.</summary>
+    public Func<SenseEase.Core.Abstractions.IChatbotService?>? GetChatbotService
+    {
+        get => ContentHost.GetChatbotService;
+        set => ContentHost.GetChatbotService = value;
+    }
+
     private void OnCloseClicked(object sender, RoutedEventArgs e) => CloseWithBreath();
 
     /// <summary>C2 (audit): Escape closes the settings dialog — the standard

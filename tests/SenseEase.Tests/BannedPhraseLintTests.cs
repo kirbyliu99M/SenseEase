@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+using SenseEase.Core.Inference;
 using Xunit;
 
 namespace SenseEase.Tests;
@@ -123,6 +124,19 @@ public class BannedPhraseLintTests
         "LocalLlmChatbotService.cs",       // LLM system-prompt builder: "症狀" is inside an LLM example
     };
 
+    // ── Files exempt from the ENTIRE .cs literal scan (EN phrases + regex + zh) ─
+    // The canonical banned-vocabulary DEFINITION necessarily contains every banned
+    // term — and the EN claim PHRASES — as data, never as output copy. The skip
+    // above only covers zh; this set covers the whole scan. Correctness here is not
+    // weakened: ReportClaimGuard's own unit tests prove it catches each term, and
+    // ReportClaimGuard_Vocabulary_IsASupersetOfTheStaticLint (below) proves the
+    // guard can never drift weaker than this lint.
+    private static readonly HashSet<string> FullSkipBannedVocabularyDefinition = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        "ReportClaimGuard.cs",  // §8: the single source of the runtime banned-claim vocabulary
+    };
+
     [Fact]
     public void UserFacingCopy_HasNoBannedClaimPhrases()
     {
@@ -170,6 +184,25 @@ public class BannedPhraseLintTests
             string.Join("\n", violations));
     }
 
+    /// <summary>Health-report redesign §8 build-gate 4 (anti-drift): the RUNTIME
+    /// <see cref="ReportClaimGuard"/> that scans non-deterministic LLM report prose must be a strict
+    /// SUPERSET of this static lint — it can never be allowed to drift WEAKER. Every term the static lint
+    /// bans must also be caught by the guard's stem/term match, so a claim the lint would reject in
+    /// hand-authored copy is equally rejected if the model emits it at runtime.</summary>
+    [Fact]
+    public void ReportClaimGuard_Vocabulary_IsASupersetOfTheStaticLint()
+    {
+        var missed = new List<string>();
+        foreach (string en in BannedEnglishFull)
+            if (!ReportClaimGuard.ContainsBannedClaim(en)) missed.Add("EN '" + en + "'");
+        foreach (string zh in BannedChinese)
+            if (!ReportClaimGuard.ContainsBannedClaim(zh)) missed.Add("繁中 '" + zh + "'");
+
+        Assert.True(missed.Count == 0,
+            "ReportClaimGuard must catch every statically-banned term so the runtime guard is never " +
+            "weaker than the lint. Missed: " + string.Join(", ", missed));
+    }
+
     /// <summary>Scan all .cs files in <paramref name="dir"/>, applying phrase + regex
     /// bans to every string literal. When <paramref name="skipZhByFilename"/> is true,
     /// files whose filename appears in <see cref="SkipForZhInCoreInfra"/> are exempt
@@ -182,6 +215,9 @@ public class BannedPhraseLintTests
             if (SkipFile(file)) continue;
 
             string fileName = Path.GetFileName(file);
+            // The vocabulary-definition file IS the banned list — exempt it from the whole scan.
+            if (FullSkipBannedVocabularyDefinition.Contains(fileName)) continue;
+
             bool skipZhForFile = skipZhByFilename && SkipForZhInCoreInfra.Contains(fileName);
 
             string[] zhTerms = (applyZh && !skipZhForFile) ? BannedChinese : Array.Empty<string>();
