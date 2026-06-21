@@ -72,4 +72,34 @@ public class InterrogativeDetectorTests
     [InlineData("")]
     public void Imperatives_AreNotCommandInquiry(string text)
         => Assert.False(InterrogativeDetector.IsCommandInquiry(text));
+
+    [Theory]
+    // A self-report carrying an UNCERTAINTY marker — the user names a symptom but hedges it, so the gate
+    // should ASK to confirm (the caller pairs this with a specific-symptom check).
+    [InlineData("I feel dizzy? I don't know")]   // the tester's exact case
+    [InlineData("maybe I'm a bit nauseous")]
+    [InlineData("I'm not sure, kind of a headache")]
+    [InlineData("could be eye strain")]
+    [InlineData("好像有點暈，不太確定")]
+    [InlineData("可能有點噁心")]
+    [InlineData("我不知道是不是頭痛")]
+    public void HedgedSelfReport_IsDetected(string text)
+        => Assert.True(InterrogativeDetector.IsHedgedSymptom(text));
+
+    [Theory]
+    // Confident reports + help-seeking requests with NO hedge marker — must NOT be flagged, so they still
+    // actuate (a hedge marker, not a bare "?", is what distinguishes uncertainty).
+    [InlineData("I'm dizzy")]
+    [InlineData("I feel dizzy now")]
+    [InlineData("I'm dizzy, can you help?")]
+    [InlineData("頭暈")]
+    [InlineData("我頭暈，可以幫我嗎？")]
+    [InlineData("make it darker")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ConfidentReport_IsNotHedged(string text)
+        => Assert.False(InterrogativeDetector.IsHedgedSymptom(text));
+
+    [Fact]
+    public void Null_IsNotHedged() => Assert.False(InterrogativeDetector.IsHedgedSymptom(null));
 }

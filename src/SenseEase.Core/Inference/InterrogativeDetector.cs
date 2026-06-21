@@ -93,4 +93,33 @@ public static class InterrogativeDetector
 
         return false;
     }
+
+    // Uncertainty / hedging markers — the user NAMES a symptom but signals DOUBT about it ("I feel dizzy? I
+    // don't know", "maybe a bit nauseous", "好像有點暈，不確定"). Distinct from IsSymptomInquiry (which asks the
+    // BOT to assess): here the user hedges their OWN report. The caller pairs this with a specific-symptom
+    // check, so a confident help-seeking report ("I'm dizzy, can you help?" — no hedge marker) still actuates.
+    private static readonly string[] EnglishHedgeMarkers =
+    {
+        "i don't know", "i dont know", "not sure", "i'm not sure", "im not sure", "not certain",
+        "maybe", "kind of", "kinda", "sort of", "i guess", "might be", "could be",
+    };
+    private static readonly string[] CjkHedgeMarkers =
+    {
+        "好像", "不確定", "不确定", "不知道", "可能", "也許", "也许", "大概", "說不上", "说不上",
+    };
+
+    /// <summary>True iff the message HEDGES a self-report — a statement carrying an uncertainty marker
+    /// ("I feel dizzy? I don't know", "好像有點暈，不確定"). Pair with a specific-symptom check
+    /// (FeedbackLexicon.MentionsSpecificSymptom) so only a *named symptom stated with doubt* triggers a
+    /// clarifying question; a confident help-seeking report carries no hedge marker and still actuates.
+    /// Null/blank ⇒ false.</summary>
+    public static bool IsHedgedSymptom(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        string t = text.Trim();
+        string lower = t.ToLowerInvariant();
+        foreach (string m in EnglishHedgeMarkers) if (lower.Contains(m, StringComparison.Ordinal)) return true;
+        foreach (string m in CjkHedgeMarkers) if (t.Contains(m, StringComparison.Ordinal)) return true;
+        return false;
+    }
 }

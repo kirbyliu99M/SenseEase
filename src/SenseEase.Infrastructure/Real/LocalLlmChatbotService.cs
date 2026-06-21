@@ -437,6 +437,13 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: 怪怪的\n" +
         "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"請問是哪一種不適？\",\"followup_question\":\"請問是哪一種不適？\",\"followup_options\":[\"暈眩\",\"噁心\",\"頭痛\",\"眼睛疲勞\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        // HEDGED symptom — NAMED but UNCERTAIN ("?", "I don't know", "maybe", "好像", "不確定"): the user is
+        // unsure, so ASK to confirm with the symptom card; never act on a guess.
+        "User: I feel dizzy? I don't know\n" +
+        "(a HEDGED symptom — NAMED but UNCERTAIN; ASK with the symptom card, change NOTHING)\n" +
+        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Want to be sure I help the right way — which feels closest?\",\"followup_question\":\"Which feels closest?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: 好像有點暈，不太確定\n" +
+        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"想先確認一下，哪一種感受最接近？\",\"followup_question\":\"哪一種感受最接近？\",\"followup_options\":[\"暈眩\",\"噁心\",\"頭痛\",\"眼睛疲勞\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         // FOLLOWUP ANSWER (consumer): after a 'which symptom?' card, a BARE symptom name is the user
         // naming what they feel NOW — ReportDiscomfort, NEVER ReportComfort, never 'it has eased'.
         "User: Headache\n" +

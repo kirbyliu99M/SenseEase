@@ -239,6 +239,27 @@ internal static class NluComplianceGate
             }
         }
 
+        // Hedged-symptom guard (Kirby 2026-06-21): a NAMED symptom stated with UNCERTAINTY ("I feel dizzy? I
+        // don't know", "好像有點暈，不確定") is not a confident report — acting on a guess could over-actuate,
+        // and the old path silently deflected to the no-action line. ASK instead: promote to a clarifying
+        // FollowupRequest (the symptom picker). Skipped once the question guard fired (a pure inquiry) or the
+        // model already chose to ask. Sibling to the question≠report guard; the deterministic backstop behind
+        // the SystemPrompt hedged-symptom few-shot.
+        if (!suppressedAsQuestion && intent != "FollowupRequest"
+            && FeedbackLexicon.MentionsSpecificSymptom(userText)
+            && InterrogativeDetector.IsHedgedSymptom(userText))
+        {
+            var (hq, hopts) = FeedbackLexicon.TryBuildFollowup(userText, "Unknown", severity, uiEnglishPin);
+            if (hq is not null)
+            {
+                intent = "FollowupRequest";
+                fov = 0; md = 0.0; gv = 0.0;
+                followupQuestion = hq;
+                followupOptions = hopts;
+                reply = hq;   // the clarifying question becomes the visible reply
+            }
+        }
+
         string response = (reply ?? string.Empty).Trim();
         if (response.Length == 0)
             response = FeedbackLexicon.BuildFallbackResponse(userText, intent, uiEnglishPin);

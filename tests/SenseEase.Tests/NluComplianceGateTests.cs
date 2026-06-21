@@ -47,6 +47,23 @@ public class NluComplianceGateTests
     }
 
     [Fact]
+    public void HedgedNamedSymptom_AsksInsteadOfActuatingOrDeflecting()
+    {
+        // The reported case: "I feel dizzy? I don't know" NAMES dizziness but HEDGES it. The old path let it
+        // fall to the no-action deflection (HonestNoActionLine); now an uncertain symptom must ASK (a
+        // clarifying card) and change nothing — even if the model wrongly proposed an actuation.
+        var r = NluComplianceGate.Check(
+            Raw("ReportDiscomfort", fov: -8, md: 0.06),
+            "I feel dizzy? I don't know");
+
+        Assert.Equal("FollowupRequest", r.Intent);   // promoted to a clarifying question
+        Assert.Equal(0, r.FovDelta);                 // hedged → no actuation
+        Assert.Equal(0.0, r.MaskDepthDelta, 6);
+        Assert.NotNull(r.FollowupOptions);
+        Assert.InRange(r.FollowupOptions!.Length, 2, 4);
+    }
+
+    [Fact]
     public void Followup_WithUnusableOptions_RebuildsCase1Picker_NotDeadEndUnknown()
     {
         // Finding #3: a FollowupRequest with no usable options must rebuild the Case-1
