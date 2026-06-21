@@ -36,6 +36,16 @@ public partial class App : Application
     // single-instance-per-desktop tray app.
     private const string SingleInstanceMutexName = "Local\\SenseEase.App.SingleInstance";
 
+    // Dashboard-ghost fix (2026-06-22): a SECOND launch must NOT surface the console window. The dashboard was
+    // dismantled to a HEADLESS host, so the old "ShowWindow + SetForegroundWindow on the MainWindow" path
+    // brought up a BLANK window — the "dashboard ghost" (worsened by the localized title, which made the
+    // by-title FindWindow EN-only). Instead the second instance Set()s this named auto-reset event; the first
+    // instance's background listener wakes and reveals the SHELL entry point (popup / edge sidebar) on the UI
+    // thread — the same surface the tray left-click reveals. Language-independent; never shows the headless console.
+    private static EventWaitHandle? _revealSignal;
+    private static Thread? _revealSignalListener;
+    private const string RevealSignalName = "Local\\SenseEase.App.RevealShell";
+
     /// <summary>H32 integrity gate: set true when
     /// <see cref="SenseEase.Infrastructure.Storage.IntegrityVerifier"/> reports
     /// a bundled binary failed its SHA-256 manifest check at startup. When true
@@ -205,6 +215,11 @@ public partial class App : Application
                 Shutdown(exitCode: 0);
                 return;
             }
+
+            // We are the first (and only) live instance. Listen for a later launch's reveal signal so that a
+            // second launch brings the SHELL forward (popup / edge sidebar) instead of surfacing the headless
+            // console window — the dashboard-ghost fix.
+            StartRevealSignalListener();
         }
         catch (Exception ex)
         {
@@ -689,6 +704,10 @@ public partial class App : Application
         try { _singleInstanceMutex?.ReleaseMutex(); } catch { }
         try { _singleInstanceMutex?.Dispose(); } catch { }
         _singleInstanceMutex = null;
+        // Ghost fix: dispose the reveal event so its background listener (WaitOne) wakes with
+        // ObjectDisposedException and returns instead of lingering.
+        try { _revealSignal?.Dispose(); } catch { }
+        _revealSignal = null;
         base.OnExit(e);
     }
 
@@ -706,16 +725,54 @@ public partial class App : Application
     /// before exiting.</para></summary>
     private static bool TrySurfaceExistingInstance()
     {
+        // Dashboard-ghost fix (2026-06-22): signal the running instance to bring its SHELL (popup / edge
+        // sidebar) forward, NOT the old ShowWindow on the now-headless console window — that surfaced a blank
+        // "dashboard ghost", and its by-title FindWindow was EN-only once the title localized. Set() the
+        // cross-process named event the first instance's StartRevealSignalListener waits on. Returns true when
+        // the running instance was signalled, false if its listener isn't up yet (still mid-startup).
         try
         {
-            IntPtr hwnd = FindWindow(null, "SenseEase — Visual Comfort Dashboard");
-            if (hwnd == IntPtr.Zero) return false;
-            if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-            else                ShowWindow(hwnd, SW_SHOW);
-            SetForegroundWindow(hwnd);
-            return true;
+            if (EventWaitHandle.TryOpenExisting(RevealSignalName, out var ev))
+            {
+                using (ev) ev.Set();
+                return true;
+            }
+            return false;
         }
         catch { /* best-effort */ return false; }
+    }
+
+    /// <summary>First-instance side of the dashboard-ghost fix: own the named reveal event + a background
+    /// listener. When a later launch <c>Set()</c>s it, marshal to the UI thread and reveal the shell entry
+    /// point (the same surface the tray left-click shows) — never the headless console window. The listener is
+    /// a background thread (dies with the process); disposing <see cref="_revealSignal"/> on exit wakes it to
+    /// return. Best-effort — a setup failure just means a second launch can't reveal (it still won't ghost).</summary>
+    private void StartRevealSignalListener()
+    {
+        try
+        {
+            _revealSignal = new EventWaitHandle(initialState: false, mode: EventResetMode.AutoReset, name: RevealSignalName);
+            _revealSignalListener = new Thread(() =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        _revealSignal.WaitOne();
+                        Dispatcher?.BeginInvoke(new Action(RevealShellPanel));
+                    }
+                    catch (ObjectDisposedException) { return; }   // app shutting down → the event was disposed
+                    catch { /* transient — keep listening */ }
+                }
+            })
+            { IsBackground = true, Name = "SenseEase.RevealSignalListener" };
+            _revealSignalListener.Start();
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [App.SingleInstance] reveal-listener setup failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>H30/H31: append a one-line startup diagnostic to crash.log.
