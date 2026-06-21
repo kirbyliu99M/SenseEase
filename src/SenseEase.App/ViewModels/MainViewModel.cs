@@ -1785,25 +1785,53 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (AlwaysAllowOverlay == value) return;
             UserPreferences.Current.AlwaysAllowOverlay = value;
             UserPreferences.Current.Save();
-            if (value)
-            {
-                CancelPendingConsent();  // turning it on hides any bubble waiting for an answer
-                // Immediate effect: pin the displayed level at the impactful tier (6) and FREEZE the
-                // auto-level loop while ON. The habituation / strike / B5 / B6 learning loops keep running
-                // (only the pressure→tier projection is paused); the latch releases on toggle-off.
-                (_engine as MockInferenceEngine)?.SetAutoLevelHold(true, ConsentImpactTier);
-            }
-            else
-            {
-                (_engine as MockInferenceEngine)?.SetAutoLevelHold(false); // resume the auto-level loop
-            }
-            UpdateFromState(_engine.Current);    // re-apply so the consent gate + the held tier render within a frame
+            // Auto Protect is a STANDING CONSENT only: when ON the overlay auto-engages on motion with NO
+            // consent bubble, but it still follows the natural auto-level (invisible at rest). It must NOT pin a
+            // level or freeze the auto-loop — that hard manual hold belongs to the 常駐遮罩 / Persistent mask
+            // switch (see SetPersistentMaskFromUser). [UVHS fix 2026-06-21: the L6-freeze was mis-wired onto
+            // this toggle, contradicting the contract above; moved to its correct home.]
+            if (value) CancelPendingConsent();  // turning it on hides any bubble waiting for an answer
+            UpdateFromState(_engine.Current);    // re-apply so the consent gate renders within a frame
             OnPropertyChanged(nameof(AlwaysAllowOverlay));
             AppendLog("OverlayConsent",
-                value ? Loc("已設為自動防護（立即固定第 6 級、暫停自動偵測）。", "Auto Protect on — overlay pinned at level 6, auto-detection paused.")
-                      : Loc("已恢復為先詢問再開啟防護（已恢復自動偵測）。", "Comfort overlay will ask before engaging — auto-detection resumed."),
+                value ? Loc("已開啟自動防護（畫面晃動時自動開啟防護，不再每次詢問；防護強度仍依偵測自動調整）。",
+                            "Auto Protect on — the overlay engages automatically on motion without asking; protection level still follows detection.")
+                      : Loc("已關閉自動防護（恢復為每次先詢問）。",
+                            "Auto Protect off — the overlay will ask before engaging."),
                 CurrentState);
         }
+    }
+
+    /// <summary>Item 4 (UVHS fix 2026-06-21): the USER's manual 常駐遮罩 / Persistent mask switch — invoked here
+    /// from <c>ShellController.PersistentMaskEnabled</c> (the bar toggle), deliberately NOT from the
+    /// <see cref="PersistentOverlayEnabled"/> property setter, so the intensity slider's baseline-floor use of
+    /// that same flag (<see cref="SetIntensityLevel"/> / <see cref="NudgeIntensityLevel"/>) is left untouched.
+    /// A manual flip ON pins the displayed level at the impactful tier (6) and FULL-FREEZES the auto-level loop
+    /// (Kirby asked for a hard manual hold, not a floor that motion can exceed); the habituation / strike /
+    /// B5 / B6 learning loops keep running — only the pressure→tier projection is paused — and the latch
+    /// releases on toggle-off. (The L6-freeze was previously mis-wired onto Auto Protect; this is its correct
+    /// home.)</summary>
+    public void SetPersistentMaskFromUser(bool on)
+    {
+        if (on)
+        {
+            // Pin + freeze FIRST so the held tier is in place when the overlay opens, then floor the always-on
+            // baseline (the setter also auto-opens the overlay).
+            (_engine as MockInferenceEngine)?.SetAutoLevelHold(true, ConsentImpactTier);
+            PersistentOverlayEnabled = true;
+        }
+        else
+        {
+            (_engine as MockInferenceEngine)?.SetAutoLevelHold(false);  // resume the auto-level loop
+            PersistentOverlayEnabled = false;
+        }
+        UpdateFromState(_engine.Current);   // render the held tier + overlay within a frame
+        AppendLog("PersistentMask",
+            on ? Loc("已開啟常駐遮罩（立即固定第 6 級、暫停自動偵測；關閉即恢復）。",
+                     "Persistent mask on — overlay pinned at level 6, auto-detection paused. Off restores it.")
+               : Loc("已關閉常駐遮罩（已恢復自動偵測）。",
+                     "Persistent mask off — auto-detection resumed."),
+            CurrentState);
     }
 
     /// <summary>Raised (UI thread) when the comfort overlay wants to engage but needs the user's

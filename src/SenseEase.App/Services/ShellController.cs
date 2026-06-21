@@ -366,7 +366,10 @@ public sealed class ShellController : IShellController
     public bool PersistentMaskEnabled
     {
         get => _vm.PersistentOverlayEnabled;
-        set => _vm.PersistentOverlayEnabled = value;
+        // UVHS fix 2026-06-21: the manual 常駐遮罩 toggle pins L6 + freezes the auto-loop via the dedicated
+        // user-intent path — NOT the bare property setter (which the intensity slider also drives as a plain
+        // baseline-floor; that path must stay freeze-free).
+        set => _vm.SetPersistentMaskFromUser(value);
     }
     public bool AlwaysAllowOverlay
     {

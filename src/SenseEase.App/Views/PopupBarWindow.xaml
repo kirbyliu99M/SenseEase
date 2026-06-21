@@ -686,11 +686,11 @@
                     <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding AnchorGridOn}"
                               Foreground="{DynamicResource Popup.Ink1}"
                               Content="{loc:T Zh='格線', En='Grid'}"
-                              AutomationProperties.HelpText="{loc:T Zh='在畫面上疊加淡淡的參考格線，作為固定的視覺參考框以減輕晃動不適；關閉則隱藏。', En='Faint reference lines that give your eyes a fixed frame to ease motion discomfort. Off hides them.'}"/>
+                              AutomationProperties.HelpText="{loc:T Zh='在畫面上疊加淡淡的錨點格線，給眼睛一個固定的定位點：畫面晃動時，目光可以抓住格線並穩定下來，減輕視覺上的搖晃。關閉則隱藏。', En='Overlays faint anchor lines that give your eyes a fixed point to settle on — when the view sways, your gaze can latch onto the grid and steady, easing the visual motion. Off hides them.'}"/>
                     <Button Style="{StaticResource HelpGlyph}" Margin="6,0,0,0" VerticalAlignment="Center"
                             AutomationProperties.Name="{loc:T Zh='格線說明', En='Grid help'}">
                         <Button.ToolTip><ToolTip Style="{StaticResource HelpTip}"
-                            Content="{loc:T Zh='在畫面上疊加淡淡的參考格線，作為固定的視覺參考框以減輕晃動不適；關閉則隱藏。', En='Faint reference lines that give your eyes a fixed frame to ease motion discomfort. Off hides them.'}"/></Button.ToolTip>
+                            Content="{loc:T Zh='在畫面上疊加淡淡的錨點格線，給眼睛一個固定的定位點：畫面晃動時，目光可以抓住格線並穩定下來，減輕視覺上的搖晃。關閉則隱藏。', En='Overlays faint anchor lines that give your eyes a fixed point to settle on — when the view sways, your gaze can latch onto the grid and steady, easing the visual motion. Off hides them.'}"/></Button.ToolTip>
                     </Button>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,2">

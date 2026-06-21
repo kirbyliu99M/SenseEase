@@ -6,10 +6,12 @@ using Xunit;
 namespace SenseEase.Tests;
 
 /// <summary>
-/// Item 4 — "Overlay Always ON" / Auto-Protect. <see cref="MockInferenceEngine.SetAutoLevelHold"/> pins the
-/// displayed tier at the requested level (instant effect) and FREEZES the pressure→tier projection while
+/// Item 4 — the 常駐遮罩 / Persistent mask hard hold. <see cref="MockInferenceEngine.SetAutoLevelHold"/> pins
+/// the displayed tier at the requested level (instant effect) and FREEZES the pressure→tier projection while
 /// held (hard-latch, Kirby), then resumes from live pressure on release. Only <c>UpdateVimsTier</c> is
 /// frozen — the habituation offset/strike loops + the B5/B6 auto-adaptation are NOT gated by the hold.
+/// (UVHS fix 2026-06-21: this hold drives the Persistent-mask switch, NOT Auto Protect — see
+/// <see cref="PersistentMaskHoldWiringTests"/> for the VM-level toggle wiring.)
 /// </summary>
 public sealed class OverlayAlwaysOnHoldTests
 {
