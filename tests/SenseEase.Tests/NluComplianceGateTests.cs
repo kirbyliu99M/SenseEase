@@ -64,6 +64,18 @@ public class NluComplianceGateTests
     }
 
     [Fact]
+    public void BareUncertainty_GivesGuidingClarification_NotColdDeflection()
+    {
+        // "I don't know" — bare uncertainty, NO symptom named: the bot should GUIDE with an open clarifying
+        // question (pointing at discomfort vs adjust) instead of the cold no-action deflection.
+        var r = NluComplianceGate.Check(Raw("Unknown", reply: "ok"), "I don't know");
+
+        Assert.Equal(0, r.FovDelta);
+        Assert.Contains("tell me a bit more", r.Response, System.StringComparison.OrdinalIgnoreCase); // guiding
+        Assert.DoesNotContain("control on the bar", r.Response, System.StringComparison.OrdinalIgnoreCase); // not the deflection
+    }
+
+    [Fact]
     public void Followup_WithUnusableOptions_RebuildsCase1Picker_NotDeadEndUnknown()
     {
         // Finding #3: a FollowupRequest with no usable options must rebuild the Case-1

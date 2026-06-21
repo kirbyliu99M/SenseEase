@@ -260,6 +260,25 @@ internal static class NluComplianceGate
             }
         }
 
+        // Bare-ambiguity guiding clarification (Kirby 2026-06-21): the user voiced UNCERTAINTY but named
+        // nothing actionable — a short "I don't know" / "I'm not sure" / "不知道" with NO symptom (the
+        // hedged-symptom guard above handles named symptoms) and no command/deliberation. Don't deflect to the
+        // cold no-action line — GUIDE with an open clarifying question that points at what the assistant can
+        // help with. Length-capped so a longer hedged sentence ("I'm not sure what this app does") is left to
+        // the model + the prompt's clarify rule. Deterministic backstop behind the bare-ambiguity few-shot.
+        if (intent != "FollowupRequest" && !suppressedAsQuestion
+            && !string.IsNullOrWhiteSpace(userText) && userText.Trim().Length <= 30
+            && InterrogativeDetector.IsHedgedSymptom(userText)
+            && !FeedbackLexicon.MentionsSpecificSymptom(userText)
+            && !InterrogativeDetector.IsCommandInquiry(userText))
+        {
+            fov = 0; md = 0.0; gv = 0.0;
+            bool zh = uiEnglishPin is bool en ? !en : FeedbackLexicon.PreferZh(userText);
+            reply = zh
+                ? "沒關係，可以多說一點嗎？是覺得哪裡不舒服，還是想調整一下防護呢？"
+                : "No problem — tell me a bit more. Is something feeling uncomfortable, or would you like to adjust the protection?";
+        }
+
         string response = (reply ?? string.Empty).Trim();
         if (response.Length == 0)
             response = FeedbackLexicon.BuildFallbackResponse(userText, intent, uiEnglishPin);
