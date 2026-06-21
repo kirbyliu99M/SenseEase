@@ -184,10 +184,10 @@ Add, alongside the existing GGUF/sidecar staging:
    license/redistribution terms first.
 4. **Q4NX in the installer vs `flm pull` on first run?** Bundling = offline-capable but +2.5 GB in the kit;
    `flm pull qwen3-it:4b` on first run = smaller kit, needs internet once.
-5. **Intel/OpenVINO binary — obtain/bundle now, or defer until an Intel box is in hand?** The route is wired +
-   unit-tested; it just needs the compiled `-DGGML_OPENVINO=ON` `llama-server.exe` dropped under
-   `runtimes/.../openvino/`. *Recommendation: defer the binary until there's an Intel machine to validate on;
-   the AMD path ships first.*
+5. ~~**Intel/OpenVINO binary — obtain now or defer?**~~ **DONE (2026-06-21)** — the `-DGGML_OPENVINO=ON`
+   `llama-server.exe` was built from source + validated (CPU device, SenseEase GGUF served, inference OK) and
+   placed in the dev-build `runtimes/.../openvino/`. See §11. Remaining for Intel: run it on the actual NPU
+   (Kirby's Intel box) + stage the pack into the installer.
 
 ---
 
@@ -213,3 +213,60 @@ Runtime selection, launch, fallback, idle-unload, diagnostics, and the OpenVINO 
 committed**. Phase 3 is *packaging only* — wiring the probe into Inno, splitting `[Files]` by `Check:`, the AMD
 page, and extending the stage script + manifest. No new runtime code is required to ship the AMD path; the Intel
 path needs only the OpenVINO binary + an Intel machine to validate.
+
+---
+
+## 11. OpenVINO binary — BUILT + VALIDATED (2026-06-21)
+
+The OpenVINO `llama-server` is no longer hypothetical — it was **built from source and validated** on Kirby's
+machine (the AMD dev box, CPU device) and placed in the dev-build runtime. The Intel-NPU run is still Kirby's to
+do (this box has no Intel NPU; SenseEase keeps AMD on FLM/Vulkan by design), but the binary + DLL pack are proven.
+
+### Verified build recipe (what actually worked)
+- **Host:** Visual Studio Community **2026** (MSVC 14.51) — newer than the doc's VS 2022, configured + compiled
+  cleanly. OpenVINO toolkit **2026.2.0** (archive, extracted under Downloads). **vcpkg + `opencl`** — a REQUIRED
+  build dep (`ggml/src/ggml-openvino/CMakeLists.txt` has `find_package(OpenCL REQUIRED)`).
+- **Source:** llama.cpp master (`063d9c1`), `git clone --depth 1`.
+- **Env (one shell):** `VsDevCmd.bat -arch=amd64` then the toolkit's `setupvars.bat` (sets `OpenVINO_DIR` →
+  `runtime\cmake`; `find_package(OpenVINO)` then resolves).
+- **Configure / build:**
+  ```
+  cmake -B build\ReleaseOV -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_OPENVINO=ON ^
+        -DCMAKE_TOOLCHAIN_FILE=<vcpkg>\scripts\buildsystems\vcpkg.cmake -DLLAMA_CURL=OFF -DGGML_VULKAN=OFF
+  cmake --build build\ReleaseOV --target llama-server --parallel
+  ```
+  → "Including OPENVINO backend", "Found OpenCL 3.0", build emits `build\ReleaseOV\bin\` (`llama-server.exe` +
+  `llama-server-impl.dll` + `ggml*.dll` incl. **`ggml-openvino.dll`** + `llama*.dll` + `mtmd.dll` + `OpenCL.dll`).
+  Reproducible script: [`installer/build-openvino-llama-server.bat`](../installer/build-openvino-llama-server.bat).
+
+### The runtime pack (`runtimes/win-x64/native/openvino/`) — self-contained, ~222 MB, 33 files
+- the build's `*.exe` + `*.dll` closure;
+- OpenVINO runtime from `<toolkit>\runtime\bin\intel64\Release\*.dll` — `openvino.dll`, the device plugins
+  `openvino_intel_{npu,gpu,cpu}_plugin.dll` (+ `openvino_intel_npu_compiler*.dll`), `auto`/`hetero` plugins,
+  `openvino_ir_frontend.dll`. **OV 2026 ships NO `plugins.xml`** — plugins are found by the
+  `openvino_intel_<device>_plugin.dll` naming convention, so co-location alone works;
+- TBB (`tbb12.dll`, `tbbbind_2_5.dll`, `tbbmalloc*.dll`, release only);
+- **VC runtime** (`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll` from the VS redist) so it runs on a
+  machine without Visual Studio.
+- *Installer trim:* the model frontends (`openvino_{onnx,pytorch,tensorflow,paddle}_frontend.dll`, ~13 MB) are
+  NOT needed (ggml-openvino builds the OV graph directly) — drop them to shave size.
+
+### Validation (this AMD box, CPU device)
+`GGML_OPENVINO_DEVICE=CPU` serving SenseEase's **Qwen3-4B-Instruct-2507-Q4_K_M.gguf**: log showed
+`OPENVINO0: OpenVINO Runtime` registered, the **Q4_K_M GGUF loaded** (no quant issue), `server is listening`,
+and a chat completion returned a token. ⇒ binary + DLL set good; pack is in the dev-build `runtimes/.../openvino/`.
+
+### To test on the Intel device
+- **Quick (no installer):** copy the dev build + this `openvino/` pack to the Intel machine and run — SenseEase
+  sees Intel + the OpenVINO exe present → `ShouldUseOpenVino` true → launches it with `GGML_OPENVINO_DEVICE=NPU`.
+- **Installer (Phase 3):** stage this pack as the Intel pack (`Check: IsIntelCpu` → `runtimes/.../openvino/`),
+  and add its `llama-server.exe` + `ggml*.dll` + `openvino*.dll` to `install.manifest.json`.
+
+### Staging-script lines (for `stage-pre-alpha-assets.ps1`, when bundling the Intel pack)
+```powershell
+# stage the prebuilt + validated OpenVINO pack (built per §11):
+$ovPack = "<path-to>/openvino-pack"
+robocopy $ovPack (Join-Path $Dist "runtimes/win-x64/native/openvino") /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+# extend the manifest so the OV runtime is integrity-hashed (the existing globs already catch llama-server.exe + ggml*.dll):
+$manifestPatterns += "openvino*.dll"
+```
