@@ -72,12 +72,17 @@ public partial class SettingsWindow : Window
         // used by NotificationCardWindow / the popup bar: poll GetForegroundWindow on a timer and close
         // once the foreground is some OTHER top-level window. An in-window dropdown (foreground stays
         // us) or an owned child dialog (reset confirm / hotkey picker) keeps it open.
-        _dismissPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        // RESPONSIVENESS FIX (2026-06-21): poll at 100 ms on Input priority (matching the popup bar's poll) so a
+        // click-away reacts promptly. The old 200 ms × 3-tick streak meant up to ~600-700 ms — and the window
+        // stayed Topmost that whole time — before the close even STARTED: that "I clicked away and it lagged"
+        // gap (NOT the fade, which is fine). 100 ms × 2 ticks keeps a real, uninterrupted re-confirm against a
+        // transient foreground blip (a Trend Micro AV card flashing foreground) while feeling immediate.
+        _dismissPoll = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(100) };
         _dismissPoll.Tick += OnDismissPollTick;
-        // 閃退 ROOT-CAUSE FIX (Item 2, redesigned): the close decision now keys on PROCESS OWNERSHIP, not on
-        // timing (no arm/settle/Activated heuristics). The window closes only when the foreground belongs to
-        // ANOTHER process; every one of our own windows (incl. the open-transition churn onto the edge handle)
-        // is the same process and can never dismiss us. See OnDismissPollTick.
+        // 閃退 ROOT-CAUSE FIX (Item 2, redesigned): the close decision keys on PROCESS OWNERSHIP, not on timing
+        // (no arm/settle/Activated heuristics). The window closes only when the foreground belongs to ANOTHER
+        // process; every one of our own windows (incl. the open-transition churn onto the edge handle) is the
+        // same process and can never dismiss us. See OnDismissPollTick.
         Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _dismissPoll.Start(); };
         Closed += (_, _) => { SettingsGlassTheme.Untrack(this); _dismissPoll.Stop(); };
 
@@ -95,7 +100,7 @@ public partial class SettingsWindow : Window
 
     private readonly DispatcherTimer _dismissPoll;
     private int  _foreignTicks;   // consecutive polls where ANOTHER PROCESS's window held the foreground
-    private const int ForeignTicksToClose = 3; // 3 × 200 ms = 600 ms of sustained other-app foreground before closing
+    private const int ForeignTicksToClose = 2; // 2 × 100 ms = 100 ms of sustained other-app foreground before closing
     private bool _closing;        // re-entrancy guard: a 2nd close trigger during the breath-out is a no-op
 
     /// <summary>Light-dismiss: close the Settings window once the user genuinely switches to ANOTHER APP or
@@ -173,6 +178,11 @@ public partial class SettingsWindow : Window
     {
         if (_closing) return;
         _closing = true;
+        // Drop Topmost the instant the dismiss is confirmed so the window falls BEHIND the one the user just
+        // clicked while the 120 ms fade plays — without this, even a fast close still reads as "it stayed on
+        // top after I clicked away". All three close paths (X / Escape / poll) are _closing-guarded, so this
+        // fires exactly once; ReducedMotion's immediate Close() below removes the window outright anyway.
+        Topmost = false;
         _dismissPoll.Stop();   // a late poll tick must not re-enter mid-fade
         if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) { Close(); return; }
         // Drop the slab's drop-shadow (Elev.3, ~18px blur) for the fade: animating a DropShadowEffect on this
