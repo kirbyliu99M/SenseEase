@@ -515,11 +515,11 @@
                     <Border Background="{DynamicResource Separator}" Height="1" Margin="0,0,0,12"/>
                     <CheckBox x:Name="VestibularProtectionToggle"
                               Style="{StaticResource SettingSwitch}"
-                              Content="{loc:T Zh='暈眩防護（敏感模式）', En='Dizziness protection (sensitive mode)'}"
+                              Content="{loc:T Zh='暈眩防護（更早啟動）', En='Dizziness protection (engages earlier)'}"
                               Foreground="{DynamicResource TextPrimary}" FontSize="12"
                               Checked="OnVestibularProtectionChanged"
                               Unchecked="OnVestibularProtectionChanged"/>
-                    <TextBlock Text="{loc:T Zh='若您感到暈眩或不適，可開啟此防護。', En='If you feel dizzy or uncomfortable, you can enable this protection.'}"
+                    <TextBlock Text="{loc:T Zh='若您容易暈眩，開啟後防護會更早啟動、更為謹慎。', En='If you''re prone to dizziness, this makes protection engage earlier and stay more cautious.'}"
                                FontSize="12" Foreground="{DynamicResource TextTertiary}"
                                TextWrapping="Wrap" Margin="22,6,0,14"/>
                     <Button x:Name="ResetStateButton"

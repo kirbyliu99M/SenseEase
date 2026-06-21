@@ -49,6 +49,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
     private bool   _onboardingProtectionActive;
     private double _onboardingElapsedSeconds;
 
+    // UI "Overlay Always ON" / Auto-Protect hard-latch: while true, UpdateVimsTier FREEZES the displayed
+    // tier at the pinned level (set via SetAutoLevelHold). Pressure / the habituation offset+strike loops /
+    // the B5/B6 auto-adaptation all keep running — only the pressure→tier PROJECTION is suspended. Inert
+    // by default (false) so every non-toggled path is byte-identical.
+    private bool   _autoLevelHold;
+
     // Fixed settling period (seconds of accumulated Update dt) the seeded tier is held
     // against fast-release before normal projection resumes. NEW local constant (no
     // SenseDefaults value change, per the wave rules) — kept conservative at one
@@ -938,6 +944,32 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // bilingual pair Kirby saw in the dashboard Event Log. The durable state still
             // round-trips via the persisted snapshot (VestibularProtectionEnabled), so no
             // forensic signal is lost by dropping the engine-side line.
+        }
+    }
+
+    /// <summary>UI "Overlay Always ON" / Auto-Protect: pin the displayed protection tier at
+    /// <paramref name="level"/> and FREEZE the auto-level (pressure→tier) projection while held, so the
+    /// user gets an immediate, stable overlay. The habituation engine (offset / strike / state machine) +
+    /// the B5/B6 auto-adaptation keep running untouched — only <see cref="UpdateVimsTier"/>'s projection is
+    /// suspended, and the engine's severe-spike pause still fires on raw pressure. Releasing (hold=false)
+    /// resumes projection from live pressure on the next tick. Idempotent; Q4.5-safe (never touches the
+    /// earned offset).</summary>
+    public void SetAutoLevelHold(bool hold, int level = 6)
+    {
+        lock (_gate)
+        {
+            _autoLevelHold = hold;
+            if (hold)
+            {
+                int pinned = Math.Clamp(level, 1, 12);
+                _vimsTier             = pinned;
+                _pendingTierCandidate = pinned;
+                _pendingTierSinceUtc  = DateTime.MinValue;
+                Current.VimsTier      = pinned;
+                // The manual hold supersedes the fresh-seed onboarding hold (both freeze the tier — avoid a fight).
+                _onboardingProtectionActive = false;
+            }
+            // Release: leave _vimsTier where it is; the next UpdateVimsTier projects from live pressure.
         }
     }
 
@@ -2388,6 +2420,17 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// </summary>
     private void UpdateVimsTier(DateTime nowUtc, double dt)
     {
+        // UI Auto-Protect hard-latch: while the user's "Overlay Always ON" toggle pins the level, FREEZE
+        // the pressure→tier projection at the held tier. Everything else keeps running (pressure, the
+        // habituation offset/strike loops, the B5/B6 auto-adaptation, and the severe-spike pause which
+        // still fires on raw pressure) — only this tier projection is suspended. Released on toggle-off.
+        if (_autoLevelHold)
+        {
+            _pendingTierCandidate = _vimsTier;
+            _pendingTierSinceUtc  = DateTime.MinValue;
+            return;
+        }
+
         // Mask alpha is driven by current VECTION RISK (pressure), not by how far the
         // user has narrowed the FOV. Earlier this used FovRadiusPercent, which meant a
         // user-initiated chatbot "I feel dizzy" (which legitimately shrinks FOV via

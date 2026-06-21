@@ -1862,12 +1862,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (AlwaysAllowOverlay == value) return;
             UserPreferences.Current.AlwaysAllowOverlay = value;
             UserPreferences.Current.Save();
-            if (value) CancelPendingConsent();  // turning it on hides any bubble waiting for an answer
-            UpdateFromState(_engine.Current);    // re-apply so the consent gate engages/clamps within a frame
+            if (value)
+            {
+                CancelPendingConsent();  // turning it on hides any bubble waiting for an answer
+                // Immediate effect: pin the displayed level at the impactful tier (6) and FREEZE the
+                // auto-level loop while ON. The habituation / strike / B5 / B6 learning loops keep running
+                // (only the pressure→tier projection is paused); the latch releases on toggle-off.
+                (_engine as MockInferenceEngine)?.SetAutoLevelHold(true, ConsentImpactTier);
+            }
+            else
+            {
+                (_engine as MockInferenceEngine)?.SetAutoLevelHold(false); // resume the auto-level loop
+            }
+            UpdateFromState(_engine.Current);    // re-apply so the consent gate + the held tier render within a frame
             OnPropertyChanged(nameof(AlwaysAllowOverlay));
             AppendLog("OverlayConsent",
-                value ? Loc("已設為自動防護（不再先詢問）。", "Comfort overlay set to Auto Protect (no longer asks first).")
-                      : Loc("已恢復為先詢問再開啟防護。", "Comfort overlay will ask before engaging."),
+                value ? Loc("已設為自動防護（立即固定第 6 級、暫停自動偵測）。", "Auto Protect on — overlay pinned at level 6, auto-detection paused.")
+                      : Loc("已恢復為先詢問再開啟防護（已恢復自動偵測）。", "Comfort overlay will ask before engaging — auto-detection resumed."),
                 CurrentState);
         }
     }
