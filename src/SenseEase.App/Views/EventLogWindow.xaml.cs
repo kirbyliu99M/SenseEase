@@ -144,7 +144,8 @@ public partial class EventLogWindow : Window
     }
 
     /// <summary>Item 1 — calm-breath CLOSE: the inverse of <see cref="PlayEntrance"/> (fade out + scale to
-    /// 0.975 over ~140ms, EaseIn), then the real <see cref="Window.Close"/> in the fade's Completed — the
+    /// 0.975 over ~120ms, EaseOut — the open's responsive easing), then the real <see cref="Window.Close"/>
+    /// in the fade's Completed — the
     /// same motion family as the popup / SettingsWindow. Opacity + RenderTransform only, no Effect. The
     /// <c>_closing</c> guard makes a 2nd trigger a no-op; ReducedMotion closes instantly. The X and Escape
     /// both route here.</summary>
@@ -153,8 +154,10 @@ public partial class EventLogWindow : Window
         if (_closing) return;
         _closing = true;
         if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) { Close(); return; }
-        var ease = new QuinticEase { EasingMode = EasingMode.EaseIn };
-        var dur  = new Duration(TimeSpan.FromMilliseconds(140));
+        // Match the OPEN's responsive QuinticEase.EaseOut (front-loaded — starts the instant it's invoked, so
+        // the close never feels lagged or abrupt). ~120ms = a touch quicker than the 230ms open.
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(120));
         var shrink = new DoubleAnimation(1.0, 0.975, dur) { EasingFunction = ease };
         SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
         SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);

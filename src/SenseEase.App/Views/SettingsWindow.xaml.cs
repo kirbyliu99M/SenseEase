@@ -154,7 +154,8 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Item 1 — calm-breath CLOSE: the inverse of <see cref="PlayEntrance"/>. Fades the inner
-    /// SlabBorder out + settles the scale to 0.975 over ~140ms (QuinticEase.EaseIn), then calls the real
+    /// SlabBorder out + settles the scale to 0.975 over ~120ms (QuinticEase.EaseOut — the open's responsive
+    /// easing, so the close starts immediately rather than lingering then snapping away), then calls the real
     /// <see cref="Window.Close"/> in the fade's Completed — so the panel leaves with the same motion family
     /// as the popup card. Animates ONLY Opacity + a RenderTransform on the inner Border (composited,
     /// ClearType-safe, no relayout, no Effect added), so the AllowsTransparency software-render contract
@@ -167,8 +168,11 @@ public partial class SettingsWindow : Window
         _closing = true;
         _dismissPoll.Stop();   // a late poll tick must not re-enter mid-fade
         if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) { Close(); return; }
-        var ease = new QuinticEase { EasingMode = EasingMode.EaseIn };
-        var dur  = new Duration(TimeSpan.FromMilliseconds(140));
+        // Match the OPEN's responsive QuinticEase.EaseOut (front-loaded — the fade/shrink starts the instant
+        // the user clicks, so the close never feels lagged or abrupt). EaseIn lingered then snapped away
+        // (slow start + abrupt end) on this larger window. ~120ms = "exit a touch quicker" than the 230ms open.
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(120));
         var shrink = new DoubleAnimation(1.0, 0.975, dur) { EasingFunction = ease };
         SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
         SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
