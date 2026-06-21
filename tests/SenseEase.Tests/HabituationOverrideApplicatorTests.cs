@@ -131,25 +131,9 @@ public class HabituationOverrideApplicatorTests
     }
 
     // ── Phase 7f: defensive intercept blocks ─────────────────────────────────
-
-    [Fact]
-    public void ApplyAccepted_VestibularUser_RelaxationProposal_BlockedBySafety()
-    {
-        var snapshot = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
-        var (app, engine, _, eventLog, actionLog) = Build(snapshot);
-        var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 0.8); // relaxation
-
-        var result = app.ApplyAccepted(proposal);
-
-        Assert.False(result.IsSuccess);
-        Assert.True(result.BlockedBySafety);
-        Assert.Contains("vestibular", result.Reason!);
-        // Action logged as Intercepted, not Accepted.
-        Assert.Equal(ChatbotActionKind.Intercepted, actionLog.Recent()[0].Kind);
-        // SafetyIntercept event surfaces in the event log.
-        Assert.Contains(eventLog.Recent(),
-                        e => e.Category == "Habituation.SafetyIntercept");
-    }
+    // (Vestibular-removal: the vestibular intercept facts were stripped; the HighRiskCombo
+    //  intercept facts below are the surviving advisory-block coverage. The interceptor's
+    //  vestibular rules are kept as dead-but-protective — migration nulls the advisory.)
 
     [Fact]
     public void ApplyAccepted_HighRiskCombo_SignificantRelaxation_Blocked()
@@ -176,19 +160,6 @@ public class HabituationOverrideApplicatorTests
         var result = app.ApplyAccepted(proposal);
 
         Assert.True(result.IsSuccess);
-    }
-
-    [Fact]
-    public void ApplyAccepted_VestibularHardCap_StrikeLimit1_BlocksAdjust()
-    {
-        var snapshot = MakeSnapshot(strikeLimit: 1, advisory: MedicalAdvisory.Vestibular);
-        var (app, _, _, _, _) = Build(snapshot);
-        var proposal = MakeProposal(OverrideIntent.AdjustStrikeLimit, (long)3);
-
-        var result = app.ApplyAccepted(proposal);
-
-        Assert.True(result.BlockedBySafety);
-        Assert.Contains("hard-set", result.Reason!);
     }
 
     [Fact]
@@ -299,68 +270,9 @@ public class HabituationOverrideApplicatorTests
     [Fact(Skip = "Rule 1 guard requires Intent == AdjustStrikeLimit; SwitchProfile can never reach the hard-set rule (it falls through to Rule 2). Logically unreachable cell.")]
     public void Matrix_Rule1_SwitchProfile_Unreachable() { }
 
-    [Fact]
-    public void Matrix_Rule1_AdjustStrikeLimit_BlocksWithHardSetReason()
-    {
-        // Vestibular + hard-set strike limit (==1) + AdjustStrikeLimit ⇒ Rule 1.
-        var snapshot = MakeSnapshot(strikeLimit: 1, advisory: MedicalAdvisory.Vestibular);
-        var proposal = MakeProposal(OverrideIntent.AdjustStrikeLimit, (long)3);
-
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
-
-        Assert.True(result.Blocked);
-        Assert.Contains("hard-set", result.Reason!);
-    }
-
-    // ── Rule 2 row (vestibular + any relaxation) ─────────────────────────────
-
-    [Fact]
-    public void Matrix_Rule2_AdjustSensitivity_BlocksWithVestibularReason()
-    {
-        // scale 0.8 < current 1.0 ⇒ relaxation; vestibular advisory ⇒ Rule 2.
-        var snapshot = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
-        var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 0.8);
-
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
-
-        Assert.True(result.Blocked);
-        Assert.Contains("vestibular", result.Reason!);
-    }
-
-    [Fact]
-    public void Matrix_Rule2_SwitchProfile_ProfileUnchanged()
-    {
-        // Reading A (2026-06-06): SwitchProfile no longer applies at the engine
-        // (profile is calibration-only), so this is no longer a meaningful Rule-2
-        // BLOCK test — the proposal can never mutate the profile regardless of the
-        // vestibular advisory. Assert the engine profile is UNCHANGED after the
-        // attempt to keep coverage of the no-op at the apply path.
-        var (app, engine, _, _, _) = Build(
-            MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.Vestibular));
-        var before = engine.HabituationProfile;
-        var proposal = MakeProposal(OverrideIntent.SwitchProfile, "RESILIENT");
-
-        var result = app.ApplyAccepted(proposal);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal(before, engine.HabituationProfile);
-    }
-
-    [Fact]
-    public void Matrix_Rule2_AdjustStrikeLimit_BlocksWithVestibularReason()
-    {
-        // strike limit 3 > current 2 ⇒ relaxation; vestibular advisory but the
-        // limit is NOT hard-set to 1, so Rule 1 misses and Rule 2 fires.
-        var snapshot = MakeSnapshot(strikeLimit: 2, advisory: MedicalAdvisory.Vestibular);
-        var proposal = MakeProposal(OverrideIntent.AdjustStrikeLimit, (long)3);
-
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
-
-        Assert.True(result.Blocked);
-        Assert.Contains("vestibular", result.Reason!);
-        // And specifically NOT the hard-set (Rule 1) reason — Rule 1 missed.
-        Assert.DoesNotContain("hard-set", result.Reason!);
-    }
+    // (Vestibular-removal: the Rule 1 (vestibular hard-set strike-limit) and Rule 2 (vestibular
+    //  relaxation) matrix facts were stripped. Those interceptor rules are kept as
+    //  dead-but-protective; the Rule 3 (HighRiskCombo) matrix below is the surviving coverage.)
 
     // ── Rule 3 row (high-risk-combo + significant relaxation) ────────────────
 
@@ -426,24 +338,6 @@ public class HabituationOverrideApplicatorTests
         Assert.False(result.Blocked);
     }
 
-    // ── Precedence: most-specific rule wins when several match ───────────────
-
-    [Fact]
-    public void Matrix_Precedence_VestibularHardSet_Rule1WinsOverRule2()
-    {
-        // BOTH Rule 1 (hard-set strike limit) and Rule 2 (vestibular + relaxation)
-        // match here: vestibular advisory, SevereStrikeLimit == 1, AdjustStrikeLimit
-        // to 3 (3 > 1 ⇒ relaxation). The most-specific rule (Rule 1, checked first)
-        // must win, so the reason is the hard-set one, NOT the generic Rule-2 text.
-        var snapshot = MakeSnapshot(strikeLimit: 1, advisory: MedicalAdvisory.Vestibular);
-        var proposal = MakeProposal(OverrideIntent.AdjustStrikeLimit, (long)3);
-
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
-
-        Assert.True(result.Blocked);
-        Assert.Contains("hard-set", result.Reason!);
-        // The generic vestibular-relaxation (Rule 2) wording must NOT be the one
-        // surfaced — proving precedence ordering, not merely "something blocked".
-        Assert.DoesNotContain("manual Settings change", result.Reason!);
-    }
+    // (Vestibular-removal: the Rule1-wins-over-Rule2 precedence fact was vestibular-only and
+    //  was removed; the interceptor's precedence ordering is kept as dead-but-protective code.)
 }

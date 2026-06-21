@@ -11,8 +11,8 @@ namespace SenseEase.Tests;
 /// <see cref="AppConfig.IsFirstRun"/> flag (previously dead). These pin the contract:
 /// it SHOWS on a fresh install (flag file absent), DISMISS persists
 /// <see cref="AppConfig.MarkFirstRunComplete"/> and hides it, and it NEVER reappears
-/// on a later launch once the flag is written. Also pins the sequencing rule — the
-/// vestibular prompt bar is held back while the strip is up and unblocks after dismiss.
+/// on a later launch once the flag is written. (Vestibular-removal: the prompt-sequencing
+/// rule — the strip held back the now-removed vestibular prompt bar — was trimmed.)
 ///
 /// <para>CW-9 isolation: <see cref="AppConfig.FirstRunFlagPath"/> and
 /// <c>UserPreferences.FilePath</c> both route through <c>AppConfig.DataRootOverride</c>;
@@ -26,8 +26,7 @@ public class FirstRunStripTests : IDisposable
     public FirstRunStripTests()
     {
         TestDataRootFixture.UseClassSubdir(nameof(FirstRunStripTests));
-        // Fresh prefs so VestibularPromptAnswered defaults false (the vestibular bar's
-        // own gate) and nothing leaks from a sibling class.
+        // Fresh prefs so nothing leaks from a sibling class.
         if (File.Exists(UserPreferences.FilePath)) File.Delete(UserPreferences.FilePath);
         UserPreferences.ResetCacheForTesting();
     }
@@ -47,19 +46,17 @@ public class FirstRunStripTests : IDisposable
     }
 
     [Fact]
-    public void FirstRunStrip_HeldBackVestibularBar_UntilDismissed()
+    public void FirstRunStrip_VisibleUntilDismissed()
     {
+        // Vestibular-removal: the prompt-sequencing half (the strip held back the now-removed
+        // vestibular bar) was trimmed; the surviving contract is the strip's own show→dismiss.
         var vm = new MainViewModel();
 
-        // While the framing strip is up, the medical-adjacent vestibular question is held back.
-        Assert.Equal(Visibility.Visible,   vm.FirstRunStripVisibility);
-        Assert.Equal(Visibility.Collapsed, vm.VestibularPromptVisibility);
+        Assert.Equal(Visibility.Visible, vm.FirstRunStripVisibility);
 
         vm.DismissFirstRunCommand.Execute(null);
 
-        // After dismiss: strip gone, vestibular bar now allowed (still un-answered).
         Assert.Equal(Visibility.Collapsed, vm.FirstRunStripVisibility);
-        Assert.Equal(Visibility.Visible,   vm.VestibularPromptVisibility);
     }
 
     [Fact]

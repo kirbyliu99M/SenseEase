@@ -229,37 +229,8 @@ public class AdaptiveFitProposeConfirmTests
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 5. VESTIBULAR — a propose-WEAKER cross-segment target is never queued
-    // ──────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void FlagOn_Vestibular_NeverQueuesAWeakerBandProposal()
-    {
-        bool original = AppConfig.AdaptiveFitSelectorEnabled;
-        try
-        {
-            AppConfig.AdaptiveFitSelectorEnabled = true;
-
-            // A calm window favours the Band-DOWN (weaker) neighbour. For a NON-advisory
-            // user (4,2) is same-segment so it would move silently; the point here is the
-            // vestibular guard — propose-stronger-only — must DROP any weaker-band target
-            // before it can be queued OR moved. The advisory user gets neither a move nor
-            // a pending.
-            var log = new InMemoryEventLogStore();
-            SeedDurable(log, pressure: 5.0, spike: false);
-            var engine = new MockInferenceEngine(null, null, null, log) { AdaptiveFitSelectorEnabled = true };
-            engine.SetVestibularProtection(true);
-
-            DriveCalm(engine);
-
-            Assert.Null(engine.PeekPendingSetMove());
-            Assert.True(ResolvesToSet0(engine));
-        }
-        finally { AppConfig.AdaptiveFitSelectorEnabled = original; }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
     // 6. IDEMPOTENCY — Confirm/Decline are safe no-ops when nothing is pending
+    //    (Vestibular-removal: the propose-weaker-blocked vestibular fact was removed.)
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]

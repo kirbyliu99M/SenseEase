@@ -1,3 +1,6 @@
+using SenseEase.Core.Abstractions;
+using SenseEase.Core.Inference;
+using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Mock;
 using Xunit;
 
@@ -5,82 +8,51 @@ namespace SenseEase.Tests;
 
 /// <summary>
 /// Beta-1 Phase-0 protection-integrity pins (docs/BETA_GATE_REVIEW_2026-06-14.md #5).
-/// These assert that vestibular personalization actually reaches the VISIBLE protection —
-/// the safety gap where the personalized EffectiveTrigger (50) was computed but the mask /
-/// FOV / tier were wired to the fixed TriggerPressure (85), so a vestibular user's visible
-/// protection was byte-identical to a non-vestibular user.
 ///
-/// Pressure model (LeakyIntegrator): dt = 1.0 s/tick when no clock is passed; stimulus =
-/// OFI·PassiveFlowWeight(2) + QuadraticTerm(0.0008)·OFI²; alphaDt = BaseDecayAlpha(0.965)^10
-/// ≈ 0.70. At OFI 22, P rises 44.4 → 75.5 → 97.3 over ticks 1-3, so there is a tick where
-/// pressure sits in (50, 85): the mask is ON for a vestibular (trigger 50) engine but still
-/// OFF for the default (trigger 85) engine — the discriminating window.
+/// Vestibular-removal: the two original facts proved that vestibular personalization
+/// (EffectiveTrigger 50) reached the VISIBLE protection earlier than the default (85). The
+/// vestibular feature is retired (the app is now scoped to general comfort, not clinical
+/// vestibular disorders) and <c>SetVestibularProtection</c> was deleted, so those facts are gone.
+/// The NON-vestibular regression guard survives — re-expressed to actually EXERCISE the boot-restore
+/// path the removal touched: a NON-vestibular persisted snapshot must (a) NOT trigger the
+/// vestibular→Reactive migration and (b) drive a mask/FOV/tier trace byte-identical to a store-less
+/// fresh engine at the same profile. A regression in the load/migration branch would diverge here.
 /// </summary>
 public class ProtectionIntegrityPhase0Tests
 {
     private const double RampOfi = 22.0;
 
-    [Fact]
-    public void Beta1_5_VestibularTrigger_EngagesMaskAtLowerPressureThanDefault()
+    private sealed class InMemoryProfileStore : IHabituationProfileStore
     {
-        var def = new MockInferenceEngine();
-        var ves = new MockInferenceEngine();
-        ves.SetVestibularProtection(true);   // EffectiveTrigger 85 -> 50
+        public HabituationProfileSnapshot? Stored;
+        public HabituationProfileSnapshot? Load() => Stored;
+        public void Save(HabituationProfileSnapshot snapshot) => Stored = snapshot;
+    }
 
-        // Note: the engine has an 8 s re-activation cooldown but NO cooldown on the OFF
-        // transition, and the mask attenuates OFI once active — so in a fast (real-time)
-        // loop a mask can flip OFF and not re-arm. We therefore track "ever activated"
-        // edges, not the final steady state.
-        bool sawVestibularOnWhileDefaultOff = false;
-        bool defaultEverActivated = false;
-        for (int i = 1; i <= 8; i++)
+    [Fact]
+    public void Beta1_5_NonVestibularSnapshot_LoadsUnperturbed_ByRemoval()
+    {
+        // A non-vestibular snapshot (the realistic, overwhelmingly-common shape) at the engine's
+        // default profile. Loading it runs the real boot-restore — including the now-present
+        // vestibular-migration branch, which must NOT fire (flag false).
+        var store = new InMemoryProfileStore
         {
-            bool defMask = def.Update(RampOfi, "Passenger").MaskActive;
-            bool vesMask = ves.Update(RampOfi, "Passenger").MaskActive;
-            if (defMask) defaultEverActivated = true;
-            if (vesMask && !defMask) sawVestibularOnWhileDefaultOff = true;
-        }
+            Stored = new HabituationProfileSnapshot { Profile = "RESILIENT", VestibularProtectionEnabled = false },
+        };
+        var loaded = new MockInferenceEngine(profileStore: store);
+        var fresh  = new MockInferenceEngine();   // store-less, field-default RESILIENT / trigger 85
 
-        Assert.True(sawVestibularOnWhileDefaultOff,
-            "vestibular protection (trigger 50) must engage the mask while the default (trigger 85) has not — proves EffectiveTrigger is wired into mask onset, not the fixed 85");
-        Assert.True(defaultEverActivated,
-            "the default mask must also engage under sustained OFI (proves the window above was a real ordering, not the default simply never activating)");
-    }
+        // The migration did NOT re-home this non-vestibular user (would be Reactive if it had).
+        Assert.Equal(HabituationProfile.Resilient, loaded.HabituationProfile);
 
-    [Fact]
-    public void Beta1_5_VestibularFovIsTighterThanDefault_AtTheSamePressure()
-    {
-        // One tick, identical input: both engines hold the SAME pressure (mask not yet active),
-        // so any FOV difference is purely the trigger denominator. The vestibular engine's
-        // lower trigger makes the clear zone strictly tighter — the FOV half of finding #5.
-        var def = new MockInferenceEngine();
-        var ves = new MockInferenceEngine();
-        ves.SetVestibularProtection(true);
-
-        int defFov = def.Update(RampOfi, "Passenger").FovRadiusPercent;
-        int vesFov = ves.Update(RampOfi, "Passenger").FovRadiusPercent;
-
-        Assert.True(vesFov < defFov,
-            $"vestibular FOV must be tighter at equal pressure (trigger 50 < 85): vestibular={vesFov}, default={defFov}");
-    }
-
-    [Fact]
-    public void Beta1_5_DefaultUser_IsByteIdentical_NonVestibularRegressionGuard()
-    {
-        // The fix must be byte-identical for the default user: EffectiveTrigger == 85, so a
-        // vestibular engine toggled back OFF must match a fresh one tick-for-tick (mask + FOV).
-        var a = new MockInferenceEngine();
-        var b = new MockInferenceEngine();
-        b.SetVestibularProtection(true);
-        b.SetVestibularProtection(false);    // reverts EffectiveTrigger to the 85 default
-
+        // ...and the visible protection is byte-identical to the default engine, tick for tick.
         for (int i = 1; i <= 12; i++)
         {
-            var sa = a.Update(RampOfi, "Passenger");
-            var sb = b.Update(RampOfi, "Passenger");
-            Assert.Equal(sa.MaskActive, sb.MaskActive);
-            Assert.Equal(sa.FovRadiusPercent, sb.FovRadiusPercent);
-            Assert.Equal(sa.VimsTier, sb.VimsTier);
+            var sl = loaded.Update(RampOfi, "Passenger");
+            var sf = fresh.Update(RampOfi, "Passenger");
+            Assert.Equal(sf.MaskActive, sl.MaskActive);
+            Assert.Equal(sf.FovRadiusPercent, sl.FovRadiusPercent);
+            Assert.Equal(sf.VimsTier, sl.VimsTier);
         }
     }
 }

@@ -80,15 +80,9 @@ public sealed class B6Stage4bCommitTests
         Assert.Equal(HabituationProfile.Adapting, e.HabituationProfile);   // unchanged
     }
 
-    [Fact] // VESTIBULAR_LIVE_FLIP_ABORT — live vestibular but the off-lock snapshot saw non-vestibular.
-    public void Commit_LiveVestibularVsNonVestibularSnapshot_Aborts()
-    {
-        var e = Engine(new FakeLog());
-        e.SetVestibularProtection(true);
-        var r = e.ApplyGateOutcome(Req(e, ProfileMove.Down, HabituationProfile.Reactive, Hold, snapVest: false));
-        Assert.False(r.ProfileMoved);
-        Assert.Equal("snapshot-vs-live-mismatch", r.Reason);
-    }
+    // (Vestibular-removal: the VESTIBULAR_LIVE_FLIP_ABORT fact called the deleted
+    //  SetVestibularProtection and was removed. The Req() snapVest plumbing + the engine's
+    //  live-vs-snapshot mismatch-abort machinery are KEPT as dead-but-protective.)
 
     [Fact] // UP_STALE_STRIKE_ABORT — a protective drop in level between snapshot and commit aborts an UP.
     public void Commit_UpWithStaleHighLevel_AbortsProtective()

@@ -414,11 +414,12 @@ public class HabituationTests
     {
         // #2: if the profile existed at boot but a later Load() fails transiently,
         // the engine must SKIP the persist rather than null-fill + overwrite the
-        // vestibular advisory.
+        // medical advisory. (Vestibular-removal: re-pointed the seeded advisory to the
+        // surviving HighRiskCombo member so the persist-skip round-trip stays covered.)
         var seed = new HabituationProfileSnapshot
         {
             Profile = "SENSITIVE",
-            MedicalAdvisoryShown = MedicalAdvisory.Vestibular,
+            MedicalAdvisoryShown = MedicalAdvisory.HighRiskCombo,
         };
         var store = new TransientFailProfileStore(seed);
         var engine = new MockInferenceEngine(profileStore: store); // ctor Load succeeds -> existed-at-boot
@@ -427,7 +428,7 @@ public class HabituationTests
         engine.SetHabituationProfile(HabituationProfile.Adapting, "force"); // triggers a persist attempt
 
         Assert.Equal(0, store.SaveCount);                          // persist skipped
-        Assert.Equal(MedicalAdvisory.Vestibular, store.Stored!.MedicalAdvisoryShown); // advisory survived
+        Assert.Equal(MedicalAdvisory.HighRiskCombo, store.Stored!.MedicalAdvisoryShown); // advisory survived
     }
 
     [Fact]

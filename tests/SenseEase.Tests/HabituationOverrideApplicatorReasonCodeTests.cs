@@ -48,29 +48,10 @@ public class HabituationOverrideApplicatorReasonCodeTests
         Assert.Contains("verify safety", result.Reason!);
     }
 
-    [Fact]
-    public void VestibularHardSetStrikeLimit_Blocks_WithHardSetCode_StableReason()
-    {
-        var snapshot = MakeSnapshot(strikeLimit: 1, advisory: MedicalAdvisory.Vestibular);
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(
-            MakeProposal(OverrideIntent.AdjustStrikeLimit, (long)3), snapshot);
-
-        Assert.True(result.Blocked);
-        Assert.Equal(HabituationInterceptCode.VestibularHardSetStrikeLimit, result.Code);
-        Assert.Contains("hard-set", result.Reason!);
-    }
-
-    [Fact]
-    public void VestibularRelaxation_Blocks_WithVestibularRelaxationCode_StableReason()
-    {
-        var snapshot = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
-        var result = HabituationOverrideApplicator.CheckSafetyIntercepts(
-            MakeProposal(OverrideIntent.AdjustSensitivity, 0.8), snapshot);
-
-        Assert.True(result.Blocked);
-        Assert.Equal(HabituationInterceptCode.VestibularRelaxation, result.Code);
-        Assert.Contains("vestibular", result.Reason!);
-    }
+    // (Vestibular-removal: the two vestibular reason-code facts were removed; the
+    //  HighRiskCombo block path below is the surviving advisory intercept. The
+    //  VestibularHardSetStrikeLimit / VestibularRelaxation intercept code + enum members are
+    //  kept as dead-but-protective — the migration nulls the persisted Vestibular advisory.)
 
     [Fact]
     public void HighRiskComboSignificant_Blocks_WithHighRiskCode_StableReason()

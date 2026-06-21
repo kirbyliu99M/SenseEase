@@ -232,20 +232,11 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Alpha-2 addendum: optional host wiring for the auto-profiling Settings
-    /// group (vestibular "regret" toggle + moved Reset). Forward to the hosted
-    /// <see cref="SettingsContent"/>. Set by the host AFTER construction (before Show) when
-    /// it has the MainViewModel; left unset on paths that don't (the group then stays hidden).
-    /// Constructor signature is preserved verbatim so existing call sites are unaffected.</summary>
-    public Func<bool>? GetVestibularProtection
-    {
-        get => ContentHost.GetVestibularProtection;
-        set => ContentHost.GetVestibularProtection = value;
-    }
-    public Action<bool>? SetVestibularProtection
-    {
-        get => ContentHost.SetVestibularProtection;
-        set => ContentHost.SetVestibularProtection = value;
-    }
+    /// group (the moved Reset). Forward to the hosted <see cref="SettingsContent"/>. Set by
+    /// the host AFTER construction (before Show) when it has the MainViewModel; left unset on
+    /// paths that don't (the group then stays hidden). Constructor signature is preserved
+    /// verbatim so existing call sites are unaffected.
+    /// (Vestibular-removal: the Get/SetVestibularProtection pass-throughs were removed.)</summary>
     public Action? ResetRequested
     {
         get => ContentHost.ResetRequested;

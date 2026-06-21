@@ -197,11 +197,12 @@ public class NotificationCardWindowTests
                 ExpiresAtUtc:  DateTime.UtcNow.AddHours(2));
             w.ActiveProposal = proposal;
 
-            w.ShowProposalApplyResult(ApplyResult.Blocked("vestibular advisory active"));
+            // Vestibular-removal: re-pointed the sample block reason to a surviving advisory.
+            w.ShowProposalApplyResult(ApplyResult.Blocked("high-risk-combo advisory active"));
 
             Assert.Equal(Visibility.Visible, w.ProposalPanel.Visibility);
             Assert.Equal(Visibility.Visible, w.ProposalSafetyNoteText.Visibility);
-            Assert.Contains("vestibular advisory active", w.ProposalSafetyNoteText.Text);
+            Assert.Contains("high-risk-combo advisory active", w.ProposalSafetyNoteText.Text);
             Assert.False(w.ProposalAcceptBtn.IsEnabled);
         });
     }
@@ -385,9 +386,12 @@ public class NotificationCardWindowTests
 
                 // A coded block result — the same shape the applicator returns. The English
                 // Reason is the forensic string the event log keeps; the Card must NOT show it.
+                // Vestibular-removal: re-pointed from the retired VestibularRelaxation code to
+                // the surviving HighRiskComboSignificant code so the bilingual-scrub mechanism
+                // (CODE → localized copy, forensic English suppressed) stays covered.
                 var blocked = ApplyResult.Blocked(
-                    "vestibular advisory active; relaxation proposals require manual Settings change",
-                    HabituationInterceptCode.VestibularRelaxation);
+                    "high-risk-combo advisory; significant relaxation proposals require manual Settings change",
+                    HabituationInterceptCode.HighRiskComboSignificant);
 
                 // zh: fully Chinese, no English forensic words leak through.
                 LocalizationManager.Current.Language = UILanguage.ChineseTraditional;
@@ -395,8 +399,8 @@ public class NotificationCardWindowTests
                 w.ShowProposalApplyResult(blocked);
                 string zh = w.ProposalSafetyNoteText.Text;
                 Assert.Equal(Visibility.Visible, w.ProposalSafetyNoteText.Visibility);
-                Assert.Contains("前庭", zh);
-                Assert.DoesNotContain("vestibular", zh, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("調整", zh);
+                Assert.DoesNotContain("high-risk-combo", zh, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("manual Settings change", zh);
                 Assert.False(w.ProposalAcceptBtn.IsEnabled);
 
@@ -405,8 +409,8 @@ public class NotificationCardWindowTests
                 w.ActiveProposal = proposal;
                 w.ShowProposalApplyResult(blocked);
                 string en = w.ProposalSafetyNoteText.Text;
-                Assert.Contains("Vestibular protection is on", en);
-                Assert.DoesNotContain("前庭", en); // no leftover Chinese
+                Assert.Contains("only small adjustments are allowed", en);
+                Assert.DoesNotContain("調整", en); // no leftover Chinese
             });
         }
         finally

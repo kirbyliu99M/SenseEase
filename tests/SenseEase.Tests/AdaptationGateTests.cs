@@ -92,23 +92,9 @@ public class AdaptationGateTests
     }
 
     // ── Cohort floors ─────────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Vestibular_NeverAutoRelaxes()
-    {
-        var s = RelaxReady() with { Cohort = Cohort.Vestibular };
-        var d = Assert.IsType<GateDecision.Hold>(AdaptationGate.Evaluate(Relax(), s, Cfg));
-        Assert.Equal("vestibular-no-auto-relax", d.Reason);
-    }
-
-    [Fact]
-    public void Vestibular_TightenStaysAtOrBelowFloor()
-    {
-        var s = RelaxReady() with { Cohort = Cohort.Vestibular, BaseEffectiveTrigger = 50.0, BehaviorWorsening = true };
-        var d = Assert.IsType<GateDecision.Apply>(AdaptationGate.Evaluate(Hold(), s, Cfg));
-        Assert.Equal(AdaptDirection.Tighten, d.Direction);
-        Assert.True(d.ResultingEffectiveTrigger <= 50.0); // never weaker than the vestibular floor
-    }
+    // (Vestibular-removal: the two Cohort.Vestibular facts were removed; the gate's
+    //  Cohort.Vestibular arm is kept as dead-but-protective code. The Cohort.Sensitive floor
+    //  below is the surviving most-protective cohort path — a migrated user maps here.)
 
     [Fact]
     public void Sensitive_RelaxCannotPushTriggerAboveBaseline()

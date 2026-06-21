@@ -250,13 +250,20 @@ public class Phase8AcceptanceTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Scenario D — Goal 4 (安全網記憶): vestibular hard cap blocks relaxation
+    // Scenario D — Goal 4 (安全網記憶): high-risk-combo advisory blocks relaxation
+    // (Vestibular-removal: re-pointed from the retired vestibular advisory to the surviving
+    //  HighRiskCombo advisory so the two-gate safety-net acceptance coverage is not lost.)
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void ScenarioD_VestibularUser_LlmProposesRelaxation_BlockedAtBothGates()
+    public void ScenarioD_HighRiskComboUser_LlmProposesSignificantRelaxation_BlockedAtApplicatorGate()
     {
-        var snap = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
+        // Vestibular-removal note: the original ScenarioD used the vestibular advisory, which the
+        // Processor (Gate 1) AND the Applicator (Gate 2) both reject. The surviving HighRiskCombo
+        // advisory is enforced only at the Applicator's 7f intercept (the Processor has no
+        // HighRiskCombo rule), so a significant relaxation PASSES Gate 1 but is BLOCKED at Gate 2 —
+        // the safety net still catches it and the engine state never changes.
+        var snap = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.HighRiskCombo);
         var (engine, _, eventLog, actionLog, applicator, _) = BuildFullStack(snap);
 
         string raw = BuildRawWithProfileOverride(
@@ -268,14 +275,12 @@ public class Phase8AcceptanceTests
         var parsed = HabituationOverrideParser.TryParse(raw);
         Assert.NotNull(parsed.Proposal);
 
-        // Gate 1: processor rejects up front (rule 3 — vestibular + relaxation).
+        // Gate 1 (Processor): no HighRiskCombo rule, so a well-formed proposal is accepted here.
         var validation = HabituationOverrideProcessor.Validate(parsed.Proposal!, snap);
-        Assert.False(validation.IsAccepted);
-        Assert.NotNull(validation.SafetyNote);
+        Assert.True(validation.IsAccepted);
 
-        // Gate 2 (belt-and-suspenders): if a caller bypassed the Processor
-        // and called Applicator.ApplyAccepted directly, the 7f intercept
-        // catches it again. Engine state never changes.
+        // Gate 2 (Applicator 7f intercept): the high-risk-combo significant relaxation is BLOCKED.
+        // Engine state never changes.
         double triggerBefore = engine.HabituationEffectiveTrigger;
         var applyResult = applicator.ApplyAccepted(parsed.Proposal!);
         Assert.False(applyResult.IsSuccess);
@@ -289,11 +294,11 @@ public class Phase8AcceptanceTests
     }
 
     [Fact]
-    public void ScenarioD_VestibularUser_LlmProposesTightening_AllowedThrough()
+    public void ScenarioD_HighRiskComboUser_LlmProposesTightening_AllowedThrough()
     {
-        // Sanity: vestibular advisory blocks RELAXATION, not tightening.
+        // Sanity: the high-risk-combo advisory blocks significant RELAXATION, not tightening.
         // A tightening proposal still applies.
-        var snap = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
+        var snap = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.HighRiskCombo);
         var (engine, _, _, _, applicator, _) = BuildFullStack(snap);
 
         string raw = BuildRawWithProfileOverride(

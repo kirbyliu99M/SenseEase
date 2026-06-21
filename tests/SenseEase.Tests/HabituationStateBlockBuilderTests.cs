@@ -91,13 +91,16 @@ public class HabituationStateBlockBuilderTests
     }
 
     [Fact]
-    public void Build_VestibularAdvisory_IncludesLowercasedField()
+    public void Build_Advisory_IncludesLowercasedField()
     {
+        // Vestibular-removal: re-pointed at the surviving HighRiskCombo advisory; the generic
+        // lowercase-render contract is unchanged (the builder lower-cases whatever the snapshot
+        // holds). The advisory emitter is kept; the migration nulls a stale Vestibular advisory.
         var snap = MinimalSnapshot();
-        snap.MedicalAdvisoryShown = MedicalAdvisory.Vestibular;
+        snap.MedicalAdvisoryShown = MedicalAdvisory.HighRiskCombo;
         string block = HabituationStateBlockBuilder.BuildBlock(snap, null, false);
-        Assert.Contains("advisory: vestibular\n", block);
-        Assert.DoesNotContain("Vestibular", block);  // pin lowercase
+        Assert.Contains("advisory: highriskcombo\n", block);
+        Assert.DoesNotContain("HighRiskCombo", block);  // pin lowercase
     }
 
     [Fact]
@@ -189,7 +192,7 @@ public class HabituationStateBlockBuilderTests
             AwaitingUserConfirm = true,
             CalibrationCount    = 3,
             LastCalibrationAtIso = "2026-04-10T14:23:00.0000000Z",
-            MedicalAdvisoryShown = MedicalAdvisory.Vestibular,
+            MedicalAdvisoryShown = MedicalAdvisory.HighRiskCombo, // vestibular-removal: surviving advisory
             PersonalPressureScale = 0.85,
             LongitudinalObservations = new List<string>
             {

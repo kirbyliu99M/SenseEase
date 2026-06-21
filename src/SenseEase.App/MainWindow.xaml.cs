@@ -1216,10 +1216,9 @@ public partial class MainWindow : Window
             return;
         }
         _settingsWindow = new SettingsWindow(_viewModel.HasVestibularDiagnosis);
-        // Alpha-2 addendum: forward the auto-profiling vestibular toggle + Reset wiring so the
-        // tray/gear Settings window matches the console Settings tab in the auto-profiling world.
-        _settingsWindow.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
-        _settingsWindow.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
+        // Alpha-2 addendum: forward the auto-profiling Reset wiring so the tray/gear Settings
+        // window matches the console Settings tab in the auto-profiling world.
+        // (Vestibular-removal: the Get/SetVestibularProtection toggle wiring was removed.)
         _settingsWindow.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
         // D-1 (CW-1 step 3): same Graded-exposure wiring as the console 設定 tab so the
         // tray/gear Settings window also flips the engine pause in-session, not just at restart.

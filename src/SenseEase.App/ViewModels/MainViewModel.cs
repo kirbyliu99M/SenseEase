@@ -140,18 +140,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// calibration has run" cases.</summary>
     public bool HasVestibularDiagnosis()
     {
-        var snap = _habituationProfileStore.Load();
-        if (snap is null) return false;
-        // Alpha-2 addendum: the auto-profiling world records vestibular via the persistent
-        // VestibularProtectionEnabled field (the one-time first-use prompt / Settings toggle);
-        // the legacy calibration world records it via Q5RiskFactors. Honour BOTH so every
-        // vestibular UI guard keeps firing regardless of which world set it.
-        if (snap.VestibularProtectionEnabled) return true;
-        if (snap.CalibrationResponses?.Q5RiskFactors is { } rfs)
-        {
-            foreach (var rf in rfs)
-                if (rf == SenseEase.Core.Inference.RiskFactor.VestibularDiagnosed) return true;
-        }
+        // Vestibular-removal: the feature is retired (app scoped to general comfort). Nothing should
+        // treat a user as "vestibular" any more — a persisted-true user is migrated to the most-cautious
+        // Reactive profile at engine load. Hardcode false so the (still-wired but un-invoked) Func<bool>?
+        // consumer seams can never resurrect vestibular-gated behaviour off a stale disk flag OR a legacy
+        // Q5 calibration record. Structural dead, not incidental.
         return false;
     }
 
@@ -187,9 +180,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand DismissFirstRunCommand { get; private set; } = null!;
 
     /// <summary>UX-13: dismiss the first-run strip. Persists the AppConfig.IsFirstRun flag
-    /// (MarkFirstRunComplete) so it never reappears, hides the strip, and unblocks the
-    /// vestibular prompt bar (its visibility ANDs in "first-run dismissed"), so the
-    /// vestibular question only surfaces AFTER the framing strip.</summary>
+    /// (MarkFirstRunComplete) so it never reappears and hides the strip.</summary>
     private void DismissFirstRun()
     {
         if (!_firstRunStripVisible) return; // idempotent
@@ -197,64 +188,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _firstRunStripVisible = false;
         OnPropertyChanged(nameof(IsFirstRunStripVisible));
         OnPropertyChanged(nameof(FirstRunStripVisibility));
-        // The vestibular bar was held back behind the strip — re-evaluate it now so it
-        // appears (if still un-answered) the instant the strip is dismissed.
-        OnPropertyChanged(nameof(VestibularPromptVisibility));
     }
 
-    // One-time vestibular prompt (auto-profiling world). Non-blocking bottom bar shown on
-    // first use until the user gives ANY response. "Asked once, not flashed-and-counted":
-    // VestibularPromptAnswered is set ONLY by the Yes/No commands (an actual click), so
-    // mere display never consumes the ask — closing the app without interacting reshows it.
-    private bool _vestibularPromptVisible =
-        AppConfig.AutoProfilingEnabled && !UserPreferences.Current.VestibularPromptAnswered;
-
-    /// <summary>Visibility of the one-time vestibular first-use prompt bar. UX-13: held back
-    /// (Collapsed) while the first-run welcome strip is still showing, so a fresh user sees
-    /// the plain-language framing strip FIRST and only meets the medical-adjacent vestibular
-    /// question after dismissing it.</summary>
-    public System.Windows.Visibility VestibularPromptVisibility =>
-        (_vestibularPromptVisible && !_firstRunStripVisible)
-            ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
-
-    public ICommand VestibularPromptYesCommand { get; private set; } = null!;
-    public ICommand VestibularPromptNoCommand  { get; private set; } = null!;
-
-    private void AnswerVestibularPrompt(bool hasDiagnosis)
-    {
-        UserPreferences.Current.VestibularPromptAnswered = true;
-        UserPreferences.Current.Save();
-        if (hasDiagnosis && _engine is MockInferenceEngine mock)
-            mock.SetVestibularProtection(true, source: "onetime_prompt");
-        _vestibularPromptVisible = false;
-        OnPropertyChanged(nameof(VestibularPromptVisibility));
-        OnPropertyChanged(nameof(VestibularProtectionEnabled));
-        AppendLog("Vestibular", hasDiagnosis
-            ? Loc("已啟用前庭保護。", "Vestibular protection enabled.")
-            : Loc("前庭詢問已回覆（未啟用）。", "Vestibular prompt answered (not enabled)."),
-            CurrentState);
-    }
-
-    /// <summary>Settings "regret" toggle source of truth — the PERSISTENT vestibular
-    /// protection. Permanently changeable, so a user who skipped the one-time prompt can
-    /// enable later (and a user who enabled can disable). Writes through the engine, which
-    /// applies/reverts the protection + persists it. Q4.5-safe (never touches _offset).</summary>
-    public bool VestibularProtectionEnabled
-    {
-        get => (_engine as MockInferenceEngine)?.IsVestibularProtectionEnabled ?? false;
-        set
-        {
-            if (_engine is MockInferenceEngine mock && mock.IsVestibularProtectionEnabled != value)
-            {
-                mock.SetVestibularProtection(value, source: "settings");
-                OnPropertyChanged(nameof(VestibularProtectionEnabled));
-                AppendLog("Vestibular",
-                    value ? Loc("已於設定啟用前庭保護。", "Vestibular protection enabled in Settings.")
-                          : Loc("已於設定關閉前庭保護。", "Vestibular protection disabled in Settings."),
-                    CurrentState);
-            }
-        }
-    }
+    // Vestibular-removal: the one-time vestibular first-use prompt and the Settings "regret"
+    // toggle were removed (the app is now scoped to general comfort, not clinical vestibular
+    // disorders). The prompt members + the VestibularProtectionEnabled bridge property are gone
+    // so the protection can never be armed from the App. A previously-protected user is migrated
+    // to the most-cautious Reactive profile by the engine load path (see MockInferenceEngine).
 
     /// <summary>D-1 (CW-1 step 3, 2026-06-11): Settings 漸進適應 / Graded exposure
     /// toggle source of truth. Graded exposure (habituation) defaults PAUSED; this
@@ -1278,9 +1218,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
                                   : Loc("再適應已恢復。", "Habituation resumed."),
                 CurrentState);
         });
-        // Alpha-2 addendum: one-time vestibular prompt responses (auto-profiling world).
-        VestibularPromptYesCommand = new RelayCommand(_ => AnswerVestibularPrompt(true));
-        VestibularPromptNoCommand  = new RelayCommand(_ => AnswerVestibularPrompt(false));
         // UX-13: one-time first-run welcome strip dismissal.
         DismissFirstRunCommand = new RelayCommand(_ => DismissFirstRun());
 
@@ -2465,8 +2402,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // Engine state — ATOMIC snapshot under the gate lock so base = effective − auto can't tear
             // against a concurrent engine mutate (this runs off the UI thread).
             var snap = mock.SnapshotForAdaptation();
-            Cohort cohort = snap.Vestibular ? Cohort.Vestibular
-                          : (snap.Profile == HabituationProfile.Reactive ? Cohort.Sensitive : Cohort.Typical);
+            // Vestibular-removal: snap.Vestibular is permanently false now, so the dead
+            // Cohort.Vestibular leg is dropped — this is the only App producer of that cohort.
+            // A migrated (formerly-vestibular) user is Reactive ⇒ maps to Cohort.Sensitive's
+            // no-net-relax floor, the protective substitute.
+            Cohort cohort = snap.Profile == HabituationProfile.Reactive ? Cohort.Sensitive : Cohort.Typical;
             double baseTrigger = snap.EffectiveTrigger - snap.AutoDeltaPp;
 
             var state = AdaptationEvidence.BuildMeasuredState(

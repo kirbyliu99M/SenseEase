@@ -52,17 +52,6 @@ public partial class SettingsContent : UserControl
     /// UserControl loads; OnLoaded reads it once during hydration.</summary>
     public Func<bool>? HasVestibularDiagnosis { get; set; }
 
-    /// <summary>Alpha-2 addendum (auto-profiling world): host-provided read of the
-    /// PERSISTENT vestibular protection state for the Settings "regret" toggle's checked
-    /// state. Wired by MainWindow to MainViewModel.VestibularProtectionEnabled.</summary>
-    public Func<bool>? GetVestibularProtection { get; set; }
-
-    /// <summary>Alpha-2 addendum: host-provided write of the vestibular protection toggle.
-    /// Wired by MainWindow to MainViewModel.VestibularProtectionEnabled (which drives the
-    /// engine + persists). Read-only-consumed elsewhere; this is the ONE deliberate write
-    /// (the regret mechanism), gated to the auto-profiling world.</summary>
-    public Action<bool>? SetVestibularProtection { get; set; }
-
     /// <summary>Alpha-2 addendum: host-provided "reset personalisation state" action for the
     /// Reset that moved from the console into Settings. Wired by MainWindow to
     /// MainViewModel.ResetStateCommand (Q4.5-safe — preserves the habituation offset).</summary>
@@ -279,14 +268,14 @@ public partial class SettingsContent : UserControl
             ToggleGradedExposure.IsChecked =
                 GetGradedExposure?.Invoke() ?? UserPreferences.Current.HabituationEnabled;
 
-            // Alpha-2 addendum: the vestibular "regret" toggle + the moved Reset are shown
-            // ONLY in the auto-profiling world AND only when the host wired the callbacks
-            // (the NotificationCard→Settings path doesn't, so it won't show an inert group).
-            // Hydrate the toggle from the host's current engine state (read-only consumption).
+            // Auto-profiling world only: the moved Reset is shown ONLY in the auto-profiling world.
+            // (Vestibular-removal: the "regret" toggle that used to gate this group is gone; Reset is the
+            // sole surviving member.) Gate ALSO on ResetRequested being host-wired — the NotificationCard→
+            // Settings path leaves it null (only the gear/tray path wires it), so without this the card path
+            // would show a Reset button whose handler no-ops. ResetRequested is the correct presence signal.
             AutoProfilingDataGroup.Visibility =
-                (AppConfig.AutoProfilingEnabled && SetVestibularProtection is not null)
+                (AppConfig.AutoProfilingEnabled && ResetRequested is not null)
                     ? Visibility.Visible : Visibility.Collapsed;
-            VestibularProtectionToggle.IsChecked = GetVestibularProtection?.Invoke() ?? false;
         }
         finally { _wiring = false; }
     }
@@ -731,16 +720,6 @@ public partial class SettingsContent : UserControl
                     $"Restart failed: {ex.Message}"),
                 DialogKind.Error);
         }
-    }
-
-    /// <summary>Alpha-2 addendum: the vestibular "regret" toggle changed. Suppressed during
-    /// hydration (<see cref="_wiring"/>). Routes the new value to the host
-    /// (MainViewModel.VestibularProtectionEnabled), which drives + persists the engine.</summary>
-    private void OnVestibularProtectionChanged(object sender, RoutedEventArgs e)
-    {
-        if (_wiring) return;
-        SetVestibularProtection?.Invoke(VestibularProtectionToggle.IsChecked == true);
-        PreferencesChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Alpha-2 addendum: the moved-into-Settings "reset personalisation state"

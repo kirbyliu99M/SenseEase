@@ -202,11 +202,10 @@
              One-time, dismissible, plain-language card answering "Am I protected?".
              Keyed off the EXISTING AppConfig.IsFirstRun flag (its designed use) via the
              VM's FirstRunStripVisibility; Dismiss calls MarkFirstRunComplete so it never
-             shows again. Sequenced BEFORE the vestibular prompt bar: while this strip is
-             visible the vestibular bar is held back (VestibularPromptVisibility ANDs in
-             "first-run dismissed"), so a fresh user sees framing first, not a bare
-             medical-adjacent question. Reduce-Motion-safe (no entrance animation). Theme
-             tokens only; ≥12px (body 14, caption 12). -->
+             shows again. (Vestibular-removal: the medical-adjacent vestibular prompt bar that
+             used to be sequenced after this strip was removed; the strip now carries a brief
+             non-clinical scope disclaimer as its last caption line.) Reduce-Motion-safe (no
+             entrance animation). Theme tokens only; ≥12px (body 14, caption 12). -->
         <Border DockPanel.Dock="Top"
                 Visibility="{Binding FirstRunStripVisibility}"
                 Background="{DynamicResource SurfaceMuted}"
@@ -227,6 +226,11 @@
                     <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
                                Foreground="{DynamicResource TextTertiary}"
                                Text="{loc:T Zh='關閉視窗會縮到系統匣繼續運作（不會結束程式）；所有選項都在「設定」分頁。', En='Closing the window minimizes it to the tray and keeps running (close is not quit). All options live in the Settings tab.'}"/>
+                    <!-- Non-clinical scope disclaimer (vestibular-removal): general comfort only,
+                         not a medical device. Placed LAST in the strip (don't lead with a negative). -->
+                    <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Foreground="{DynamicResource TextTertiary}"
+                               Text="{loc:T Zh='SenseEase 幫助減緩日常視覺不適，並非臨床前庭疾病的醫療裝置。', En='SenseEase helps with everyday visual comfort — it is not a medical device for clinical vestibular conditions.'}"/>
                 </StackPanel>
                 <Button Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0"
                         Content="{loc:T Zh='開始使用', En='Get started'}"
@@ -235,39 +239,6 @@
                         Padding="20,9" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                         Template="{StaticResource RoundBtn}"
                         AutomationProperties.Name="{loc:T Zh='開始使用 SenseEase', En='Get started with SenseEase'}"/>
-            </Grid>
-        </Border>
-
-        <!-- Alpha-2 addendum: one-time vestibular first-use prompt (auto-profiling world).
-             Non-blocking bottom bar; hidden unless AutoProfilingEnabled AND not-yet-answered.
-             "Asked once" — answering (Yes / No) marks it answered; closing the app without
-             interacting reshows it next launch. §6 non-medical wording (asks about a
-             diagnosis, makes no clinical claim). Permanently changeable later in Settings. -->
-        <Border DockPanel.Dock="Bottom"
-                Visibility="{Binding VestibularPromptVisibility}"
-                Background="{DynamicResource SurfaceMuted}"
-                BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
-                Padding="24,10">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap"
-                           Foreground="{DynamicResource TextSecondary}" FontSize="12"
-                           Text="{loc:T Zh='是否有前庭/眩暈相關診斷？（可略過，日後可於設定調整）', En='Do you have a vestibular / dizziness-related diagnosis? (Optional — you can change this later in Settings.)'}"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                    <Button Content="{loc:T Zh='是', En='Yes'}"
-                            Command="{Binding VestibularPromptYesCommand}"
-                            Background="{DynamicResource Accent}" Foreground="White" BorderThickness="0"
-                            Padding="16,6" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
-                            Template="{StaticResource RoundBtn}" Margin="0,0,8,0"/>
-                    <Button Content="{loc:T Zh='否 / 略過', En='No / Skip'}"
-                            Command="{Binding VestibularPromptNoCommand}"
-                            Background="{DynamicResource SurfaceMuted}" Foreground="{DynamicResource TextSecondary}"
-                            BorderThickness="0" Padding="16,6" FontSize="12" Cursor="Hand"
-                            Template="{StaticResource RoundBtn}"/>
-                </StackPanel>
             </Grid>
         </Border>
 

@@ -202,15 +202,14 @@ public sealed class HabituationProfileSnapshot
     [JsonPropertyName("calibration_confidence")]
     public CalibrationConfidence? CalibrationConfidence { get; set; }
 
-    /// <summary>Alpha-2 addendum (cancel explicit calibration → auto-profiling):
-    /// persistent vestibular-protection signal for the auto-profiling world, where
-    /// the cancelled calibration Q5 no longer sets it. Written by
-    /// <c>MockInferenceEngine.SetVestibularProtection</c> (driven by the one-time
-    /// first-use field + the permanent Settings toggle); read back at engine load to
-    /// re-apply the L9 floor / TriggerPressure-50 / SevereStrikeLimit-1 protection
-    /// across restarts. Additive (schema stays v3); default <c>false</c>, so existing
-    /// calibration-era snapshots are unaffected and the legacy
-    /// <c>CalibrationResponses.Q5RiskFactors</c> vestibular path is unchanged.</summary>
+    /// <summary>Persistent vestibular-protection signal. RETAINED FOR BACK-COMPAT /
+    /// MIGRATION ONLY post vestibular-removal: the feature is retired (the app is now scoped
+    /// to general comfort, not clinical vestibular disorders) so nothing writes this true any
+    /// more — the engine always writes <c>false</c>. The field is kept so an old on-disk
+    /// snapshot with this set true can still be DESERIALIZED and DETECTED at engine load, where
+    /// the migration re-homes that user into the most-cautious Reactive profile and then writes
+    /// the field back false (clearing the on-disk signal on the first persist). Additive (schema
+    /// stays v3); default <c>false</c>, so existing snapshots that never had it are unaffected.</summary>
     [JsonPropertyName("vestibular_protection_enabled")]
     public bool VestibularProtectionEnabled { get; set; }
 

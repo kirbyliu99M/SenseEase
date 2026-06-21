@@ -97,20 +97,22 @@ public class PauseResumeTests
 
     // ── (b) Resume re-screen invariant (the gate Revalidate re-fires) ────────
 
-    /// <summary>The resume-safety invariant: a vestibular user's relaxation proposal
-    /// is BLOCKED by <see cref="HabituationOverrideApplicator.CheckSafetyIntercepts"/>.
+    /// <summary>The resume-safety invariant: a high-risk-combo user's SIGNIFICANT relaxation
+    /// proposal is BLOCKED by <see cref="HabituationOverrideApplicator.CheckSafetyIntercepts"/>.
     /// On resume, <c>MainViewModel.RevalidateActiveProposalAfterResume()</c> loads a
     /// fresh snapshot and re-fires exactly this predicate; a Blocked result clears /
     /// expires the proposal (it must NOT call ApplyAccepted). Mirrors
-    /// <c>HabituationOverrideApplicatorTests</c>' vestibular Rule-2 case.
+    /// <c>HabituationOverrideApplicatorTests</c>' high-risk-combo Rule-3 case.
+    /// (Vestibular-removal: re-pointed from the retired vestibular advisory to the surviving
+    /// HighRiskCombo block trigger so the resume-revalidation MECHANISM stays covered.)
     ///
     /// <para>The MainViewModel wiring (ChatbotVm.IsPaused flip on enable, and the
     /// Revalidate call on disable from MainWindow.ApplyPowerSave) is covered by code
     /// review since MainViewModel can't be unit-constructed without Application.Current.</para></summary>
     [Fact]
-    public void ResumeRevalidation_VestibularRelaxation_IsBlocked()
+    public void ResumeRevalidation_HighRiskComboRelaxation_IsBlocked()
     {
-        // scale 0.8 < current 1.0 ⇒ relaxation; vestibular advisory ⇒ blocked.
+        // scale 0.8 < current 1.0 ⇒ 20% drop ≥ 15% significant; high-risk-combo advisory ⇒ blocked.
         var snapshot = new HabituationProfileSnapshot
         {
             SchemaVersion = 2,
@@ -118,19 +120,19 @@ public class PauseResumeTests
             ProfileSource = "calibration_demo",
             PersonalPressureScale = 1.0,
             SevereStrikeLimit = 2,
-            MedicalAdvisoryShown = MedicalAdvisory.Vestibular,
+            MedicalAdvisoryShown = MedicalAdvisory.HighRiskCombo,
         };
         var proposal = new ProfileOverrideProposal(
             Intent: OverrideIntent.AdjustSensitivity,
             TargetField: "adjustsensitivity",
-            ProposedValue: 0.8,            // relaxation
+            ProposedValue: 0.8,            // significant relaxation
             Rationale: "test rationale",
             ExpiresAtUtc: DateTime.UtcNow.AddDays(2));
 
         var result = HabituationOverrideApplicator.CheckSafetyIntercepts(proposal, snapshot);
 
         Assert.True(result.Blocked,
-            "a vestibular user's relaxation proposal must be intercepted on resume re-screen");
-        Assert.Contains("vestibular", result.Reason!);
+            "a high-risk-combo user's significant relaxation proposal must be intercepted on resume re-screen");
+        Assert.Contains("high-risk-combo", result.Reason!);
     }
 }

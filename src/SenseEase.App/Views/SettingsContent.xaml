@@ -481,7 +481,7 @@
                         ToolTip="{loc:T Zh='把去識別化的數值摘要存成 JSON 檔。', En='Save a de-identified numeric summary as a JSON file.'}"/>
                 <!-- D-redesign: not-a-medical-device disclaimer. Wording is §6 BannedPhraseLint
                      compliant (describes the tool, not the user's clinical state). -->
-                <TextBlock Text="{loc:T Zh='SenseEase 為健康輔助工具，並非醫療器材。這些自評數值僅供您與醫療人員參考，並非臨床評估。', En='SenseEase is a wellness tool, not a medical device. These self-reported values are for reference by you and your clinician only — not a clinical assessment.'}"
+                <TextBlock Text="{loc:T Zh='SenseEase 為健康輔助工具，並非醫療器材。這些自評數值僅供您與醫療人員參考，並非臨床評估。本程式為一般視覺舒適輔助，不適用於臨床前庭／平衡疾病。', En='SenseEase is a wellness tool, not a medical device. These self-reported values are for reference by you and your clinician only — not a clinical assessment. SenseEase is for general visual comfort and is not for clinical vestibular or balance disorders.'}"
                            FontSize="11" Foreground="{DynamicResource TextTertiary}" FontStyle="Italic"
                            TextWrapping="Wrap" Margin="0,8,0,0"/>
 
@@ -508,20 +508,12 @@
                             ToolTip="{loc:T Zh='在獨立視窗開啟事件／診斷紀錄', En='Open the event / diagnostic log in its own window'}"/>
                 </StackPanel>
 
-                <!-- Alpha-2 addendum (auto-profiling world only): the vestibular "regret" toggle
-                     + the Reset that moved here from the console. Hidden unless
-                     AppConfig.AutoProfilingEnabled (set in RefreshFromPreferences). -->
+                <!-- Auto-profiling world only: the Reset that moved here from the console.
+                     Hidden unless AppConfig.AutoProfilingEnabled (set in RefreshFromPreferences).
+                     (Vestibular-removal: the dizziness-protection "regret" toggle was removed —
+                     the app is now scoped to general comfort, not clinical vestibular disorders.) -->
                 <StackPanel x:Name="AutoProfilingDataGroup" Visibility="Collapsed" Margin="0,14,0,0">
                     <Border Background="{DynamicResource Separator}" Height="1" Margin="0,0,0,12"/>
-                    <CheckBox x:Name="VestibularProtectionToggle"
-                              Style="{StaticResource SettingSwitch}"
-                              Content="{loc:T Zh='暈眩防護（更早啟動）', En='Dizziness protection (engages earlier)'}"
-                              Foreground="{DynamicResource TextPrimary}" FontSize="12"
-                              Checked="OnVestibularProtectionChanged"
-                              Unchecked="OnVestibularProtectionChanged"/>
-                    <TextBlock Text="{loc:T Zh='若您容易暈眩，開啟後防護會更早啟動、更為謹慎。', En='If you''re prone to dizziness, this makes protection engage earlier and stay more cautious.'}"
-                               FontSize="12" Foreground="{DynamicResource TextTertiary}"
-                               TextWrapping="Wrap" Margin="22,6,0,14"/>
                     <Button x:Name="ResetStateButton"
                             Content="{loc:T Zh='重設個人化狀態', En='Reset personalisation state'}"
                             HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"

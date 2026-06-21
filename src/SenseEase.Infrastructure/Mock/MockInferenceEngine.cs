@@ -353,17 +353,30 @@ public sealed class MockInferenceEngine : IInferenceEngine
             // flag intentionally OVERWRITES this. Clamp defensively to the processor's [1,5].
             if (savedSnapshot.SevereStrikeLimitOverride is int savedStrikeOverride)
                 _habituation.SevereStrikeLimitOverride = Math.Clamp(savedStrikeOverride, 1, 5);
-            // Alpha-2 addendum: restore the PERSISTENT vestibular protection so the
-            // auto-profiling world's TriggerPressure-50 + SevereStrikeLimit-1 (and the
-            // selector L9 floor / propose-stronger-only guards via IsVestibularActive)
-            // survive restarts. Once explicit calibration is cancelled this field is the
-            // ONLY vestibular source, so it must be re-applied at load. Field defaults
-            // false ⇒ no-op for existing calibration-era snapshots (byte-identical).
+            // Vestibular-removal migration: the vestibular-protection feature is retired (the
+            // app is now scoped to general comfort, not clinical vestibular disorders). An
+            // existing user who persisted VestibularProtectionEnabled=true must NOT silently
+            // drop to the default trigger-85/Typical; instead, gracefully re-home them into the
+            // most-cautious surviving profile (Reactive = the B6 Stage 4a rename of SENSITIVE,
+            // i.e. Cohort.Sensitive's no-net-relax floor + strike-limit-1 + the
+            // PassesProtectionFloorGuard Reactive leg). They start STRONG and the B5/B6 loop
+            // refines from there. _vestibularProtection stays permanently false (field default)
+            // so the feature can NEVER re-arm. _profileSnapshotDirty forces the false/null
+            // overwrite to persist this session, making the migration one-shot (the carried-
+            // forward MedicalAdvisory.Vestibular is neutralized to null in MergeCarryForward).
+            // MUST run before ApplyAutoDeltaToFreshBase() so the restored auto-delta composes on
+            // the Reactive base. Field defaults false ⇒ no-op for snapshots that never had it.
             if (savedSnapshot.VestibularProtectionEnabled)
             {
-                _vestibularProtection                  = true;
-                _habituation.EffectiveTrigger          = CalibrationProcessor.VestibularTriggerPressureOverride;
-                _habituation.SevereStrikeLimitOverride = 1;
+                _habituation.SetProfile(HabituationProfile.Reactive, "vestibular_migration");
+                // Clear any restored strike-override so the migrated user's strike limit comes SOLELY from
+                // the profile (Reactive=1, later Resilient=2 if the loop moves them up) — never a stale
+                // vestibular-grade hard cap lingering from an atypical/hand-edited snapshot.
+                _habituation.SevereStrikeLimitOverride = null;
+                _profileSnapshotDirty = true;
+                AppendRecoveryEvent("Migration.VestibularRetired",
+                    "vestibular protection retired (app scoped to general comfort); seeded " +
+                    "most-cautious Reactive profile, auto-loop will refine");
             }
 
             // B5: re-apply the restored auto-adaptation delta on top of the base trigger the lines above
@@ -454,7 +467,13 @@ public sealed class MockInferenceEngine : IInferenceEngine
         _lastSavedEngineState = _habituation.CurrentEngineState;
         _lastSavedProfile     = _habituation.CurrentProfile;
         _lastSavedProfileSource = _habituation.ProfileSource;
-        _profileSnapshotDirty = savedSnapshot is null && profileStore is not null;
+        // Persist on the first Update tick when EITHER there was no snapshot to begin with
+        // (write an initial default snapshot) OR a load-time mutation already marked the
+        // snapshot dirty — notably the vestibular-removal migration, which sets
+        // _profileSnapshotDirty=true so its neutralized false/null overwrites the stale on-disk
+        // true/Vestibular. OR-in the existing flag so that intent is not clobbered here.
+        _profileSnapshotDirty = (savedSnapshot is null && profileStore is not null)
+                                || _profileSnapshotDirty;
     }
 
     public SenseState Update(double opticalFlowIndex, string mode, DateTime? sampledAt = null)
@@ -908,45 +927,6 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    /// <summary>Alpha-2 addendum vestibular re-rooting: turn the PERSISTENT vestibular
-    /// protection ON/OFF outside the (cancelled) calibration Q5. ON applies the SAME
-    /// engine protection the vestibular calibration path applied — TriggerPressure-50
-    /// hard-override + SevereStrikeLimit=1 — and arms the in-memory signal the selector
-    /// guards (L9 floor / propose-stronger-only) and <c>HasVestibularDiagnosis</c> read.
-    /// OFF (the Settings "regret" toggle) reverts the overrides to defaults. Persisted via
-    /// <see cref="HabituationProfileSnapshot.VestibularProtectionEnabled"/> so it survives
-    /// restarts. Q4.5-safe: never touches the habituation <c>_offset</c>.</summary>
-    public void SetVestibularProtection(bool enabled, string source = "user")
-    {
-        lock (_gate)
-        {
-            _vestibularProtection = enabled;
-            if (enabled)
-            {
-                _habituation.EffectiveTrigger          = CalibrationProcessor.VestibularTriggerPressureOverride; // 50
-                _habituation.SevereStrikeLimitOverride = 1;
-            }
-            else
-            {
-                // Regret: the auto-profiling world has no calibration scale/override to
-                // restore, so revert to engine defaults.
-                _habituation.EffectiveTrigger          = SenseDefaults.TriggerPressure;
-                _habituation.SevereStrikeLimitOverride = null;
-            }
-            // B5: re-compose the auto-adaptation delta on top of the (re)set base trigger + re-assert cap.
-            ApplyAutoDeltaToFreshBase();
-            _profileSnapshotDirty = true;
-            MaybePersistProfileSnapshot();
-            // NOTE: deliberately NO event-log entry here. The App-layer caller
-            // (MainViewModel.AnswerVestibularPrompt / the Settings regret toggle) already
-            // writes ONE localized, user-facing "Vestibular" line. Emitting an English/UTC
-            // "Habituation.VestibularProtection" event here too produced the duplicate,
-            // bilingual pair Kirby saw in the dashboard Event Log. The durable state still
-            // round-trips via the persisted snapshot (VestibularProtectionEnabled), so no
-            // forensic signal is lost by dropping the engine-side line.
-        }
-    }
-
     /// <summary>UI "Overlay Always ON" / Auto-Protect: pin the displayed protection tier at
     /// <paramref name="level"/> and FREEZE the auto-level (pressure→tier) projection while held, so the
     /// user gets an immediate, stable overlay. The habituation engine (offset / strike / state machine) +
@@ -973,11 +953,12 @@ public sealed class MockInferenceEngine : IInferenceEngine
         }
     }
 
-    /// <summary>True when vestibular protection is active. Since D-13 deleted the legacy
-    /// calibration advisory path (<c>ApplyCalibrationResult</c>), the SOLE source is now the
-    /// PERSISTENT auto-profiling signal (<see cref="SetVestibularProtection"/> / restored from
-    /// snapshot). The single predicate every vestibular consumer in this engine keys off, so
-    /// keeping it as a named member means the re-rooting kept all consumers intact.</summary>
+    /// <summary>True when vestibular protection is active. Vestibular-removal: there is no
+    /// longer any path that sets <c>_vestibularProtection</c> true (the App activation surface
+    /// and the engine setter were removed; a persisted-true user is migrated to Reactive at
+    /// load), so this is permanently false. The single predicate every vestibular consumer in
+    /// this engine keys off — kept as a named member so the (now statically-dead, protective)
+    /// consumer branches stay intact and correct-by-construction.</summary>
     private bool IsVestibularActive => _vestibularProtection;
 
     /// <summary>The engine's current discrete intensity level (1..12) — the same
@@ -1310,9 +1291,9 @@ public sealed class MockInferenceEngine : IInferenceEngine
     /// (lower <see cref="GridCoord.Band"/>) for the cohorts that must never have their
     /// protection silently reduced. A move that holds or raises Band is always allowed.
     /// <list type="bullet">
-    ///   <item><b>Vestibular</b> (SPEC item 4) — <see cref="IsVestibularActive"/>,
-    ///   sourced solely from <see cref="SetVestibularProtection"/> / the snapshot since
-    ///   D-13 deleted the calibration advisory path. Propose-stronger-only.</item>
+    ///   <item><b>Vestibular</b> (SPEC item 4) — <see cref="IsVestibularActive"/>, which is
+    ///   permanently false post vestibular-removal (this leg is statically dead but protective).
+    ///   Propose-stronger-only.</item>
     ///   <item><b>Beta-1 #7 — SENSITIVE habituation profile.</b> The selector previously
     ///   applied a same-segment Band-DOWN SILENTLY for sensitive users (the two flags are
     ///   independent: vestibular vs profile), quietly lowering the whole mask-alpha envelope
@@ -2289,10 +2270,19 @@ public sealed class MockInferenceEngine : IInferenceEngine
         core.SymptomDominancePrimary    = existing?.SymptomDominancePrimary;
         core.CalibrationConfidence      = existing?.CalibrationConfidence;
 
-        // Non-vestibular: carry the calibration advisory forward. Vestibular case was already
-        // set to MedicalAdvisory.Vestibular in core (use the captured flag, not live state).
+        // Non-vestibular: carry the calibration advisory forward. (vestibularPersist is now
+        // permanently false post-removal, so this branch always runs.) Vestibular-removal
+        // migration: a pre-upgrade snapshot may still carry a stale MedicalAdvisory.Vestibular;
+        // carrying it forward unchanged would RESURRECT it forever and keep the three chatbot
+        // override interceptors firing against a now-non-vestibular user. Map a carried-forward
+        // Vestibular advisory to null so the disk-durable second signal is cleared alongside the
+        // bool — both vestibular signals are neutralized on the same persist.
         if (!vestibularPersist)
-            core.MedicalAdvisoryShown = existing?.MedicalAdvisoryShown;
+        {
+            var carried = existing?.MedicalAdvisoryShown;
+            core.MedicalAdvisoryShown =
+                carried == MedicalAdvisory.Vestibular ? null : carried;
+        }
 
         return core;
     }

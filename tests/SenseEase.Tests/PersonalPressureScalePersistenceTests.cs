@@ -77,31 +77,6 @@ public class PersonalPressureScalePersistenceTests
         finally { Cleanup(path); }
     }
 
-    [Fact]
-    public void VestibularOverride_WinsOverPersistedScale_OnLoad()
-    {
-        string path = TempPath();
-        try
-        {
-            // A vestibular user with ALSO a non-default scale: the TriggerPressure-50
-            // hard-override must win (the vestibular branch runs after the scale re-derive).
-            new FileHabituationProfileStore(path).Save(new HabituationProfileSnapshot
-            {
-                UpdatedAtIso          = "2026-06-01T08:00:00.0000000Z",
-                Profile               = "SENSITIVE",
-                ProfileSource         = "chatbot_adjust_sensitivity",
-                PersonalPressureScale = 1.5,
-                VestibularProtectionEnabled = true,
-            });
-
-            var engine = new MockInferenceEngine(profileStore: new FileHabituationProfileStore(path));
-
-            Assert.Equal(CalibrationProcessor.VestibularTriggerPressureOverride,
-                         engine.HabituationEffectiveTrigger);
-        }
-        finally { Cleanup(path); }
-    }
-
     // ── Phase 7 write-durability: chatbot strike-limit override persists across restart ──
 
     [Fact]
@@ -148,29 +123,4 @@ public class PersonalPressureScalePersistenceTests
         finally { Cleanup(path); }
     }
 
-    [Fact]
-    public void VestibularHardCap_WinsOverPersistedStrikeOverride_OnLoad()
-    {
-        string path = TempPath();
-        try
-        {
-            // Even if a stale override of 4 were on disk, a vestibular user's hard-cap (=1)
-            // re-derived from the flag must win (the ctor restores the override BEFORE the
-            // vestibular branch). In practice BuildProfileSnapshot persists null for vestibular
-            // users, but pin the precedence defensively against a hand-edited file.
-            new FileHabituationProfileStore(path).Save(new HabituationProfileSnapshot
-            {
-                UpdatedAtIso              = "2026-06-01T08:00:00.0000000Z",
-                Profile                   = "SENSITIVE",
-                ProfileSource             = "calibration_demo",
-                SevereStrikeLimitOverride = 4,
-                VestibularProtectionEnabled = true,
-            });
-
-            var engine = new MockInferenceEngine(profileStore: new FileHabituationProfileStore(path));
-
-            Assert.Equal(1, engine.HabituationSevereStrikeLimitOverride);
-        }
-        finally { Cleanup(path); }
-    }
 }

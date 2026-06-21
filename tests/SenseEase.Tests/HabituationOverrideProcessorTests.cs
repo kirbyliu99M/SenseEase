@@ -172,29 +172,10 @@ public class HabituationOverrideProcessorTests
         Assert.Contains("out of range", result.RejectionReason);
     }
 
-    // ── Rule 3: vestibular + relaxation = HARD REJECT ────────────────────────
-
-    [Fact]
-    public void Validate_VestibularUser_RelaxationProposal_RejectsWithSafetyNote()
-    {
-        // Vestibular user, current scale 1.0, proposal would lower to 0.8 (more relaxed).
-        var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 0.8);
-        var snapshot = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
-        var result = HabituationOverrideProcessor.Validate(proposal, snapshot, now: NowFixed);
-        Assert.False(result.IsAccepted);
-        Assert.Contains("vestibular", result.RejectionReason!.ToLowerInvariant());
-        Assert.NotNull(result.SafetyNote);
-    }
-
-    [Fact]
-    public void Validate_VestibularUser_TighteningProposal_Accepts()
-    {
-        // Vestibular user, current scale 1.0, proposal raises to 1.2 (more sensitive = tightening).
-        var proposal = MakeProposal(OverrideIntent.AdjustSensitivity, 1.2);
-        var snapshot = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
-        var result = HabituationOverrideProcessor.Validate(proposal, snapshot, now: NowFixed);
-        Assert.True(result.IsAccepted);
-    }
+    // ── Rule 3: advisory + relaxation = HARD REJECT ──────────────────────────
+    // (Vestibular-removal: the vestibular Rule-3 facts were stripped; the processor's
+    //  vestibular leg is kept as dead-but-protective. The non-vestibular accepts-relaxation
+    //  baseline below is the surviving Rule-3 coverage.)
 
     [Fact]
     public void Validate_NonVestibularUser_RelaxationProposal_Accepts()
@@ -207,28 +188,23 @@ public class HabituationOverrideProcessorTests
     }
 
     [Fact]
-    public void Validate_VestibularUser_LessRestrictiveProfileSwitch_Rejects()
+    public void Validate_RetainedVestibularAdvisoryBranch_RejectsRelaxation_AcceptsTighten()
     {
-        // Vestibular user currently TYPICAL, proposal switches to RESILIENT (less restrictive).
-        // Reading A (2026-06-06): SwitchProfile is now rejected outright by the
-        // calibration-only early gate (which fires before the rule-3 vestibular
-        // check), so the rejection no longer carries a SafetyNote. The contract
-        // that still matters here: a profile switch is NOT accepted.
-        var proposal = MakeProposal(OverrideIntent.SwitchProfile, "RESILIENT");
-        var snapshot = MakeSnapshot(profile: "TYPICAL", advisory: MedicalAdvisory.Vestibular);
-        var result = HabituationOverrideProcessor.Validate(proposal, snapshot, now: NowFixed);
-        Assert.False(result.IsAccepted);
-    }
+        // The vestibular FEATURE is removed, but the Processor's Rule-3 advisory leg is KEPT as
+        // dead-but-protective (the MedicalAdvisory.Vestibular enum survives for back-compat, and a
+        // pre-migration on-disk advisory could still reach this gate). Pin the branch directly so it stays
+        // correct: an advisory + a RELAXATION proposal is hard-rejected WITH a safety note; a TIGHTENING is
+        // allowed. (No production user reaches this post-migration; this guards the retained safety logic.)
+        var snap = MakeSnapshot(scale: 1.0, advisory: MedicalAdvisory.Vestibular);
 
-    [Fact]
-    public void Validate_VestibularUser_HigherStrikeLimit_Rejects()
-    {
-        // Vestibular user currently limit=2, proposal raises to 4 (more strikes allowed).
-        var proposal = MakeProposal(OverrideIntent.AdjustStrikeLimit, (long)4);
-        var snapshot = MakeSnapshot(strikeLimit: 2, advisory: MedicalAdvisory.Vestibular);
-        var result = HabituationOverrideProcessor.Validate(proposal, snapshot, now: NowFixed);
-        Assert.False(result.IsAccepted);
-        Assert.NotNull(result.SafetyNote);
+        var rejected = HabituationOverrideProcessor.Validate(
+            MakeProposal(OverrideIntent.AdjustSensitivity, 0.8), snap, now: NowFixed);   // scale ↓ = relax
+        Assert.False(rejected.IsAccepted);
+        Assert.NotNull(rejected.SafetyNote);
+
+        var accepted = HabituationOverrideProcessor.Validate(
+            MakeProposal(OverrideIntent.AdjustSensitivity, 1.2), snap, now: NowFixed);   // scale ↑ = tighten
+        Assert.True(accepted.IsAccepted);
     }
 
     // ── Rule 4: one proposal at a time ───────────────────────────────────────

@@ -12,7 +12,8 @@ namespace SenseEase.Tests;
 /// AdaptationGate's decision. Verifies the sign (relax raises EffectiveTrigger, tighten lowers it), the
 /// budget clamp, the difference-application (auto-delta never accumulates and is preserved across a user
 /// sensitivity change — the v1 overwrite bug), Reset-zeroing (an auto-relax can never survive a Reset),
-/// the vestibular composed cap, persistence, and boot re-composition.
+/// persistence, and boot re-composition. (Vestibular-removal: the vestibular composed-cap facts were
+/// removed; the non-vestibular relax/tighten/budget + boot-restore facts are the surviving path.)
 /// </summary>
 public class AutoAdaptTriggerChannelTests
 {
@@ -110,26 +111,6 @@ public class AutoAdaptTriggerChannelTests
         Assert.Equal(b, engine.EffectiveTrigger, 6);       // back to base (more protection than the relaxed state)
     }
 
-    // ── Vestibular floor ────────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Vestibular_RuntimeRelax_CappedAtFloor()
-    {
-        var engine = new MockInferenceEngine(null, null, null, null);
-        engine.SetVestibularProtection(true);              // base trigger = 50
-        engine.ApplyAutoAdaptDelta(6.0);                   // a relax would push to 56 …
-        Assert.True(engine.EffectiveTrigger <= 50.0);      // … but the vestibular cap holds it at the floor
-    }
-
-    [Fact]
-    public void Vestibular_RuntimeTighten_Lowers()
-    {
-        var engine = new MockInferenceEngine(null, null, null, null);
-        engine.SetVestibularProtection(true);
-        engine.ApplyAutoAdaptDelta(-6.0);
-        Assert.Equal(44.0, engine.EffectiveTrigger, 6);    // 50 − 6 (tighter than the vestibular floor)
-    }
-
     // ── Persistence + boot re-composition ────────────────────────────────────────────────────────────
 
     [Fact]
@@ -140,67 +121,6 @@ public class AutoAdaptTriggerChannelTests
         var engine = new MockInferenceEngine(null, null, new CapturingProfileStore { Saved = snap }, null);
         Assert.Equal(b + 6.0, engine.EffectiveTrigger, 6);
         Assert.Equal(6.0, engine.AutoAdaptTriggerDeltaPp, 6);
-    }
-
-    [Fact]
-    public void Persisted_ReappliesOnBoot_Vestibular_RelaxStillCapped()
-    {
-        var snap = new HabituationProfileSnapshot
-        {
-            VestibularProtectionEnabled = true, PersonalPressureScale = 1.0, AutoAdaptTriggerDeltaPp = 6.0,
-        };
-        var engine = new MockInferenceEngine(null, null, new CapturingProfileStore { Saved = snap }, null);
-        Assert.Equal(50.0, engine.EffectiveTrigger, 6); // vestibular base 50 + relax 6, capped back to 50
-    }
-
-    [Fact]
-    public void Persisted_ReappliesOnBoot_Vestibular_TightenSurvives()
-    {
-        var snap = new HabituationProfileSnapshot
-        {
-            VestibularProtectionEnabled = true, PersonalPressureScale = 1.0, AutoAdaptTriggerDeltaPp = -6.0,
-        };
-        var engine = new MockInferenceEngine(null, null, new CapturingProfileStore { Saved = snap }, null);
-        Assert.Equal(44.0, engine.EffectiveTrigger, 6); // 50 − 6, tighter than the floor (allowed)
-    }
-
-    [Fact]
-    public void Vestibular_RetiresStaleRelaxDelta_OnTransition_NoResurrection()
-    {
-        // A typical user auto-relaxes (+6), then becomes vestibular: the relax must be RETIRED (not just
-        // hidden by the cap), so turning vestibular back OFF can never resurrect it (final-review MED).
-        var engine = new MockInferenceEngine(null, null, null, null);
-        engine.ApplyAutoAdaptDelta(6.0);                       // +6 relax (typical)
-        double baseTrigger = engine.EffectiveTrigger - 6.0;    // the non-vestibular base
-
-        engine.SetVestibularProtection(true);
-        Assert.Equal(0.0, engine.AutoAdaptTriggerDeltaPp, 9);   // relax retired
-        Assert.Equal(50.0, engine.EffectiveTrigger, 9);
-
-        engine.SetVestibularProtection(false);
-        Assert.Equal(baseTrigger, engine.EffectiveTrigger, 9);  // back to base — the +6 did NOT come back
-        Assert.Equal(0.0, engine.AutoAdaptTriggerDeltaPp, 9);
-    }
-
-    [Fact]
-    public void Vestibular_RuntimeRelax_IsClampedToZero_AtEngineBoundary()
-    {
-        var engine = new MockInferenceEngine(null, null, null, null);
-        engine.SetVestibularProtection(true);
-        engine.ApplyAutoAdaptDelta(6.0);                        // a relax attempt
-        Assert.Equal(0.0, engine.AutoAdaptTriggerDeltaPp, 9);   // clamped to 0 (vestibular never relaxes)
-        Assert.Equal(50.0, engine.EffectiveTrigger, 9);
-    }
-
-    [Fact]
-    public void ConsentOff_VestibularAdjustSensitivity_NotCapped_NoRegression()
-    {
-        // delta==0 (B5 never used): ApplyAutoDeltaToFreshBase must be a true no-op, so a vestibular
-        // user's chatbot AdjustSensitivity is byte-identical to pre-B5 (85/scale, NOT clamped to 50).
-        var engine = new MockInferenceEngine(null, null, null, null);
-        engine.SetVestibularProtection(true);
-        engine.ApplyChatbotOverride(OverrideIntent.AdjustSensitivity, 1.2);
-        Assert.Equal(SenseDefaults.TriggerPressure / 1.2, engine.EffectiveTrigger, 6); // ~70.8, not 50
     }
 
     [Fact]
