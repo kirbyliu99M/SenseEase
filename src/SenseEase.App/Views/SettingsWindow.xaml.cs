@@ -74,11 +74,10 @@ public partial class SettingsWindow : Window
         // us) or an owned child dialog (reset confirm / hotkey picker) keeps it open.
         _dismissPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _dismissPoll.Tick += OnDismissPollTick;
-        // 閃退 FIX (2026-06-21): arming moved INTO the poll (it sets _dismissArmed only once it has
-        // actually OBSERVED us foreground). The old Activated arming fired too early — during the churny
-        // open transition, before the window settled — which is exactly what let the next churn tick
-        // rug-pull the window the instant it appeared. See OnDismissPollTick.
-
+        // 閃退 ROOT-CAUSE FIX (Item 2, redesigned): the close decision now keys on PROCESS OWNERSHIP, not on
+        // timing (no arm/settle/Activated heuristics). The window closes only when the foreground belongs to
+        // ANOTHER process; every one of our own windows (incl. the open-transition churn onto the edge handle)
+        // is the same process and can never dismiss us. See OnDismissPollTick.
         Loaded += (_, _) => { SettingsGlassTheme.Track(this); PlayEntrance(); _dismissPoll.Start(); };
         Closed += (_, _) => { SettingsGlassTheme.Untrack(this); _dismissPoll.Stop(); };
 
@@ -92,55 +91,43 @@ public partial class SettingsWindow : Window
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
-    private const uint GA_ROOTOWNER = 3; // root of the owner chain — a Win32 dialog we own resolves to us
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     private readonly DispatcherTimer _dismissPoll;
-    private bool _dismissArmed;   // true once a poll has OBSERVED us foreground — never close before that (open-transition guard)
-    private int  _foreignTicks;   // consecutive polls where ANOTHER window held foreground; light-dismiss at ForeignTicksToClose
-    private const int ForeignTicksToClose = 4; // 4 × 200 ms = 800 ms of SUSTAINED foreign foreground before closing
+    private int  _foreignTicks;   // consecutive polls where ANOTHER PROCESS's window held the foreground
+    private const int ForeignTicksToClose = 3; // 3 × 200 ms = 600 ms of sustained other-app foreground before closing
+    private bool _closing;        // re-entrancy guard: a 2nd close trigger during the breath-out is a no-op
 
-    /// <summary>R3 #7 (light-dismiss, poll-based): close the Settings window once the user settles on
-    /// ANOTHER top-level window or the desktop. Cheap 200 ms GetForegroundWindow poll (the same proven
-    /// approach as <see cref="NotificationCardWindow"/>), which — unlike the Deactivated event — fires
-    /// reliably for this frameless Topmost window. Stays open while WE are foreground (an in-window
-    /// combo/dropdown keeps the foreground on us) or while an owned child dialog (reset confirm / hotkey
-    /// picker) is up.
-    /// <para>閃退 FIX (2026-06-21): the close is gated on SUSTAINED foreign foreground, not a one-shot
-    /// observation behind a fixed time grace. The launching popup bar collapses a beat after we open —
-    /// the user's first click into us lands outside the bar's content rect, firing the bar's INSTANT
-    /// light-dismiss (PopupBarWindow.OnAutoCloseTick), which re-shows the edge handle and briefly churns
-    /// the foreground OFF us. The previous 800 ms <c>DismissSettleMs</c> grace tried to out-wait that
-    /// churn but still rug-pulled whenever it ran long. Now we (a) arm only after a poll has actually
-    /// OBSERVED us foreground (not on the early Activated event), and (b) require
-    /// <see cref="ForeignTicksToClose"/> CONSECUTIVE foreign-foreground polls before closing — so a
-    /// transient churn (foreground returns to us within a tick or two as the user keeps interacting)
-    /// can never close us, while a genuine, settled click-away still dismisses. An interop hiccup is
-    /// treated as "wait" (fail-OPEN), never as a reason to close.</para></summary>
+    /// <summary>Light-dismiss: close the Settings window once the user genuinely switches to ANOTHER APP or
+    /// the desktop. Cheap 200 ms GetForegroundWindow poll. The close decision keys on a STABLE fact —
+    /// PROCESS OWNERSHIP — not on timing: it closes only when the foreground window belongs to a DIFFERENT
+    /// process. Every one of OUR OWN windows (the popup bar, the edge handle, the overlay, the export
+    /// SaveFileDialog, the Event Log, an in-window combo/dropdown) is the same process, so none of them — nor
+    /// the open-transition churn that bounces the foreground onto the edge handle — ever counts as a dismiss.
+    /// <para>閃退 ROOT-CAUSE FIX: earlier versions treated the foreground going to any window we did not OWN
+    /// as "foreign", but the launching churn briefly hands the foreground to the app's OWN edge handle /
+    /// popup — which the old code mis-read as a click-away and rug-pulled the window the instant it appeared
+    /// (and timer-based settles only traded that for "never closes" on slow machines). Keying on process
+    /// ownership removes the timing dependency entirely: a real switch to another process/desktop still
+    /// dismisses (debounced by <see cref="ForeignTicksToClose"/> against a transient cross-process blip),
+    /// while nothing inside our own app can. An interop hiccup is treated as "wait" (fail-OPEN), never as a
+    /// reason to close.</para></summary>
     private void OnDismissPollTick(object? sender, EventArgs e)
     {
         if (!IsVisible) { _dismissPoll.Stop(); return; }
         try
         {
             IntPtr fg = GetForegroundWindow();
-            if (fg == IntPtr.Zero) { _foreignTicks = 0; return; }          // transient null — wait, don't count it
-            IntPtr self = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (fg == self) { _dismissArmed = true; _foreignTicks = 0; return; }   // we hold focus — arm + stay
-            foreach (Window w in OwnedWindows)                              // child dialog / picker — stay
-            {
-                if (fg == new System.Windows.Interop.WindowInteropHelper(w).Handle) { _foreignTicks = 0; return; }
-            }
-            // H4: a Win32 modal we OWN (the export SaveFileDialog) is NOT a WPF OwnedWindow, so the loop
-            // above misses it — without this the picker pulled Settings out from under itself. Walk the
-            // Win32 owner chain: a dialog whose root owner is us keeps Settings open.
-            if (GetAncestor(fg, GA_ROOTOWNER) == self) { _foreignTicks = 0; return; }
-            // Foreground is some OTHER top-level window.
-            if (!_dismissArmed) { _foreignTicks = 0; return; }             // never held focus yet — don't pre-close (open transition)
-            if (++_foreignTicks < ForeignTicksToClose) return;             // require SUSTAINED foreign foreground (absorbs the launcher-close churn)
+            if (fg == IntPtr.Zero) { _foreignTicks = 0; return; }                 // transient null — wait, don't count it
+            GetWindowThreadProcessId(fg, out uint fgPid);
+            if (fgPid == 0 || fgPid == (uint)System.Environment.ProcessId)
+            { _foreignTicks = 0; return; }                                        // one of OUR windows (incl. the open churn) — stay open
+            // Foreground belongs to ANOTHER process (another app) or the desktop — a genuine switch away.
+            if (++_foreignTicks < ForeignTicksToClose) return;                    // small debounce vs a transient cross-process blip
         }
         catch { _foreignTicks = 0; return; }   // interop hiccup — wait; NEVER fail-closed (a transient error must not yank the window)
         _dismissPoll.Stop();
-        Close();
+        CloseWithBreath();
     }
 
     /// <summary>One-piece glass redesign (2026-06-18): a calm fade + subtle scale settle on OPEN,
@@ -164,6 +151,30 @@ public partial class SettingsWindow : Window
         var settle = new DoubleAnimation(0.975, 1, dur) { EasingFunction = ease };
         SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, settle);
         SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, settle);
+    }
+
+    /// <summary>Item 1 — calm-breath CLOSE: the inverse of <see cref="PlayEntrance"/>. Fades the inner
+    /// SlabBorder out + settles the scale to 0.975 over ~140ms (QuinticEase.EaseIn), then calls the real
+    /// <see cref="Window.Close"/> in the fade's Completed — so the panel leaves with the same motion family
+    /// as the popup card. Animates ONLY Opacity + a RenderTransform on the inner Border (composited,
+    /// ClearType-safe, no relayout, no Effect added), so the AllowsTransparency software-render contract
+    /// holds. Guarded against a 2nd trigger (Escape during the fade) and stops the dismiss poll so a late
+    /// tick can't re-enter. ReducedMotion closes instantly. ALL THREE close paths (X, Escape, light-dismiss
+    /// poll) route through here so a click-away and the button close with the same motion.</summary>
+    private void CloseWithBreath()
+    {
+        if (_closing) return;
+        _closing = true;
+        _dismissPoll.Stop();   // a late poll tick must not re-enter mid-fade
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) { Close(); return; }
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseIn };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(140));
+        var shrink = new DoubleAnimation(1.0, 0.975, dur) { EasingFunction = ease };
+        SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
+        SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
+        var fade = new DoubleAnimation(SlabBorder.Opacity, 0.0, dur) { EasingFunction = ease };
+        fade.Completed += (_, _) => { try { Close(); } catch { } };
+        SlabBorder.BeginAnimation(OpacityProperty, fade);
     }
 
     /// <summary>UI-reshape Task 9: clip the window root to a rounded rect on every resize so the
@@ -286,7 +297,7 @@ public partial class SettingsWindow : Window
         set => ContentHost.GetHeadTrackingHealth = value;
     }
 
-    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => CloseWithBreath();
 
     /// <summary>C2 (audit): Escape closes the settings dialog — the standard
     /// cancel/back affordance Apple HIG and WCAG require on a modal surface,
@@ -296,7 +307,7 @@ public partial class SettingsWindow : Window
         if (e.Key == Key.Escape)
         {
             e.Handled = true;
-            Close();
+            CloseWithBreath();
             return;
         }
         base.OnKeyDown(e);

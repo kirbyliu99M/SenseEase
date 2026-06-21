@@ -1,6 +1,8 @@
+using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using SenseEase.App.Interop;
 using SenseEase.App.Theme;
 using SenseEase.App.ViewModels;
@@ -25,7 +27,7 @@ public partial class EventLogWindow : Window
     {
         InitializeComponent();
         DataContext = vm;
-        Loaded += (_, _) => ThemeManager.TrackElement(this);
+        Loaded += (_, _) => { ThemeManager.TrackElement(this); PlayEntrance(); };
         Closed += (_, _) => ThemeManager.UntrackElement(this);
 
         // UI-reshape Task 9 (2026-06-17): frosted Win11 acrylic behind the rounded Surface card,
@@ -34,8 +36,8 @@ public partial class EventLogWindow : Window
         // together in either theme. ABGR order (0xAABBGGRR).
         SourceInitialized += (_, _) => ApplyThemeAwareAcrylic();
 
-        // Esc closes the window (matches SettingsWindow's keyboard dismiss).
-        KeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
+        // Esc closes the window (matches SettingsWindow's keyboard dismiss) — via the calm-breath close.
+        KeyDown += (_, e) => { if (e.Key == Key.Escape) { CloseWithBreath(); e.Handled = true; } };
     }
 
     /// <summary>UI-reshape Task 9: pick an acrylic scrim that suits the current theme so the
@@ -117,5 +119,47 @@ public partial class EventLogWindow : Window
         if (available > 120) EventLogActionColumn.Width = available;
     }
 
-    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => CloseWithBreath();
+
+    private bool _closing;
+
+    /// <summary>Item 1 — calm-breath entrance: fade + settle the inner Surface slab on open, mirroring
+    /// <c>SettingsWindow.PlayEntrance</c> + the popup card reveal. Opacity + a RenderTransform scale only
+    /// (composited, ClearType-safe, no Effect added). ReducedMotion snaps to the resting state.</summary>
+    private void PlayEntrance()
+    {
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
+        {
+            SlabBorder.Opacity = 1;
+            SlabScale.ScaleX = SlabScale.ScaleY = 1;
+            return;
+        }
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(230));
+        SlabBorder.Opacity = 0;
+        SlabBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+        var settle = new DoubleAnimation(0.975, 1, dur) { EasingFunction = ease };
+        SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, settle);
+        SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, settle);
+    }
+
+    /// <summary>Item 1 — calm-breath CLOSE: the inverse of <see cref="PlayEntrance"/> (fade out + scale to
+    /// 0.975 over ~140ms, EaseIn), then the real <see cref="Window.Close"/> in the fade's Completed — the
+    /// same motion family as the popup / SettingsWindow. Opacity + RenderTransform only, no Effect. The
+    /// <c>_closing</c> guard makes a 2nd trigger a no-op; ReducedMotion closes instantly. The X and Escape
+    /// both route here.</summary>
+    private void CloseWithBreath()
+    {
+        if (_closing) return;
+        _closing = true;
+        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) { Close(); return; }
+        var ease = new QuinticEase { EasingMode = EasingMode.EaseIn };
+        var dur  = new Duration(TimeSpan.FromMilliseconds(140));
+        var shrink = new DoubleAnimation(1.0, 0.975, dur) { EasingFunction = ease };
+        SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
+        SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
+        var fade = new DoubleAnimation(SlabBorder.Opacity, 0.0, dur) { EasingFunction = ease };
+        fade.Completed += (_, _) => { try { Close(); } catch { } };
+        SlabBorder.BeginAnimation(OpacityProperty, fade);
+    }
 }

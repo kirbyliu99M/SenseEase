@@ -100,11 +100,15 @@
 
     <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
         <!-- Rounded Surface slab — the glass card the acrylic frosts behind. -->
-        <Border Background="{DynamicResource Surface}"
+        <Border x:Name="SlabBorder" Background="{DynamicResource Surface}"
                 BorderBrush="{DynamicResource CardBorder}"
                 BorderThickness="1"
                 CornerRadius="16"
-                Effect="{StaticResource Elev.3}">
+                Effect="{StaticResource Elev.3}"
+                RenderTransformOrigin="0.5,0.4">
+            <Border.RenderTransform>
+                <ScaleTransform x:Name="SlabScale"/>
+            </Border.RenderTransform>
             <Grid Margin="16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
