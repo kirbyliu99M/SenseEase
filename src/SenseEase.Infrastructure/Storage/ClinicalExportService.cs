@@ -42,9 +42,15 @@ public sealed class ClinicalExportService
         return export;
     }
 
-    /// <summary>Serialise an export to the de-identified JSON string (indented, snake_case).</summary>
-    public string ToJson(ClinicalExport export)
+    /// <summary>Serialise a (fully composed) export to the de-identified JSON data record (indented,
+    /// snake_case). Static so <see cref="SenseEase.Infrastructure.Reporting.ClinicalReportService"/> can write
+    /// the SAME composed export it renders to HTML — one dataset, two artifacts (JSON = the data recording,
+    /// HTML = the export). Kirby 2026-06-21.</summary>
+    public static string Serialize(ClinicalExport export)
         => JsonSerializer.Serialize(export ?? throw new ArgumentNullException(nameof(export)), _json);
+
+    /// <summary>Serialise an export to the de-identified JSON string (indented, snake_case).</summary>
+    public string ToJson(ClinicalExport export) => Serialize(export);
 
     /// <summary>Build + write the export to <paramref name="path"/> (UTF-8, atomic via tmp+replace).
     /// Creates the parent directory. Returns the written path. Throws on I/O failure so the caller

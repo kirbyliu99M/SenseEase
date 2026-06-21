@@ -63,6 +63,36 @@ public sealed class ClinicalExport
     /// it via <see cref="ClinicalExportBuilder.BuildDailySeries"/> (that needs behavior_log, which
     /// <see cref="ClinicalExportBuilder.Build"/> does not read). Additive — schema stays v2.</summary>
     public List<DailySeriesPoint> DailySeries { get; set; } = new();
+
+    /// <summary>Learning-loop Idea #2: the de-identified "time to first discomfort signal" distribution
+    /// (mean minutes, overall + per channel). Composed by <see cref="SessionFirstSignalBuilder"/> from the
+    /// App-injected onset reader. Part of the JSON data record (the report HTML is derived from the SAME
+    /// composed export — Kirby 2026-06-21: "JSON is the data recording, HTML is the export"). Duration-only
+    /// (D-17); NEVER fed to any gate. Null only on the legacy partial-build path that has no onset reader.</summary>
+    public SessionFirstSignalSummary? OnsetTiming { get; set; }
+
+    /// <summary>Learning-loop Idea #1: the "overlay offered, not engaged" engagement summary, aggregated from
+    /// the on-disk <c>overlay_consent</c> rows via <see cref="ConsentEngagementBuilder"/>. Counts + a rate
+    /// only — a low-engagement indicator, never a comfort claim, never fed to any gate.</summary>
+    public ConsentEngagementSummary? ConsentEngagement { get; set; }
+
+    /// <summary>Indicator #7 (optional): de-identified satisfaction signal — the 5-point CSAT mean + response
+    /// count over the window (score only; the free-text comment is PII and is never read). Computed by the App
+    /// (<c>NpsService.ComputeCsat</c>) and injected; null when no survey responses exist.</summary>
+    public SatisfactionSummary? Satisfaction { get; set; }
+}
+
+/// <summary>Indicator #7: de-identified satisfaction summary — score-only (D-17), no comment text. The
+/// raw <c>survey_log.comment</c> is PII and excluded by construction (only a mean + count cross the boundary).</summary>
+public sealed class SatisfactionSummary
+{
+    /// <summary>Mean satisfaction score on a 1–<see cref="ScaleMax"/> scale (higher = more satisfied), or
+    /// null when there are no responses.</summary>
+    public double? MeanScore { get; set; }
+    /// <summary>The survey scale max (current instrument = 5).</summary>
+    public int ScaleMax { get; set; } = 5;
+    /// <summary>Number of survey responses backing the mean.</summary>
+    public int ResponseCount { get; set; }
 }
 
 /// <summary>Observation window — calendar dates only (D-17: no finer-than-date timestamps).</summary>
@@ -235,8 +265,15 @@ public static class ClinicalExportBuilder
             .OrderBy(e => ParseTsTicks(e.TsUtc))   // oldest-first, robust to unsorted input
             .ToList();
 
-        var measured  = all.Where(e => e.Measured).ToList();
-        var estimated = all.Where(e => !e.Measured).ToList();
+        // Partition on BOTH the flag AND the kind so a malformed / forward-compat row can never cross the
+        // measured-vs-estimated red line (D-18/19): an fms_estimate row mis-flagged Measured=true must NOT
+        // enter the patient-reported MEASURED aggregate, and vice-versa. Today the producers always set both
+        // consistently, so this is a no-op — but the learning-loop "no-engagement ⇒ comfort" inference
+        // (incoming) makes the guarantee load-bearing: any inferred FMS=0 it writes must stay OUT of the
+        // measured trend (it should carry its own kind / Measured=false). A row whose flag and kind disagree
+        // is counted in NEITHER partition.
+        var measured  = all.Where(e => e.Measured  && e.Kind == SymptomEvent.Kinds.FmsReport).ToList();
+        var estimated = all.Where(e => !e.Measured && e.Kind == SymptomEvent.Kinds.FmsEstimate).ToList();
 
         var export = new ClinicalExport
         {

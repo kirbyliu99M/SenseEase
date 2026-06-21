@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -33,42 +34,77 @@ public sealed class ClinicalReportService
     private readonly DailyBehaviorAggregateWriter _behavior;
     private readonly IHabituationProfileStore? _profile;
     private readonly IChatbotService? _chatbot;
+    private readonly Func<IReadOnlyList<SessionOnsetRecord>>? _onsetReader;
+    private readonly Func<SatisfactionSummary?>? _satisfactionReader;
 
     /// <param name="profile">Optional — read for the de-identified posture section; null ⇒ section omitted.</param>
     /// <param name="chatbot">Optional — null / not-loaded ⇒ deterministic narrative (report still full).</param>
+    /// <param name="onsetReader">Optional — the App injects <c>SessionOnsetLog.ReadAll</c> (learning-loop
+    /// idea #2). Keeps the App→Infrastructure boundary clean: Infrastructure can't see AppConfig. Null ⇒ no
+    /// onset data ⇒ the section shows its placeholder.</param>
+    /// <param name="satisfactionReader">Optional — the App injects a score-only CSAT summary
+    /// (<c>NpsService.ComputeCsat</c>, indicator #7). Null ⇒ no satisfaction tile.</param>
     public ClinicalReportService(
         FileSymptomEventStore symptoms,
         DailyBehaviorAggregateWriter behavior,
         IHabituationProfileStore? profile = null,
-        IChatbotService? chatbot = null)
+        IChatbotService? chatbot = null,
+        Func<IReadOnlyList<SessionOnsetRecord>>? onsetReader = null,
+        Func<SatisfactionSummary?>? satisfactionReader = null)
     {
         _symptoms = symptoms ?? throw new ArgumentNullException(nameof(symptoms));
         _behavior = behavior ?? throw new ArgumentNullException(nameof(behavior));
         _profile  = profile;
         _chatbot  = chatbot;
+        _onsetReader = onsetReader;
+        _satisfactionReader = satisfactionReader;
     }
 
-    /// <summary>Build the full report HTML (de-identified) and write it to <paramref name="path"/>.
-    /// Atomic (tmp + replace); creates the parent directory; returns the written path. Throws on I/O
-    /// failure so the user-initiated export surfaces a clear error.</summary>
-    public async Task<string> WriteHtmlAsync(string path, bool english, DateTime nowUtc, CancellationToken ct = default)
+    /// <summary>Compose the de-identified dataset ONCE and write BOTH artifacts from it: the JSON data
+    /// record (<paramref name="jsonPath"/>) and the human HTML export (<paramref name="htmlPath"/>) — Kirby
+    /// 2026-06-21: "JSON is the data recording, HTML is the export", so they are derived from one composed
+    /// dataset and can never drift. Both atomic (tmp + replace). Optionally scopes to a recent window
+    /// (<paramref name="sinceUtc"/>; null ⇒ all history). Returns the HTML path. Throws on I/O failure so the
+    /// user-initiated export surfaces a clear error.</summary>
+    public async Task<string> WriteAsync(
+        string htmlPath, string jsonPath, bool english, DateTime nowUtc,
+        DateTime? sinceUtc = null, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Report path is required.", nameof(path));
+        if (string.IsNullOrWhiteSpace(htmlPath)) throw new ArgumentException("Report path is required.", nameof(htmlPath));
+        if (string.IsNullOrWhiteSpace(jsonPath)) throw new ArgumentException("Data-record path is required.", nameof(jsonPath));
 
-        var events       = _symptoms.ReadAll();
-        var behaviorDays = _behavior.ReadAll();
+        // One dataset, scoped to the chosen window, feeds BOTH artifacts.
+        var events = _symptoms.ReadAll().Where(e => e is not null && OnOrAfter(e!.TsUtc, sinceUtc)).ToList();
+        string? sinceDate = sinceUtc?.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var behaviorDays = _behavior.ReadAll()
+            .Where(b => b is not null && (sinceDate is null || string.Compare(b!.Date, sinceDate, StringComparison.Ordinal) >= 0))
+            .ToList();
 
         var export = ClinicalExportBuilder.Build(events);
-        export.GeneratedUtc = nowUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
-        export.DailySeries  = ClinicalExportBuilder.BuildDailySeries(events, behaviorDays).ToList();
+        export.GeneratedUtc      = nowUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
+        export.DailySeries       = ClinicalExportBuilder.BuildDailySeries(events, behaviorDays).ToList();
+        export.OnsetTiming       = SessionFirstSignalBuilder.Build(_onsetReader?.Invoke() ?? Array.Empty<SessionOnsetRecord>());
+        export.ConsentEngagement = ConsentEngagementBuilder.Build(events);
+        export.Satisfaction      = _satisfactionReader?.Invoke();
 
         var posture   = ReadPosture();
         var narrator  = new ClinicalReportNarrator(_chatbot);
         var narrative = await narrator.BuildAsync(export, posture, english, ct).ConfigureAwait(false);
 
-        string html = ClinicalReportHtmlRenderer.Render(export, narrative, posture, english);
-        AtomicWriteAllText(path, html);
-        return path;
+        // JSON data record + HTML export, both from the SAME composed export.
+        AtomicWriteAllText(jsonPath, ClinicalExportService.Serialize(export));
+        AtomicWriteAllText(htmlPath, ClinicalReportHtmlRenderer.Render(export, narrative, posture, english));
+        return htmlPath;
+    }
+
+    /// <summary>True when a row's ISO-8601 timestamp is on/after the window start (or there is no window).
+    /// Unparseable timestamps are KEPT (fail-open — never silently drop data we cannot date).</summary>
+    private static bool OnOrAfter(string? tsUtc, DateTime? sinceUtc)
+    {
+        if (sinceUtc is not { } since) return true;
+        if (string.IsNullOrWhiteSpace(tsUtc)) return true;
+        return !DateTime.TryParse(tsUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var t)
+               || t.ToUniversalTime() >= since.ToUniversalTime();
     }
 
     /// <summary>Read ONLY the allowlisted, de-identified posture fields from the habituation profile —

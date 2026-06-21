@@ -117,6 +117,39 @@ public class ClinicalReportNarratorTests
         Assert.Equal(clean, n.Summary);
     }
 
+    [Fact]
+    public async Task OnlySummaryIsModelPhrased_OtherSectionsAreDeterministic()
+    {
+        // Option (b): one clean model reply is accepted ONLY for the Summary; the other three sections never
+        // consult the model, so the marker can't appear in them.
+        const string marker = "These are the plainly stated figures.";   // no digits, no banned claim
+        var n = await new ClinicalReportNarrator(new StubBot(marker)).BuildAsync(Sample(), Posture(), english: true);
+        Assert.Equal(marker, n.Summary);
+        Assert.DoesNotContain(marker, n.ComfortTrend);
+        Assert.DoesNotContain(marker, n.Protection);
+        Assert.DoesNotContain(marker, n.Exposure);
+        AssertEverySectionCleanAndNonEmpty(n);
+    }
+
+    [Fact]
+    public async Task SummaryWithAFabricatedNumber_FallsBackToTemplate()
+    {
+        // Sample(): DaysObserved=14, Measured.Count=10, Estimated.Count=0 → allowed {14,10,0}. 999 was never
+        // handed to the model, so the number-lock rejects the section to its deterministic template.
+        var n = await new ClinicalReportNarrator(new StubBot("This report covers 999 days of careful use."))
+            .BuildAsync(Sample(), Posture(), english: true);
+        Assert.DoesNotContain("999", n.Summary);
+        AssertEverySectionCleanAndNonEmpty(n);
+    }
+
+    [Fact]
+    public async Task SummaryUsingOnlySuppliedNumbers_IsKept()
+    {
+        const string ok = "Over 14 days you logged 10 comfort check-ins.";   // both digits are in the allowed set
+        var n = await new ClinicalReportNarrator(new StubBot(ok)).BuildAsync(Sample(), Posture(), english: true);
+        Assert.Equal(ok, n.Summary);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

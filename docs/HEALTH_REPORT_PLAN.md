@@ -248,6 +248,169 @@ narrative+guard (vocab expansion) → P4 wire-up (add HTML beside JSON, after th
 
 ---
 
+## 9. Revision 2026-06-21 (post-review) — option (b) narration + safety hardening
+
+A 15-agent review of the built report (how-generated / wording-provenance / improvement backlog) drove these
+changes. **Kirby picked option (b)** for the LLM scope:
+
+- **(b) ONE model-phrased paragraph.** `ClinicalReportNarrator.BuildAsync` now narrates ONLY the opening
+  **Summary**; `ComfortTrend` / `Protection` / `Exposure` come straight from `ReportFallbacks` (no model call).
+  The per-section prompts forbade exactly what an LLM is good at, so they reproduced the templates at the cost
+  of 4× contention + an overreach surface. The dead `ComfortPrompt`/`ProtectionPrompt`/`ExposurePrompt` (+ the
+  orphaned `Fmt`) were removed; `StrengthWord` stays (used by the renderer + fallbacks).
+- **Number-lock (R1).** New gate in `SectionAsync`: every integer the model writes must be one the prompt
+  handed it (`{DaysObserved, Measured.Count, Estimated.Count}`); any other digit rejects the section to its
+  template. The Summary prompt is now counts-only (no calendar dates — they carry un-allowed digits; the
+  header already prints the window). The LLM phrases, it never owns a figure.
+- **Guard EN↔ZH symmetry + word-boundary (R2/R7).** `ReportClaimGuard` adds `BannedClaimWordsEn` (word-boundary
+  matching) so the EN paraphrase gaps the ZH list already had (progress / better / easier / stronger /
+  resilien / improv / adapt / sensiti) are caught, while `adapter`/`adaptive` no longer false-fire; ZH gains
+  `好轉` / `變好`. Still a strict superset of the static lint (build-gate 4 green).
+- **Measured-partition tightening (R5).** `ClinicalExportBuilder.Build` now partitions on **kind AND flag**
+  (`Measured && Kind==FmsReport` / `!Measured && Kind==FmsEstimate`) — a no-op today, defensive tomorrow.
+
+> **⚠️ Learning-loop integration constraint (for the branch adding "no-consent ⇒ FMS=0" + session-onset
+> timing).** The inferred "no-engagement ⇒ comfort fine" signal MUST be recorded **`Measured=false`** — ideally
+> a **new `SymptomEvent.Kind`** (e.g. `comfort_inferred`), NEVER `fms_report`/`Measured=true`. The clinical
+> export's FMS-kind hard-filter (`ClinicalExport.cs:234`) then auto-excludes a new kind, and the R5 partition
+> tightening backstops a mis-flagged `fms_estimate`. Writing inferred 0s as measured would corrupt the report's
+> measured comfort trend + ON/OFF contrast and violate the D-18/19 measured-vs-estimated red line. Any
+> session-onset *report indicator* is the learning-loop branch's lane (builder + renderer), not this revision's.
+
+Tests: `ClinicalReportNarratorTests` (Summary-only routing + number-lock kept/rejected), `ReportClaimGuardTests`
+(paraphrase claims caught, `adapter`/`adaptive` not). Full suite green (1945 passed; UI smoke flakes excluded).
+
+---
+
+## 10. Visual design pass 2026-06-21 (`/ui-ux-pro-max` + `/frontend-design`)
+
+`ClinicalReportHtmlRenderer` was given a deliberate visual identity (was: white page + identical grey rounded
+cards + system font + first/last-date-only charts). **Do not revert to the grey-card template.** Changes:
+
+- **Identity / signature:** deep-teal mark + uppercase letter-spaced eyebrow ("SenseEase · On-device comfort
+  summary") + larger H1; each section heading carries a 3px teal tick; airier layout — grey cards dropped for
+  whitespace + hairline dividers. The one boxed anchor is the new band.
+- **At-a-glance band (the hero):** 2–4 stat tiles (protection on/off mean, check-ins, triggers) lead the
+  report, with a standing **guardrail caveat** ("descriptive summaries … not matched comparisons or a medical
+  assessment; lower = calmer"). Tiles render only when their source has data; band omitted on an empty export.
+- **Chart legibility:** y-axis unit tag (FMS / p90 / count), a direction note in the caption ("0–20, lower =
+  calmer"; motion "fixed 0–100"), 5 date ticks + faint vgrid (was 2), and **value labels on every bar**.
+- **Print/PDF:** `print-color-adjust:exact`, `@page{margin:14mm}`, full-width + `break-inside:avoid`.
+- **Hard constraint kept:** system-font stack ONLY (the report is self-contained / never fetches a web font);
+  the typographic "signature" comes from scale + weight + eyebrow + tabular figures, not a custom face. Calm
+  palette unchanged; `#024AD8`/`#7B8DB0`/`#E54747` still absent (test-enforced).
+
+`ClinicalReportHtmlRendererTests` green (palette/escaping/both-langs/empty-state preserved). Fresh EN/ZH
+samples regenerated to the Desktop. STILL OPEN (presentation): bar vs line share a sparse date axis but bars
+are slot-centred while the line is edge-spaced — minor #12 misalignment, not fixed this pass.
+
+---
+
+## 11. App-alignment + onset section 2026-06-21 (synthesis with the learning-loop "first discomfort signal" brief)
+
+**Visual — aligned to the App, less "AI-toned", mechanical/technical.** The report was an independent teal
+artifact; it now reads as the App's calm LIGHT sibling. `ClinicalReportHtmlRenderer`:
+- **Palette → App family:** identity is now **navy ink `#0E1E47` + royal-blue accent `#4B6EF5`** (the calm
+  sibling of the App's `#024AD8`) + faint light-blue band `#EEF2FC` (echoes the popup glass). Teal identity
+  retired. Series unchanged (`#4B6EF5`/`#2F7D6E`/`#9A6B22` = calm siblings of the App accent/steady/rising);
+  `#024AD8`/`#7B8DB0`/`#E54747` still absent (test-enforced).
+- **Type → the App's own system:** prose in `Segoe UI Variable Text, Segoe UI` (= `Font.UI`), and **every
+  number + technical label in `Consolas, Cascadia Mono`** (the App uses exactly this pairing for its
+  readouts — NotificationCard, MarkdownInlines, SettingsContent). The mono-on-data is the "mechanical /
+  instrument" feel; SVG chart text is mono too. System fonts only (self-contained, no web-font fetch).
+
+**Onset section — synthesised the 7-agent brief (decisions A–F all per their recommendation).** A deterministic
+**"Time to first discomfort signal"** `<section>` after Exposure: a grid table (overall + per-channel median
+minutes, channels mapped to neutral labels Overlay/Check-in/Chat) + Idea #1's "overlay offered, not engaged"
+line. Label verified clean against the live `ReportClaimGuard` (the natural "tolerance/adapted" framing is
+banned). Deterministic ⇒ bypasses the number-lock. Renders the "Not enough data yet" placeholder / omits the
+section on no data.
+- **DTO:** two `[JsonIgnore]` nullable fields on `ClinicalExport` — `OnsetTiming` (`SessionFirstSignalSummary`)
+  + `ConsentEngagement` (`ConsentEngagementSummary`). `[JsonIgnore]` because the JSON `WriteJson` path never
+  composes them (no onset reader) — emitting null keys would mislead. (The JSON substring test still passes.)
+
+**Coordination — INVERTED the brief's order (cleaner, no double-edit).** Since this agent owns + just
+redesigned the renderer + DTO, it took the **renderer section + DTO fields + tests**; the onset agent keeps the
+Core builders (`SessionFirstSignalBuilder`/`ConsentEngagementBuilder` — already shipped + tested) and the
+**uncontended wire** ONLY: `SettingsContent.OnExportClinicalClicked` passes `new SessionOnsetLog()`;
+`ClinicalReportService` gains `Func<IReadOnlyList<SessionOnsetRecord>>? onsetReader` and composes
+`export.OnsetTiming = SessionFirstSignalBuilder.Build(...)` + `export.ConsentEngagement = ConsentEngagementBuilder.Build(events)`
+in `WriteHtmlAsync`. ⚠️ **Onset agent must NOT re-add the DTO fields or a renderer section** (this agent did) —
+field names/types agreed: `OnsetTiming`/`ConsentEngagement`. Until the wire lands the section simply shows the
+placeholder (honest gap). All `ClinicalReportHtmlRendererTests`/`ClinicalExportTests` green.
+
+---
+
+## 12. Backlog batch 2026-06-21 (Kirby: A DO it · B#6/#9/#12/#16 · C all go) — full suite 1955✓
+
+- **A onset wire — DONE end-to-end (Kirby took the wire too).** `SettingsContent` now injects
+  `onsetReader: () => new SessionOnsetLog().ReadAll()` + a score-only `satisfactionReader`
+  (`NpsService.ComputeCsat`); the service composes `OnsetTiming`/`ConsentEngagement`/`Satisfaction`. The
+  capture side (their `SessionOnsetLog` writes + first-of-session guard) was already shipped → the section is
+  now LIVE, not dormant. ⚠️ **Onset agent: the report wire is DONE — do not also add it; your remaining scope
+  is only the capture you already built.**
+- **B#9 "JSON = data recording, HTML = export" — wired cleanly.** `ClinicalReportService.WriteAsync(htmlPath,
+  jsonPath, …)` composes the dataset ONCE and writes BOTH artifacts from it (JSON via the new
+  `ClinicalExportService.Serialize`). The JSON now carries the FULL record (aggregates + `daily_series` +
+  onset + consent + satisfaction) — the #9 daily-series gap is closed. `[JsonIgnore]` removed. The old partial
+  `WriteJson` build-path is retired from the export flow (the separate second-write call is gone).
+- **B#6** per-category effectiveness table (`OnVsOffByCategory`, was computed-never-rendered).
+- **B#12** bar chart shares the line's x-scale (spikes line up; date ticks align).
+- **B#16** EN plural helper in `ReportFallbacks` + renderer — no more "day(s)"/"check-in(s)".
+- **C#17** measured-vs-estimated counts line · **C#19** missing token already unified to "—" (verified) ·
+  **C#20** satisfaction CSAT tile (score-only, comment never read) · **C#21** export-range selector (All / last
+  90 / last 30; `WriteAsync` `sinceUtc` filter) · **C#24** ZH category labels (影片/遊戲/…) + `pp`→百分點 ·
+  **C#11** export tooltip + description rewritten (HTML report + JSON record, not "JSON file").
+- **Tests:** new `ClinicalReportServiceTests` (#10 — both-artifact write, posture map + throw-degrade, atomic
+  replace, window filter) + renderer scaling tests (#23 — OFI>assumed-max, single-day). Full suite **1955✓**.
+- **Touched the shared `SettingsContent.xaml(.cs)`** (wire + tooltip + range combo) per Kirby's "DO it" —
+  formerly the onset agent's lane; now done here. ⚠️ the range `ComboBox` is unstyled WPF default (functional;
+  a glass-theme style is a follow-up). **Still open:** #4 cross-file write isn't transactional (HTML can
+  outlive a failed JSON write) — out of this batch. NOT committed.
+
+---
+
+## 13. Wording / tone pass 2026-06-21 (dev copy feedback) — full suite green
+
+Warmed the copy per dev feedback — **second-person, plain-language, friendlier labels** — while holding the
+§6 medical-overreach line. **The dev examples that claimed clinical improvement were NOT adopted** (they would
+fail `BannedPhraseLintTests` + the runtime `ReportClaimGuard` + the golden template test):
+- ❌ "不適感正在下降 / Are your eyes feeling better? Good news—they are! / it definitely helps" → claims the
+  user improved (`better`, directional "dropped"). Kept the **factual** framing: present baseline vs recent
+  numbers, let the reader interpret; protection section states the two averages + the standing not-matched caveat.
+- ✅ **CORRECTION (Kirby 2026-06-21): adaptation term APPROVED for this label.** The posture metric IS the
+  `HabituationLevel`, so the real term is **EN "Adaptation progress" / ZH "視覺適應進度"** (Kirby: the perfect
+  ZH term) — "relaxation / 放寬" was an invented euphemism we don't use; do NOT revert it. Safe because it's a
+  FIXED static label: the runtime `ReportClaimGuard` (adapt/適應 still banned) only scans **LLM-generated
+  prose**, and the static `BannedPhraseLintTests` list does not contain adapt/適應. The guard stays strict so
+  the *model* can never claim the *user* adapted; the accurate term lives only in this one reviewed label.
+- ❌ ZH "減輕視覺負擔" in the disclaimer → `減輕` is banned. Used "協助視覺舒適" instead.
+
+**Print / Save-as-PDF button (2026-06-21):** a top-right `.no-print` button calling the browser's own
+`window.print()` — no PDF dependency (the print CSS already produces a clean PDF), hidden in the printed
+output, and script-free (inline handler, no `<script>` tag, works offline from `file://`). A real PDF
+generator was deliberately NOT added. Tested (`Render_HasPrintButton_ScriptFree_HiddenInPrint`).
+
+**Print-chrome fix (2026-06-21, dev report).** The PDF showed the browser's own auto header/footer (date
+top-left, `<title>` top-centre, `file://` URL + page number bottom) because `@page { margin: 14mm }` left
+margin space for Chrome to draw them. Fixed: **`@page { margin: 0 }`** (no margin ⇒ Chrome draws no
+header/footer chrome) + margins restored via `.report { padding: 14mm }`; and our OWN running header
+(`SenseEase · 視覺舒適報告`) is `position: fixed` top-right so every printed page carries one clean header.
+Trade-off: inner-page top spacing now comes from the section margins (≈11mm) rather than a per-page `@page`
+margin — acceptable, and the only CSS way to suppress the chrome in Chrome.
+
+Adopted (safe): friendly meta = `FriendlyDateRange` ("June 1 – June 14, 2026" / "2026年6月1日 – 6月14日", the
+generation time stays in the JSON record); warmer section headings (Your SenseEase check-in / Comfort over time
+/ Protection: on vs off / Screen motion & protection); warmer second-person prose in `ReportFallbacks` (+ the
+LLM Summary system prompt); plainer captions (Screen motion intensity / 畫面晃動程度; Protection activations per
+day / 每日防護啟動次數); table headers (Avg. discomfort / 平均不適感; Activity / 使用情境); category labels
+(觀看影片 / 遊戲 / 網頁瀏覽); posture labels (Fine-tune flexibility / 畫面微調彈性; Recent visual pressure / 近期視覺壓力,
+"Level N / 第 N 級"); warmer disclaimer with a privacy reassurance. No emoji (preserves the technical identity +
+clinician-appropriateness; available if Kirby wants the fully-casual consumer vibe). All EN/ZH renderer literals
+pass the static lint; the warm `ReportFallbacks` prose passes the guard golden test.
+
+---
+
 *Cited files: `SettingsContent.xaml(.cs)`, `ClinicalExportService.cs`, `ClinicalExport.cs`,
 `{SymptomEvent,DailyBehaviorAggregate,HabituationProfileSnapshot}.cs`, `FmsCheckInService.cs`,
 `LongitudinalSummaryBuilder.cs`, `LocalLlmChatbotService.cs`, `MainWindow.xaml.cs` (chart),

@@ -22,6 +22,21 @@ public class ReportClaimGuardTests
         => Assert.True(ReportClaimGuard.ContainsBannedClaim(prose));
 
     [Theory]
+    [InlineData("You're making great progress this month.")]   // progress — was an EN gap (R2)
+    [InlineData("This is getting easier for you.")]             // easier
+    [InlineData("Your comfort is clearly better now.")]         // better (not only the phrase "feel better")
+    [InlineData("You seem more resilient to the motion lately.")] // resilien (word-boundary)
+    [InlineData("你的狀況正在好轉。")]                            // 好轉 — ZH symmetry twin
+    public void Catches_ParaphrasedImprovementClaims(string prose)
+        => Assert.True(ReportClaimGuard.ContainsBannedClaim(prose));
+
+    [Theory]
+    [InlineData("The display adapter was reset to its defaults.")]   // 'adapter' must NOT trip 'adapt' (R7)
+    [InlineData("An adaptive layout filled the available screen.")]  // 'adaptive' must NOT trip 'adapt' (R7)
+    public void DoesNotFalseFire_OnBenignAdapterWords(string prose)
+        => Assert.False(ReportClaimGuard.ContainsBannedClaim(prose));
+
+    [Theory]
     [InlineData("你的耐受度明顯提升。")]   // 耐受
     [InlineData("不適已經改善很多。")]      // 改善
     [InlineData("你已經適應並且習慣了。")] // 適應 + 習慣了

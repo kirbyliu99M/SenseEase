@@ -24,6 +24,27 @@ public class ClinicalReportHtmlRendererTests
             new() { Date = "2026-06-02", MeasuredFmsMean = null, OfiP90 = null, MaskActivations = null },   // gap day
             new() { Date = "2026-06-03", MeasuredFmsMean = 5, MeasuredFmsCount = 1, OfiP90 = 90, MaskActivations = 5 },
         },
+        OnsetTiming = new SessionFirstSignalSummary
+        {
+            SessionCount = 9,
+            MeanMinutesOverall = 7.5,
+            ByChannel = new List<ChannelOnset>
+            {
+                new() { Channel = "chat",    SessionCount = 3, MeanMinutes = 9 },
+                new() { Channel = "consent", SessionCount = 4, MeanMinutes = 5.5 },
+                new() { Channel = "fms",     SessionCount = 2, MeanMinutes = 8 },
+            },
+        },
+        ConsentEngagement = new ConsentEngagementSummary
+        {
+            AskedCount = 10, AcceptedCount = 4, DeclinedCount = 2, IgnoredCount = 4, DaysObserved = 6,
+            OfferedNotEngagedRate = 0.4,
+        },
+        OnVsOffByCategory = new List<CategoryContrast>
+        {
+            new() { Category = "video", CountOn = 3, CountOff = 2, MeanFmsOn = 6, MeanFmsOff = 9, Delta = 3 },
+        },
+        Satisfaction = new SatisfactionSummary { MeanScore = 4.2, ScaleMax = 5, ResponseCount = 7 },
     };
 
     private static ReportNarrative Narrative() => new()
@@ -101,5 +122,93 @@ public class ClinicalReportHtmlRendererTests
 
         Assert.StartsWith("<!DOCTYPE html>", html);
         Assert.Contains("Not enough data yet.", html);   // chart placeholder, no throw
+        Assert.DoesNotContain("Time to first discomfort signal", html);   // onset section omitted with no data
+    }
+
+    [Fact]
+    public void Render_OnsetSection_ShowsNeutralChannelsAndConsentEngagement()
+    {
+        string html = ClinicalReportHtmlRenderer.Render(SampleExport(), Narrative(), Posture(), english: true);
+
+        Assert.Contains("Time to first discomfort signal", html);   // the deterministic onset section
+        Assert.Contains("Overlay", html);                           // consent channel → neutral label (not "consent")
+        Assert.Contains("Chat", html);
+        Assert.Contains("Offered, not engaged", html);              // idea #1 ride-along, guard-safe wording
+        // Never the guard-banned framing for the engagement metric.
+        Assert.DoesNotContain("toler", html.ToLowerInvariant());
+        Assert.DoesNotContain("adapted", html.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Render_UsesTheAppTypeSystem_SegoeUiAndConsolas()
+    {
+        string html = ClinicalReportHtmlRenderer.Render(SampleExport(), Narrative(), Posture(), english: true);
+
+        Assert.Contains("Segoe UI", html);   // app prose font
+        Assert.Contains("Consolas", html);   // app data / technical-readout font
+    }
+
+    [Fact]
+    public void Render_HasPrintButton_ScriptFree_HiddenInPrint()
+    {
+        string html = ClinicalReportHtmlRenderer.Render(SampleExport(), Narrative(), Posture(), english: true);
+
+        Assert.Contains("window.print()", html);   // the Print / Save-as-PDF affordance
+        Assert.Contains("no-print", html);         // … hidden in the printed output itself
+        Assert.DoesNotContain("<script", html);    // stays script-free (inline handler only, no dependency)
+        Assert.Contains("@page{margin:0}", html);  // suppress the browser's auto header/footer chrome
+        Assert.Contains("print-header", html);     // our own running header (top-right of each printed page)
+    }
+
+    [Fact]
+    public void Render_SurfacesPerCategoryEffectivenessAndSatisfaction()
+    {
+        string html = ClinicalReportHtmlRenderer.Render(SampleExport(), Narrative(), Posture(), english: true);
+
+        Assert.Contains("Protection effect by activity", html);   // #6 — computed but previously unrendered
+        Assert.Contains("Satisfaction", html);                    // #20 — CSAT tile
+    }
+
+    [Fact]
+    public void Render_NoPlaceholderPluralHack_ForMultiCounts()
+    {
+        // #16: with counts > 1 the EN copy must read naturally — never the debug-looking "day(s)" / "(s)".
+        string html = ClinicalReportHtmlRenderer.Render(SampleExport(), new ReportNarrative { Summary = "x" }, Posture(), english: true);
+        Assert.DoesNotContain("day(s)", html);
+        Assert.DoesNotContain("check-in(s)", html);
+    }
+
+    [Fact]
+    public void Render_OfiAboveAssumedMax_DoesNotClipOrEmitNaN()
+    {
+        var e = new ClinicalExport
+        {
+            GeneratedUtc = "2026-06-21T08:00:00.0000000Z",
+            DailySeries = new List<DailySeriesPoint>
+            {
+                new() { Date = "2026-06-01", OfiP90 = 250 },   // exceeds the assumed 0–100 floor
+                new() { Date = "2026-06-02", OfiP90 = 120 },
+            },
+        };
+        string html = ClinicalReportHtmlRenderer.Render(e, new ReportNarrative(), null, english: true);
+
+        Assert.DoesNotContain("NaN", html);
+        Assert.DoesNotContain("Infinity", html);
+        Assert.Contains("#2F7D6E", html);   // the motion line is still drawn (ceiling grew to fit)
+    }
+
+    [Fact]
+    public void Render_SingleDaySeries_ShowsLonePoint_NoNaN()
+    {
+        var e = new ClinicalExport
+        {
+            GeneratedUtc = "2026-06-21T08:00:00.0000000Z",
+            Measured = new FmsAggregate { Count = 1 },
+            DailySeries = new List<DailySeriesPoint> { new() { Date = "2026-06-01", MeasuredFmsMean = 7, MeasuredFmsCount = 1 } },
+        };
+        string html = ClinicalReportHtmlRenderer.Render(e, new ReportNarrative(), null, english: true);
+
+        Assert.DoesNotContain("NaN", html);
+        Assert.Contains("<circle", html);   // the single day still renders a dot (centered)
     }
 }

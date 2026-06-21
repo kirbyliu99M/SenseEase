@@ -467,9 +467,19 @@
                 <TextBlock Text="{loc:T Zh='健康報告匯出', En='Health report export'}"
                            Foreground="{DynamicResource TextPrimary}" FontSize="13" FontWeight="SemiBold"
                            Margin="0,0,0,6"/>
-                <TextBlock Text="{loc:T Zh='匯出一份去識別化的數據摘要（僅數字與類別，不含應用程式名稱或對話內容），可提供給醫療人員參考。測量值與估計值會分開呈現。', En='Export a de-identified numeric summary (numbers and categories only — no app names or conversation text) to share with a clinician. Measured and estimated values are shown separately.'}"
+                <TextBlock Text="{loc:T Zh='匯出一份去識別化的健康報告：可在瀏覽器開啟或列印的 HTML 報告（重點數字、圖表與簡短摘要），並在旁附上 JSON 數據紀錄。僅含數字與類別，不含應用程式名稱或對話內容；測量值與估計值分開呈現。', En='Export a de-identified health report — an HTML page (key numbers, charts, a short summary) you can open in a browser or print, with the JSON data record beside it. Numbers and categories only — no app names or conversation text; measured and estimated values are shown separately.'}"
                            FontSize="12" Foreground="{DynamicResource TextTertiary}"
                            TextWrapping="Wrap" Margin="0,0,0,10"/>
+                <!-- #21: optional window scope for the export (defaults to all history). -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,10">
+                    <TextBlock Text="{loc:T Zh='範圍', En='Range'}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="ExportRangeCombo" SelectedIndex="0" Width="170" FontSize="12">
+                        <ComboBoxItem Content="{loc:T Zh='全部時間', En='All time'}"/>
+                        <ComboBoxItem Content="{loc:T Zh='最近 90 天', En='Last 90 days'}"/>
+                        <ComboBoxItem Content="{loc:T Zh='最近 30 天', En='Last 30 days'}"/>
+                    </ComboBox>
+                </StackPanel>
                 <Button x:Name="ExportClinicalButton"
                         Content="{loc:T Zh='匯出健康報告…', En='Export health report…'}"
                         HorizontalAlignment="Left" Padding="14,7" FontSize="12" FontWeight="SemiBold"
@@ -478,7 +488,7 @@
                         BorderBrush="{DynamicResource CardBorder}"
                         BorderThickness="1"
                         Cursor="Hand" Click="OnExportClinicalClicked"
-                        ToolTip="{loc:T Zh='把去識別化的數值摘要存成 JSON 檔。', En='Save a de-identified numeric summary as a JSON file.'}"/>
+                        ToolTip="{loc:T Zh='存成可在瀏覽器開啟或列印的 HTML 健康報告，並在旁附上 JSON 數據紀錄檔（皆為去識別化）。', En='Save an HTML health report you can open in a browser or print, with the JSON data record beside it (both de-identified).'}"/>
                 <!-- D-redesign: not-a-medical-device disclaimer. Wording is §6 BannedPhraseLint
                      compliant (describes the tool, not the user's clinical state). -->
                 <TextBlock Text="{loc:T Zh='SenseEase 為健康輔助工具，並非醫療器材。這些自評數值僅供您與醫療人員參考，並非臨床評估。本程式為一般視覺舒適輔助，不適用於臨床前庭／平衡疾病。', En='SenseEase is a wellness tool, not a medical device. These self-reported values are for reference by you and your clinician only — not a clinical assessment. SenseEase is for general visual comfort and is not for clinical vestibular or balance disorders.'}"

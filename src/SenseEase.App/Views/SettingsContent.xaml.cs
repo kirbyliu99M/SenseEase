@@ -425,29 +425,45 @@ public partial class SettingsContent : UserControl
         string htmlPath = dlg.FileName;
         string jsonPath = Path.ChangeExtension(htmlPath, ".json");
         bool english    = LocalizationManager.Current.IsEnglish;
+        // #21: optional window scope (All / last 90 / last 30) from the export-range selector. Null ⇒ all.
+        DateTime? sinceUtc = ExportRangeCombo?.SelectedIndex switch
+        {
+            1 => DateTime.UtcNow.AddDays(-90),
+            2 => DateTime.UtcNow.AddDays(-30),
+            _ => null,
+        };
 
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
             var symptomStore = new FileSymptomEventStore(AppConfig.SymptomLogPath);
 
-            // Rich HTML report: numbers + charts + narrated prose. The narrator reuses the host's loaded
-            // model (GetChatbotService) when warm, else renders the deterministic narrative.
+            // ONE composed dataset → the JSON data record + the HTML export (Kirby 2026-06-21: "JSON is the
+            // data recording, HTML is the export"). The narrator reuses the host's loaded model when warm. The
+            // onset + satisfaction readers keep the App→Infrastructure boundary clean (Infra can't see AppConfig):
+            //   • onset (idea #2): the per-launch first-discomfort-signal log;
+            //   • satisfaction (#7): the score-only CSAT mean (the free-text comment is never read).
             var reportSvc = new ClinicalReportService(
                 symptomStore,
                 new DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath),
                 new FileHabituationProfileStore(AppConfig.HabituationProfilePath),
-                GetChatbotService?.Invoke());
-            await reportSvc.WriteHtmlAsync(htmlPath, english, DateTime.UtcNow);
-
-            // KEEP the JSON beside the HTML — the de-identified raw-numbers data file (unchanged path).
-            new ClinicalExportService(symptomStore).WriteJson(jsonPath, DateTime.UtcNow);
+                GetChatbotService?.Invoke(),
+                onsetReader: () => new SenseEase.App.Services.SessionOnsetLog().ReadAll(),
+                satisfactionReader: () =>
+                {
+                    var c = new SenseEase.App.Services.NpsService().ComputeCsat();
+                    return c is { } v
+                        ? new SenseEase.Core.Inference.SatisfactionSummary
+                          { MeanScore = Math.Round(v.Mean, 2), ScaleMax = 5, ResponseCount = v.Count }
+                        : null;
+                });
+            await reportSvc.WriteAsync(htmlPath, jsonPath, english, DateTime.UtcNow, sinceUtc);
 
             Mouse.OverrideCursor = null;
             ThemedDialog.Notify(owner,
                 LocalizationManager.Current.Pick(
-                    "已匯出去識別化的健康報告（HTML 報告與 JSON 數據，僅含數字與類別）。",
-                    "Exported a de-identified health report (an HTML report plus the JSON data — numbers and categories only)."),
+                    "已匯出去識別化的健康報告：可閱讀的 HTML 報告，並在旁附上 JSON 數據紀錄（僅含數字與類別）。",
+                    "Exported your de-identified health report — the readable HTML export, with the JSON data record beside it (numbers and categories only)."),
                 DialogKind.Info);
         }
         catch
