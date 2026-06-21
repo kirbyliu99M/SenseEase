@@ -5,6 +5,21 @@
 **健康報告 / Health report** — key indicators + graphical reviews + an LLM-authored plain-language
 narrative the user (and, optionally, their clinician) can actually read.
 
+> **GATE for the dashboard-dismantle Stage 2 (2026-06-21):** this report is the agreed **re-home** for
+> the Eye Care tab's data view (trend chart + check-in history + 7-day trend) — Eye Care is deleted only
+> AFTER this lands (Kirby picked "health report first"). **Verified the re-home is sound:**
+> (a) §5 indicators **2** (per-day FMS trend ← `symptom_log`) + **5** (OFI p90 trend + mask freq ←
+> `behavior_log`) cover it; (b) the data is viable + persisted — the live chart's in-memory
+> `OfiHistory`/`PressureHistory` are NOT needed (report uses `behavior_log`); (c) the collection paths
+> SURVIVE deleting the Eye Care tab — `symptom_log` is written by `RecordFmsRating` from the **chat**
+> spike check-in (`MainWindow.xaml.cs:990`) + the recorder, `behavior_log` by the UM1 daily collector;
+> deleting Eye Care removes only VIEWS. ⚠️ **ONE non-report loss:** the **manual / un-prompted** FMS entry
+> point lives only in Eye Care (`OnEyeCareInlineBandClicked` → `Triggers.Manual`, `:1059`). The report is
+> read-only and does NOT re-home it → after Eye Care goes, ratings are spike-prompted (chat) only. Decide
+> at deletion time: re-home a "log how I feel" into the popup chat, or drop un-prompted logging.
+> **Tray at Eye Care deletion (Kirby):** keep the tray icon + single-click→popup; remove ONLY the
+> double-click→Open-Dashboard reaction (the dashboard surface goes; the tray lives).
+
 > This is a PLAN, not an implementation. Nothing here is built. Section 7 lists the decisions that
 > must be settled before any code lands.
 
@@ -121,6 +136,99 @@ the runtime banned-phrase filter before display; deterministic fallback when the
    comment text.
 6. **Per-day series:** new de-identified builder method (date-bucketed) for the trend charts.
 7. **Chart palette:** must use the calm signature, **not** the flagged `#024AD8` neon.
+
+---
+
+## 8. Settled resolutions — hard review 2026-06-21 (adversarially verified, wf w9azbep9k)
+
+Kirby decided: **HTML report REPLACES the JSON** (sole artifact → must stay D-17 de-identified +
+clinician-shareable). The review resolved Q3–Q7; the adversarial pass then **refuted `buildReady`** and
+found 4 holes, all in the *new* surfaces. Resolutions below already fold in those fixes.
+
+**Q4 (LLM budget):** per-section calls, each with its own bounded `max_tokens` + its own deterministic
+fallback (failure isolation). Add overload `CompleteShortAsync(system, user, int maxTokens, ct)`
+defaulting to 96 (preserves the existing `ChatbotViewModel` call site).
+
+**Q5 + de-identification (the privacy wall) — the builder enforces:**
+- **Category-only app:** every `ForegroundKey`/`app_context` passes through `ExtractCategory`
+  (`ClinicalExport.cs:307`) before reaching ANY field, chart axis, legend, or tooltip. ⚠️**[refute 1B]**
+  the *new* per-day builder MUST key on `ExtractCategory` (don't group by raw `ForegroundKey`); make
+  `ExtractCategory` the only public category accessor + a unit test asserting **no exported field /
+  series-key / legend equals a raw `category/app` string** (the "verified" claim rested on unwritten code).
+- **Date-bucket:** every timestamp → `yyyy-MM-dd` at the builder boundary (charts render bucketed dates).
+- **No-free-text (HARD-exclude, no sanitize-and-include):** `survey_log.comment`,
+  habituation `CalibrationResponses`, `longitudinal_observations_v2.text`, **AND ⚠️[refute 1A] the legacy
+  flat `longitudinal_observations` list** (`HabituationProfileSnapshot.cs:161` — still populated on old
+  on-disk profiles). The narrative is RE-NARRATED from numbers; stored LLM prose is never copied.
+- **Source-allowlist:** builder reads an explicit field allowlist per source; renderer sees only the
+  typed de-identified DTO, never a raw row / `JsonSerializer.Serialize(wholeObject)`.
+- **Prompt-isolation:** the LLM prompt carries ONLY the numeric DTO — never raw rows / ForegroundKey /
+  observation text. ⚠️**[refute 1C]** the DTO carries **raw numbers only** — do NOT reuse
+  `LongitudinalSummaryBuilder.BuildBlock`'s pre-judged strings (`improving`/`falling`/`tolerance_ceiling`,
+  `LongitudinalSummaryBuilder.cs:44,62,79`); relabel strips EVERY directional adjective + `tolerance`.
+- **Survey score-only** (`ComputeCsat`/`ReadLoggedScores`); **don't read `fms_log`** (dev sink);
+  **`adjustments.jsonl` excluded** until its row schema is audited free of app names + free text.
+
+**Q3 (LLM medical-overreach guard — the second, independent wall):** new pure-Core
+`ReportClaimGuard.ContainsBannedClaim(prose) → bool`; vocabulary single-sourced into a shared Core
+constant referenced by BOTH `BannedPhraseLintTests` and the runtime guard (anti-drift). Pipeline:
+`CompleteShortAsync` → `ReplyComplianceScrubber.Scrub` (kept; it is NOT a medical filter) →
+`ReportClaimGuard`; any hit ⇒ reject the WHOLE section ⇒ emit that section's deterministic fallback.
+Model-off (`IsModelLoaded==false`) / call-null / output-rejected all converge on the per-section
+templates (report always renders full); the templates themselves pass the guard in a golden test.
+⚠️**[refute 2A/2B/2C] the guard vocabulary MUST EXCEED the lint list** (the lint was for static copy, not
+adversarial LLM prose): absorb the R6 bodily-state stems (`Scrub`'s R6 is OFF at `intent=""`,
+`ReplyComplianceScrubber.cs:119`) → add EN stems `improve`, `feel better`, `toler` (so `tolerated`
+catches), `adapt`, `sensit`, `resilien`, `recover` (bare), `getting used to`; expand ZH to
+`適應/改善/進步/習慣了/減輕/減少` (the literal `Contains` set is too shallow); **run BOTH language lists
+on EVERY section regardless of the UI pin** (the EN↔ZH pin is a known-unreliable failure). ⚠️**[refute
+arch]** `ContainsBannedClaim` stays pure Core; the localized fallback *templates* live in the
+renderer (App/Infra) taking a `bool english` — Core stays test-pure.
+
+**Q6 (per-day series builder, P1):** new pure model `DailySeriesPoint {Date 'yyyy-MM-dd';
+double? MeasuredFmsMean; int? MeasuredFmsCount; int? OfiP90; int? MaskActivations}` + pure
+`ClinicalExportBuilder.BuildDailySeries(symptomEvents, behaviorDays)` beside `Build`: measured-only
+(keeps D-18/19), group-by-date, outer-join on the date key, `null` where a source lacks a day (honest
+gap, never a fabricated 0). Additive; schema stays v2. Golden-tested with two in-memory lists.
+
+**Q7 (chart palette):** NOT `#024AD8`/`#7B8DB0`/`#E54747` (the flagged live-chart strokes). Inline SVG
+can't use `DynamicResource` → resolve calm LIGHT-theme tokens to concrete hex at render: FMS line =
+`#4B6EF5` (Accent), OFI p90 = `#2F7D6E` (ComfortSteady), mask freq = `#9A6B22` (ComfortRising),
+axis/grid = TextSecondary low-opacity, headings = `#1F5249`. Pin the LIGHT palette (printed/clinician).
+
+**Manual check-in (at Eye Care deletion) — DECIDED: DROP (Kirby 2026-06-21).** No re-home. When the
+Eye Care tab is deleted, `OnEyeCareInlineBandClicked` (`Triggers.Manual`) simply goes; FMS ratings are
+**spike-prompted only** (in chat). The report's comfort trend therefore shows prompted ratings only —
+acceptable. (No un-prompted entry point ships.)
+
+**Wire-up (P4) — DECIDED: KEEP the JSON beside the HTML (Kirby 2026-06-21).** The HTML **augments**, does
+not replace, today's export. Both are de-identified artifacts (the JSON already is; the HTML must be).
+Add an HTML export path ALONGSIDE the existing JSON (a second button or a format choice on
+`OnExportClinicalClicked`); do NOT retire `WriteJson`. Match on the method body / `Filter` string,
+**not line numbers** — `SettingsContent.xaml.cs` is moving under the concurrent #4 settings-閃退 fix;
+land the wire-up AFTER that commits to a clean tree.
+
+### Build gates (must be true before P1 ships)
+1. No-free-text rule names **both** observation lists + calibration_responses (refute 1A).
+2. The per-day builder keys on `ExtractCategory`; a test asserts no exported field = raw `category/app` (refute 1B).
+3. The report DTO is **raw numbers only** — no `BuildBlock` judgement strings (refute 1C).
+4. `ReportClaimGuard` vocab exceeds the lint (R6 stems + EN stem-level + ZH expansion + both-lists-always) (refute 2A/2B/2C).
+
+### Decisions — SIGNED OFF (Kirby 2026-06-21)
+- ✅ **Vocabulary expansion APPROVED:** back-port `recover`(bare), `toler`, `adapt`, `sensit`, `resilien`,
+  `getting used to`, R6 stems (`improve`/`feel better`), ZH `適應/改善/進步/習慣了/減輕` into the
+  **shared/locked** banned vocabulary (referenced by both `BannedPhraseLintTests` and `ReportClaimGuard`).
+  A P3 task; keep the two single-sourced.
+- ✅ **Manual check-in: DROP** (no re-home — see above).
+- ✅ **JSON: KEEP beside HTML** (HTML augments, not replaces — see Wire-up above).
+- ⏳ **Audit `adjustments.jsonl`** schema before the "what you've tuned" section may read it (build-time
+  gate, done during P1/P3, not a sign-off).
+
+### Build order (P1 first — §7-independent, no conflict with the in-flight settings fix)
+**P1** (start now): pure `DailySeriesPoint` model + `ClinicalExportBuilder.BuildDailySeries` (measured-only,
+date-bucketed, outer-join, null-gaps) keyed on `ExtractCategory`; golden tests + the "no field = raw
+`category/app`" assertion (build-gate 2). No UI, no I/O in the pure method. → P2 renderer → P3
+narrative+guard (vocab expansion) → P4 wire-up (add HTML beside JSON, after the #4 fix lands) → P5 UVHS.
 
 ---
 

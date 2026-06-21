@@ -57,6 +57,12 @@ public sealed class ClinicalExport
     public List<CategoryContrast> OnVsOffByCategory { get; set; } = new();
 
     public ExposureDose Exposure { get; set; } = new();
+
+    /// <summary>P1 (health-report redesign §8): de-identified per-DAY trend series — measured FMS mean +
+    /// behaviour OFI p90 + mask frequency, date-bucketed + null-gapped. Empty until the service composes
+    /// it via <see cref="ClinicalExportBuilder.BuildDailySeries"/> (that needs behavior_log, which
+    /// <see cref="ClinicalExportBuilder.Build"/> does not read). Additive — schema stays v2.</summary>
+    public List<DailySeriesPoint> DailySeries { get; set; } = new();
 }
 
 /// <summary>Observation window — calendar dates only (D-17: no finer-than-date timestamps).</summary>
@@ -66,6 +72,24 @@ public sealed class ExportWindow
     public string? LastDateUtc { get; set; }
     public int DaysObserved { get; set; }        // distinct calendar dates with data
     public int TotalDataPoints { get; set; }
+}
+
+/// <summary>P1 (health-report redesign §8): one de-identified per-DAY point for the comfort/exposure
+/// trend charts. <see cref="Date"/> is the bucket key (D-17: calendar date only, never a finer
+/// timestamp). FMS is MEASURED-only (D-18/19 — the estimate is never merged in). Every metric is
+/// NULLABLE so a day with no data in a source renders an HONEST GAP, never a fabricated 0. Carries NO
+/// category / app field, so it inherits D-17 de-identification with zero new leak surface.</summary>
+public sealed class DailySeriesPoint
+{
+    public string Date { get; set; } = string.Empty;   // yyyy-MM-dd
+    /// <summary>Mean MEASURED FMS (0–20) reported that day, or null if none.</summary>
+    public double? MeasuredFmsMean { get; set; }
+    /// <summary>Count of MEASURED FMS reports that day (the mean's support), or null if none.</summary>
+    public int? MeasuredFmsCount { get; set; }
+    /// <summary>That day's 90th-percentile optical-flow pressure (behavior_log), or null if no row.</summary>
+    public int? OfiP90 { get; set; }
+    /// <summary>That day's FOV-mask activation count (behavior_log), or null if no row.</summary>
+    public int? MaskActivations { get; set; }
 }
 
 /// <summary>Numeric FMS summary for one signal tier (measured OR estimated, never mixed).</summary>
@@ -150,6 +174,53 @@ public sealed class ExposureDose
 /// </summary>
 public static class ClinicalExportBuilder
 {
+    /// <summary>P1 (health-report redesign §8): the de-identified per-DAY trend series, beside
+    /// <see cref="Build"/>. PURE (no I/O) so it golden-tests with in-memory lists. MEASURED FMS only
+    /// (mirrors Build's D-18/19 gate — the estimate never enters); every timestamp bucketed to a UTC
+    /// calendar date (D-17); outer-joined with the daily behaviour rows on the date key so each metric
+    /// is null where its source lacks that day (honest gap, never a fabricated 0). Reads NO
+    /// <c>ForegroundKey</c>, so there is no category/app leak surface. Ascending by date.</summary>
+    public static IReadOnlyList<DailySeriesPoint> BuildDailySeries(
+        IEnumerable<SymptomEvent> events,
+        IEnumerable<DailyBehaviorAggregate> behaviorDays)
+    {
+        // MEASURED FMS per day: keep only FMS-bearing kinds + Measured (mirrors Build's :163/:167 gate so
+        // a non-FMS kind like overlay_consent can't become a phantom FMS=0), bucket to UTC calendar date.
+        var fmsByDay = (events ?? Enumerable.Empty<SymptomEvent>())
+            .Where(e => e is not null
+                        && (e.Kind == SymptomEvent.Kinds.FmsReport || e.Kind == SymptomEvent.Kinds.FmsEstimate)
+                        && e.Measured)
+            .Select(e => (date: ParseDate(e.TsUtc), e.Value))
+            .Where(x => x.date.HasValue)
+            .GroupBy(x => x.date!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            .ToDictionary(g => g.Key, g => (mean: Math.Round(g.Average(x => x.Value), 2), count: g.Count()));
+
+        // behavior_log is already date-keyed numeric-only (one row/day). Last-write-wins on a duplicate
+        // date so a malformed second row can't throw.
+        var behByDay = new Dictionary<string, DailyBehaviorAggregate>(StringComparer.Ordinal);
+        foreach (var b in behaviorDays ?? Enumerable.Empty<DailyBehaviorAggregate>())
+            if (b is not null && !string.IsNullOrWhiteSpace(b.Date)) behByDay[b.Date] = b;
+
+        // Outer-join: one point per distinct date in EITHER source, null where absent. yyyy-MM-dd sorts
+        // chronologically as ordinal text.
+        return fmsByDay.Keys.Union(behByDay.Keys, StringComparer.Ordinal)
+            .OrderBy(d => d, StringComparer.Ordinal)
+            .Select(d =>
+            {
+                bool hasFms = fmsByDay.TryGetValue(d, out var f);
+                bool hasBeh = behByDay.TryGetValue(d, out var b);
+                return new DailySeriesPoint
+                {
+                    Date             = d,
+                    MeasuredFmsMean  = hasFms ? f.mean  : (double?)null,
+                    MeasuredFmsCount = hasFms ? f.count : (int?)null,
+                    OfiP90           = hasBeh ? b!.OfiP90          : (int?)null,
+                    MaskActivations  = hasBeh ? b!.MaskActivations : (int?)null,
+                };
+            })
+            .ToList();
+    }
+
     public static ClinicalExport Build(IEnumerable<SymptomEvent> events)
     {
         var all = (events ?? Enumerable.Empty<SymptomEvent>())
