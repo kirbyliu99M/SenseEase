@@ -10,7 +10,7 @@ namespace SenseEase.Tests;
 
 /// <summary>
 /// Learning-loop Part D / Idea #2 (2026-06-21): the session-onset first-discomfort-signal capture. Covers
-/// the pure <see cref="SessionFirstSignalBuilder"/> median math (overall + per-channel, duration-only) and
+/// the pure <see cref="SessionFirstSignalBuilder"/> mean math (overall + per-channel, duration-only) and
 /// the App <see cref="SessionOnsetLog"/> round-trip (append → read back, out-of-range dropped, malformed
 /// lines skipped). The timing is REPORT-ONLY — nothing here touches the FMS partition or the relax gate.
 /// </summary>
@@ -22,18 +22,18 @@ public sealed class SessionFirstSignalTests
     // ── Pure aggregator ──────────────────────────────────────────────────────
 
     [Fact]
-    public void Empty_ZeroSessions_NullMedian()
+    public void Empty_ZeroSessions_NullMean()
     {
         var s = SessionFirstSignalBuilder.Build(Array.Empty<SessionOnsetRecord>());
         Assert.Equal(0, s.SessionCount);
-        Assert.Null(s.MedianMinutesOverall);
+        Assert.Null(s.MeanMinutesOverall);
         Assert.Empty(s.ByChannel);
     }
 
     [Fact]
-    public void OddCount_MedianIsMiddle_InMinutes()
+    public void OddCount_MeanInMinutes()
     {
-        // offsets 60s, 120s, 600s → median 120s = 2.0 min.
+        // offsets 60s, 120s, 600s → mean 260s = 4.33 min.
         var s = SessionFirstSignalBuilder.Build(new[]
         {
             Rec(SessionOnsetChannels.Fms, 600),
@@ -41,13 +41,13 @@ public sealed class SessionFirstSignalTests
             Rec(SessionOnsetChannels.Fms, 120),
         });
         Assert.Equal(3, s.SessionCount);
-        Assert.Equal(2.0, s.MedianMinutesOverall!.Value, 2);
+        Assert.Equal(4.33, s.MeanMinutesOverall!.Value, 2);
     }
 
     [Fact]
-    public void EvenCount_MedianAveragesTheTwoMiddle()
+    public void EvenCount_MeanInMinutes()
     {
-        // offsets 60,120,180,600 → middle two = 120,180 → avg 150s = 2.5 min.
+        // offsets 60,120,180,600 → mean 960/4 = 240s = 4.0 min.
         var s = SessionFirstSignalBuilder.Build(new[]
         {
             Rec(SessionOnsetChannels.Chat, 180),
@@ -55,26 +55,26 @@ public sealed class SessionFirstSignalTests
             Rec(SessionOnsetChannels.Chat, 600),
             Rec(SessionOnsetChannels.Chat, 120),
         });
-        Assert.Equal(2.5, s.MedianMinutesOverall!.Value, 2);
+        Assert.Equal(4.0, s.MeanMinutesOverall!.Value, 2);
     }
 
     [Fact]
-    public void PerChannel_GroupedWithOwnMedians()
+    public void PerChannel_GroupedWithOwnMeans()
     {
         var s = SessionFirstSignalBuilder.Build(new[]
         {
             Rec(SessionOnsetChannels.Consent, 300),   // consent: 300s = 5 min (single)
             Rec(SessionOnsetChannels.Fms, 60),
-            Rec(SessionOnsetChannels.Fms, 180),        // fms: median of 60,180 = 120s = 2 min
+            Rec(SessionOnsetChannels.Fms, 180),        // fms: mean of 60,180 = 120s = 2 min
         });
 
         Assert.Equal(3, s.SessionCount);
         var consent = s.ByChannel.Single(c => c.Channel == SessionOnsetChannels.Consent);
         var fms     = s.ByChannel.Single(c => c.Channel == SessionOnsetChannels.Fms);
         Assert.Equal(1, consent.SessionCount);
-        Assert.Equal(5.0, consent.MedianMinutes!.Value, 2);
+        Assert.Equal(5.0, consent.MeanMinutes!.Value, 2);
         Assert.Equal(2, fms.SessionCount);
-        Assert.Equal(2.0, fms.MedianMinutes!.Value, 2);
+        Assert.Equal(2.0, fms.MeanMinutes!.Value, 2);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class SessionFirstSignalTests
             Rec(SessionOnsetChannels.Fms, 120),   // the only valid one
         });
         Assert.Equal(1, s.SessionCount);
-        Assert.Equal(2.0, s.MedianMinutesOverall!.Value, 2);
+        Assert.Equal(2.0, s.MeanMinutesOverall!.Value, 2);
     }
 
     // ── App SessionOnsetLog round-trip ───────────────────────────────────────
@@ -110,10 +110,10 @@ public sealed class SessionFirstSignalTests
             Assert.Equal(42.4, records[0].OffsetSeconds, 1);
             Assert.Equal(SessionOnsetChannels.Chat, records[1].Channel);
 
-            // The aggregator reads the same rows: median of 42.4 & 130 = 86.2s ≈ 1.44 min.
+            // The aggregator reads the same rows: mean of 42.4 & 130 = 86.2s ≈ 1.44 min.
             var summary = SessionFirstSignalBuilder.Build(records);
             Assert.Equal(2, summary.SessionCount);
-            Assert.Equal(Math.Round(((42.4 + 130.0) / 2.0) / 60.0, 2), summary.MedianMinutesOverall!.Value, 2);
+            Assert.Equal(Math.Round(((42.4 + 130.0) / 2.0) / 60.0, 2), summary.MeanMinutesOverall!.Value, 2);
         }
         finally { try { Directory.Delete(dir, true); } catch { } }
     }

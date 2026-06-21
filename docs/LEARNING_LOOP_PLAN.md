@@ -208,7 +208,7 @@ partition. Candidates: a NEW independent `session_onset_log.jsonl` (recommended 
 the hot report build), `fms_log.jsonl` (dev sink, also low-collision), or a `behavior_log`/
 `DailyBehaviorAggregate` field (COLLISION-HOT — the report agent reads it; avoid in data-capture stage).
 
-**Report wiring (deferred):** aggregate = **median minutes to first signal** (a duration; D-17-safe),
+**Report wiring (deferred):** aggregate = **mean minutes to first signal** (a duration; D-17-safe),
 an additive numeric `ClinicalExport` DTO field. Defer to Stage B (coordinate with the report agent).
 
 **Non-relax fence (optional, later):** the timing MAY safely inform check-in/prompt *cadence*
@@ -220,7 +220,7 @@ report-only first; cadence-driving later behind its own UVHS.
 Idea #1: `ConsentEngagementBuilder` (+`ConsentEngagementSummary`) — pure report-only "offered, not engaged"
 counts + Ignored/Asked rate, reads existing `overlay_consent` rows ONLY, zero capture change, feeds neither
 gate nor FMS partition. Idea #2: `SessionFirstSignalBuilder` (+`SessionOnsetRecord`/`SessionFirstSignalSummary`,
-median-minutes duration-only) + App `SessionOnsetLog` (new `session_onset_log.jsonl`, best-effort, mirrors
+mean-minutes duration-only) + App `SessionOnsetLog` (new `session_onset_log.jsonl`, best-effort, mirrors
 `FmsCheckInService`) + `AppConfig.SessionOnsetLogPath` + clear-data delete; `MainViewModel.NoteFirstDiscomfortSignal`
 (first-of-session guard, writes the offset immediately so a crash can't lose it) wired on all three channels —
 consent-ACCEPT (`GrantOverlayConsent`; decline excluded as ambiguous), FMS (`RecordFmsRating`), and a new
@@ -270,7 +270,7 @@ owns `ClinicalExport.cs (BuildDailySeries)`, `ClinicalReportHtmlRenderer`, `Clin
    chatbot hook moves from the raw `SendAsync` site to the NLU intent-classification site; all three
    channels (consent / FMS / chat) are then genuine discomfort signals. Depends on NLU classification.
 7. **Idea #2 granularity = first-of-any per app-launch.**
-8. **Idea #2 timing use = report-only now** → median-minutes-to-first-signal in the health report.
+8. **Idea #2 timing use = report-only now** → mean-minutes-to-first-signal in the health report.
    **Stated purpose (Kirby): capture the discomfort *timing* and report it to the health report, and
    feed the learning loop IF it can be done safely.** ⇒ design the capture reusable for the learning
    loop's *cadence* path later (the fenced governor input, behind its own UVHS); it must NEVER become a
@@ -285,8 +285,8 @@ verify; verdict **FEASIBLE + SAFE, no blocking defects**, 3 MED corrections fold
 `ClinicalExport` v2 additive.
 
 **What ships:** a deterministic-rendered **"Time to first discomfort signal"** card in the HTML report —
-median minutes from app-launch to the first discomfort signal of a session (overall + per-channel
-consent/fms/chat, each with its own median + session count). Idea #1's "overlay offered, not engaged" rides
+mean minutes from app-launch to the first discomfort signal of a session (overall + per-channel
+consent/fms/chat, each with its own mean + session count). Idea #1's "overlay offered, not engaged" rides
 along in the same section (already built, zero new I/O). Both are numeric cards, **never narrated, never fed
 to any gate**.
 
@@ -304,15 +304,15 @@ to any gate**.
 
 **DTO (additive, schema stays 2):** two nullable fields on `ClinicalExport` after `DailySeries` —
 `SessionFirstSignalSummary? OnsetTiming` and `ConsentEngagementSummary? ConsentEngagement` (types already
-built, report-ready; empty ⇒ `SessionCount=0/MedianMinutesOverall=null` honest-gap). **`[JsonIgnore]` on both
+built, report-ready; empty ⇒ `SessionCount=0/MeanMinutesOverall=null` honest-gap). **`[JsonIgnore]` on both
 is MANDATORY, not cosmetic:** `ClinicalExportService.WriteJson` builds its OWN export that never composes
 these, and `DefaultIgnoreCondition=Never` would emit `onset_timing:null`/`consent_engagement:null` keys on
 every JSON export and break the JSON golden test. Proposed names to lock with the report agent: `OnsetTiming`
 / `ConsentEngagement` (alternates: `SessionOnset`/`ConsentMetric`).
 
 **Renderer:** new `<section>` after Exposure, before the Disclaimer footer, in `ClinicalReportHtmlRenderer`.
-Onset card = a `<table class="grid">` (mirror `AppendOnOffTable`) — overall median line + per-channel rows
-(Channel | Sessions | Median min), raw keys mapped to neutral labels (EN Overlay/Check-in/Chat; ZH
+Onset card = a `<table class="grid">` (mirror `AppendOnOffTable`) — overall mean line + per-channel rows
+(Channel | Sessions | Mean min), raw keys mapped to neutral labels (EN Overlay/Check-in/Chat; ZH
 防護卡/回報/對話), null/empty ⇒ the existing `Placeholder()` "Not enough data yet". De-id: only counts +
 duration-minutes, all through `Esc()`; calm palette only, never `#024AD8`.
 
@@ -327,7 +327,7 @@ sole model-narrated section), so the onset numbers bypass the number-lock entire
 **Safety:** zero `MeasuredState`/relax path — onset lives in its own `session_onset_log.jsonl` (never a
 `SymptomEvent`), consent rows are `Measured=false/Kind=overlay_consent`; both excluded by
 `AdaptationEvidence.MeasuredOnFms` + the export FMS-kind filter by construction. D-17: `OffsetSeconds` is an
-elapsed duration aggregated to median minutes — never a date/time-of-day. The future onset→check-in-cadence
+elapsed duration aggregated to mean minutes — never a date/time-of-day. The future onset→check-in-cadence
 use is OUT OF SCOPE (its own UVHS).
 
 **Coordination (CORRECTED hot-file scope):** only FOUR files are actually dirty/uncommitted —
@@ -338,7 +338,7 @@ wire seam (`ClinicalReportService.cs`) and the JSON service (`ClinicalExportServ
 field names + that the labels pass their possibly-updated lists; confirm they aren't double-authoring an onset
 series). Prefer: they commit → we add the two fields + renderer section + tests as one additive commit.
 
-**Tests:** service-compose (stub onset reader ⇒ populated; null ⇒ omitted, no crash); renderer golden (median
+**Tests:** service-compose (stub onset reader ⇒ populated; null ⇒ omitted, no crash); renderer golden (mean
 + per-channel rows; null ⇒ Placeholder; absent channel ⇒ no row; escaped; no `#024AD8`); guard golden (labels
 + any fallback pass `ContainsBannedClaim`, EN+ZH); JSON-unchanged (no `onset_timing`/`consent_engagement`
 keys). Builder tests already shipped in Stage A.

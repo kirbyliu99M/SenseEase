@@ -1929,7 +1929,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// app-launch session — the earliest of consent-accept / FMS check-in / chatbot ReportDiscomfort. Stamps
     /// the elapsed offset (UtcNow − <see cref="_sessionStartUtc"/>, a DURATION, D-17-safe) durably the first
     /// time only; subsequent calls this session are no-ops (the null guard makes the first channel win). This
-    /// is REPORT-ONLY timing (the health report's median-minutes-to-first-signal) — it never feeds the relax
+    /// is REPORT-ONLY timing (the health report's mean-minutes-to-first-signal) — it never feeds the relax
     /// gate / MeasuredState (see docs/LEARNING_LOOP_PLAN.md §D2). Best-effort: a capture failure must never
     /// disturb the calling channel.</summary>
     internal void NoteFirstDiscomfortSignal(string channel)

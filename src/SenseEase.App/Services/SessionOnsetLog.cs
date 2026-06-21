@@ -21,7 +21,7 @@ namespace SenseEase.App.Services;
 /// <para>The row carries the elapsed OFFSET (a duration, written immediately when the first signal fires
 /// so a crash can't lose the in-memory session anchor) plus light context (tier, protection state, lang)
 /// for dev monitoring. The Core <see cref="SessionFirstSignalBuilder"/> aggregates these into a
-/// report-only median-minutes distribution; nothing here touches the relax gate or the FMS partition (see
+/// report-only mean-minutes distribution; nothing here touches the relax gate or the FMS partition (see
 /// docs/LEARNING_LOOP_PLAN.md §D0/§D2). Best-effort IO — a failure must never break the UI. The data
 /// directory is injectable for tests.</para>
 /// </summary>

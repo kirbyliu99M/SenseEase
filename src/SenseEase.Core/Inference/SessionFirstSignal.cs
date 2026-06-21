@@ -12,7 +12,7 @@ namespace SenseEase.Core.Inference;
 /// the "typical time to first discomfort" distribution.
 ///
 /// <para><see cref="OffsetSeconds"/> is an ELAPSED DURATION (UtcNow − session-start), NOT a wall-clock
-/// timestamp — so the report-side aggregate (median minutes) honours D-17's "no finer-than-date
+/// timestamp — so the report-side aggregate (mean minutes) honours D-17's "no finer-than-date
 /// timestamp" rule. The session anchor is app-launch (the only fixed wall-clock origin).</para>
 ///
 /// <para><b>Safety fence (see docs/LEARNING_LOOP_PLAN.md §D2).</b> This timing is REPORT-ONLY. It must
@@ -39,33 +39,33 @@ public static class SessionOnsetChannels
     public const string Chat    = "chat";
 }
 
-/// <summary>Median time-to-first-signal for one channel (or overall). Minutes, a duration (D-17-safe).</summary>
+/// <summary>Mean time-to-first-signal for one channel (or overall). Minutes, a duration (D-17-safe).</summary>
 public sealed class ChannelOnset
 {
     public string Channel { get; set; } = string.Empty;
     /// <summary>Number of sessions whose first signal came via this channel.</summary>
     public int SessionCount { get; set; }
-    /// <summary>Median minutes from session start to the first signal on this channel. NULL when no
+    /// <summary>Mean minutes from session start to the first signal on this channel. NULL when no
     /// session used this channel (honest gap, never a fabricated 0).</summary>
-    public double? MedianMinutes { get; set; }
+    public double? MeanMinutes { get; set; }
 }
 
-/// <summary>The de-identified "typical onset timing" summary: overall + per-channel medians.</summary>
+/// <summary>The de-identified "typical onset timing" summary: overall + per-channel means.</summary>
 public sealed class SessionFirstSignalSummary
 {
     /// <summary>Total sessions that recorded a first signal.</summary>
     public int SessionCount { get; set; }
-    /// <summary>Median minutes to first signal across ALL channels — the headline "typical time before a
+    /// <summary>Mean minutes to first signal across ALL channels — the headline "typical time before a
     /// user starts facing discomfort". NULL when there is no data.</summary>
-    public double? MedianMinutesOverall { get; set; }
-    /// <summary>Per-channel breakdown (consent / fms / chat), each with its own median + support. Only
+    public double? MeanMinutesOverall { get; set; }
+    /// <summary>Per-channel breakdown (consent / fms / chat), each with its own mean + support. Only
     /// channels with at least one session appear.</summary>
     public List<ChannelOnset> ByChannel { get; set; } = new();
 }
 
 /// <summary>
 /// Pure aggregator for <see cref="SessionFirstSignalSummary"/>. Takes the per-session onset records and
-/// returns the de-identified median-minutes distribution — no I/O, no clock. Mirrors
+/// returns the de-identified mean-minutes distribution — no I/O, no clock. Mirrors
 /// <see cref="ClinicalExportBuilder"/>'s pure-builder shape; only finite, non-negative offsets count.
 /// </summary>
 public static class SessionFirstSignalBuilder
@@ -82,31 +82,26 @@ public static class SessionFirstSignalBuilder
         var summary = new SessionFirstSignalSummary
         {
             SessionCount = valid.Count,
-            MedianMinutesOverall = MedianMinutes(valid.Select(r => r.OffsetSeconds)),
+            MeanMinutesOverall = MeanMinutes(valid.Select(r => r.OffsetSeconds)),
             ByChannel = valid
                 .GroupBy(r => r.Channel, StringComparer.Ordinal)
                 .OrderBy(g => g.Key, StringComparer.Ordinal)
                 .Select(g => new ChannelOnset
                 {
-                    Channel       = g.Key,
-                    SessionCount  = g.Count(),
-                    MedianMinutes = MedianMinutes(g.Select(r => r.OffsetSeconds)),
+                    Channel      = g.Key,
+                    SessionCount = g.Count(),
+                    MeanMinutes  = MeanMinutes(g.Select(r => r.OffsetSeconds)),
                 })
                 .ToList(),
         };
         return summary;
     }
 
-    /// <summary>Median of the offsets, converted to minutes, rounded to 2dp. Null on an empty set. Even
-    /// counts average the two middle values.</summary>
-    internal static double? MedianMinutes(IEnumerable<double> offsetSeconds)
+    /// <summary>Arithmetic mean of the offsets, converted to minutes, rounded to 2dp. Null on an empty set.</summary>
+    internal static double? MeanMinutes(IEnumerable<double> offsetSeconds)
     {
-        var sorted = offsetSeconds.Where(double.IsFinite).OrderBy(x => x).ToList();
-        if (sorted.Count == 0) return null;
-        int mid = sorted.Count / 2;
-        double medianSec = (sorted.Count % 2 == 1)
-            ? sorted[mid]
-            : (sorted[mid - 1] + sorted[mid]) / 2.0;
-        return Math.Round(medianSec / 60.0, 2, MidpointRounding.AwayFromZero);
+        var vals = offsetSeconds.Where(double.IsFinite).ToList();
+        if (vals.Count == 0) return null;
+        return Math.Round(vals.Average() / 60.0, 2, MidpointRounding.AwayFromZero);
     }
 }
