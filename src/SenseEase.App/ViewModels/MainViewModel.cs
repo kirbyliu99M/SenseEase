@@ -36,9 +36,6 @@ public readonly record struct PendingSetMoveVm(int Band, int Shape, int TargetLe
 /// samples yet. A PERSONAL trend, never a population promise (the honest D-18 replacement for "70%").</summary>
 internal readonly record struct ComfortTrendSummary(int Count, double MeanFms, double? OnVsOffDelta);
 
-/// <summary>D-redesign Phase-2: one recent MEASURED FMS check-in for the Eye-Care "my check-ins"
-/// list. Raw fields only — the code-behind localizes the level label and formats the time.</summary>
-internal readonly record struct CheckInListEntry(DateTime WhenUtc, int Fms, bool ProtectionOn, string? ForegroundKey);
 
 /// <summary>
 /// Dashboard view model. Wires the mock Sensing ??Inference ??Feedback loop and
@@ -717,32 +714,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch { return default; }
     }
 
-    /// <summary>D-redesign Phase-2: the most-recent MEASURED FMS check-ins (newest-first, up to
-    /// <paramref name="count"/>) for the Eye-Care "my check-ins" list. Best-effort read of
-    /// symptom_log.jsonl; never throws (returns empty on any failure).</summary>
-    internal IReadOnlyList<CheckInListEntry> GetRecentCheckIns(int count = 8)
-    {
-        var list = new List<CheckInListEntry>();
-        try
-        {
-            if (count <= 0) return list;
-            var recent = new FileSymptomEventStore(AppConfig.SymptomLogPath).ReadRecent(256);
-            // recent is oldest-first; walk backwards to take the newest `count` measured FMS rows.
-            for (int i = recent.Count - 1; i >= 0 && list.Count < count; i--)
-            {
-                var e = recent[i];
-                if (!e.Measured || e.Scale != SymptomEvent.Scales.Fms20) continue;
-                DateTime when = DateTimeOffset.TryParse(e.TsUtc, CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind, out DateTimeOffset dto) ? dto.UtcDateTime : DateTime.UtcNow;
-                list.Add(new CheckInListEntry(
-                    when, e.Value,
-                    e.InterventionState == SymptomEvent.InterventionStates.On,
-                    e.ForegroundKey));
-            }
-        }
-        catch { /* best-effort */ }
-        return list;
-    }
 
     // ── M3/M4 head-tracking sprint: IHeadPoseReader registration ─────────────
     // This codebase doesn't use a Microsoft.Extensions.DependencyInjection

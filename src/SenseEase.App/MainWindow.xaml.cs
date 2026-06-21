@@ -28,16 +28,6 @@ public partial class MainWindow : Window
     // it. Suppress check-ins for the first minute after launch (a self-generated spike, not a real one).
     private readonly DateTime _startupUtc = DateTime.UtcNow;
     private static readonly TimeSpan StartupCheckInGrace = TimeSpan.FromSeconds(60);
-    // Phase-2 Eye-Care DYNAMIC inline self-report: the question/options appear ONLY when a check-in
-    // is warranted — never logged yet, the cooldown elapsed, or the motion tier changed since the
-    // last log ("an update is needed"). Otherwise the card rests, preventing surge/duplicate taps +
-    // confusion (paced EMA-style). In-memory; tier-change overrides the cooldown.
-    private DateTime? _lastInlineLogUtc;
-    private int _lastInlineLogTier;
-    // Latch: once a check-in is warranted the prompt STAYS shown until the user logs (a log clears
-    // it), so it doesn't flicker as the live tier oscillates around the last-logged level.
-    private bool _inlineWarrantLatched = true;
-    private static readonly TimeSpan InlineCheckInCooldown = TimeSpan.FromMinutes(30);
 
     // Path Z UX iter 5: tray-resident lifecycle. _quittingFromTray flips to
     // true when the tray's "退出 SenseEase" menu fires Application.Shutdown
@@ -166,33 +156,9 @@ public partial class MainWindow : Window
         // the VM's Accept/Decline/Defer methods.
         _viewModel.ProposalSurfaceRequested += OnProposalSurfaceRequested;
 
-        // Phase-1 rev: flush a deferred spike check-in when the console returns to the foreground
-        // (a background spike never pops a window; it waits to surface IN the app on return).
-        Activated += OnConsoleActivated;
-
-        // ── Eye-Protection chart bootstrap ─────────────────────────────────────
-        Loaded += (_, _) =>
-        {
-            EnsureChartInitialized();
-            if (DataContext is SenseEase.App.ViewModels.MainViewModel vm2)
-            {
-                // Coalescing: mark dirty on each ring-buffer append; a 15 Hz timer
-                // redraws once per interval only when data has actually changed.
-                vm2.OfiHistory.CollectionChanged      += (_, _) => _chartDirty = true;
-                vm2.PressureHistory.CollectionChanged += (_, _) => _chartDirty = true;
-                _chartTimer = new System.Windows.Threading.DispatcherTimer
-                    { Interval = TimeSpan.FromMilliseconds(67) };
-                _chartTimer.Tick += (_, _) =>
-                {
-                    // Only redraw when the chart is actually on-screen. It is now
-                    // collapsed on the Eye-Care tab (advanced telemetry lives on the
-                    // Dashboard), so this stays dormant; it also skips redraws while
-                    // the Eye-Care tab is not the active one.
-                    if (_chartDirty && PressureChartCanvas.IsVisible) { _chartDirty = false; RedrawChart(); }
-                };
-                _chartTimer.Start();
-            }
-        };
+        // Dashboard dismantle Stage 2 (2026-06-21): the OnConsoleActivated Eye-Care re-warrant and the
+        // Eye-Protection chart bootstrap were removed with the Eye Care tab. (The overlay-reassert
+        // Activated handler below stays.)
 
         // Path Z UX iter 5 + blank-dashboard fix (2026-06-09): at Windows-login autostart
         // the app launches with --minimized and must come up hidden-to-tray. The ORIGINAL
@@ -289,9 +255,6 @@ public partial class MainWindow : Window
         // PreviewMouseDown bubbles through all child controls so a click on
         // any element of the dashboard (chart, button, tab, list) triggers.
         PreviewMouseDown += (_, _) => _cardWindow?.Hide();
-        // Stop the 15 Hz chart timer so the DispatcherTimer + VM ref don't pin the
-        // window after Close (kept the Tick closure alive otherwise).
-        Closed += (_, _) => _chartTimer?.Stop();
         Closed += (_, _) => _wgcBarStub?.Close();
         Closed += (_, _) => _validationBanner?.Close();
         Closed += (_, _) => _persistentBar?.Close();
@@ -502,34 +465,6 @@ public partial class MainWindow : Window
         Unloaded += (_, _) => SetHeadPoseRenderingSubscribed(false);
     }
 
-    /// <summary>Tab transition: cross-fade the selected tab content on switch so
-    /// changing tabs reads as a smooth fade rather than a hard cut. Respects Reduce
-    /// Motion (skips the fade) and ignores SelectionChanged bubbled up from inner
-    /// selectors (a ListBox / ComboBox / nested TabControl inside a tab) — only
-    /// MainTabs' OWN selection animates. PART_SelectedContentHost is the default
-    /// TabControl template's content presenter; the cast is null on the very first
-    /// pass before the template is applied, which simply skips the fade that once.</summary>
-    private void MainTabs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (e.OriginalSource is not System.Windows.Controls.TabControl tc || !ReferenceEquals(tc, MainTabs)) return;
-
-        // Phase-2: lazily refresh the Eye-Care "my check-ins" card when its tab becomes selected.
-        if (ReferenceEquals(MainTabs.SelectedItem, EyeCareTab)) RefreshEyeCareCheckIns();
-
-        if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) return;
-
-        if (MainTabs.Template?.FindName("PART_SelectedContentHost", MainTabs)
-                is System.Windows.Controls.ContentPresenter host)
-        {
-            var fade = new System.Windows.Media.Animation.DoubleAnimation(0.0, 1.0,
-                new Duration(TimeSpan.FromMilliseconds(190)))
-            {
-                EasingFunction = new System.Windows.Media.Animation.CubicEase
-                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut },
-            };
-            host.BeginAnimation(System.Windows.UIElement.OpacityProperty, fade);
-        }
-    }
 
     /// <summary>NE25: idempotently subscribe/unsubscribe the per-frame
     /// CompositionTarget.Rendering head-pose pump. Subscribed only while
@@ -887,13 +822,11 @@ public partial class MainWindow : Window
             });
         SafeLog("[StartTrayIcon] TrayIconService constructed OK");
 
-        // 2026-06-18: tray single-click now calls out the NEW edge/popup panel (matured), replacing
-        // the legacy notification card. The card path stays for the spike/proposal flows until it is
-        // retired (see the demolition plan). Double-click still surfaces the console; the tray service
-        // debounces so the single action waits out a possible double-click.
+        // 2026-06-18: tray single-click calls out the edge/popup panel. Dashboard dismantle Stage 2
+        // (2026-06-21): the double-click → console reaction was REMOVED (the dashboard surface is gone;
+        // the tray icon + single-click → popup stay). The console host stays instantiated but is no
+        // longer user-surfaced (SurfaceMainWindowFromTray / SurfaceConsoleFromShell are now dormant).
         _trayIcon.LeftClicked += (_, _) => (Application.Current as App)?.RevealShellPanel();
-
-        _trayIcon.DoubleClicked += (_, _) => SurfaceMainWindowFromTray();
 
         // Task 5: Settings menu opens the dedicated SettingsWindow.
         _trayIcon.SettingsRequested += (_, _) => ShowSettingsWindow();
@@ -909,8 +842,7 @@ public partial class MainWindow : Window
         };
 
         // 2026-06-18: the status/pause-resume tray item toggles power-save (ApplyPowerSave updates
-        // the tray indicator in turn). Replaces the removed "Open Dashboard" item; the console stays
-        // reachable by double-clicking the tray icon (DoubleClicked → SurfaceMainWindowFromTray).
+        // the tray indicator in turn). Replaces the removed "Open Dashboard" item.
         _trayIcon.PauseResumeRequested += (_, _) => ApplyPowerSave(!IsPowerSaveActive);
 
         SafeLog("[StartTrayIcon] exit OK");
@@ -989,7 +921,6 @@ public partial class MainWindow : Window
             {
                 _viewModel.RecordFmsRating(picked, SymptomEvent.Triggers.Spike);
                 _checkInGovernor.RecordAnswered();
-                RefreshEyeCareCheckIns();   // reflect the new row in the Eye-Care list immediately
             }, confirm,
             // W-F2: bidirectional ‹ › window paging — › up (0-6 → 7-13 → 14-20, null at top), ‹ down
             // (14-20 → 7-13 → 0-6, null at bottom) so the user can reach any range and step back.
@@ -1002,15 +933,6 @@ public partial class MainWindow : Window
         catch { /* never crash the spike handler */ }
     }
 
-    /// <summary>MainWindow.Activated: re-warrant the Eye-Care inline check-in on return (the tier may have
-    /// risen or the cooldown elapsed while the console was backgrounded on that tab). Never throws.</summary>
-    private void OnConsoleActivated(object? sender, EventArgs e)
-    {
-        // Phase-2: re-warrant the Eye-Care inline check-in on activation (the tier may have risen or
-        // the cooldown elapsed while the console was backgrounded on that tab).
-        if (MainTabs is not null && ReferenceEquals(MainTabs.SelectedItem, EyeCareTab))
-            RefreshEyeCareCheckIns();
-    }
 
     // ── Proactive check-in CONSENT OVERLAY retired 2026-06-21 ───────────────────────────────────
     // ShowConsentOverlay / ShowCheckInOverlay / OnCheckInOverlayDismiss / HideCheckInOverlay + the
@@ -1045,144 +967,11 @@ public partial class MainWindow : Window
         catch { return null; }
     }
 
-    /// <summary>Phase-2 (Eye-Care tab): the "Check in now" button — a USER-initiated manual check-in.
-    /// Ungoverned (always available; does NOT consume the proactive 8 h cooldown) and recorded with
-    /// trigger="manual". Reuses the same in-console 5-point survey overlay.</summary>
-    /// <summary>Phase-2 (Eye-Care tab): a DIRECT inline 5-point self-report tap (no pop-up).
-    /// USER-initiated and UNGOVERNED (always available; touches NO governor state, so it cannot
-    /// disturb the proactive 8 h cooldown or a prior dismissal's quiet). Recorded as
-    /// trigger="manual"; acks + refreshes the recent list in place.</summary>
-    private void OnEyeCareInlineBandClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.Button b) return;
-        if (!int.TryParse(b.Tag?.ToString(), out int fms)) return;
-        _viewModel.RecordFmsRating(Math.Clamp(fms, 0, 20), SymptomEvent.Triggers.Manual);
-        // Start the inline cooldown + capture the context, and CLEAR the warrant latch so the card
-        // RESTS (options hidden) until the cooldown elapses or the motion tier rises — prevents
-        // surge / duplicate taps.
-        _lastInlineLogUtc = DateTime.UtcNow;
-        _lastInlineLogTier = _viewModel.VimsTier;
-        _inlineWarrantLatched = false;
-        RefreshEyeCareCheckIns();
-    }
-
-    /// <summary>Phase-2: refresh the Eye-Care "my check-ins" card — the weekly trend line, the
-    /// recent-check-ins list, and the empty state. Best-effort; never throws into the UI.</summary>
-    private void RefreshEyeCareCheckIns()
-    {
-        try
-        {
-            if (EyeCareTrendText is not null)
-            {
-                var s = _viewModel.GetRecentComfortSummary();
-                if (s.Count <= 0)
-                {
-                    EyeCareTrendText.Text = PickLoc("近 7 天還沒有紀錄。", "No check-ins in the last 7 days yet.");
-                }
-                else
-                {
-                    int mean = (int)Math.Round(s.MeanFms, MidpointRounding.AwayFromZero);
-                    string head = PickLoc(
-                        $"近 7 天：{s.Count} 次紀錄 · 平均不適 {mean}/20",
-                        $"Last 7 days: {s.Count} check-in(s) · average discomfort {mean}/20");
-                    string tail = "";
-                    if (s.OnVsOffDelta is double d)
-                    {
-                        int rounded = (int)Math.Round(Math.Abs(d), MidpointRounding.AwayFromZero);
-                        if (rounded == 0)
-                            tail = PickLoc(" · 開啟與關閉防護時平均相近", " · about the same with protection ON or OFF");
-                        else
-                            tail = d < 0
-                                ? PickLoc($" · 開啟防護時平均低 {rounded} 分", $" · {rounded} point(s) lower with protection ON")
-                                : PickLoc($" · 開啟防護時平均高 {rounded} 分", $" · {rounded} point(s) higher with protection ON");
-                    }
-                    EyeCareTrendText.Text = head + tail;
-                }
-            }
-
-            if (EyeCareCheckInList is not null)
-            {
-                EyeCareCheckInList.Children.Clear();
-                var rows = _viewModel.GetRecentCheckIns(8);
-                foreach (var r in rows)
-                    EyeCareCheckInList.Children.Add(BuildCheckInRow(r));
-                if (EyeCareCheckInEmpty is not null)
-                    EyeCareCheckInEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            }
-
-            UpdateInlinePromptState();   // dynamic prompt-vs-resting gate
-        }
-        catch { /* best-effort UI refresh */ }
-    }
-
-    /// <summary>Phase-2: toggle the Eye-Care inline prompt vs its resting state — the DYNAMIC gate.
-    /// Pure UI + a clock/tier compare (NO file I/O), so it is cheap to call LIVE on every engine
-    /// StateChanged while the Eye-Care tab is open (re-surfaces the prompt the moment the motion tier
-    /// RISES past the last-logged level) as well as on tab-select / activate / post-log. Warranted =
-    /// never logged this session, the cooldown elapsed, OR the tier rose since the last log — so the
-    /// cooldown paces steady/improving states while a worsening moment re-asks immediately.</summary>
-    private void UpdateInlinePromptState()
-    {
-        bool nowWarranted;
-        if (_lastInlineLogUtc is DateTime last)
-            nowWarranted = (DateTime.UtcNow - last) >= InlineCheckInCooldown
-                           || _viewModel.VimsTier > _lastInlineLogTier;   // tier ROSE → ask again now
-        else
-            nowWarranted = true;   // never logged this session
-
-        if (nowWarranted) _inlineWarrantLatched = true;   // latch on; only a log (below) clears it
-        bool show = _inlineWarrantLatched;
-
-        if (EyeCareInlinePrompt is not null)
-            EyeCareInlinePrompt.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (EyeCareInlineResting is not null)
-        {
-            EyeCareInlineResting.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
-            if (!show)
-                EyeCareInlineResting.Text = PickLoc(
-                    "已記錄，謝謝你的回饋。動態感升高或過一陣子後會再出現。",
-                    "Logged — thanks. The check-in returns if your motion level rises or after a while.");
-        }
-    }
-
-    /// <summary>One recent-check-in row: "06/16 14:30  ·  Moderate (10)  ·  protection on" (local
-    /// time; the 0-20 value bucketed to its 5-point label).</summary>
-    private System.Windows.FrameworkElement BuildCheckInRow(CheckInListEntry r)
-    {
-        string when  = r.WhenUtc.ToLocalTime().ToString("MM/dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-        string level = $"{FmsLevelLabel(r.Fms)} ({r.Fms})";
-        string prot  = r.ProtectionOn ? PickLoc("防護開啟", "Protection on")
-                                      : PickLoc("防護關閉", "Protection off");
-
-        // Aligned 3-column row: time | level (value) | protection (right) — columns line up row-to-row.
-        var grid = new System.Windows.Controls.Grid { Margin = new Thickness(0, 3, 0, 3) };
-        grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(96) });
-        grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = GridLength.Auto });
-
-        var c0 = MakeRowText(when);  System.Windows.Controls.Grid.SetColumn(c0, 0);
-        var c1 = MakeRowText(level); System.Windows.Controls.Grid.SetColumn(c1, 1);
-        var c2 = MakeRowText(prot);  System.Windows.Controls.Grid.SetColumn(c2, 2);
-        grid.Children.Add(c0); grid.Children.Add(c1); grid.Children.Add(c2);
-        return grid;
-    }
-
-    private static System.Windows.Controls.TextBlock MakeRowText(string text)
-    {
-        var tb = new System.Windows.Controls.TextBlock { Text = text, FontSize = 12, TextWrapping = TextWrapping.NoWrap };
-        tb.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextSecondary");
-        return tb;
-    }
-
-    /// <summary>Bucket a 0-20 FMS value to its 5-point survey label (also covers legacy 5★ values).</summary>
-    private static string FmsLevelLabel(int fms)
-    {
-        if (fms <= 2)  return PickLoc("沒有", "None");
-        if (fms <= 7)  return PickLoc("輕微", "Slight");
-        if (fms <= 12) return PickLoc("中等", "Moderate");
-        if (fms <= 17) return PickLoc("嚴重", "Severe");
-        return PickLoc("非常嚴重", "Very severe");
-    }
+    // Dashboard dismantle Stage 2 (2026-06-21): the Eye-Care "my check-ins" card handlers
+    // (OnEyeCareInlineBandClicked manual self-report, RefreshEyeCareCheckIns, UpdateInlinePromptState,
+    // BuildCheckInRow / MakeRowText / FmsLevelLabel) were removed with the Eye Care tab. The manual
+    // un-prompted FMS entry point is intentionally dropped (no re-home, Kirby 2026-06-21); spike-prompted
+    // ratings in chat (MaybeShowSpikeCheckIn → RaiseChatFmsCheckIn) still record to symptom_log.
 
     /// <summary>Open the Event Log in its own window (UI/UX fine-tune 2026-06-07:
     /// relocated from a top-level tab; opened from Settings → 事件記錄). Created on
@@ -1351,11 +1140,6 @@ public partial class MainWindow : Window
     /// called from a non-UI thread (e.g. WgcSensingProvider.OnTick).</summary>
     private void OnViewModelStateChanged(SenseState st)
     {
-        // Phase-2: live-re-warrant the Eye-Care inline prompt on a tier change while that tab is open
-        // (cheap, no I/O) so a rising motion level re-surfaces the check-in without any navigation.
-        if (MainTabs is not null && ReferenceEquals(MainTabs.SelectedItem, EyeCareTab))
-            UpdateInlinePromptState();
-
         _persistentBar?.SetTier(st.VimsTier);
 
         // Task 5: tier-up auto-expand. When the band crosses out of
@@ -2114,75 +1898,10 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── Eye-Protection live chart rendering ───────────────────────────────────
-    private const double ChartYMax = 200.0;
-    private const double ChartTriggerLine = SenseDefaults.ChartTriggerLine; // F2: single-source (== TriggerPressure)
-    private System.Windows.Shapes.Polyline? _ofiPolyline;
-    private System.Windows.Shapes.Polyline? _pressurePolyline;
-    private System.Windows.Shapes.Line? _triggerLine;
-    private bool _chartDirty;
-    private System.Windows.Threading.DispatcherTimer? _chartTimer;
-
-    private void EnsureChartInitialized()
-    {
-        if (PressureChartCanvas == null || _ofiPolyline != null) return;
-        _ofiPolyline = new System.Windows.Shapes.Polyline
-        {
-            Stroke = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(0x7B, 0x8D, 0xB0)),
-            StrokeThickness = 1.5,
-        };
-        _pressurePolyline = new System.Windows.Shapes.Polyline
-        {
-            Stroke = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(0x02, 0x4A, 0xD8)),
-            StrokeThickness = 2.0,
-        };
-        _triggerLine = new System.Windows.Shapes.Line
-        {
-            Stroke = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(0xE5, 0x47, 0x47)),
-            StrokeThickness = 1.0,
-            StrokeDashArray = new System.Windows.Media.DoubleCollection { 4, 3 },
-        };
-        PressureChartCanvas.Children.Add(_triggerLine);
-        PressureChartCanvas.Children.Add(_ofiPolyline);
-        PressureChartCanvas.Children.Add(_pressurePolyline);
-        PressureChartCanvas.SizeChanged += (_, _) => RedrawChart();
-    }
-
-    private void RedrawChart()
-    {
-        if (PressureChartCanvas == null || _ofiPolyline == null || _pressurePolyline == null || _triggerLine == null) return;
-        if (DataContext is not SenseEase.App.ViewModels.MainViewModel vm) return;
-        double w = PressureChartCanvas.ActualWidth;
-        double h = PressureChartCanvas.ActualHeight;
-        if (w <= 0 || h <= 0) return;
-        double triggerY = h - (ChartTriggerLine / ChartYMax * h);
-        _triggerLine.X1 = 0; _triggerLine.X2 = w;
-        _triggerLine.Y1 = triggerY; _triggerLine.Y2 = triggerY;
-        // In-place mutation: reuse existing PointCollections to avoid per-tick allocation.
-        FillChartPoints(vm.OfiHistory,      _ofiPolyline.Points,      w, h);
-        FillChartPoints(vm.PressureHistory, _pressurePolyline.Points, w, h);
-    }
-
-    private static void FillChartPoints(
-        System.Collections.Generic.IReadOnlyList<double> samples,
-        System.Windows.Media.PointCollection target,
-        double w, double h)
-    {
-        int n = samples.Count;
-        // Grow or shrink the collection to exactly n slots.
-        while (target.Count < n) target.Add(new System.Windows.Point(0, 0));
-        while (target.Count > n) target.RemoveAt(target.Count - 1);
-        if (n < 2) return;
-        double dx = w / Math.Max(1, n - 1);
-        for (int i = 0; i < n; i++)
-        {
-            double v = Math.Clamp(samples[i], 0, ChartYMax);
-            double y = h - (v / ChartYMax * h);
-            // Point is a struct — indexer assignment is a value copy, no heap allocation.
-            target[i] = new System.Windows.Point(i * dx, y);
-        }
-    }
+    // Dashboard dismantle Stage 2 (2026-06-21): the Eye-Protection live-chart rendering
+    // (EnsureChartInitialized / RedrawChart / FillChartPoints + the polyline fields + the 15 Hz
+    // _chartTimer) was removed with the Eye Care tab — the chart was its sole view. The VM's
+    // OfiHistory / PressureHistory collections remain (cheap in-memory ring buffers); the longer-term
+    // trend is now surfaced by the de-identified health report (ClinicalReportHtmlRenderer), not a
+    // live console chart.
 }

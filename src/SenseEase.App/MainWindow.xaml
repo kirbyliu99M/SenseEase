@@ -157,44 +157,12 @@
             <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
         </Style>
 
-        <!-- Phase-1 rev: formal 5-point survey button for the in-console check-in overlay (and the
-             2-option consent card). Instantiated in code-behind; theme-consistent (SurfaceMuted +
-             Separator hairline, hover → Separator fill, themed focus ring). Labels only, no emoji. -->
-        <Style x:Key="CheckInOptionButton" TargetType="Button">
-            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Separator}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="6,8"/>
-            <Setter Property="Margin" Value="3,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="{StaticResource Radius.sm}"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Separator}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         </ResourceDictionary>
     </Window.Resources>
 
-    <!-- Phase-1 rev: root wrapped in a Grid so the in-console check-in overlay (CheckInOverlayHost,
-         at the end of this Grid) can render ON TOP of the dashboard content without a separate window. -->
+    <!-- Headless host (dashboard dismantle Stage 2, 2026-06-21): the console is no longer surfaced to
+         the user — all tabs are removed. The window stays instantiated as the engine/overlay/tray host;
+         the only visible remnant is the first-run welcome strip + header. -->
     <Grid>
     <DockPanel>
 
@@ -282,181 +250,13 @@
             </Grid>
         </Border>
 
-        <!-- ══════════ TABS ══════════ -->
-        <TabControl x:Name="MainTabs" Background="{DynamicResource Surface}" BorderThickness="0" Padding="0"
-                    SelectionChanged="MainTabs_SelectionChanged">
-            <TabControl.Resources>
-                <Style TargetType="TabItem">
-                    <Setter Property="FontSize" Value="13"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                    <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
-                    <Setter Property="Padding" Value="20,10"/>
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Setter Property="BorderThickness" Value="0"/>
-                    <!-- M5 (a11y): non-colour-only active-tab cue. The template adds a
-                         2px bottom underline that the IsSelected trigger paints Accent,
-                         so the selected tab is distinguishable without relying on the
-                         Foreground colour change alone. Header/Padding flow through the
-                         TemplateBinding unchanged — tab sizes/labels are untouched. -->
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="TabItem">
-                                <Border x:Name="TabBd" Background="{TemplateBinding Background}"
-                                        BorderBrush="Transparent" BorderThickness="0,0,0,2">
-                                    <ContentPresenter ContentSource="Header"
-                                                      Margin="{TemplateBinding Padding}"
-                                                      HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsSelected" Value="True">
-                                        <Setter TargetName="TabBd" Property="BorderBrush"
-                                                Value="{DynamicResource Accent}"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                    <Style.Triggers>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </TabControl.Resources>
+        <!-- ══════════ TABS REMOVED — dashboard dismantle complete (2026-06-21) ══════════
+             Stage 1 removed Dashboard + AI Assistant + Settings; Stage 2 removed the last tab, Eye Care
+             (its check-in card + manual self-report + live protection chart). The chatbot lives in the
+             popup ChatPanel, Settings in the standalone SettingsWindow, and the longer-term comfort
+             trend in the de-identified health report (Settings → Export health report). This window is
+             now a headless engine/overlay/tray host and is no longer surfaced to the user. -->
 
-            <!-- Tab 1 (儀表板 / Dashboard) REMOVED in the dashboard dismantle (Stage 1, 2026-06-21):
-                 the comfort hero + ComfortMeter + Advanced raw telemetry + overlay-settings card. The
-                 overlay Keep-visible / baseline controls are re-homed to the quick-settings flyout +
-                 popup bar slider (PersistentOverlayEnabled / PersistentOverlayBaselineTier, same engine
-                 path); the raw-telemetry / ActivityStatus diagnostics are dev-only and dropped. The VM
-                 properties (VimsTier, OpticalFlowIndex, Pressure, Mode, ActivityStatus, …) are unchanged
-                 and still drive the popup bar / overlay / tray. -->
-
-            <!-- ── Tab: Eye-Protection Statistics (護眼 / Eye Care) — KEPT (Stage 2, gated on the health report) ── -->
-            <TabItem x:Name="EyeCareTab" Header="{loc:T Zh='護眼', En='Eye Care'}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{DynamicResource AutoHideScroll}">
-                    <StackPanel Margin="24,20,24,24">
-
-                        <!-- Phase-2 (2026-06-16): the comfort-hero card was REMOVED here — it
-                             duplicated the Dashboard tab's hero (Kirby). The Eye-Care tab now leads
-                             with the check-in card below. -->
-
-                        <!-- Phase-2 (2026-06-16): "my check-ins" — the in-app review home for the
-                             event-driven FMS feedback, organized into the Eye Care tab (the "選單").
-                             Trend + recent check-ins + a manual check-in. NOT a floating window and
-                             NOT an always-on dashboard solicitation — you navigate here to review. -->
-                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="{loc:T Zh='我的感受紀錄', En='My check-ins'}"
-                                           Style="{StaticResource SectionTitle}"/>
-                                <TextBlock x:Name="EyeCareTrendText" Style="{StaticResource CardLabel}"
-                                           TextWrapping="Wrap" Margin="0,0,0,14"/>
-
-                                <!-- DYNAMIC self-report: the question + 5-point options show ONLY when a
-                                     check-in is warranted (first time / 30-min cooldown elapsed / the
-                                     motion tier changed since the last log = "update needed"). After a
-                                     tap the card RESTS (options hidden) to prevent surge/duplicate input
-                                     + confusion — paced EMA-style. Toggled in RefreshEyeCareCheckIns. -->
-                                <StackPanel x:Name="EyeCareInlinePrompt">
-                                    <TextBlock Text="{loc:T Zh='你現在的感受如何？', En='How are you feeling right now?'}"
-                                               Style="{StaticResource CardLabel}" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                    <UniformGrid Rows="1">
-                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="0"  Click="OnEyeCareInlineBandClicked"
-                                                Content="{loc:T Zh='沒有', En='None'}"        AutomationProperties.Name="{loc:T Zh='沒有不適', En='No discomfort'}"/>
-                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="5"  Click="OnEyeCareInlineBandClicked"
-                                                Content="{loc:T Zh='輕微', En='Slight'}"      AutomationProperties.Name="{loc:T Zh='輕微不適', En='Slight discomfort'}"/>
-                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="10" Click="OnEyeCareInlineBandClicked"
-                                                Content="{loc:T Zh='中等', En='Moderate'}"    AutomationProperties.Name="{loc:T Zh='中等不適', En='Moderate discomfort'}"/>
-                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="15" Click="OnEyeCareInlineBandClicked"
-                                                Content="{loc:T Zh='嚴重', En='Severe'}"      AutomationProperties.Name="{loc:T Zh='嚴重不適', En='Severe discomfort'}"/>
-                                        <Button Style="{StaticResource CheckInOptionButton}" Tag="20" Click="OnEyeCareInlineBandClicked"
-                                                Content="{loc:T Zh='非常嚴重', En='Very severe'}" AutomationProperties.Name="{loc:T Zh='非常嚴重不適', En='Very severe discomfort'}"/>
-                                    </UniformGrid>
-                                </StackPanel>
-                                <!-- Resting state (text set in code-behind): shown while a fresh check-in
-                                     isn't warranted, so the user can't surge-tap. -->
-                                <TextBlock x:Name="EyeCareInlineResting" Visibility="Collapsed"
-                                           Style="{StaticResource CardLabel}" Foreground="{DynamicResource TextTertiary}"
-                                           TextWrapping="Wrap"/>
-                                <TextBlock Text="{loc:T Zh='健康自我紀錄 — 並非醫療診斷。', En='A wellness check-in — not a medical assessment.'}"
-                                           Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
-                                           Margin="0,8,0,0" TextWrapping="Wrap"/>
-
-                                <Border Background="{DynamicResource Separator}" Height="1" Margin="0,16,0,12"/>
-                                <TextBlock Text="{loc:T Zh='最近的紀錄', En='Recent'}"
-                                           Style="{StaticResource CardLabel}" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                <StackPanel x:Name="EyeCareCheckInList"/>
-                                <TextBlock x:Name="EyeCareCheckInEmpty" Visibility="Collapsed"
-                                           Style="{StaticResource CardLabel}" Foreground="{DynamicResource TextTertiary}"
-                                           TextWrapping="Wrap"
-                                           Text="{loc:T Zh='還沒有任何紀錄。出現「動態提醒」時，或在上方選一個程度即可記錄。', En='No check-ins yet. Log one when a motion check-in appears, or pick a level above.'}"/>
-                                <TextBlock Style="{StaticResource Type.Caption}" Foreground="{DynamicResource TextTertiary}"
-                                           Margin="0,12,0,0" TextWrapping="Wrap"
-                                           Text="{loc:T Zh='想做長期分析？可在「設定」把原始紀錄匯出成 CSV。', En='For long-term analysis, export your raw data as CSV in Settings.'}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- UX-18 (2026-06-11): the hardcoded-Collapsed Eye-Care "Advanced —
-                             live metrics" expander was DELETED here. Its only live consumer (the
-                             ActivityStatus "why isn't sensing reacting?" row) moved to the
-                             Dashboard Advanced expander, which is the single home for advanced
-                             telemetry; the rest (raw OFI/Pressure/Tier/FOV/Mask grid + the
-                             AutoModeText row) duplicated the Dashboard cards and was never shown
-                             (Visibility=Collapsed). Bindings used here live on the Dashboard. -->
-
-                        <!-- Protection-activity chart: the calm GRAPHICAL view the Eye-Care
-                             tab is meant to show (restored — Wave 2 over-collapsed it). Plain-
-                             language labels only; raw OFI/Pressure NUMBERS stay on the Dashboard. -->
-                        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="{loc:T Zh='保護紀錄', En='Protection record'}"
-                                           Style="{StaticResource SectionTitle}"/>
-                                <TextBlock Text="{loc:T Zh='畫面動態與防護強度的即時軌跡', En='Live trace of screen motion and protection'}"
-                                           Style="{StaticResource CardLabel}" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                                <Border Background="{DynamicResource SurfaceMuted}" CornerRadius="{StaticResource Radius.sm}" Padding="14,10" Height="280">
-                                    <Canvas x:Name="PressureChartCanvas" ClipToBounds="True"/>
-                                </Border>
-                                <!-- Legend -->
-                                <StackPanel Orientation="Horizontal" Margin="2,10,0,0">
-                                    <Ellipse Width="8" Height="8" Fill="{DynamicResource TextTertiary}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{loc:T Zh='畫面動態', En='Motion'}" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
-                                               VerticalAlignment="Center"/>
-                                    <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{loc:T Zh='防護強度', En='Protection'}" Margin="6,0,16,0" Style="{StaticResource CardLabel}"
-                                               VerticalAlignment="Center"/>
-                                    <Rectangle Width="14" Height="2" Fill="{DynamicResource ComfortHigh}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{loc:T Zh='啟動點', En='Activation'}" Margin="6,0,0,0"
-                                               Style="{StaticResource CardLabel}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- UX-18 (2026-06-11): the hardcoded-Collapsed Session-Summary card was
-                             DELETED here (it was never shown). The Session* VM properties
-                             (SessionFovIntercepts / SessionPeakOfi / SessionPeakPressure /
-                             SessionMaskActiveText / SessionUptimeText) stay on MainViewModel —
-                             they feed session metrics + tests; only this dead card is removed. -->
-
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- Event Log relocated (UI/UX fine-tune 2026-06-07): the former
-                 top-level "事件記錄 / Event Log" tab was removed to declutter the
-                 primary nav (5→4 tabs). A read-only diagnostic log is secondary
-                 content, so it now opens in its own EventLogWindow from a button in
-                 Settings (設定 → 事件記錄). The full-page list lives in
-                 Views/EventLogWindow.xaml; the EventLog collection still lives on
-                 MainViewModel. -->
-
-            <!-- Tab 3 (智能助理 / AI Assistant) + Tab 4 (設定 / Settings) REMOVED in the dashboard
-                 dismantle (Stage 1, 2026-06-21). The chatbot is re-homed in the popup ChatPanel
-                 (PopupBarWindow, same MainViewModel.ChatbotVm); Settings is re-homed in the standalone
-                 SettingsWindow (tray menu / popup "More settings"). Both bind the same shared state, so
-                 nothing is lost — only the in-console tab hosts are gone. -->
-
-        </TabControl>
 
     </DockPanel>
 

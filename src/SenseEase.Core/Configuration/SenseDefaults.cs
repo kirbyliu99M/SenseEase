@@ -42,9 +42,8 @@ public static class SenseDefaults
 
     // ── F2: tuning constants referenced by 2+ files (SSOT rule: any tuning constant
     //        used by 2+ files MUST live here, not as a per-file literal) ─────────────
-    /// <summary>F2: dashboard chart trigger-line — duplicates <see cref="TriggerPressure"/>;
-    /// reference this so the chart cannot drift from the engine trigger.</summary>
-    public const double ChartTriggerLine = TriggerPressure;
+    // F2: ChartTriggerLine removed with the Eye-Care live protection chart (dashboard dismantle
+    // Stage 2, 2026-06-21) — it was the chart's only consumer. The engine TriggerPressure is unchanged.
     /// <summary>F2: overlay mask smoothing EMA factor (OverlayWindow cross-fade).</summary>
     public const double MaskSmoothingFactor = 0.25;
     /// <summary>F2: overlay radial brush baseline radius (RelativeToBoundingBox).</summary>
