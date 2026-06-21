@@ -278,6 +278,78 @@ owns `ClinicalExport.cs (BuildDailySeries)`, `ClinicalReportHtmlRenderer`, `Clin
 
 ---
 
+### D6 — Stage B build brief: "discomfort trigger time" in the health report (2026-06-21)
+
+Spec only (no code). Authored via workflow `whxwrur83` (5 read-only maps → synthesis → adversarial
+verify; verdict **FEASIBLE + SAFE, no blocking defects**, 3 MED corrections folded in below). Schema stays
+`ClinicalExport` v2 additive.
+
+**What ships:** a deterministic-rendered **"Time to first discomfort signal"** card in the HTML report —
+median minutes from app-launch to the first discomfort signal of a session (overall + per-channel
+consent/fms/chat, each with its own median + session count). Idea #1's "overlay offered, not engaged" rides
+along in the same section (already built, zero new I/O). Both are numeric cards, **never narrated, never fed
+to any gate**.
+
+**Data-flow wire (the crux) — mirror the behavior_log→DailySeries precedent (App reads, injects into service):**
+1. App assembly: `SettingsContent.xaml.cs` — `OnExportClinicalClicked` (method body at **:412**; the
+   `ClinicalReportService` ctor **call site is :436-440**). Add a 5th arg: `new SessionOnsetLog()` (only the
+   App can see `AppConfig.SessionOnsetLogPath`).
+2. Service ctor: `ClinicalReportService.cs:39` — add `Func<IReadOnlyList<SessionOnsetRecord>>? onsetReader = null`
+   (App passes `() => sessionOnsetLog.ReadAll()`). A `Func`/Core-interface keeps Infrastructure free of an App
+   dependency. **`ClinicalReportService.cs` is NOT a hot file — editable now.**
+3. Service compose: in `WriteHtmlAsync` right after `export.DailySeries` is set (≈:63) —
+   `export.OnsetTiming = SessionFirstSignalBuilder.Build(onsetReader?.Invoke() ?? [])` and
+   `export.ConsentEngagement = ConsentEngagementBuilder.Build(events)` (reuses `events` already read at ≈:58 →
+   zero new I/O for idea #1).
+
+**DTO (additive, schema stays 2):** two nullable fields on `ClinicalExport` after `DailySeries` —
+`SessionFirstSignalSummary? OnsetTiming` and `ConsentEngagementSummary? ConsentEngagement` (types already
+built, report-ready; empty ⇒ `SessionCount=0/MedianMinutesOverall=null` honest-gap). **`[JsonIgnore]` on both
+is MANDATORY, not cosmetic:** `ClinicalExportService.WriteJson` builds its OWN export that never composes
+these, and `DefaultIgnoreCondition=Never` would emit `onset_timing:null`/`consent_engagement:null` keys on
+every JSON export and break the JSON golden test. Proposed names to lock with the report agent: `OnsetTiming`
+/ `ConsentEngagement` (alternates: `SessionOnset`/`ConsentMetric`).
+
+**Renderer:** new `<section>` after Exposure, before the Disclaimer footer, in `ClinicalReportHtmlRenderer`.
+Onset card = a `<table class="grid">` (mirror `AppendOnOffTable`) — overall median line + per-channel rows
+(Channel | Sessions | Median min), raw keys mapped to neutral labels (EN Overlay/Check-in/Chat; ZH
+防護卡/回報/對話), null/empty ⇒ the existing `Placeholder()` "Not enough data yet". De-id: only counts +
+duration-minutes, all through `Esc()`; calm palette only, never `#024AD8`.
+
+**Guard-safe naming (verified against the live post-edit `ReportClaimGuard` lists):** label =
+**"Time to first discomfort signal" / "首次不適訊號時間"**; idea #1 = "overlay offered, not engaged". The
+natural "tolerance"/"adapted" framing is BANNED (`toler`/`adapt` stems) — never use it. Never phrase as
+"N minutes of …" (`MinutesOfClaim` regex). **Deterministic-only — no LLM narration** (the Summary stays the
+sole model-narrated section), so the onset numbers bypass the number-lock entirely; a hard-coded
+`ReportFallbacks` template may carry one prose line (add it to the "every fallback passes
+`ContainsBannedClaim`" golden test, EN+ZH).
+
+**Safety:** zero `MeasuredState`/relax path — onset lives in its own `session_onset_log.jsonl` (never a
+`SymptomEvent`), consent rows are `Measured=false/Kind=overlay_consent`; both excluded by
+`AdaptationEvidence.MeasuredOnFms` + the export FMS-kind filter by construction. D-17: `OffsetSeconds` is an
+elapsed duration aggregated to median minutes — never a date/time-of-day. The future onset→check-in-cadence
+use is OUT OF SCOPE (its own UVHS).
+
+**Coordination (CORRECTED hot-file scope):** only FOUR files are actually dirty/uncommitted —
+`ClinicalExport.cs`, `ReportClaimGuard.cs`, `ClinicalReportHtmlRenderer.cs`, `ClinicalReportNarrator.cs`. The
+wire seam (`ClinicalReportService.cs`) and the JSON service (`ClinicalExportService.cs`) are CLEAN → the wire
++ App-ctor + JSON-test work is NOT contended and can proceed independently. Gate ONLY the **DTO add on
+`ClinicalExport.cs`** and the **label re-verify against `ReportClaimGuard.cs`** behind the handoff (agree
+field names + that the labels pass their possibly-updated lists; confirm they aren't double-authoring an onset
+series). Prefer: they commit → we add the two fields + renderer section + tests as one additive commit.
+
+**Tests:** service-compose (stub onset reader ⇒ populated; null ⇒ omitted, no crash); renderer golden (median
++ per-channel rows; null ⇒ Placeholder; absent channel ⇒ no row; escaped; no `#024AD8`); guard golden (labels
++ any fallback pass `ContainsBannedClaim`, EN+ZH); JSON-unchanged (no `onset_timing`/`consent_engagement`
+keys). Builder tests already shipped in Stage A.
+
+**Open decisions for Kirby:** (A) render form = **table** (rec) vs daily-series chart; (B) **include
+per-channel** breakdown (rec) vs overall-only; (C) **idea #1 rides along** in the same section (rec); (D)
+**deterministic-only** (rec) vs narrated; (E) **`[JsonIgnore]`** (rec, and required) vs serialize; (F)
+section position = **after Exposure / before Disclaimer** (rec) vs grouped with the comfort trend.
+
+---
+
 ## Cross-cutting constraints (B & C)
 
 - Keep the downstream OFI scale (0-150) + trigger (85) stable, or co-tune; auto-calibration emits the canonical scale.
