@@ -106,7 +106,11 @@ public sealed class MockInferenceEngine : IInferenceEngine
     // the selector guards (ApplySetMove L9 floor / PassesVestibularGuard), which only
     // run when the selector flag is ON, so re-rooting them is byte-identical when the
     // selector is OFF.
-    private bool _vestibularProtection;
+    // Explicit `= false` (a field initializer, NOT a const) keeps CS0649 quiet now that NOTHING assigns this
+    // anymore — while NOT turning the kept-but-dead `if (_vestibularProtection …)` branches into unreachable
+    // code (a const would → a flood of CS0162). Vestibular removed 2026-06-21 (2d48041); the dead branches are
+    // deliberately KEPT — do NOT re-flag them as dead-code.
+    private bool _vestibularProtection = false;
 
     // ── Adaptive Fit selector TICK (Alpha-2 core GROUP D) ────────────────────
     // Everything in this region is reachable ONLY inside an
