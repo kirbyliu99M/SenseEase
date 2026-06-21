@@ -144,10 +144,17 @@ public partial class SettingsWindow : Window
             SlabScale.ScaleX = SlabScale.ScaleY = 1;
             return;
         }
+        // Same reason as the close: don't animate the slab WHILE its drop-shadow is live on this
+        // software-rendered window (per-frame re-blur stutters the settle). Drop it for the entrance and
+        // restore it once at rest — a 0.09-opacity shadow re-appearing on a settled slab is imperceptible.
+        var shadow = SlabBorder.Effect;
+        SlabBorder.Effect = null;
         var ease = new QuinticEase { EasingMode = EasingMode.EaseOut };
         var dur  = new Duration(TimeSpan.FromMilliseconds(230));
         SlabBorder.Opacity = 0;
-        SlabBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+        var fadeIn = new DoubleAnimation(0, 1, dur) { EasingFunction = ease };
+        fadeIn.Completed += (_, _) => { if (!_closing) SlabBorder.Effect = shadow; };
+        SlabBorder.BeginAnimation(OpacityProperty, fadeIn);
         var settle = new DoubleAnimation(0.975, 1, dur) { EasingFunction = ease };
         SlabScale.BeginAnimation(ScaleTransform.ScaleXProperty, settle);
         SlabScale.BeginAnimation(ScaleTransform.ScaleYProperty, settle);
@@ -168,6 +175,10 @@ public partial class SettingsWindow : Window
         _closing = true;
         _dismissPoll.Stop();   // a late poll tick must not re-enter mid-fade
         if (SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion()) { Close(); return; }
+        // Drop the slab's drop-shadow (Elev.3, ~18px blur) for the fade: animating a DropShadowEffect on this
+        // software-rendered AllowsTransparency window forces a per-frame re-blur → the close stutters (THE
+        // "lag" vs the effect-free popup bar). The slab is leaving, so the missing shadow is imperceptible.
+        SlabBorder.Effect = null;
         // Match the OPEN's responsive QuinticEase.EaseOut (front-loaded — the fade/shrink starts the instant
         // the user clicks, so the close never feels lagged or abrupt). EaseIn lingered then snapped away
         // (slow start + abrupt end) on this larger window. ~120ms = "exit a touch quicker" than the 230ms open.
