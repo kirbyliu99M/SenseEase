@@ -1761,6 +1761,14 @@ public partial class MainWindow : Window
     /// user opens it) and as a fallback from SurfaceMainWindowFromTray (false — surface now).</summary>
     private void UnparkOffscreenWindow(bool hideAfter)
     {
+        // White-dashboard 殘影 fix (2026-06-21): when parking-then-hiding at startup, HIDE FIRST —
+        // while the window is still off-screen at OffScreenParkPx — so the blank headless-host shell is
+        // never moved on-screen while visible. The old order (re-centre on-screen, THEN Hide) painted a
+        // blank white frame at screen-centre for a beat (worse under the glass software-render path),
+        // leaving a ghost. Re-positioning AFTER Hide() can't paint, and the window still ends up centred
+        // so a later Show()-from-tray surfaces it correctly. The surface path (hideAfter:false) keeps the
+        // original order: re-position on-screen, then the caller Show()s.
+        if (hideAfter) Hide();
         ShowInTaskbar = true;
         ShowActivated = true;
         var wa = SystemParameters.WorkArea;
@@ -1768,7 +1776,6 @@ public partial class MainWindow : Window
         double h = ActualHeight > 0 ? ActualHeight : (double.IsNaN(Height) ? 0 : Height);
         Left = wa.Left + System.Math.Max(0, (wa.Width  - w) / 2);
         Top  = wa.Top  + System.Math.Max(0, (wa.Height - h) / 2);
-        if (hideAfter) Hide();
     }
 
     // B2/B4: Recreate overlay if null or already unloaded; sync OverlayVisible on external close.
