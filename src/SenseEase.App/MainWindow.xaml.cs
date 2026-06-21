@@ -19,14 +19,10 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
     private OverlayWindow? _overlay;
-    private SpikePopupWindow? _spikePopup;
-    // Phase-1 rev: the contextual discomfort check-in is an IN-WINDOW overlay (CheckInOverlayHost),
-    // NOT a separate window — it never appears outside the console (which would clash with the
-    // pop-up bar / interrupt over other apps). _checkInGovernor rate-limits it. (The old
-    // defer-while-backgrounded + in-console 5-point survey path was retired by the 2026-06-19
-    // FMS-owner migration — the check-in now lives in the chat and never reveals the popup.)
+    // _checkInGovernor rate-limits the proactive discomfort check-in (now a CHAT rating row via
+    // RaiseChatFmsCheckIn — the in-console consent overlay + the legacy SpikePopupWindow were retired
+    // with the dashboard dismantle, 2026-06-21).
     private readonly CheckInGovernor _checkInGovernor = new();
-    private bool _checkInAnswered;
     // FMS owner-migration (UVHS 2026-06-20): the app's OWN startup produces a transient pressure spike as
     // the sensing baseline settles — that is NOT user discomfort, so a proactive check-in must not react to
     // it. Suppress check-ins for the first minute after launch (a self-generated spike, not a real one).
@@ -124,38 +120,11 @@ public partial class MainWindow : Window
         // Pop-up sprint iter 2); the VM reads through this callback.
         _viewModel.SetPowerSaveActiveLookup(() => _powerSaveActive);
 
-        // UI Consolidation Sprint M-Phase-1 (2026-05-30): wire the new
-        // "設定" tab's shared SettingsContent. Same vestibular lookup +
-        // PreferencesChanged-handler pattern that ShowSettingsWindow uses
-        // for the tray-menu / Pop-up Card SettingsWindow instance, so a
-        // toggle flipped in the tab repaints bar/tray identically.
-        SettingsTabContent.HasVestibularDiagnosis = _viewModel.HasVestibularDiagnosis;
-        // Alpha-2 addendum (auto-profiling world): wire the vestibular "regret" toggle +
-        // the moved-into-Settings Reset to the VM. Hidden unless AutoProfilingEnabled.
-        SettingsTabContent.GetVestibularProtection = () => _viewModel.VestibularProtectionEnabled;
-        SettingsTabContent.SetVestibularProtection = v => _viewModel.VestibularProtectionEnabled = v;
-        SettingsTabContent.ResetRequested          = () => _viewModel.ResetStateCommand.Execute(null);
-        // D-1 (CW-1 step 3): wire the 漸進適應 / Graded exposure toggle to the VM so the
-        // engine pause flips IN-SESSION (not only at next-launch hydration). Read = live
-        // engine state; write = MainViewModel.GradedExposureEnabled (engine flip + persist).
-        SettingsTabContent.GetGradedExposure       = () => _viewModel.GradedExposureEnabled;
-        SettingsTabContent.SetGradedExposure       = v => _viewModel.GradedExposureEnabled = v;
-        // #7 reveal-hotkey picker: read the pref + re-register the live Win32 hotkey on change.
-        SettingsTabContent.GetRevealHotkey         = () => Configuration.UserPreferences.Current.RevealHotkey;
-        SettingsTabContent.SetRevealHotkey         = _ => (Application.Current as App)?.ReRegisterRevealHotkey();
-        // Event Log relocated into Settings (2026-06-07): the 設定 tab's button opens
-        // the dedicated EventLogWindow. Wired only where a MainViewModel exists (here +
-        // the tray SettingsWindow below); the card hides itself when this is unwired.
-        SettingsTabContent.OpenEventLog            = ShowEventLogWindow;
-        // FEAT-08 (CW-10, B1b UI half): wire the live head-tracking health read so the
-        // 設定 tab's status caption reflects the real sidecar state (運作中 / 無畫面 / 已停止)
-        // instead of staying permanently hidden. Reads the SAME real reader the Power
-        // Save lifecycle drives (MainViewModel.HeadPoseReader, not the dev mock-sweep
-        // override); when head-tracking is off the reader is the no-op DefaultHeadPoseReader,
-        // so we report Dead ("已停止") — the sidecar is not running. Both hosts wire this,
-        // mirroring the GradedExposure / Vestibular host-delegate pattern.
-        SettingsTabContent.GetHeadTrackingHealth   = GetHeadTrackingHealth;
-        SettingsTabContent.PreferencesChanged    += (_, _) => RefreshSettingsDependentSurfaces();
+        // Settings TAB removed in the dashboard dismantle (Stage 1, 2026-06-21). The shared
+        // SettingsContent now lives ONLY in the standalone SettingsWindow (tray menu / popup
+        // "More settings"); ShowSettingsWindow wires the identical delegates (vestibular,
+        // graded-exposure, reveal-hotkey, event-log, head-tracking health) on that instance,
+        // so the in-tab SettingsTabContent wiring is gone with the tab.
 
         _viewModel.OverlayVisibilityChanged += OnOverlayVisibilityChanged;
         _viewModel.StateChanged             += OnStateChanged;
@@ -163,14 +132,9 @@ public partial class MainWindow : Window
 
         if (DataContext is SenseEase.App.ViewModels.MainViewModel vm)
         {
-            vm.ChatbotVm.Messages.CollectionChanged += (_, _) =>
-                Dispatcher.BeginInvoke(new Action(() => ChatScroll.ScrollToEnd()));
-            ChatScroll.Loaded        += (_, _) => ChatScroll.ScrollToEnd();
-            ChatScroll.IsVisibleChanged += (_, _) =>
-            {
-                if (ChatScroll.IsVisible)
-                    Dispatcher.BeginInvoke(new Action(() => ChatScroll.ScrollToEnd()));
-            };
+            // AI Assistant TAB removed in the dashboard dismantle (Stage 1, 2026-06-21) — the chat
+            // (+ its auto-scroll-to-end) now lives only in the popup ChatPanel, which binds the SAME
+            // MainViewModel.ChatbotVm. The in-tab ChatScroll glue is gone with the tab.
 
             // Pop-up sprint Task 6: dispatcher between new (bar/tray/card)
             // and legacy (tab-switch + chat bubble + SpikePopupWindow)
@@ -181,51 +145,18 @@ public partial class MainWindow : Window
             {
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (UserPreferences.Current.UseNewBarOverlay)
-                    {
-                        // ── New path ─────────────────────────────────────
-                        // Bar colour already updated by StateChanged. Card
-                        // auto-expand only if Toggle A is ON (default OFF —
-                        // passive signal first). 6-hour mute honoured via
-                        // ShowNotificationCardForCurrentTier(userInitiated:false).
-                        if (UserPreferences.Current.AutoExpandNotifications)
-                        {
-                            ShowNotificationCardForCurrentTier(userInitiated: false);
-                        }
+                    // Bar colour already updated by StateChanged. Card auto-expand only if the
+                    // AutoExpandNotifications pref is ON (default OFF; its Settings toggle was removed
+                    // 2026-06-21) — 6 h mute honoured via ShowNotificationCardForCurrentTier(false).
+                    // The legacy !UseNewBarOverlay path (AI-tab switch + chat bubble + floating
+                    // SpikePopupWindow) was removed with the dashboard dismantle (Stage 1, 2026-06-21):
+                    // the reshaped popup bar + chat is now the only spike surface.
+                    if (UserPreferences.Current.AutoExpandNotifications)
+                        ShowNotificationCardForCurrentTier(userInitiated: false);
 
-                        // Phase-1 event-driven feedback: surface a contextual discomfort check-in
-                        // (strictly opt-in + cadence-governed), independent of the auto-expand card.
-                        MaybeShowSpikeCheckIn();
-                    }
-                    else
-                    {
-                        // ── Legacy path ──────────────────────────────────
-                        // Tab switch + chat bubble + floating SpikePopupWindow.
-                        // Cooldown is enforced upstream by PressureSpikeDetector.
-                        bool zhHint = System.Globalization.CultureInfo.CurrentUICulture
-                                        .TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
-                        var (q, opts) = SenseEase.Infrastructure.Nlp.FeedbackLexicon
-                                            .BuildSpikeFollowup(zhHint, magnitude);
-
-                        // Switch to the AI Assistant tab (where the chatbot followup
-                        // lands). Target it BY REFERENCE — the prior SelectedIndex=2 went
-                        // stale when the Event Log got its own tab (it pointed at the log,
-                        // not the chat); removing the Event Log tab (2026-06-07) makes the
-                        // by-name select robust to any further tab reordering.
-                        if (MainTabs is not null && AiAssistantTab is not null)
-                            MainTabs.SelectedItem = AiAssistantTab;
-                        vm.ChatbotVm.RaiseFollowup(q, opts);
-
-                        if (_spikePopup is not null && _spikePopup.IsLoaded)
-                        {
-                            try { _spikePopup.Close(); } catch { }
-                        }
-                        var popup = new SpikePopupWindow(q, opts);
-                        popup.OptionSelected += answer => vm.ChatbotVm.SubmitFollowupAnswer(answer);
-                        popup.Closed += (_, _) => { if (ReferenceEquals(_spikePopup, popup)) _spikePopup = null; };
-                        _spikePopup = popup;
-                        popup.Show();
-                    }
+                    // Phase-1 event-driven feedback: surface a contextual discomfort check-in
+                    // (strictly opt-in via the Settings toggle + cadence-governed), independent of the card.
+                    MaybeShowSpikeCheckIn();
                 }));
             };
         }
@@ -326,7 +257,6 @@ public partial class MainWindow : Window
             }
         };
         Closed += (_, _) => _overlay?.Close();
-        Closed += (_, _) => _spikePopup?.Close();
 
         // Path Z UX iter 2: bar-click bug fix. After Alt-Tab to another
         // window, multi-monitor drag, or MainWindow minimize/restore, the
@@ -1020,19 +950,18 @@ public partial class MainWindow : Window
             // Defer while the overlay-consent bubble is up so the bubble stays the one thing that "speaks
             // first": don't queue a discomfort check-in into the chat while the user is still being asked to
             // start the overlay. The next spike after they answer surfaces the check-in (Kirby 2026-06-20).
-            // (The check-in no longer reveals the popup at all — see RaiseChatFmsCheckIn.)
             if (_viewModel.ConsentPending) return;
-            if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Declined) return;
+            // Proactive check-in is opt-in via the Settings toggle ONLY. The contextual first-run consent
+            // overlay (ShowConsentOverlay / CheckInOverlayHost) was RETIRED 2026-06-21 — it rendered only
+            // inside the now-hidden console and could never be seen on the shell boot, so it's a relic.
+            // Unset AND Declined both mean "not opted in" → no prompt; the user enables proactive check-ins
+            // from the Settings toggle (ProactiveCheckInsConsent.Enabled).
+            if (UserPreferences.Current.ProactiveCheckInsConsent != ProactiveCheckInConsent.Enabled) return;
             if (!_checkInGovernor.ShouldPrompt()) return;
 
-            string? ctx = FriendlyForegroundContext();   // capture context at spike time
-            // FMS owner-migration (2026-06-19): the recurring check-in now lives in the CHAT, not the
-            // in-console overlay. First run → the one-time in-console opt-in card, which continues into the
-            // chat check-in on opt-in; already opted in → straight to the chat rating row.
-            if (UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Unset)
-                ShowConsentOverlay(ctx);
-            else
-                RaiseChatFmsCheckIn(ctx);
+            // FMS owner-migration (2026-06-19): the recurring check-in lives in the CHAT — raise the rating
+            // row straight away (already opted in via Settings); context captured at spike time.
+            RaiseChatFmsCheckIn(FriendlyForegroundContext());
         }
         catch { /* a feedback prompt must never crash the spike handler */ }
     }
@@ -1083,126 +1012,12 @@ public partial class MainWindow : Window
             RefreshEyeCareCheckIns();
     }
 
-    /// <summary>First-run opt-in card (Unset). Sets the persisted consent; collects no FMS value.
-    /// Only ever transitions OUT of Unset, so a stale card can't override a later Settings choice.</summary>
-    private void ShowConsentOverlay(string? ctx)
-    {
-        string enable  = PickLoc("好，問我", "Yes, ask me");
-        string decline = PickLoc("不用了", "No thanks");
-        ShowCheckInOverlay(
-            header:   PickLoc("動態提醒", "Motion check-in"),
-            question: PickLoc(
-                "偵測到較多畫面動態時，要讓 SenseEase 順手問一下你的感受嗎？回饋僅儲存於本機，可隨時關閉。",
-                "When SenseEase notices a lot of on-screen motion, may it check in on how you feel? Answers stay on this device, and you can turn this off anytime."),
-            footer:   PickLoc("健康自我紀錄 — 並非醫療診斷。", "A wellness check-in — not a medical assessment."),
-            options:  new[] { enable, decline },
-            onOption: idx =>
-            {
-                bool optedIn = false;
-                try
-                {
-                    var prefs = UserPreferences.Current;
-                    if (prefs.ProactiveCheckInsConsent == ProactiveCheckInConsent.Unset)
-                    {
-                        prefs.ProactiveCheckInsConsent = idx == 0
-                            ? ProactiveCheckInConsent.Enabled
-                            : ProactiveCheckInConsent.Declined;
-                        prefs.Save();
-                    }
-                    optedIn = idx == 0
-                        && UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Enabled;
-                }
-                catch { /* a consent tap must never crash the dispatcher */ }
-                _checkInGovernor.RecordAnswered();
-                if (optedIn)
-                {
-                    // FMS owner-migration (2026-06-19): the first-run CONTINUATION now hands off to the CHAT
-                    // rating row for THIS same spike (the in-console survey overlay is retired) — close the
-                    // one-time consent card, then raise the check-in in chat.
-                    HideCheckInOverlay();
-                    RaiseChatFmsCheckIn(ctx);
-                }
-                else
-                    HideCheckInOverlay();
-            });
-    }
-
-    /// <summary>Populate + reveal the IN-WINDOW proactive overlay (a Panel.ZIndex layer of the root
-    /// Grid — never a separate window). Teams-style: a translucent scrim dims and CAPTURES clicks to
-    /// the console behind it (a scrim click or the ✕ dismisses); the card is centered. Opacity-fade
-    /// only (no translate — motion is a nausea trigger here), gated on
-    /// AccessibilityHelper.ReducedMotion(). RecordShown advances the cadence governor.</summary>
-    private void ShowCheckInOverlay(string header, string question, string footer,
-        string[] options, Action<int> onOption)
-    {
-        if (CheckInOverlayHost is null) return;
-        // Already-visible ⇒ this is a content SWAP (e.g. consent → survey for the same spike); skip
-        // the entrance fade so the swap doesn't flash. Fresh show ⇒ fade in.
-        bool wasVisible = CheckInOverlayHost.Visibility == Visibility.Visible;
-
-        CheckInOverlayHeader.Text   = header;
-        CheckInOverlayQuestion.Text = question;
-        CheckInOverlayFooter.Text   = footer;
-
-        CheckInOverlayOptions.Children.Clear();
-        for (int i = 0; i < options.Length; i++)
-        {
-            int idx = i;
-            var btn = new System.Windows.Controls.Button
-            {
-                Content = options[i],
-                Style   = (Style)FindResource("CheckInOptionButton"),
-                Tag     = idx,
-            };
-            System.Windows.Automation.AutomationProperties.SetName(btn, options[i]);
-            // onOption owns the next step: hide, or (consent opt-in) swap straight to the survey in
-            // the same overlay. The click handler must NOT force-hide, or it would cancel the swap.
-            btn.Click += (_, _) => { _checkInAnswered = true; onOption(idx); };
-            CheckInOverlayOptions.Children.Add(btn);
-        }
-
-        _checkInAnswered = false;
-        CheckInOverlayHost.Visibility = Visibility.Visible;
-        _checkInGovernor.RecordShown();
-
-        if (!wasVisible && !SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
-        {
-            var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1,
-                new Duration(TimeSpan.FromMilliseconds(180)))
-            {
-                EasingFunction = new System.Windows.Media.Animation.CubicEase
-                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut },
-            };
-            CheckInOverlayHost.BeginAnimation(OpacityProperty, fade);
-        }
-        else CheckInOverlayHost.Opacity = 1;
-    }
-
-    /// <summary>Dismiss (✕) — hide WITHOUT answering; arms the governor's 24 h suppression.</summary>
-    private void OnCheckInOverlayDismiss(object sender, RoutedEventArgs e)
-    {
-        if (!_checkInAnswered) _checkInGovernor.RecordDismissed();
-        HideCheckInOverlay();
-    }
-
-    /// <summary>Hide the overlay — opacity-fade out when OS animations are on, else instant.</summary>
-    private void HideCheckInOverlay()
-    {
-        if (CheckInOverlayHost is null) return;
-        if (!SenseEase.App.Accessibility.AccessibilityHelper.ReducedMotion())
-        {
-            var fade = new System.Windows.Media.Animation.DoubleAnimation(
-                CheckInOverlayHost.Opacity, 0, new Duration(TimeSpan.FromMilliseconds(120)));
-            fade.Completed += (_, _) =>
-            {
-                CheckInOverlayHost.BeginAnimation(OpacityProperty, null);
-                CheckInOverlayHost.Opacity = 1;
-                CheckInOverlayHost.Visibility = Visibility.Collapsed;
-            };
-            CheckInOverlayHost.BeginAnimation(OpacityProperty, fade);
-        }
-        else CheckInOverlayHost.Visibility = Visibility.Collapsed;
-    }
+    // ── Proactive check-in CONSENT OVERLAY retired 2026-06-21 ───────────────────────────────────
+    // ShowConsentOverlay / ShowCheckInOverlay / OnCheckInOverlayDismiss / HideCheckInOverlay + the
+    // in-window CheckInOverlayHost (XAML) + OnCheckInScrimClick are removed. The contextual first-run
+    // opt-in rendered ONLY inside the now-hidden console, so it could never be seen on the shell boot
+    // (a relic). Proactive check-ins are now opt-in via the Settings toggle alone
+    // (ProactiveCheckInsConsent.Enabled), after which MaybeShowSpikeCheckIn → RaiseChatFmsCheckIn.
 
     /// <summary>The localized foreground-app CATEGORY for the check-in copy, or null to use
     /// app-agnostic copy. Honours D-16: <c>WindowsActivityFilter.CurrentForegroundKey</c> is null
@@ -1249,14 +1064,6 @@ public partial class MainWindow : Window
         _lastInlineLogTier = _viewModel.VimsTier;
         _inlineWarrantLatched = false;
         RefreshEyeCareCheckIns();
-    }
-
-    /// <summary>A click on the proactive overlay's scrim (outside the card) dismisses it — same as
-    /// the ✕: if the user hasn't answered, arm the governor's 24 h suppression (Teams-style backdrop).</summary>
-    private void OnCheckInScrimClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (!_checkInAnswered) _checkInGovernor.RecordDismissed();
-        HideCheckInOverlay();
     }
 
     /// <summary>Phase-2: refresh the Eye-Care "my check-ins" card — the weekly trend line, the
@@ -1399,17 +1206,6 @@ public partial class MainWindow : Window
         if (_eventLogWindow.WindowState == WindowState.Minimized)
             _eventLogWindow.WindowState = WindowState.Normal;
         _eventLogWindow.Activate();
-    }
-
-    /// <summary>Confirm before clearing the chat (wipes history + the on-disk model trace).</summary>
-    private void OnChatClearClicked(object sender, RoutedEventArgs e)
-    {
-        if (SenseEase.App.Views.ThemedDialog.Confirm(
-                this,
-                SenseEase.App.Localization.LocalizationManager.Current.Pick(
-                    "確定要清除對話紀錄嗎？此動作無法復原。",
-                    "Clear the chat history? This cannot be undone.")))
-            _viewModel.ChatbotVm.ClearCommand.Execute(null);
     }
 
     private void ShowSettingsWindow()
