@@ -1153,12 +1153,17 @@ public sealed class LocalLlmChatbotService : IChatbotService
             // works. The lock is released in the outer finally regardless.
             try
             {
+                // MEASURE-FIRST (2026-06-22): time the round-trip so the prompt-trim / prefix-reuse / device
+                // decisions run on real numbers from this NPU, not estimates. See LogLlmPerf.
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 using var resp = await _http.PostAsJsonAsync(
                     $"{ServerUrl}/v1/chat/completions", requestBody, ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode) return null;
 
                 string respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                sw.Stop();
                 using var doc = JsonDocument.Parse(respBody, _jsonDocOpts);
+                LogLlmPerf(doc.RootElement, sw.ElapsedMilliseconds);
                 if (doc.RootElement.TryGetProperty("choices", out var choices)
                     && choices.GetArrayLength() > 0
                     && choices[0].TryGetProperty("message", out var msg)
@@ -1182,6 +1187,46 @@ public sealed class LocalLlmChatbotService : IChatbotService
         {
             _lock.Release();
         }
+    }
+
+    /// <summary>Measure-first instrumentation (2026-06-22, Kirby): log the per-turn latency split so the
+    /// prompt-trim / prefix-reuse / device decisions are driven by REAL numbers on this NPU, not estimates.
+    /// Reads the server's <c>usage</c> (prompt/completion tokens) and, when the server emits them, the
+    /// llama.cpp/FLM <c>timings</c> (prompt_ms = PREFILL, predicted_ms = DECODE). The prefill-vs-decode split —
+    /// and a turn-over-turn drop in PREFILL ms for the same system prompt — directly tests (a) whether we are
+    /// prefill-bound and (b) whether the static prefix is reused. Best-effort; never affects the chat path.
+    /// Read it at %LOCALAPPDATA%\SenseEase\diag\wgc_diag.txt (grep "[LlmPerf]") or the in-app Event Log.</summary>
+    private void LogLlmPerf(JsonElement root, long wallMs)
+    {
+        try
+        {
+            int promptTok = 0, completionTok = 0;
+            if (root.TryGetProperty("usage", out var usage))
+            {
+                if (usage.TryGetProperty("prompt_tokens", out var pt) && pt.TryGetInt32(out var p)) promptTok = p;
+                if (usage.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var cc)) completionTok = cc;
+            }
+            string line;
+            if (root.TryGetProperty("timings", out var t))
+            {
+                double pms = t.TryGetProperty("prompt_ms", out var a) ? a.GetDouble() : 0;
+                double dms = t.TryGetProperty("predicted_ms", out var b) ? b.GetDouble() : 0;
+                double pps = t.TryGetProperty("prompt_per_second", out var e) ? e.GetDouble() : 0;
+                double dps = t.TryGetProperty("predicted_per_second", out var f) ? f.GetDouble() : 0;
+                line = $"[LlmPerf] {ActiveBackend} wall={wallMs}ms | PREFILL {pms:F0}ms {pps:F0}tok/s ({promptTok}tok) | DECODE {dms:F0}ms {dps:F1}tok/s ({completionTok}tok)";
+            }
+            else
+            {
+                // FLM may not emit llama.cpp `timings`. Wall + token counts still size the prompt, and compared
+                // turn-over-turn (same system prompt, different user line) reveal prefix-reuse: a big wall drop on
+                // turn 2+ = the static prefix IS being reused; a flat wall = it is NOT (we re-prefill every turn).
+                double approxTps = wallMs > 0 ? completionTok * 1000.0 / wallMs : 0;
+                line = $"[LlmPerf] {ActiveBackend} wall={wallMs}ms | prompt={promptTok}tok completion={completionTok}tok | ~{approxTps:F1}tok/s over wall (no server timings — compare turns for prefix-reuse)";
+            }
+            LogDiag(line);
+            try { WgcDiagLog.Append($"[{DateTime.UtcNow:O}] {line}"); } catch { }
+        }
+        catch { /* instrumentation must never affect the chat path */ }
     }
 
     /// <summary>W-B NEW-B14 (2026-06-20): a lightweight, history-free, grammar-free short completion used
