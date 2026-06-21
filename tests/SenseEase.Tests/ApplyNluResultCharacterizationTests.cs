@@ -94,6 +94,53 @@ public class ApplyNluResultCharacterizationTests
     private static bool AnyAssistant(ChatbotViewModel vm, string fragment)
         => vm.Messages.Any(m => m.Role == ChatRole.Assistant && m.Content.Contains(fragment));
 
+    // ── Overlay-off persistence (Approach A, Kirby 2026-06-21) ───────────────────────────────────────
+    //    An adjustment made while the overlay is OFF must NOT change the live engine this turn (the user
+    //    can't see it), but must PERSIST to the durable adjustment log so next session's replay
+    //    (ReplayShaderPersonalizationFromLog) restores it as the baseline — making "I'll tune your
+    //    protection going forward" a real promise instead of a discarded delta.
+    [Fact]
+    public void OverlayOff_Adjustment_PersistsToLog_ButLeavesLiveEngineUnchanged()
+    {
+        var (vm, bot, engine, log) = BuildVm(
+            () => new NluResult { Intent = "ReportDiscomfort", FovDelta = -8, MaskDepthDelta = 0.06 },
+            overlayVisible: false,
+            isOverlayConsented: () => false);   // overlay off / not consented
+
+        int fovBefore = engine.UserFovOffset;
+        double maskBefore = engine.Current.Shader.MaskDepth;
+
+        vm.InputText = "make it stronger";
+        vm.SendCommand.Execute(null);
+
+        // Live engine UNCHANGED this turn (held back — nothing the user can't see is mutated).
+        Assert.Equal(fovBefore, engine.UserFovOffset);
+        Assert.Equal(maskBefore, engine.Current.Shader.MaskDepth, 6);
+
+        // But the requested deltas ARE persisted — same Source/Parameter the boot-replay reads — so next
+        // session's ReplayShaderPersonalizationFromLog applies them as the baseline.
+        Assert.Contains(log.Records, r => r.Parameter == "FovRadius" && r.Delta == -8 && r.Source == "user");
+        Assert.Contains(log.Records, r => r.Parameter == "MaskDepth" && Math.Abs(r.Delta - 0.06) < 1e-9 && r.Source == "user");
+    }
+
+    [Fact]
+    public void OverlayOn_Adjustment_AppliesLive_NotDoubleLogged()
+    {
+        // Sanity contrast: with the overlay CONSENTED, the same adjustment applies live (engine changes) and
+        // is logged exactly once by ApplyNluResult — the overlay-off persistence path must not double-fire.
+        var (vm, bot, engine, log) = BuildVm(
+            () => new NluResult { Intent = "ReportDiscomfort", FovDelta = -8 },
+            overlayVisible: true,
+            isOverlayConsented: () => true);
+
+        int fovBefore = engine.UserFovOffset;
+        vm.InputText = "make it stronger";
+        vm.SendCommand.Execute(null);
+
+        Assert.NotEqual(fovBefore, engine.UserFovOffset);                                   // applied live
+        Assert.Single(log.Records, r => r.Parameter == "FovRadius" && r.Source == "user");  // logged once
+    }
+
     // ── 1. Delivery of a question-suppressed result: no actuation, surfaces the veto note ───
     //    Post-Stage-C the question-guard DECISION lives in NluComplianceGate (it zeroed the
     //    deltas and set SuppressedAsQuestion — see NluComplianceGateTests). ApplyNluResult is
@@ -280,11 +327,13 @@ public class ApplyNluResultCharacterizationTests
             Assert.False(AnyAssistant(vm, "looked like a question"));
         });
 
-    // ── W-G: chat-driven actuation is gated on overlay CONSENT ──────────────────────────────
-    //    When the overlay has NOT been consented (no granted session / Auto Protect / baseline),
-    //    a chat "make it stronger" must NOT mutate persistent engine state — it would silently
-    //    change protection the user can't see and let the warm reply falsely claim a change. The
-    //    gate is delta-driven (any FOV/mask/grid/feather delta), independent of the intent label.
+    // ── W-G: chat-driven actuation is gated on overlay CONSENT, but PERSISTS for next session ──
+    //    When the overlay has NOT been consented (no granted session / Auto Protect / baseline), a
+    //    chat "make it stronger" must NOT mutate the LIVE engine — that would silently change
+    //    protection the user can't see, and the warm reply would falsely claim a change. But the
+    //    adjustment is no longer discarded: Approach A (2026-06-21) PERSISTS the requested deltas to
+    //    the adjustment log (Source="user", which WeightFor replays) so next session's boot-replay
+    //    restores them as the baseline. The gate is delta-driven, independent of the intent label.
 
     [Fact]
     public void Actuation_WithoutConsent_IsDeferred_NoEngineMutation_NoFalseClaim()
@@ -302,8 +351,10 @@ public class ApplyNluResultCharacterizationTests
             vm.InputText = "make it stronger";
             vm.SendCommand.Execute(null);
 
-            Assert.Equal(0, engine.UserFovOffset);   // engine NOT mutated pre-consent (the W-G safety core)
-            Assert.Empty(log.Records);                // nothing actuated → nothing logged
+            Assert.Equal(0, engine.UserFovOffset);   // LIVE engine NOT mutated pre-consent (the W-G safety core)
+            // Approach A: the held adjustment is PERSISTED for next session (no longer discarded). WeightFor
+            // replays Source="user"/FovRadius, so the deferred delta lands in the log with exactly that shape.
+            Assert.Contains(log.Records, r => r.Parameter == "FovRadius" && r.Delta == -8 && r.Source == "user");
             Assert.False(AnyAssistant(vm, "Protection up")); // and NO false "✓ Protection up" confirmation
             // The honest "I'll apply that once the overlay is on" line replaces the LLM's "Tightening…"
             // claim in visibleReply — but that warm reply is revealed by FakeStreamAsync on a background

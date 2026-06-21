@@ -696,8 +696,15 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             // overlay itself enforces stays the source of truth — this is defense-in-depth at the chat seam.
             bool wantsActuation = result.FovDelta != 0 || result.MaskDepthDelta != 0
                                || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0;
+            // Approach A (Kirby 2026-06-21): when the overlay is off we still hold the wanted deltas back from
+            // the LIVE engine (below — never change what the user can't see right now), but we REMEMBER them
+            // here to persist to the durable adjustment log on the dispatcher thread. Next session's
+            // ReplayShaderPersonalizationFromLog restores them as the user's baseline, so "I'll tune your
+            // protection going forward" becomes a real promise. null ⇒ nothing held this turn.
+            (int Fov, double Md, double Gv, double Fw)? overlayOffPersist = null;
             if (wantsActuation && _isOverlayConsented is { } consented && !consented())
             {
+                overlayOffPersist = (result.FovDelta, result.MaskDepthDelta, result.GridVisibilityDelta, result.FeatherWidthDelta);
                 result.FovDelta = 0;
                 result.MaskDepthDelta = 0;
                 result.GridVisibilityDelta = 0;
@@ -720,6 +727,13 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 // nothing and returns an empty summary (no ✓ row), and visibleReply now carries the honest
                 // rest advice — so a held turn renders exactly one calm, honest bubble.
                 string summary = ApplyNluResult(result, text);
+
+                // Approach A: the overlay was off, so the wanted adjustment was held back from the live engine
+                // above — PERSIST it now (on this dispatcher thread, where engine + log access is safe, like
+                // ApplyNluResult) to the durable adjustment log, so next session's replay restores it as the
+                // baseline. Same parameter names ApplyNluResult logs ⇒ the boot-replay nets them identically.
+                if (overlayOffPersist is { } heldOff)
+                    PersistOverlayOffAdjustment(heldOff.Fov, heldOff.Md, heldOff.Gv, heldOff.Fw, text);
 
                 // NEW-B13 (W-B 2026-06-20): the user asked to strengthen/ease but the engine was already at
                 // the limit, so NOTHING applied (empty summary) — yet the upstream scrub blessed the reply
@@ -1381,6 +1395,30 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
             OldValue = oldValue, NewValue = newValue,
             Source = "user", Utterance = utterance,
         });
+    }
+
+    /// <summary>Approach A (overlay-off persistence, Kirby 2026-06-21): append a wanted-but-held adjustment to
+    /// the durable adjustment log WITHOUT touching the live engine, so next session's
+    /// <c>ReplayShaderPersonalizationFromLog</c> restores it as the user's baseline. Identical record shape +
+    /// parameter names to <see cref="ApplyNluResult"/>'s own logging, so the boot-replay nets the deltas the
+    /// same way; Old/NewValue are a best-effort audit snapshot of the current engine state (the replay uses the
+    /// Delta). Runs on the dispatcher thread (engine + log access is safe there).</summary>
+    private void PersistOverlayOffAdjustment(int fovDelta, double mdDelta, double gvDelta, double fwDelta, string utterance)
+    {
+        if (fovDelta != 0)
+        {
+            int cur = _engine.UserFovOffset;
+            _adjustmentLog.Append(new AdjustmentRecord
+            {
+                Parameter = "FovRadius", Delta = fovDelta,
+                OldValue = cur, NewValue = cur + fovDelta,
+                Source = "user", Utterance = utterance,
+            });
+        }
+        var s = _engine.Current.Shader;
+        LogShader("MaskDepth",      mdDelta, s.MaskDepth,      s.MaskDepth + mdDelta,      utterance);
+        LogShader("GridVisibility", gvDelta, s.GridVisibility, s.GridVisibility + gvDelta, utterance);
+        LogShader("FeatherWidth",   fwDelta, s.FeatherWidth,   s.FeatherWidth + fwDelta,   utterance);
     }
 
     // Item 5 — repeated-discomfort safety throttle (see DiscomfortSafetyGovernor). In-memory;
