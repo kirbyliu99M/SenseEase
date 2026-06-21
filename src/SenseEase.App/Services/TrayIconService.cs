@@ -56,7 +56,10 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly MainViewModel _vm;
     private readonly TaskbarIcon _tray;
-    private readonly ContextMenu _contextMenu;
+    // Tray-menu 閃退 permanent fix (2026-06-22): the right-click menu is now a real Window (never auto-vanishes
+    // like a Popup), constructed lazily on the first right-click. Replaces the native WPF ContextMenu that
+    // Windows flash-dismissed for lack of a foreground owner on this headless app (KB135788). See TrayMenuWindow.
+    private TrayMenuWindow? _trayMenu;
     private readonly Func<bool> _isBarVisible;
     private readonly Action<bool> _setBarVisible;
     private readonly MenuItem _statusItem;
@@ -67,10 +70,9 @@ public sealed class TrayIconService : IDisposable
     private readonly MenuItem _settingsItem;
     private readonly MenuItem _quitItem;
     private bool _disposed;
-    // Tray-flash fix (Kirby 2026-06-20 r3): true while the context menu is open → ApplyState suppresses the
-    // tray-icon/label refresh (re-issuing Shell_NotifyIcon NIM_MODIFY under an open menu flashes/dismisses
-    // it). _lastTrayBand de-dupes the icon write so NIM_MODIFY fires ONLY on a real band change, not every tick.
-    private bool _menuOpen;
+    // _lastTrayBand de-dupes the icon write so Shell_NotifyIcon NIM_MODIFY fires ONLY on a real band change,
+    // not every engine tick (kills the steady-state ~15 Hz churn). (The old _menuOpen gate is gone with the
+    // native ContextMenu — the custom TrayMenuWindow is a separate window, untouched by the icon's NIM_MODIFY.)
     private TierColorPalette.TierBand? _lastTrayBand;
     private string? _lastTooltip; // de-dupes the _tray.ToolTipText NIM_MODIFY write (identical per band)
     // overlay-bar-redesign diag-4: visibility watchdog. Logs Visibility +
@@ -90,12 +92,6 @@ public sealed class TrayIconService : IDisposable
     // (LeftClicked) if no double-click cancels it within the window (~ default DCT).
     private readonly System.Windows.Threading.DispatcherTimer _clickDebounce =
         new() { Interval = TimeSpan.FromMilliseconds(260) };
-
-    // 閃退 fix (Kirby 2026-06-21): the tray context menu needs a real foreground WINDOW to own it, or Windows'
-    // focus model dismisses it ~185 ms after it opens (KB135788). With MainWindow parked off-screen (headless
-    // host, ShowInTaskbar=false) the app has no foreground window, so we SetForegroundWindow it as the menu opens.
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     /// <summary>Raised when the user single-left-clicks the tray icon.
     /// Task 3 has no card to expand, so this event has no subscribers in
@@ -138,81 +134,25 @@ public sealed class TrayIconService : IDisposable
         _isBarVisible  = isBarVisible  ?? throw new ArgumentNullException(nameof(isBarVisible));
         _setBarVisible = setBarVisible ?? throw new ArgumentNullException(nameof(setBarVisible));
 
-        // Status + pause/resume in one item: shows the live status AND toggles power-save when
-        // clicked (honest now — it used to read "tap to resume" while DISABLED, i.e. untappable).
+        // The 4 menu rows are kept ONLY as live LABEL holders — their Header strings carry the localized status /
+        // power-save / fault verdict (RefreshLabels / SetPowerSaveIndicator / SetFaultIndicator) and re-pick on a
+        // language flip. They are NOT added to any native menu: the right-click menu is the custom
+        // TrayMenuWindow, built fresh from these headers in ShowTrayMenu, so the click ACTIONS live there.
         _statusItem    = new MenuItem();
-        _statusItem.Click += (_, _) => PauseResumeRequested?.Invoke(this, EventArgs.Empty);
         _toggleBarItem = new MenuItem();
-        _toggleBarItem.Click += (_, _) =>
-        {
-            bool nowVisible = !_isBarVisible();
-            _setBarVisible(nowVisible);
-            RefreshToggleBarLabel();
-        };
 
-        // "Open Dashboard" tray item REMOVED 2026-06-18 (user: leave only status/pause-resume,
-        // settings, close). The console is still reachable by double-clicking the tray icon.
+        // "Open Dashboard" tray item REMOVED 2026-06-18 (user: leave only status/pause-resume, settings, close).
+        // The console is still reachable by double-clicking the tray icon.
 
-        // UX-04: both headers now localized via LocalizationManager.Pick and re-picked
-        // in RefreshLanguageDependentLabels — no more hardcoded-zh menu strays.
+        // UX-04: headers localized via LocalizationManager.Pick + re-picked in RefreshLanguageDependentLabels.
         _settingsItem = new MenuItem { Header = LocalizationManager.Current.Pick("設定", "Settings") };
-        _settingsItem.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
-
-        _quitItem = new MenuItem { Header = LocalizationManager.Current.Pick("退出 SenseEase", "Quit SenseEase") };
-        _quitItem.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
-
-        var menu = new ContextMenu();
-        menu.Items.Add(_statusItem);
-        menu.Items.Add(new Separator());
-        // Only surface the "toggle bar" item when the persistent-bar feature is on.
-        // With AppConfig.PersistentBarEnabled=false (default) the bar is never created,
-        // so the item would be a no-op that reads as a broken menu entry — hide it.
-        if (SenseEase.App.Configuration.AppConfig.PersistentBarEnabled)
-            menu.Items.Add(_toggleBarItem);
-        menu.Items.Add(_settingsItem);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(_quitItem);
-
-        // UI/UX (2026-06-09): de-nativise the tray menu. It's a WPF ContextMenu, so skin it
-        // to the app's look (rounded Surface card, token colours, calm SurfaceMuted highlight)
-        // instead of the default native Windows menu. A popup isn't parented to a themed
-        // window, so merge the theme into the menu's OWN resources for the tokens to resolve;
-        // ThemeManager.TrackElement then keeps it light/dark-correct (incl. a live OS flip).
-        // Degrade-not-crash (tray invariant): any failure leaves the default functional menu.
-        _contextMenu = menu;
-        try
-        {
-            menu.Resources.MergedDictionaries.Add(new ResourceDictionary
-            {
-                Source = new Uri("pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml", UriKind.Absolute)
-            });
-            menu.Style = (Style)menu.FindResource("SenseEaseContextMenu");
-            var menuItemStyle = (Style)menu.FindResource("SenseEaseMenuItem");
-            var menuSepStyle  = (Style)menu.FindResource("SenseEaseMenuSeparator");
-            foreach (var entry in menu.Items)
-            {
-                if (entry is MenuItem mi) mi.Style = menuItemStyle;
-                else if (entry is Separator sep) sep.Style = menuSepStyle;
-            }
-            SenseEase.App.Theme.ThemeManager.TrackElement(menu);
-        }
-        catch (Exception ex)
-        {
-            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
-                $"[{DateTime.UtcNow:O}] [Tray] menu theming failed (left default menu): {ex.GetType().Name}: {ex.Message}");
-        }
-
-        // Tray-flash fix (Kirby 2026-06-20 r3): while the menu is OPEN, suppress the per-tick tray-icon
-        // refresh — re-issuing Shell_NotifyIcon NIM_MODIFY under an open context menu makes it flash /
-        // dismiss (root cause; ApplyState re-set the icon on EVERY engine tick). _menuOpen gates ApplyState;
-        // the next tick after Closed resyncs.
-        menu.Opened += (_, _) => { _menuOpen = true;  SenseEase.Infrastructure.Real.WgcDiagLog.Append($"[{DateTime.UtcNow:O}] [TrayMenu] Opened"); };
-        menu.Closed += (_, _) => { _menuOpen = false; SenseEase.Infrastructure.Real.WgcDiagLog.Append($"[{DateTime.UtcNow:O}] [TrayMenu] Closed"); };
+        _quitItem     = new MenuItem { Header = LocalizationManager.Current.Pick("退出 SenseEase", "Quit SenseEase") };
 
         _tray = new TaskbarIcon
         {
             ToolTipText = "SenseEase",
-            ContextMenu = menu,
+            // No ContextMenu: the native WPF ContextMenu flash-dismissed on this headless app (KB135788). The
+            // right-click is handled below (TrayRightMouseUp → ShowTrayMenu), which opens the custom window.
             // Fix 3: System.Drawing.Icon path via TaskbarIcon.Icon — bypasses
             // the WPF-ImageSource converter that crashed twice (Crash 1:
             // NotImplementedException on RenderTargetBitmap; Crash 2:
@@ -243,33 +183,11 @@ public sealed class TrayIconService : IDisposable
             DoubleClicked?.Invoke(this, EventArgs.Empty);
         };
 
-        // First-right-click 閃退 fix (Kirby 2026-06-20): raise the tray-refresh gate from the moment the
-        // context menu STARTS opening — NOT on menu.Opened, which fires only AFTER layout. The themed menu's
-        // FIRST open does a slow lazy resource/visual realization, leaving a race window in which an engine
-        // tick's ApplyState (icon NIM_MODIFY + RefreshLabels touching the menu items) landed mid-open and
-        // dismissed the just-appearing menu — the "first right-click flashes" bug. PreviewTrayContextMenuOpen
-        // fires before any menu layout, so the gate is already up; menu.Closed clears it.
-        _tray.PreviewTrayContextMenuOpen += (_, _) =>
-        {
-            _menuOpen = true;
-            // 閃退 fix (Kirby 2026-06-21): give the about-to-open menu a real foreground owner so Windows
-            // doesn't dismiss it ~185 ms later (root cause: MainWindow is parked off-screen / no taskbar, so
-            // the menu had no foreground window backing it — KB135788). The parked window is off-screen, so
-            // this stays invisible to the user. Best-effort; a failure just leaves the prior flash behaviour.
-            try
-            {
-                var hwnd = Application.Current?.MainWindow is { } mw
-                    ? new System.Windows.Interop.WindowInteropHelper(mw).Handle : IntPtr.Zero;
-                bool ok = hwnd != IntPtr.Zero && SetForegroundWindow(hwnd);
-                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
-                    $"[{DateTime.UtcNow:O}] [TrayMenu] PreviewOpen → SetForeground hwnd=0x{hwnd.ToInt64():X} ok={ok}");
-            }
-            catch (Exception ex)
-            {
-                SenseEase.Infrastructure.Real.WgcDiagLog.Append(
-                    $"[{DateTime.UtcNow:O}] [TrayMenu] SetForeground threw: {ex.GetType().Name}");
-            }
-        };
+        // 閃退 permanent fix (2026-06-22): handle the right-click ourselves and open the custom TrayMenuWindow
+        // (a real Window that can't auto-vanish), instead of letting the library show the native ContextMenu
+        // (which Windows flash-dismissed on this headless app). TrayRightMouseUp fires on WM_RBUTTONUP regardless
+        // of whether a ContextMenu is set; we didn't set one, so nothing native shows — only our window opens.
+        _tray.TrayRightMouseUp += (_, _) => ShowTrayMenu();
 
         // Initial labels reflect current state; refreshed on every state change.
         RefreshLabels(_vm.CurrentState);
@@ -323,6 +241,45 @@ public sealed class TrayIconService : IDisposable
                 $"IconHandle=0x{_tray.Icon?.Handle.ToInt64():X}");
         };
         _visibilityWatchdog.Start();
+    }
+
+    /// <summary>閃退 permanent fix (2026-06-22): build the right-click menu from the current label state and
+    /// open the custom <see cref="TrayMenuWindow"/> at the cursor. The 4 rows mirror what the native menu
+    /// showed — live status / pause-resume, the optional toggle-bar row, Settings, Quit — reading the localized
+    /// Header strings the existing RefreshLabels / power-save / fault logic keeps current. Tray invariant:
+    /// degrade-not-crash — any failure is logged and swallowed so a menu glitch never takes the app down.</summary>
+    private void ShowTrayMenu()
+    {
+        try
+        {
+            var items = new System.Collections.Generic.List<TrayMenuItem>
+            {
+                new(_statusItem.Header as string ?? string.Empty,
+                    () => PauseResumeRequested?.Invoke(this, EventArgs.Empty)),
+                TrayMenuItem.Separator,
+            };
+            // Only surface the "toggle bar" row when the persistent-bar feature is on (else it's a no-op).
+            if (SenseEase.App.Configuration.AppConfig.PersistentBarEnabled)
+                items.Add(new TrayMenuItem(_toggleBarItem.Header as string ?? string.Empty, () =>
+                {
+                    bool nowVisible = !_isBarVisible();
+                    _setBarVisible(nowVisible);
+                    RefreshToggleBarLabel();
+                }));
+            items.Add(new TrayMenuItem(_settingsItem.Header as string ?? "設定",
+                () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
+            items.Add(TrayMenuItem.Separator);
+            items.Add(new TrayMenuItem(_quitItem.Header as string ?? "Quit",
+                () => QuitRequested?.Invoke(this, EventArgs.Empty)));
+
+            _trayMenu ??= new TrayMenuWindow();
+            _trayMenu.ShowMenu(items);
+        }
+        catch (Exception ex)
+        {
+            SenseEase.Infrastructure.Real.WgcDiagLog.Append(
+                $"[{DateTime.UtcNow:O}] [TrayMenu] ShowTrayMenu threw: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private void OnStateChanged(object? sender, SenseState state)
@@ -432,12 +389,6 @@ public sealed class TrayIconService : IDisposable
 
     private void ApplyState(SenseState state)
     {
-        // Tray-flash fix (Kirby 2026-06-20 r3): while the context menu is OPEN, don't touch the tray at all.
-        // Re-issuing Shell_NotifyIcon NIM_MODIFY (the per-tick icon/tooltip refresh — a vestige of the OLD
-        // per-tier icon TONE change; the new icon is a constant indigo lens) under an open menu flashes /
-        // dismisses it. The next tick after Closed resyncs.
-        if (_menuOpen) return;
-
         // Fix 3: use the System.Drawing.Icon path (TaskbarIcon.Icon), NOT the
         // broken ImageSource path (TaskbarIcon.IconSource). See
         // BuildDistinctTrayIcon below for HICON lifecycle details.
@@ -1045,9 +996,9 @@ public sealed class TrayIconService : IDisposable
         // Live-language toggle: singleton INotifyPropertyChanged — MUST -= or the
         // service (and its transitive graph) is pinned for the process lifetime.
         LocalizationManager.Current.PropertyChanged -= OnLanguageChanged;
-        // UI/UX: stop tracking the tray menu's light/dark theme. Weak-ref inside, but pair
-        // Track with Untrack on teardown per the ThemeManager contract. Best-effort.
-        try { SenseEase.App.Theme.ThemeManager.UntrackElement(_contextMenu); } catch { }
+        // Close the custom right-click menu window (it self-untracks its theme on Closed). Best-effort.
+        try { _trayMenu?.Close(); } catch { }
+        _trayMenu = null;
         try { _tray.Dispose(); } catch { /* best-effort; shell unregister may race */ }
         // M12 (TrayDistinct): release the locally code-drawn band icons. The
         // Icon(Stream) ctor takes ownership of the HICON it allocates, so
