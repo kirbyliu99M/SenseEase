@@ -123,6 +123,106 @@
                 <Setter Property="Background" Value="{DynamicResource GroupDivider}"/>
                 <Setter Property="Margin" Value="0,18"/>
             </Style>
+
+            <!-- Calm glass ComboBox (2026-06-21) — retires the native Aero combo (item #2) so the range
+                 picker matches the panel: a flat RecessField box, a hairline that warms to the indigo
+                 Accent on hover/open, a thin vector chevron, and a flat themed dropdown with an Accent
+                 selected-row. NO drop-shadow/blur — the software-render contract + the effect-free calm
+                 the popup bar already uses. GlassComboItem must precede GlassComboBox (StaticResource ref). -->
+            <Style x:Key="GlassComboItem" TargetType="ComboBoxItem">
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Padding" Value="9,6"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="row" Background="Transparent" CornerRadius="5"
+                                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                                <ContentPresenter VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="row" Property="Background" Value="{DynamicResource SurfaceMuted}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="row" Property="Background" Value="{DynamicResource SurfaceMuted}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="GlassComboBox" TargetType="ComboBox">
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="ItemContainerStyle" Value="{StaticResource GlassComboItem}"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                            <Grid>
+                                <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="box" Background="{DynamicResource RecessField}"
+                                                    BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                                                    CornerRadius="6" SnapsToDevicePixels="True">
+                                                <Path x:Name="chev" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                      Margin="0,0,11,0" Data="M0,0 L4,4 L8,0"
+                                                      Stroke="{DynamicResource TextSecondary}" StrokeThickness="1.4"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      StrokeLineJoin="Round"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                    <Setter TargetName="chev" Property="Stroke" Value="{DynamicResource TextPrimary}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                    <Setter TargetName="chev" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <ContentPresenter x:Name="sel" IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  Margin="11,0,30,0" VerticalAlignment="Center" HorizontalAlignment="Left"
+                                                  TextElement.Foreground="{DynamicResource TextPrimary}"/>
+                                <Popup x:Name="PART_Popup" Placement="Bottom" VerticalOffset="4"
+                                       IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True"
+                                       Focusable="False" PopupAnimation="Fade">
+                                    <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                            Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}"
+                                            BorderThickness="1" CornerRadius="6" Padding="3" SnapsToDevicePixels="True">
+                                        <ScrollViewer MaxHeight="220">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -474,7 +574,8 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,10">
                     <TextBlock Text="{loc:T Zh='範圍', En='Range'}" VerticalAlignment="Center"
                                Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,0,8,0"/>
-                    <ComboBox x:Name="ExportRangeCombo" SelectedIndex="0" Width="170" FontSize="12">
+                    <ComboBox x:Name="ExportRangeCombo" SelectedIndex="0" Width="170" FontSize="12"
+                              Style="{StaticResource GlassComboBox}">
                         <ComboBoxItem Content="{loc:T Zh='全部時間', En='All time'}"/>
                         <ComboBoxItem Content="{loc:T Zh='最近 90 天', En='Last 90 days'}"/>
                         <ComboBoxItem Content="{loc:T Zh='最近 30 天', En='Last 30 days'}"/>
