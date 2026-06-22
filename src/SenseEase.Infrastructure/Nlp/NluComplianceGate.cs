@@ -100,6 +100,19 @@ internal static class NluComplianceGate
             reply = null;
         }
 
+        // Dismissive closer mis-tagged ReportComfort (Kirby 2026-06-22, accepted from the ZH stress sweep):
+        // a bare brush-off / deferral ('算了', '沒事啦', '再看看', 'never mind') carries NO genuine comfort, but
+        // the small model reads it as ReportComfort — which can nudge the engine to RELAX protection. Demote to
+        // Unknown so a brush-off never relaxes; the model's acknowledgement reply still reads fine. Scoped to a
+        // short, symptom-free closer; a real comfort report ('好多了/改善了/better') has a comfort cue (NOT in
+        // DismissiveClosures) and is untouched.
+        if (intent == "ReportComfort"
+            && FeedbackLexicon.IsDismissiveClosure(userText)
+            && !FeedbackLexicon.MentionsSpecificSymptom(userText))
+        {
+            intent = "Unknown";
+        }
+
         // FollowupRequest veto: if the user already named a specific symptom
         // (headache / dizzy / nausea / eye strain), asking "which symptom?"
         // is the wrong move. Promote to ReportDiscomfort so the actuator

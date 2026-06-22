@@ -422,6 +422,27 @@ internal static class FeedbackLexicon
             || ContainsAny(t, EyeMarkers);
     }
 
+    // Dismissive closers / deferrals the model tends to mis-tag ReportComfort but which express NO genuine
+    // comfort — just a brush-off ('算了', '沒事啦', 'never mind'). The gate demotes ReportComfort→Unknown when
+    // one matches, so a brush-off never signals comfort to the engine (which would relax protection).
+    private static readonly string[] DismissiveClosures =
+    {
+        "算了", "再看看", "之後再說", "以後再說", "當我沒說", "沒差", "不重要", "沒什麼啦", "沒事啦",
+        "沒事沒事", "不用了", "不說了", "看心情", "隨便啦", "就那樣", "懶得",
+        "never mind", "nevermind", "forget it", "whatever", "no reason", "just because", "anyway", "nvm",
+    };
+
+    /// <summary>A bare dismissive closer / deferral ('算了', '沒事啦', 'never mind') the small model tends to
+    /// tag ReportComfort — but it carries NO genuine comfort, so it must not relax protection. The gate
+    /// demotes these to Unknown (Kirby 2026-06-22, from the ZH stress sweep). Kept NARROW: a short utterance
+    /// that IS essentially the dismissal, not a real comfort report ('好多了/改善了') that trails off.</summary>
+    public static bool IsDismissiveClosure(string? text)
+    {
+        string t = Normalize(text);
+        if (string.IsNullOrEmpty(t) || t.Length > 40) return false; // a bare, short closer only
+        return ContainsAny(t, DismissiveClosures);
+    }
+
     /// <summary>
     /// Build the canonical follow-up payload used when a VIMS-pressure spike
     /// auto-opens the chatbot. Severity reflects how big the spike was on a 0–1

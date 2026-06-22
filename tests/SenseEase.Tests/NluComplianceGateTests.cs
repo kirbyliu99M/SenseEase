@@ -20,6 +20,20 @@ public class NluComplianceGateTests
         NluComplianceGate.DecisionSource source = NluComplianceGate.DecisionSource.Model)
         => new(intent, severity, reply, fov, md, gv, followupQ, followupOpts, source);
 
+    // Dismissive closer mis-tagged ReportComfort → Unknown (Kirby 2026-06-22): a brush-off must not signal
+    // comfort to the engine (which would relax protection); a genuine comfort report is untouched.
+    [Theory]
+    [InlineData("算了")]
+    [InlineData("沒事啦")]
+    [InlineData("再看看")]
+    [InlineData("以後再說")]
+    public void Demote_DismissiveClosure_TaggedComfort_BecomesUnknown(string text)
+        => Assert.Equal("Unknown", NluComplianceGate.Check(Raw("ReportComfort", reply: "好的"), text).Intent);
+
+    [Fact]
+    public void GenuineComfort_StaysReportComfort()
+        => Assert.Equal("ReportComfort", NluComplianceGate.Check(Raw("ReportComfort", reply: "了解"), "好多了，謝謝").Intent);
+
     [Fact]
     public void Promote_FollowupWithNamedSymptom_BecomesReportDiscomfort_NoCard()
     {

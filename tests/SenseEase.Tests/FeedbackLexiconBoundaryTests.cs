@@ -59,4 +59,25 @@ public class FeedbackLexiconBoundaryTests
     [InlineData("everything looks blurry")]    // "blur"
     public void Stems_StillDetectSpecificSymptom(string text)
         => Assert.True(FeedbackLexicon.MentionsSpecificSymptom(text));
+
+    // Dismissive closers (Kirby 2026-06-22): brush-offs the model mis-tags ReportComfort must be detectable
+    // so the gate can demote them to Unknown (a brush-off carries no genuine comfort, must not relax protection).
+    [Theory]
+    [InlineData("算了")]
+    [InlineData("沒事啦")]
+    [InlineData("沒事沒事，當我沒說")]
+    [InlineData("再看看")]
+    [InlineData("隨便啦")]
+    [InlineData("以後再說")]
+    [InlineData("never mind")]
+    [InlineData("forget it, whatever")]
+    public void DismissiveClosure_IsDetected(string text)
+        => Assert.True(FeedbackLexicon.IsDismissiveClosure(text));
+
+    [Theory]
+    [InlineData("好多了，謝謝")]   // genuine comfort, not a closer
+    [InlineData("我頭暈")]        // a real symptom
+    [InlineData("can you make it darker")]
+    public void GenuineInput_IsNotDismissiveClosure(string text)
+        => Assert.False(FeedbackLexicon.IsDismissiveClosure(text));
 }
