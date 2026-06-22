@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 the sprint-seal git tag pattern (`v0.<sprint>` and `v0.<sprint>.<hotfix>`).
 The authoritative version reference is `git tag` — this file is the human-readable summary.
 
+## [1.0.0 — Beta V1.0] — 2026-06-23
+
+First Beta milestone. Rolls up everything below (the B0/B1a/B1b/B2 waves) plus the post-Beta-plan work:
+the B5/B6 adaptation gate + bidirectional elasticity learning loop (default-OFF consent), the
+dashboard-console dismantle to a headless host, the de-identified HTML health report, the popup-bar/chat +
+edge-sidebar shell, the local on-device LLM chatbot on the Qwen3-4B model with the three-backend
+(FastFlowLM / OpenVINO / Vulkan) autoselection router, and the late ship-hardening fixes (tray right-click
+menu rebuilt as a real window, both dashboard-ghost paths closed, overlay-always-on / persistent-mask wiring).
+Version stamped 1.0.0 in `Directory.Build.props` + `installer/SenseEase-v0.11.iss`. Authoritative reference: `git tag`.
+
 ## [Unreleased — Beta waves B0/B1a/B1b/B2]
 
 Beta improvement-plan implementation. Detailed record: [Improvement_plan_BETA.md](Improvement_plan_BETA.md).

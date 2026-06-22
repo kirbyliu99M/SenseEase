@@ -95,3 +95,6 @@ soak_report.json
 
 # Claude Code agent worktrees (per-run scratch checkouts)
 .claude/worktrees/
+# Claude Code agent scratch: eval/server logs + sweep-digest scripts (never part of the product)
+.claude/*.log
+.claude/sweep-digest/
