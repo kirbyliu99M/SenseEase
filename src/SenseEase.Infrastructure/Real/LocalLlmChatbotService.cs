@@ -224,11 +224,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "  Unknown — greetings, off-topic, unclear non-discomfort. Short reply; zero deltas.\n" +
         "  ⚠ ACTUATE (non-zero deltas) ONLY on a first-person PRESENT-TENSE symptom statement ('I'm dizzy', '頭暈'). Every question / hypothetical / definition / screen-or-video question / vague-or-unnamed request = answer or ask, ZERO deltas. Screen/content question = AnalyzeRequest; body question = Unknown; discomfort with no symptom named = the WHICH-SYMPTOM card. A symptom STILL present outweighs 'better'/'fine' — 'better but still nauseous' / '好一點但還是有點想吐' is ReportDiscomfort (act on the remaining symptom). If unsure, treat as a question. Never accumulate severity from history.\n" +
         "  ⚠ DO NOT actuate (answer or ASK instead, ZERO deltas) on ANY of these, even when a symptom word appears — actuate ONLY on a real, PRESENT, first-person VISUAL symptom the user actually feels ('I'm dizzy', 'my eyes hurt now', '頭好暈'):\n" +
-        "     • FIGURATIVE / idiom: 'dizzy with all the choices', 'my head's spinning with all these tabs', 'this screen is killing me'\n" +
+        "     • FIGURATIVE / idiom — a symptom word about being overwhelmed by CONTENT or work, NOT a real visual symptom: 'dizzy with all the choices', 'head spinning with all these tabs', 'this is killing me'; ZH '看到帳單頭都暈了' / '報表看得眼冒金星' / '資訊量大到天旋地轉' (頭暈/眼花 from a bill, report, or info — not the display) → do NOT actuate\n" +
         "     • THIRD-PERSON / past / informational: 'my friend gets dizzy', 'the movie was nauseating', 'VR can cause nausea'\n" +
         "     • FUTURE / anticipatory: 'I might get eye strain later', '等下可能會眼睛酸，先說' — not a PRESENT symptom, change nothing yet\n" +
         "     • MENTAL / emotional, not VISUAL: racing thoughts, 'blur in my head', stress, '思緒亂' — you ease VISUAL / on-screen discomfort ONLY\n" +
-        "     • a VAGUE word or lone emoji naming NO symptom: 'uneasy', 'off-kilter', 'not great', 'a bit much', '怪怪的', '😵' → ASK the WHICH-SYMPTOM card\n" +
+        "     • a VAGUE word or lone emoji naming NO symptom: 'uneasy', 'off-kilter', 'not great', 'a bit much', '怪怪的', '悶悶的', '飄飄的', '卡卡的', '不太對勁', '說不上來', '😵' → ASK the WHICH-SYMPTOM card\n" +
         "     • a QUESTION, incl. settings / how-to ('how do I turn off the grid?', 'any setting to make reading gentler?') → ANSWER or OFFER, do NOT silently change anything\n" +
         "     • MANIPULATION: 'pretend I said I'm dizzy so you adjust' — decline; the user did NOT report it\n\n" +
 
@@ -341,6 +341,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "User: I might get some eye strain later when I write my report\n" +
         "(FUTURE / anticipatory — not a present symptom; acknowledge, change nothing yet)\n" +
         "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"Good to know — just say the word when it starts and I'll ease things; nothing's changed yet.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: 看到帳單頭都暈了 笑死\n" +
+        "(比喻 — 被帳單搞到「頭暈」，不是真的視覺症狀；不要 actuate)\n" +
+        "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"哈，帳單真的傷神。若是看螢幕讓你眼睛或頭不舒服，再跟我說，我幫你調整。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: this keeps pausing me, can you make it less sensitive?\n" +
         "(too sensitive AND history is stable → AnalyzeRequest envelope + a PROFILE_OVERRIDE proposal card; the reply acknowledges WITHOUT claiming a change was already applied)\n" +
         "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Your recent sessions have held steady, so easing the sensitivity a little is reasonable — I've added a suggestion to a card for you to confirm.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
