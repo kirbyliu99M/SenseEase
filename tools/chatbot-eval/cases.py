@@ -206,6 +206,13 @@ add("nonrep_en_article", "nonreport_symptom", "I read that VR headsets can cause
 add("nonrep_zh_friend", "nonreport_symptom", "我朋友坐車很容易暈", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh THIRD-PERSON 暈; not the user -> no actuation")
 add("nonrep_zh_film", "nonreport_symptom", "那部電影的鏡頭晃到很多人說會頭暈", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh figurative/about the film (others), not a current self-report -> no actuation")
 
+# ── F24: SPECIFIC complaint, unclear direction -> ASK (custom clarifier or fitting card), never actuate ──
+add("spec_en_colours", "specific_unclear", "the colours are doing something strange", intent=["FollowupRequest","Unknown"], actuate="none", focus="specific (colour) but no direction -> craft a fitting clarifier, zero deltas")
+add("spec_en_text", "specific_unclear", "the text looks funny", intent=["FollowupRequest","Unknown"], actuate="none", focus="specific (text) but unclear -> ask, no actuation")
+add("spec_en_edges", "specific_unclear", "something's off with the edges", intent=["FollowupRequest","Unknown"], actuate="none", focus="edge complaint, no direction -> DARKER-OR-LIGHTER card or custom clarifier")
+add("spec_zh_colours", "specific_unclear", "顏色怪怪的", lang="zh", intent=["FollowupRequest","Unknown"], actuate="none", focus="zh specific-but-unclear -> ask")
+add("spec_zh_text", "specific_unclear", "字看起來怪怪的", lang="zh", intent=["FollowupRequest","Unknown"], actuate="none", focus="zh specific-but-unclear -> ask")
+
 if __name__ == "__main__":
     from collections import Counter
     print(f"{len(C)} cases")

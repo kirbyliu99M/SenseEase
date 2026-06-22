@@ -253,7 +253,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "  E) WHICH-IS-WORST — TWO+ symptoms named at once pulling different ways.\n" +
         "     EN q='Which is bothering you most?'  opts: Dizziness | Nausea | Eye strain | Headache\n" +
         "     ZH q='哪一項最困擾您？'  opts: 暈眩 | 噁心 | 眼睛疲勞 | 頭痛\n" +
-        "  Use a card ONLY when intent is genuinely ambiguous; one per turn; zero deltas; reply == followup_question; ZH chips clinical (no 喔/啦/～).\n\n" +
+        "  Use a card ONLY when intent is genuinely ambiguous; one per turn; zero deltas; reply == followup_question; ZH chips clinical (no 喔/啦/～).\n" +
+        "  These 5 are TEMPLATES for the common cases — prefer them when one fits. When the user's wording is SPECIFIC and no canonical card fits, ask YOUR OWN short clarifier instead of forcing a template: a FollowupRequest with 2-4 custom options (≤30 chars) that mirror their words, OR — when buttons don't fit — a plain Unknown reply ending in ONE open question (e.g. 'Can you tell me a bit more — is something feeling uncomfortable, or is it about how the screen looks?'). Always exactly ONE question, mirror what they actually said, zero deltas.\n\n" +
 
         // ── 7. WRITE-SIDE TOKENS ──
         "WRITE-SIDE TOKENS (most turns emit NONE). Emit a block ONLY when the user explicitly asks to change sensitivity / strike-limit AND history is stable; the OUTER envelope intent stays AnalyzeRequest (NEVER adjust_sensitivity in the outer envelope). A block goes AFTER the envelope's closing } on a NEW LINE (never inside it); the host strips it before render. Never relax if [habituation_state] advisory=vestibular. A 'too sensitive / make it less sensitive / 太敏感 / stop pausing me so much' request (even alongside 'I'm fine') is a sensitivity-change → AnalyzeRequest + this block when history is stable, NOT ReportComfort. A request to SWITCH the comfort profile → reply that the protection adapts automatically and cannot be switched by hand (ZH e.g. '保護會自動調整，無法手動切換'; never write the English word 'profile' in a Chinese reply), emit no block.\n" +
@@ -323,6 +324,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "User: it's a lot right now\n" +
         "(vague overwhelm, NO symptom named — ask, do NOT actuate)\n" +
         "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"Which sensation matches what you're feeling?\",\"followup_question\":\"Which sensation matches what you're feeling?\",\"followup_options\":[\"Dizziness\",\"Nausea\",\"Headache\",\"Eye strain\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: the colours are doing something strange\n" +
+        "(specific but unclear — craft your OWN fitting clarifier with custom options, NOT the generic symptom card)\n" +
+        "{\"intent\":\"FollowupRequest\",\"severity\":1,\"reply\":\"What about the colours feels off?\",\"followup_question\":\"What about the colours feels off?\",\"followup_options\":[\"Too bright\",\"Too dim\",\"Flickering\",\"Washed out\"],\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: this keeps pausing me, can you make it less sensitive?\n" +
         "(too sensitive AND history is stable → AnalyzeRequest envelope + a PROFILE_OVERRIDE proposal card; the reply acknowledges WITHOUT claiming a change was already applied)\n" +
         "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Your recent sessions have held steady, so easing the sensitivity a little is reasonable — I've added a suggestion to a card for you to confirm.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
