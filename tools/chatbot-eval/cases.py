@@ -175,6 +175,37 @@ add("grid_zh_fade", "grid_nl", "網格有點干擾，幫我調淡一點", lang="
 add("edge_punct", "malformed", "?????", intent=["Unknown","FollowupRequest"], actuate="none", focus="punctuation only; graceful, no actuation")
 add("edge_huge", "malformed", ("I was scrolling through a very long document " * 18).strip(), intent=["Unknown","AnalyzeRequest","FollowupRequest","ReportDiscomfort"], actuate="any", focus="long rambling; stays sane")
 
+# ── F21: AMBIGUOUS / under-specified (Kirby 2026-06-22: ambiguous handling is crucial) ──
+# Short, unclear, or object-less inputs. The model must CLARIFY or answer briefly — NEVER actuate on a guess.
+add("amb_en_hmm", "ambiguous", "hmm", intent=["Unknown","FollowupRequest"], actuate="none", focus="too vague to act; clarify or short reply, zero deltas")
+add("amb_en_this", "ambiguous", "this...", intent=["Unknown","FollowupRequest"], actuate="none", focus="no content; must not actuate")
+add("amb_en_again", "ambiguous", "again", intent=["Unknown","FollowupRequest"], actuate="none", focus="no referent; clarify, no actuation")
+add("amb_en_ugh", "ambiguous", "ugh", intent=["Unknown","FollowupRequest"], actuate="none", focus="distress but UNNAMED; ASK which symptom, never guess a delta")
+add("amb_en_notsure", "ambiguous", "I'm not sure about this", intent=["Unknown","FollowupRequest"], actuate="none", focus="uncertainty, no symptom; clarify, zero deltas")
+add("amb_en_alot", "ambiguous", "it's a lot right now", intent=["Unknown","FollowupRequest"], actuate="none", focus="vague overwhelm; ASK, do NOT silently tighten")
+add("amb_en_dosomething", "ambiguous", "can you just do something?", intent=["FollowupRequest","Unknown"], actuate="none", focus="vague change request -> WHAT-TO-ADJUST card, zero deltas")
+add("amb_en_more", "ambiguous", "more", intent=["Unknown","FollowupRequest"], actuate="none", focus="object-less; clarify, never actuate")
+add("amb_zh_en", "ambiguous", "嗯…", lang="zh", intent=["Unknown","FollowupRequest"], actuate="none", focus="zh filler; clarify, no actuation")
+add("amb_zh_zhege", "ambiguous", "這個…", lang="zh", intent=["Unknown","FollowupRequest"], actuate="none", focus="zh no referent; no actuation")
+add("amb_zh_butaixing", "ambiguous", "不太行", lang="zh", intent=["FollowupRequest","Unknown"], actuate="none", focus="zh vague unwell; ASK which symptom, no guess")
+add("amb_zh_youdian", "ambiguous", "有點…", lang="zh", intent=["Unknown","FollowupRequest"], actuate="none", focus="zh trailing-off; clarify")
+
+# ── F22: UNRELATED out-of-domain -> Unknown, brief redirect, never actuate ──
+add("unrel_en_time", "off_topic", "what time is it?", intent=["Unknown"], actuate="none", focus="out of domain; brief redirect to its job")
+add("unrel_en_notepad", "off_topic", "open notepad for me", intent=["Unknown"], actuate="none", focus="cannot control other apps; decline + redirect")
+add("unrel_en_music", "off_topic", "play some music", intent=["Unknown"], actuate="none", focus="out of domain")
+add("unrel_en_code", "off_topic", "can you write me a Python script?", intent=["Unknown"], actuate="none", focus="out of domain; redirect")
+add("unrel_zh_age", "off_topic", "你幾歲?", lang="zh", intent=["Unknown"], actuate="none", focus="zh off-topic, short")
+add("unrel_zh_flight", "off_topic", "幫我訂機票", lang="zh", intent=["Unknown"], actuate="none", focus="zh out of domain; decline")
+
+# ── F23: symptom WORD present but NOT a first-person present report -> MUST NOT actuate ──
+# The hardest ambiguity: 'dizzy/nausea/暈' appears but it's THIRD-PERSON, FIGURATIVE, PAST, or INFORMATIONAL.
+add("nonrep_en_friend", "nonreport_symptom", "my friend gets dizzy on rollercoasters", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="THIRD-PERSON symptom word; not the user's current report -> zero deltas")
+add("nonrep_en_movie", "nonreport_symptom", "the shaky camera in that movie was really nauseating", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="FIGURATIVE/past, about the film; not a current body report -> no actuation")
+add("nonrep_en_article", "nonreport_symptom", "I read that VR headsets can cause motion sickness", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="INFORMATIONAL, general fact; not a self-report -> no actuation")
+add("nonrep_zh_friend", "nonreport_symptom", "我朋友坐車很容易暈", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh THIRD-PERSON 暈; not the user -> no actuation")
+add("nonrep_zh_film", "nonreport_symptom", "那部電影的鏡頭晃到很多人說會頭暈", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh figurative/about the film (others), not a current self-report -> no actuation")
+
 if __name__ == "__main__":
     from collections import Counter
     print(f"{len(C)} cases")
