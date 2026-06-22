@@ -503,8 +503,26 @@ internal static class FeedbackLexicon
         return matches.Select(m => m.Value).ToArray();
     }
 
+    // Lexicon backstop (Kirby 2026-06-22): a few short ASCII words substring-match FALSELY inside common
+    // words ("ok" in "look", "fine" in "define", "tired" in "retired", "so"/"very" in "person"/"every",
+    // "ar" in "car", "des" in "describe"). These must match as a WHOLE token; everything else — CJK,
+    // multi-word phrases, and intentional stems like "dizz"/"blur" — keeps plain substring matching so
+    // symptom/comfort detection is unchanged. Narrows the over-broad deterministic match, no stem risk.
+    private static readonly HashSet<string> WordBoundaryAscii =
+        new(StringComparer.Ordinal) { "ok", "okay", "fine", "tired", "des", "so", "very", "ar", "vr" };
+
     private static bool ContainsAny(string text, IEnumerable<string> keywords)
-        => keywords.Any(k => text.Contains(k, StringComparison.Ordinal));
+        => keywords.Any(k => ContainsKeyword(text, k));
+
+    private static bool ContainsKeyword(string text, string keyword)
+    {
+        if (!WordBoundaryAscii.Contains(keyword))
+            return text.Contains(keyword, StringComparison.Ordinal);
+        // Whole-token match: the keyword must be a standalone ASCII token, not embedded in a larger word.
+        foreach (var tok in Tokenize(text))
+            if (string.Equals(tok, keyword, StringComparison.Ordinal)) return true;
+        return false;
+    }
 
     private static string Normalize(string? text)
     {
