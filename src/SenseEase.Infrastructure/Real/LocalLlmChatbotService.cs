@@ -159,6 +159,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
     // Local server build (ultrabook #5): Vulkan (universal default) or the Intel OpenVINO build. Affects only
     // the LOCAL launch path — the FLM managed-NPU path is separate. Both are llama.cpp servers (grammar+bearer).
     private readonly LocalServerKind _localServerKind;
+    // Warm-on-load gate (2026-06-22): host predicate that, when it returns true, SKIPS the post-load warmup
+    // prefill. MainViewModel wires it to "on battery AND power-save" so a constrained ultrabook can decline
+    // the one-time ~4,500-token prefill; null ⇒ always warm. Queried LIVE at each load (reflects the battery
+    // state then, not at ctor). See WarmUpPrefixIfAllowedAsync.
+    private readonly Func<bool>? _suppressWarmup;
     private bool IsExternal => !string.IsNullOrWhiteSpace(_externalBaseUrl);
     private string ServerUrl => IsExternal ? _externalBaseUrl! : $"http://127.0.0.1:{ServerPort}";
     // The model id sent in each chat request. External backends require it; the bundled llama-server serves
@@ -392,7 +397,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         Func<DateTime>? utcNow = null, TimeSpan? idleTimeout = null,
         string? externalBaseUrl = null, string? externalModelName = null,
         Func<CancellationToken, Task<ManagedBackend?>>? managedBackendStarter = null,
-        LocalServerKind localServerKind = LocalServerKind.Vulkan)
+        LocalServerKind localServerKind = LocalServerKind.Vulkan,
+        Func<bool>? suppressWarmup = null)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -410,6 +416,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
             ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_MODEL") : externalModelName;
         _managedBackendStarter = managedBackendStarter;
         _localServerKind = localServerKind;
+        _suppressWarmup = suppressWarmup;
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -706,7 +713,51 @@ public sealed class LocalLlmChatbotService : IChatbotService
             _http.DefaultRequestHeaders.Authorization = null;
             throw;
         }
+        // Warm-on-load (2026-06-22): reached ONLY after a successful load — the catch above always rethrows, so
+        // a warmup failure can never corrupt LoadError / IsModelLoaded / the server lifecycle. Best-effort.
+        await WarmUpPrefixIfAllowedAsync().ConfigureAwait(false);
     }
+
+    /// <summary>Warm-on-load (2026-06-22): after a successful LOCAL load, fire ONE throwaway max_tokens=1
+    /// completion of the real system prompt. Two effects, both hidden behind the chat-open → read-greeting →
+    /// type window: (1) the Vulkan shaders / compute graph compile NOW instead of on the user's first send (we
+    /// launch with --no-warmup, so nothing else does this); (2) the ~4,500-token system prefix lands in the
+    /// server's KV cache, so the first real turn reuses it (verified on b9294: a repeat re-prefills a few
+    /// tokens, not ~4,500). Skipped for external/FLM (no prefix reuse to seed) and when the host predicate
+    /// reports battery + power-save (Option C: a constrained ultrabook declines the one-time prefill). Never
+    /// throws, never touches _history or the NLU pipeline.</summary>
+    private async Task WarmUpPrefixIfAllowedAsync()
+    {
+        if (!IsModelLoaded || IsExternal) return;            // local owned-server path only
+        if (_suppressWarmup?.Invoke() == true) return;       // battery + power-save → decline the cold prefill
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var requestBody = new
+            {
+                model       = RequestModelId,
+                messages = new[]
+                {
+                    new { role = "system", content = WithThinkingPolicy(SystemPrompt) },
+                    new { role = "user",   content = "warmup" },
+                },
+                max_tokens   = 1,        // we only need the PREFILL; a single decoded token is enough
+                temperature  = 0.0,
+                cache_prompt = true,     // seed the prefix the real turns reuse (local llama-server)
+            };
+            using var resp = await _http.PostAsJsonAsync(
+                $"{ServerUrl}/v1/chat/completions", requestBody, CancellationToken.None).ConfigureAwait(false);
+            LogDiag(resp.IsSuccessStatusCode
+                ? "LLM warm-on-load: system prefix primed"
+                : $"LLM warm-on-load skipped: HTTP {(int)resp.StatusCode}");
+        }
+        catch { /* best-effort — on failure the first real turn simply pays the cold prefill */ }
+        finally { _lock.Release(); }
+    }
+
+    /// <summary>Test seam (no real server): the warm-on-load GATING decision — local path AND not host-
+    /// suppressed (battery + power-save). The predicate is queried live. Mirrors the IdleWindow*ForTest seams.</summary>
+    internal bool WarmOnLoadAllowedForTest() => !IsExternal && _suppressWarmup?.Invoke() != true;
 
     /// <summary>H39: returns true if <paramref name="port"/> already has an active
     /// IPv4/IPv6 loopback TCP listener. Used to refuse spawning a second server on
@@ -1020,6 +1071,12 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 // External backends (FastFlowLM) are not llama.cpp and don't do GBNF — omit it for them so a
                 // strict server can't reject the request; the tolerant parser handles the looser output.
                 grammar     = IsExternal ? null : EnvelopeGrammar,
+                // Defensive pin (2026-06-22): b9294 ALREADY defaults prefix caching ON — verified on the wire,
+                // a repeated system prompt re-prefills ~1 token instead of ~4,500 (2.4s → ~20ms). So this is a
+                // no-op today; it guards against a future llama.cpp build flipping the default off and silently
+                // re-paying the full prefill every turn. Omitted for external/FLM (unknown field there — mirrors
+                // the grammar handling above; FLM does not prefix-reuse regardless).
+                cache_prompt = IsExternal ? (bool?)null : true,
             };
 
             // NE3: never let a network error or a malformed-200 body throw past
@@ -1138,6 +1195,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 top_k       = 40,
                 stop        = _stopTokens,
                 // NO grammar (free prose) + NO history (one-shot) — deliberately context-window-light.
+                cache_prompt = IsExternal ? (bool?)null : true,   // defensive prefix-cache pin (see AskServerForDecisionAsync)
             };
             try
             {

@@ -1053,7 +1053,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
-            nGpuLayers: chatModel.NGpuLayers, managedBackendStarter: npuStarter, localServerKind: localServerKind);
+            nGpuLayers: chatModel.NGpuLayers, managedBackendStarter: npuStarter, localServerKind: localServerKind,
+            // Warm-on-load skip (Option C, 2026-06-22): on a battery-bound ultrabook that is ALSO in power-save,
+            // decline the one-time ~4,500-token warmup prefill. Queried live at each (re)load; plugged-in or
+            // non-power-save machines always warm. _powerSaveActiveLookup may be null until MainWindow wires it
+            // → treated as "not power-save" (warm), the safe default.
+            suppressWarmup: () => SenseEase.App.Services.SystemPowerStatus.OnBattery() && (_powerSaveActiveLookup?.Invoke() ?? false));
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
