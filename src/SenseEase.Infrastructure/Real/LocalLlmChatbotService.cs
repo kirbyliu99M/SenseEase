@@ -224,7 +224,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "  ReportDiscomfort — first-person present symptom (dizzy/nausea/headache/eye strain) RIGHT NOW. Apply deltas; severity 1-5 from current text only.\n" +
         "  ReportComfort — feels better / stable / thanks. Reassure; zero deltas.\n" +
         "  ResetRequest — asks to undo / reset / restore defaults. Zero deltas; the app resets.\n" +
-        "  AnalyzeRequest — asks about past sessions/causes/patterns (cite [RecentAdjustments] / [RecentEvents]), OR the CURRENT screen/video/content (judge from live [SenseEaseState] in plain terms, never numbers). Zero deltas.\n" +
+        "  AnalyzeRequest — asks about past sessions/causes/patterns (cite [RecentAdjustments] / [RecentEvents]), OR the CURRENT screen/video/content (judge from live [SenseEaseState] in plain terms, never numbers), OR an OVERALL summary of how they've been doing ('how am I doing?', 'my stats?', 'give me a report', '我的狀況如何', '可以給我報告嗎') — give a SHORT qualitative read of the recent trend from [habituation_state]/trajectory (about their SESSIONS/record, NEVER the body; plain words like 'fairly steady' / 'a few busier moments', NO numbers/dates) and point them to the health report they can export from Settings (the full charts + history live there). Zero deltas.\n" +
         "  FollowupRequest — only per the card policy below. Zero deltas.\n" +
         "  Unknown — greetings, off-topic, unclear non-discomfort. Short reply; zero deltas.\n" +
         "  ⚠ ACTUATE (non-zero deltas) ONLY on a first-person PRESENT-TENSE symptom statement ('I'm dizzy', '頭暈'). Every question / hypothetical / definition / screen-or-video question / vague-or-unnamed request = answer or ask, ZERO deltas. Screen/content question = AnalyzeRequest; body question = Unknown; discomfort with no symptom named = the WHICH-SYMPTOM card. A symptom STILL present outweighs 'better'/'fine' — 'better but still nauseous' / '好一點但還是有點想吐' is ReportDiscomfort (act on the remaining symptom). If unsure, treat as a question. Never accumulate severity from history.\n" +
@@ -323,6 +323,12 @@ public sealed class LocalLlmChatbotService : IChatbotService
         "{\"intent\":\"ResetRequest\",\"severity\":1,\"reply\":\"All done — I've set everything back to its defaults for you.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: I felt dizzy during last session, do you know what causes it?\n" +
         "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Looking back, the screen got a lot busier around 21:10 and the comfort overlay kicked in — the dizziness most likely came from that burst of on-screen motion.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: how have I been doing overall?\n" +
+        "(OVERALL-summary AnalyzeRequest — brief QUALITATIVE trend about their sessions, NO numbers, then point to the exportable health report; zero deltas)\n" +
+        "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"Your recent sessions have been fairly steady overall, with a few busier moments here and there. For the full picture — charts and history — you can export a health report from Settings.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
+        "User: 我最近狀況如何？\n" +
+        "(整體回顧 AnalyzeRequest — 給質性趨勢、不講數字，並指向可在設定中匯出的健康報告；零 delta)\n" +
+        "{\"intent\":\"AnalyzeRequest\",\"severity\":1,\"reply\":\"最近幾次使用整體大致平穩，偶爾有些起伏。想看完整記錄與圖表，可以在設定中匯出健康報告。\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +
         "User: do you think I'm dizzy now?\n" +
         "(a QUESTION about the user's state — NOT a discomfort report; answer it and change NOTHING)\n" +
         "{\"intent\":\"Unknown\",\"severity\":1,\"reply\":\"I can't sense that for you — only you can tell. If you do feel dizzy, just say so and I'll ease the visuals; for now I've left everything as-is.\",\"fov_delta\":0,\"mask_depth_delta\":0.0,\"grid_visibility_delta\":0.0}\n" +

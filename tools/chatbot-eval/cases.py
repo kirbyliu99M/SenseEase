@@ -117,6 +117,16 @@ add("an_en_progress", "analyze", "how am I doing this week?", history=HIST_ANALY
 add("an_zh_progress", "analyze", "我這禮拜有進步嗎?", lang="zh", history=HIST_ANALYZE+HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="zh analyze, cite, no actuation")
 add("an_zh_whatchanged", "analyze", "剛剛發生什麼事讓我不舒服?", lang="zh", history=HIST_ANALYZE, intent=["AnalyzeRequest"], actuate="none", focus="zh analyze")
 
+# ── F9b: overall-summary / "my stats" / report requests (2026-06-22) ────────
+# AnalyzeRequest with a QUALITATIVE trend (no numbers/tier) THEN a pointer to the
+# exportable health report (Settings). The report carries the figures; chat stays plain.
+add("rep_en_overall", "report_summary", "how have I been doing overall?", history=HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="qualitative trend, NO numbers/tier; point to the exportable health report in Settings")
+add("rep_en_report", "report_summary", "can you give me a report of my progress?", history=HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="must point to the exportable health report; no fabricated numbers")
+add("rep_en_stats", "report_summary", "show me my stats", history=HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="no raw stats in chat; qualitative gist + report pointer")
+add("rep_zh_status", "report_summary", "我最近狀況如何？", lang="zh", history=HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="zh qualitative trend, no numbers; point to 健康報告 in 設定")
+add("rep_zh_report", "report_summary", "可以給我一份報告嗎？", lang="zh", history=HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="zh must point to 匯出健康報告; no fabricated numbers")
+add("rep_zh_usage", "report_summary", "我的使用情況怎麼樣？", lang="zh", history=HAB_STABLE, intent=["AnalyzeRequest"], actuate="none", focus="zh usage summary -> qualitative gist + 健康報告 pointer")
+
 # ── F8: reset / undo phrasings -> ResetRequest, zero ───────────────────────
 add("reset_en_default", "reset", "reset everything to default", intent=["ResetRequest"], actuate="none", focus="reset; app handles it; honest copy")
 add("reset_en_normal", "reset", "can you put it back to normal?", intent=["ResetRequest"], actuate="none", focus="reset phrasing")
