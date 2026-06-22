@@ -95,7 +95,7 @@ CJK = re.compile(r"[一-鿿]")
 KANA = re.compile(r"[぀-ヿ]")
 HANGUL = re.compile(r"[가-힣]")
 # common Simplified-only forms with distinct Traditional counterparts (domain-weighted)
-SIMPLIFIED = set("这头让设调适严觉视现损闭关灯优应须紧张报们个时间问题对错虑虑亮护脑")
+SIMPLIFIED = set("这头让设调适严觉视现损闭关灯优应须紧张报们个时间问题对错虑虑护脑")  # NB: 亮 removed — valid Traditional, not Simplified-only (was a harness false-positive)
 
 def lang_check(lang, reply):
     flags = []
@@ -126,7 +126,12 @@ def actuation_check(expect, fov, md, gv):
 def run(args):
     out_path = P / args.out
     results = []
-    cases = CASES.C[: args.limit] if args.limit else CASES.C
+    if args.cases_json:
+        cases = json.loads((P / args.cases_json).read_text(encoding="utf-8"))
+        if args.limit:
+            cases = cases[: args.limit]
+    else:
+        cases = CASES.C[: args.limit] if args.limit else CASES.C
     total = len(cases) * args.reps
     n = 0
     t0 = time.time()
@@ -242,4 +247,5 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="results.jsonl")
     ap.add_argument("--no-grammar", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--cases-json", default=None, help="load cases from a JSON array file instead of cases.py")
     run(ap.parse_args())
