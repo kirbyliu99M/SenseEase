@@ -76,12 +76,22 @@ SetupIconFile={#IconSource}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppVerName}
 
-; ----- Compression (LZMA2 ultra64 for the 2.9 GB payload) -----
-; Note: GGUF is already quantized (Q4_K_M) so compresses poorly; expect ~10-15% reduction.
+; ----- Compression (LZMA2 ultra64 for the ~6.8 GB Phase-3 payload) -----
+; Note: the GGUF (~2.5 GB) + Q4NX (~3.1 GB) are already quantized so compress poorly (~10-15%).
 ; Solid compression boosts ratio for the many small framework DLLs at the cost of slower install.
 Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
+
+; ----- Disk spanning (REQUIRED for the all-in-one offline bundle) -----
+; The 3-backend payload (GGUF + Q4NX + OpenVINO + FLM + head-tracker sidecar) compresses to > 4.2 GB,
+; which exceeds the maximum size Windows supports for a SINGLE Setup.exe (the build aborts otherwise).
+; Spanning emits SenseEase-Setup-1.0.0.exe PLUS SenseEase-Setup-1.0.0-*.bin slices (<= ~2.1 GB each)
+; that MUST be kept together in one folder; the user just runs the .exe and it pulls the .bin slices
+; automatically. This is NOT a CD/USB workflow -- it is purely to clear the 4 GB single-file ceiling
+; while keeping ONE unified offline installer that auto-selects the per-hardware backend.
+DiskSpanning=yes
+DiskSliceSize=2100000000
 
 ; ----- Output -----
 OutputDir={#SourcePath}
