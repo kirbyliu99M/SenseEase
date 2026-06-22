@@ -163,6 +163,39 @@ if (Test-Path $vulkanDir) {
 Write-Host "  ($vulkanRemoved trimmed)"
 
 # -----------------------------------------------------------------------------
+# 1d. Stage the Intel OpenVINO backend pack (Phase-3)
+# -----------------------------------------------------------------------------
+# `dotnet publish` carries ONLY the vulkan/ pack (the csproj Content rule); the validated
+# OpenVINO llama-server build lives in the repo at runtimes/win-x64/native/openvino/ (33-file
+# pack, docs/PHASE3_NPU_INSTALLER_PLAN.md §11). Copy it into the dist so the .iss can lay it on
+# Intel boxes (Check: IsIntelCpu). Trim the OV model-frontend DLLs (~13 MB) -- ggml-openvino
+# builds the OV graph directly, so the onnx/paddle/pytorch/tensorflow frontends never load.
+# Non-fatal: if the pack is absent, the Intel backend is simply ABSENT and Intel boxes use Vulkan.
+Write-Section "Stage Intel OpenVINO pack (Phase-3)"
+$ovSrc  = "runtimes/win-x64/native/openvino"
+$ovDest = Join-Path $Dist "runtimes/win-x64/native/openvino"
+if (-not (Test-Path $ovSrc)) {
+    Write-Warning "OpenVINO pack not found at $ovSrc -- the Intel backend will be ABSENT from this build."
+    Write-Warning "Build it via installer/build-openvino-llama-server.bat and copy into $ovSrc first."
+} else {
+    New-Item -ItemType Directory -Path $ovDest -Force | Out-Null
+    robocopy $ovSrc $ovDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    $ovFrontends = @(
+        "openvino_onnx_frontend.dll",
+        "openvino_paddle_frontend.dll",
+        "openvino_pytorch_frontend.dll",
+        "openvino_tensorflow_frontend.dll",
+        "openvino_tensorflow_lite_frontend.dll"
+    )
+    foreach ($f in $ovFrontends) {
+        $fp = Join-Path $ovDest $f
+        if (Test-Path $fp) { Remove-Item $fp -Force; Write-Host "  trimmed: openvino/$f" }
+    }
+    $ovSize = [math]::Round((Get-ChildItem $ovDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+    Write-Host "  staged: OpenVINO pack ($((Get-ChildItem $ovDest -File).Count) files, $ovSize MB)"
+}
+
+# -----------------------------------------------------------------------------
 # 2. Bundle Qwen3-4B Q4_K_M GGUF (the SOLE chat model)
 # -----------------------------------------------------------------------------
 # Qwen3-4B-Instruct-2507 is now the ONLY chat model -- the Mistral/Ministral
@@ -256,6 +289,42 @@ if ($SkipSidecar) {
         $sidecarSize = [math]::Round((Get-ChildItem $sidecarDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
         Write-Host "  copied: head_tracker sidecar tree ($sidecarSize MB)"
     }
+}
+
+# -----------------------------------------------------------------------------
+# 4b. Bundle the AMD FastFlowLM pack (runtime + Q4NX) -- Phase-3
+# -----------------------------------------------------------------------------
+# AMD Ryzen-AI NPU boxes run FastFlowLM. Bundle the flm runtime + the Q4NX model so the install
+# is offline-capable (Kirby 2026-06-23: bundle FLM + Q4NX). The .iss lays:
+#   flm runtime -> {app}\packs\amd-flm\flm  (FlmServerLauncher.FindExe probes there FIRST, since a
+#                  per-user/lowest-priv install can write neither C:\Program Files\flm nor PATH)
+#   Q4NX model  -> {userprofile}\.flm\models\Qwen3-4B-Instruct-2507-NPU2  (FLM's own per-user store)
+# CRITICAL dir name: FLM's model_list.json resolves the tag `qwen3-it:4b` (AppConfig.NpuModelTag)
+# to the store dir "Qwen3-4B-Instruct-2507-NPU2". The repo source models/Qwen3-4B-NPU2/ is the
+# verified-IDENTICAL model (config.json sha + model.q4nx bytes match) but MISNAMED -- so we RENAME
+# it to the catalog name on stage. Ship it as Qwen3-4B-NPU2 => `flm serve qwen3-it:4b` finds
+# nothing => silent Vulkan fallback (NPU never used). Non-fatal: a missing source => AMD pack ABSENT.
+Write-Section "Bundle AMD FastFlowLM pack (runtime + Q4NX) -- Phase-3"
+$flmRuntimeSrc = "C:/Program Files/flm"
+$q4nxSrc       = "models/Qwen3-4B-NPU2"
+$amdPackDest   = Join-Path $Dist "packs/amd-flm"
+if (-not (Test-Path $flmRuntimeSrc)) {
+    Write-Warning "FastFlowLM runtime not found at '$flmRuntimeSrc' -- the AMD NPU pack will be ABSENT (AMD boxes use Vulkan)."
+} elseif (-not (Test-Path $q4nxSrc)) {
+    Write-Warning "Q4NX model not found at '$q4nxSrc' -- skipping the AMD pack."
+} else {
+    # 4b.1 flm runtime -- exclude the standalone FastFlowLM uninstaller (we own this bundled copy).
+    $flmDest = Join-Path $amdPackDest "flm"
+    New-Item -ItemType Directory -Path $flmDest -Force | Out-Null
+    robocopy $flmRuntimeSrc $flmDest /MIR /XF unins000.exe unins000.dat /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    $flmMB = [math]::Round((Get-ChildItem $flmDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+    Write-Host "  staged: flm runtime -> packs/amd-flm/flm ($flmMB MB)"
+    # 4b.2 Q4NX -- RENAMED to the FLM catalog name so `flm serve qwen3-it:4b` resolves it.
+    $q4nxDest = Join-Path $amdPackDest "q4nx/Qwen3-4B-Instruct-2507-NPU2"
+    New-Item -ItemType Directory -Path $q4nxDest -Force | Out-Null
+    robocopy $q4nxSrc $q4nxDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    $q4nxMB = [math]::Round((Get-ChildItem $q4nxDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+    Write-Host "  staged: Q4NX -> packs/amd-flm/q4nx/Qwen3-4B-Instruct-2507-NPU2 ($q4nxMB MB)"
 }
 
 # -----------------------------------------------------------------------------
@@ -385,6 +454,45 @@ if (Test-Path $sidecarRoot) {
             if (-not $manifest.Contains($rel)) {
                 $sha = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
                 $manifest[$rel] = $sha
+                $hashedCount++
+                Write-Host "  hashed: $rel"
+            }
+        }
+}
+
+# Phase-3: hash the Intel OpenVINO pack closure (scoped to its subtree, like the sidecar pass).
+# The OV llama-server.exe + ggml*.dll + llama*.dll are already caught by the global patterns above;
+# this adds openvino*.dll + tbb*.dll + OpenCL.dll + the VC redist DLLs the OV server loads, so the
+# whole Intel-launched closure is integrity-covered (the runtime H32 gate verifies whatever exe the
+# probe spawns -- PHASE3 §7). De-dup via Contains() so the overlap with the global pass is harmless.
+$ovManifestRoot = Join-Path $Dist "runtimes/win-x64/native/openvino"
+if (Test-Path $ovManifestRoot) {
+    Get-ChildItem -Path $ovManifestRoot -Recurse -File -Include *.dll, *.exe -ErrorAction SilentlyContinue |
+        Sort-Object FullName |
+        ForEach-Object {
+            $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')
+            if (-not $manifest.Contains($rel)) {
+                $manifest[$rel] = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                $hashedCount++
+                Write-Host "  hashed: $rel"
+            }
+        }
+}
+
+# Phase-3: hash the AMD FastFlowLM pack (flm.exe + its DLLs + the Q4NX weights). flm is a 3rd-party
+# runtime reached over loopback with NO bearer, so the install-time manifest hash is the primary
+# tamper check for the AMD path (PHASE3 §7). NOTE the Q4NX entry is keyed by its DIST-relative path
+# (packs/amd-flm/q4nx/...); the installer relocates it to {userprofile}\.flm\models\... so the runtime
+# verifier (which resolves keys under {app}) does NOT re-check the relocated copy -- this is a
+# build-time integrity RECORD of the exact bytes shipped, not a runtime gate on the FLM model.
+$amdManifestRoot = Join-Path $Dist "packs/amd-flm"
+if (Test-Path $amdManifestRoot) {
+    Get-ChildItem -Path $amdManifestRoot -Recurse -File -Include *.exe, *.dll, *.q4nx -ErrorAction SilentlyContinue |
+        Sort-Object FullName |
+        ForEach-Object {
+            $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')
+            if (-not $manifest.Contains($rel)) {
+                $manifest[$rel] = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
                 $hashedCount++
                 Write-Host "  hashed: $rel"
             }
