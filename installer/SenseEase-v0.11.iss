@@ -119,7 +119,7 @@ Source: "{#DistRoot}\packs\amd-flm\flm\*"; DestDir: "{app}\packs\amd-flm\flm"; C
 ; --- AMD Q4NX NPU model -> FLM's OWN per-user store (writable at lowest privilege) so
 ;     `flm serve qwen3-it:4b` resolves it. The dest dir name MUST be Qwen3-4B-Instruct-2507-NPU2
 ;     (FLM model_list.json's catalog name for the tag); any other name => FLM finds nothing => Vulkan. ---
-Source: "{#DistRoot}\packs\amd-flm\q4nx\Qwen3-4B-Instruct-2507-NPU2\*"; DestDir: "{userprofile}\.flm\models\Qwen3-4B-Instruct-2507-NPU2"; Check: IsAmdNpu; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#DistRoot}\packs\amd-flm\q4nx\Qwen3-4B-Instruct-2507-NPU2\*"; DestDir: "{%USERPROFILE}\.flm\models\Qwen3-4B-Instruct-2507-NPU2"; Check: IsAmdNpu; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; Start-menu shortcut (always created).
@@ -169,7 +169,7 @@ Type: filesandordirs; Name: "{app}\samples"
 ; --- Phase-3: prune the OTHER vendor's backend pack so a machine that changed hands, or a re-run
 ;     that re-attributes the hardware (e.g. an NPU driver was disabled), doesn't carry dead weight.
 ;     [InstallDelete] runs BEFORE [Files], and Check: removes a pack only when THIS install will NOT
-;     lay it. (The Q4NX copy in {userprofile}\.flm is FLM's own per-user store and is left intact.) ---
+;     lay it. (The Q4NX copy in {%USERPROFILE}\.flm is FLM's own per-user store and is left intact.) ---
 Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\openvino"; Check: not IsIntelCpu
 Type: filesandordirs; Name: "{app}\packs\amd-flm"; Check: not IsAmdNpu
 
@@ -221,75 +221,53 @@ var
   GHasNpu:    Boolean;
   GAmdPage:   TInputOptionWizardPage;
 
-// NPU name markers — MUST mirror HardwareProbe.NpuMarkers (lower-case substring match).
-function NpuMarkerHit(const LowerName: String): Boolean;
-begin
-  Result :=
-    (Pos('npu compute accelerator', LowerName) > 0) or
-    (Pos('npu compute',             LowerName) > 0) or
-    (Pos('ipu device',              LowerName) > 0) or
-    (Pos('amd ipu',                 LowerName) > 0) or
-    (Pos('ai boost',                LowerName) > 0) or
-    (Pos('neural processor',        LowerName) > 0);
-end;
-
-// CPU vendor via WMI Win32_Processor (Manufacturer + brand Name).
+// CPU vendor via the registry (HARDWARE\DESCRIPTION\System\CentralProcessor\0): VendorIdentifier is
+// "AuthenticAMD" / "GenuineIntel"; ProcessorNameString adds the marketing name (e.g. "AMD Ryzen AI 9
+// HX 370 ..."). Simpler + more robust than a Win32_Processor WMI enumeration; IsAmd/IsIntel only
+// substring-match the lower-cased result. HKLM\HARDWARE is not WOW64-redirected, so this is bitness-safe.
 function DetectCpuVendor(): String;
 var
-  Locator, Services, ObjectSet, Item: Variant;
+  Vendor, BrandName: String;
 begin
   Result := '';
-  try
-    Locator  := CreateOleObject('WbemScripting.SWbemLocator');
-    Services := Locator.ConnectServer('localhost', 'root\CIMV2');
-    ObjectSet := Services.ExecQuery('SELECT Manufacturer, Name FROM Win32_Processor');
-    for Item in ObjectSet do
-    begin
-      if not VarIsNull(Item.Manufacturer) then Result := VarToStr(Item.Manufacturer);
-      if (not VarIsNull(Item.Name)) and (Trim(VarToStr(Item.Name)) <> '') then
-        Result := Result + ' | ' + VarToStr(Item.Name);
-      Break;
-    end;
-  except
-    Result := '';
-  end;
+  if RegQueryStringValue(HKLM, 'HARDWARE\DESCRIPTION\System\CentralProcessor\0', 'VendorIdentifier', Vendor) then
+    Result := Vendor;
+  if RegQueryStringValue(HKLM, 'HARDWARE\DESCRIPTION\System\CentralProcessor\0', 'ProcessorNameString', BrandName) then
+    Result := Result + ' | ' + BrandName;
 end;
 
-// NPU presence: any Win32_PnPEntity whose Name matches a marker.
+// NPU presence via WMI: COUNT the Win32_PnPEntity rows whose Name matches an NPU marker. WQL LIKE is
+// case-insensitive and mirrors HardwareProbe.NpuMarkers (npu compute [accelerator] / ipu device / amd ipu
+// / ai boost / neural processor). Using .Count avoids the for-in loop Inno's Pascal Script lacks. Any
+// failure is caught -> False -> the box is treated as non-NPU (safe: it just takes the Vulkan/GGUF path).
 function HasNpuDevice(): Boolean;
 var
-  Locator, Services, ObjectSet, Item: Variant;
-  LowerName: String;
+  Locator, Services, ObjectSet: Variant;
 begin
   Result := False;
   try
     Locator  := CreateOleObject('WbemScripting.SWbemLocator');
     Services := Locator.ConnectServer('localhost', 'root\CIMV2');
-    ObjectSet := Services.ExecQuery('SELECT Name FROM Win32_PnPEntity');
-    for Item in ObjectSet do
-    begin
-      if not VarIsNull(Item.Name) then
-      begin
-        LowerName := Lowercase(VarToStr(Item.Name));
-        if NpuMarkerHit(LowerName) then
-        begin
-          Result := True;
-          Break;
-        end;
-      end;
-    end;
+    ObjectSet := Services.ExecQuery(
+      'SELECT Name FROM Win32_PnPEntity WHERE ' +
+      'Name LIKE "%npu compute%" OR Name LIKE "%ipu device%" OR Name LIKE "%amd ipu%" OR ' +
+      'Name LIKE "%ai boost%" OR Name LIKE "%neural processor%"');
+    Result := (ObjectSet.Count > 0);
   except
     Result := False;
   end;
 end;
 
 procedure ProbeHardware();
+var
+  NpuFlag: String;
 begin
   if GProbed then Exit;
   GCpuVendor := Lowercase(DetectCpuVendor());
   GHasNpu    := HasNpuDevice();
   GProbed    := True;
-  Log('SenseEase NPU probe: vendor="' + GCpuVendor + '" hasNpu=' + IntToStr(Integer(GHasNpu)));
+  if GHasNpu then NpuFlag := '1' else NpuFlag := '0';
+  Log('SenseEase NPU probe: vendor="' + GCpuVendor + '" hasNpu=' + NpuFlag);
 end;
 
 function IsAmd(): Boolean;
