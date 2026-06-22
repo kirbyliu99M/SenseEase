@@ -60,7 +60,7 @@ def call(port, user_msg, grammar=True, timeout=120):
                                  data=json.dumps(body).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
     r = json.load(urllib.request.urlopen(req, timeout=timeout))
-    return r["choices"][0]["message"]["content"]
+    return r["choices"][0]["message"]["content"], r
 
 def extract_json(raw):
     """Mirror MistralChatbotService.ExtractJson: brace-match from first '{'."""
@@ -145,7 +145,12 @@ def run(args):
                        "expect_intent": case["intent"], "expect_actuate": case["actuate"],
                        "focus": case["focus"]}
                 try:
-                    raw = call(args.port, user_msg, grammar=not args.no_grammar)
+                    _t0 = time.time()
+                    raw, _resp = call(args.port, user_msg, grammar=not args.no_grammar)
+                    rec["latency_ms"] = int((time.time() - _t0) * 1000)
+                    _u = _resp.get("usage", {}) if isinstance(_resp, dict) else {}
+                    rec["prompt_tokens"] = _u.get("prompt_tokens")
+                    rec["completion_tokens"] = _u.get("completion_tokens")
                 except Exception as e:
                     rec["error"] = f"{type(e).__name__}: {e}"
                     rec["checks"] = {"json_valid": False}
