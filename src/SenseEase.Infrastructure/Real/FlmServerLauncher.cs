@@ -33,10 +33,25 @@ public static class FlmServerLauncher
     // One short-lived probe client for the readiness GETs; the per-call timeout is enforced via a linked CTS.
     private static readonly HttpClient _probe = new() { Timeout = TimeSpan.FromSeconds(8) };
 
-    /// <summary>Locate flm.exe: PATH first (where the installer adds it), then the standard install dirs.
-    /// Null when FastFlowLM isn't installed → no NPU backend, the caller stays on Vulkan.</summary>
+    /// <summary>Relative path, under the app's own install dir, where the Phase-3 AMD pack drops the bundled
+    /// FastFlowLM runtime. A per-user install (<c>PrivilegesRequired=lowest</c>) can write neither
+    /// <c>C:\Program Files\flm</c> nor the machine PATH, so the installer lays flm into the app tree and we
+    /// probe HERE FIRST — this is the only place a bundled-FLM Beta install can be found.</summary>
+    private const string BundledFlmRelative = @"packs\amd-flm\flm\flm.exe";
+
+    /// <summary>Locate flm.exe: the app's own bundled AMD pack first (Phase-3 per-user install), then PATH
+    /// (where the standalone FastFlowLM installer adds it), then the standard install dirs. Null when
+    /// FastFlowLM isn't available anywhere → no NPU backend, the caller stays on Vulkan.</summary>
     public static string? FindExe()
     {
+        // 1) The flm runtime SenseEase's own installer bundled into the app dir (Phase-3 AMD pack).
+        try
+        {
+            string bundled = Path.Combine(AppContext.BaseDirectory, BundledFlmRelative);
+            if (File.Exists(bundled)) return bundled;
+        }
+        catch { /* BaseDirectory unavailable in some hosts — fall through to PATH / install dirs */ }
+
         string? path = Environment.GetEnvironmentVariable("PATH");
         if (path is not null)
         {
