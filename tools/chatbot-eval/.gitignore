@@ -1,0 +1,20 @@
+# Generated eval run-artifacts (Kirby 2026-06-22) — keep the harness SOURCE tracked (cases.py,
+# run_eval.py, extract_prompt.py, analyze.py, judge_workflow.js, README.md, baseline_summary.txt),
+# ignore the run OUTPUTS. extract_prompt.py regenerates system_prompt.txt / grammar.gbnf from source;
+# run_eval.py writes results*.jsonl + *_summary.txt; analyze.py writes judge_fam/ + judge_input.json.
+results*.jsonl
+smoke*.jsonl
+nogram.jsonl
+*_nogram_summary.txt
+*_gram_summary.txt
+run_summary*.txt
+*.log
+*.log.out
+system_prompt.txt
+grammar.gbnf
+gram_test.txt
+judge_fam/
+judge_input.json
+lang_fail_replies.txt
+sample_replies.txt
+spotcheck*.txt
