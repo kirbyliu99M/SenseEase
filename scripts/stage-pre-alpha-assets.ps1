@@ -34,6 +34,16 @@ function Write-Section($title) {
     Write-Host "=== $title ===" -ForegroundColor Cyan
 }
 
+# Robocopy exit codes 0-7 are SUCCESS (1 = files copied; 2/4 = extras/mismatch present; 3/5/6/7 =
+# combinations); only >= 8 is a real failure. Guard every robocopy so a genuine copy failure ABORTS the
+# stage, AND reset $LASTEXITCODE to 0 afterwards so a benign '1' from the LAST robocopy can't surface as
+# the whole script's non-zero exit code to an orchestrator (Beta-1: the stage otherwise reports a false
+# 'failed (exit 1)' even though every pack staged correctly).
+function Assert-Robocopy($what) {
+    if ($LASTEXITCODE -ge 8) { Write-Error "robocopy failed (exit $LASTEXITCODE) staging $what"; exit 1 }
+    $global:LASTEXITCODE = 0
+}
+
 # -----------------------------------------------------------------------------
 # 0. Sanity checks
 # -----------------------------------------------------------------------------
@@ -180,6 +190,7 @@ if (-not (Test-Path $ovSrc)) {
 } else {
     New-Item -ItemType Directory -Path $ovDest -Force | Out-Null
     robocopy $ovSrc $ovDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    Assert-Robocopy "OpenVINO pack"
     $ovFrontends = @(
         "openvino_onnx_frontend.dll",
         "openvino_paddle_frontend.dll",
@@ -286,6 +297,7 @@ if ($SkipSidecar) {
         # /NP no progress bytes
         # /R:2 /W:1 minimal retries
         robocopy $sidecarSrc $sidecarDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+        Assert-Robocopy "head-tracker sidecar"
         $sidecarSize = [math]::Round((Get-ChildItem $sidecarDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
         Write-Host "  copied: head_tracker sidecar tree ($sidecarSize MB)"
     }
@@ -317,12 +329,14 @@ if (-not (Test-Path $flmRuntimeSrc)) {
     $flmDest = Join-Path $amdPackDest "flm"
     New-Item -ItemType Directory -Path $flmDest -Force | Out-Null
     robocopy $flmRuntimeSrc $flmDest /MIR /XF unins000.exe unins000.dat /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    Assert-Robocopy "FLM runtime"
     $flmMB = [math]::Round((Get-ChildItem $flmDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
     Write-Host "  staged: flm runtime -> packs/amd-flm/flm ($flmMB MB)"
     # 4b.2 Q4NX -- RENAMED to the FLM catalog name so `flm serve qwen3-it:4b` resolves it.
     $q4nxDest = Join-Path $amdPackDest "q4nx/Qwen3-4B-Instruct-2507-NPU2"
     New-Item -ItemType Directory -Path $q4nxDest -Force | Out-Null
     robocopy $q4nxSrc $q4nxDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    Assert-Robocopy "Q4NX model"
     $q4nxMB = [math]::Round((Get-ChildItem $q4nxDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
     Write-Host "  staged: Q4NX -> packs/amd-flm/q4nx/Qwen3-4B-Instruct-2507-NPU2 ($q4nxMB MB)"
 }
@@ -360,7 +374,9 @@ Write-Section "Emit installer .sha256 sidecar (PKG-03)"
 # skip-if-exists left the published .sha256 hashing the OLD installer bytes -> a tester running
 # sha256 verification on the fresh download got a MISMATCH on a legitimate build. Overwriting
 # guarantees the sidecar always matches the bytes that were just compiled.
-$installerPattern = Join-Path "installer" "SenseEase_Setup-Alpha_Test.*.exe"
+# Match the current Beta/Release naming (OutputBaseFilename = SenseEase-Setup-<ver>). The retired
+# Alpha_Test.* glob stopped matching at 1.0.0, so the sidecar was silently skipped for Beta artifacts.
+$installerPattern = Join-Path "installer" "SenseEase-Setup-*.exe"
 $installerFiles   = Get-ChildItem -Path $installerPattern -ErrorAction SilentlyContinue |
                         Where-Object { $_.Extension -eq ".exe" -and $_.Name -notlike "*.old.exe" }
 if ($installerFiles) {
@@ -518,3 +534,7 @@ Write-Host "=== Staging complete ===" -ForegroundColor Green
 Write-Host "  Final dist size: $finalMB MB"
 Write-Host "  Elapsed:         $elapsed s"
 Write-Host "  Dist path:       $Dist"
+
+# Stage succeeded. Force a clean exit code: Assert-Robocopy already cleared $LASTEXITCODE after each copy,
+# but pin it explicitly so the script never hands a stale native exit code back to its caller.
+exit 0
