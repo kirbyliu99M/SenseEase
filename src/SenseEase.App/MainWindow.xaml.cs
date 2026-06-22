@@ -205,7 +205,16 @@ public partial class MainWindow : Window
             if (_trayStartupPark)
             {
                 _trayStartupPark = false;
-                UnparkOffscreenWindow(hideAfter: true);
+                // Dashboard-ghost fix (2026-06-22): the console is now a PURE HEADLESS HOST — it is never
+                // surfaced (a reveal goes to the popup via App.RevealShellPanel). It has rendered once
+                // off-screen, so just HIDE it where it is. Do NOT re-centre it / toggle ShowInTaskbar (the old
+                // UnparkOffscreenWindow path): setting ShowInTaskbar forces a WPF HWND recreate that can briefly
+                // un-hide the window, and the subsequent ON-SCREEN re-centre then paints the blank shell for a
+                // beat — the lingering "dashboard ghost" (worse under the glass software-render path). Staying
+                // off-screen + hidden + ShowInTaskbar=false (from the ctor) can never paint on a real monitor.
+                // (UnparkOffscreenWindow is kept for the dormant SurfaceMainWindowFromTray path, which re-centres
+                // before its own Show() if the console is ever surfaced on demand again.)
+                Hide();
             }
         };
 
