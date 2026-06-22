@@ -1,4 +1,4 @@
-; =============================================================================
+﻿; =============================================================================
 ; SenseEase v0.11 Pre-Alpha Installer
 ; Inno Setup 6.x script
 ;
@@ -95,14 +95,31 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
 [Files]
-; Single recursive entry pulls the whole published dist tree into {app}.
-; ignoreversion          -- always overwrite (we don't rely on FileVersion stamps)
-; recursesubdirs         -- include models\, runtimes\, locale subfolders
-; createallsubdirs       -- preserve directory structure for runtimes\win-x64\native\cuda12\ etc.
-; Excludes (H28)         -- never package debug symbols, doc-comment XML, stray logs, or
-;                           the .NET createdump diagnostic tool; they bloat the installer
-;                           and ship nothing the runtime needs.
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.log,createdump.exe"
+; Phase-3 hardware-differentiated layout. The base entry stages the app + the universal Vulkan
+; runtime + the head-tracker sidecar (everything EXCEPT the per-hardware packs, which are carved
+; out by Excludes here and re-added Check:-gated below). The install-time probe ([Code]) attributes
+; the machine; the RUNTIME launch-verifies + always falls back to Vulkan, so install optimistically.
+;   ignoreversion          -- always overwrite (we don't rely on FileVersion stamps)
+;   recursesubdirs         -- include models\, runtimes\, locale subfolders
+;   createallsubdirs       -- preserve directory structure
+;   Excludes (H28 + Phase-3)-- never package debug symbols / doc XML / stray logs / createdump; AND
+;                              carve out \models, \packs, the OpenVINO native dir (re-added below).
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.log,createdump.exe,\models\*,\packs\*,\runtimes\win-x64\native\openvino\*"
+;
+; --- Universal GGUF (the Vulkan AND OpenVINO rungs both load it): everyone EXCEPT an AMD-NPU box
+;     that chose "Efficient" (Q4NX-only). The AMD default is Maximum, so AMD normally gets it too. ---
+Source: "{#DistRoot}\models\*"; DestDir: "{app}\models"; Check: WantsGguf; Flags: ignoreversion recursesubdirs createallsubdirs
+;
+; --- Intel OpenVINO llama-server build: only on Intel boxes (Check: IsIntelCpu). ---
+Source: "{#DistRoot}\runtimes\win-x64\native\openvino\*"; DestDir: "{app}\runtimes\win-x64\native\openvino"; Check: IsIntelCpu; Flags: ignoreversion recursesubdirs createallsubdirs
+;
+; --- AMD FastFlowLM runtime: only AMD-NPU boxes. FlmServerLauncher.FindExe probes {app}\packs\amd-flm\flm FIRST. ---
+Source: "{#DistRoot}\packs\amd-flm\flm\*"; DestDir: "{app}\packs\amd-flm\flm"; Check: IsAmdNpu; Flags: ignoreversion recursesubdirs createallsubdirs
+;
+; --- AMD Q4NX NPU model -> FLM's OWN per-user store (writable at lowest privilege) so
+;     `flm serve qwen3-it:4b` resolves it. The dest dir name MUST be Qwen3-4B-Instruct-2507-NPU2
+;     (FLM model_list.json's catalog name for the tag); any other name => FLM finds nothing => Vulkan. ---
+Source: "{#DistRoot}\packs\amd-flm\q4nx\Qwen3-4B-Instruct-2507-NPU2\*"; DestDir: "{userprofile}\.flm\models\Qwen3-4B-Instruct-2507-NPU2"; Check: IsAmdNpu; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; Start-menu shortcut (always created).
@@ -148,6 +165,13 @@ Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\vulkan\ggml-rpc.dll"
 ; --- Samples directory (demo-video staging removed 2026-06-08; older installs may
 ;     have a stale samples\ tree from pre-v0.10 builds) ---
 Type: filesandordirs; Name: "{app}\samples"
+;
+; --- Phase-3: prune the OTHER vendor's backend pack so a machine that changed hands, or a re-run
+;     that re-attributes the hardware (e.g. an NPU driver was disabled), doesn't carry dead weight.
+;     [InstallDelete] runs BEFORE [Files], and Check: removes a pack only when THIS install will NOT
+;     lay it. (The Q4NX copy in {userprofile}\.flm is FLM's own per-user store and is left intact.) ---
+Type: filesandordirs; Name: "{app}\runtimes\win-x64\native\openvino"; Check: not IsIntelCpu
+Type: filesandordirs; Name: "{app}\packs\amd-flm"; Check: not IsAmdNpu
 
 [UninstallDelete]
 ; INTENTIONALLY EMPTY.
@@ -178,6 +202,150 @@ Type: filesandordirs; Name: "{app}\samples"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "SenseEase"; Flags: uninsdeletevalue
 
 [Code]
+
+// =============================================================================
+// Phase-3 hardware-differentiated install probe — mirrors the RUNTIME backend
+// selection (HardwareProbe / LlmBackendSelector): AMD-NPU -> FastFlowLM, Intel ->
+// OpenVINO, else -> Vulkan. Install OPTIMISTICALLY; the runtime launch-verifies +
+// always falls back to Vulkan, so a mis-attribution is safe. Read-only WMI works
+// at PrivilegesRequired=lowest. (This .iss MUST stay UTF-8 WITH BOM — the AMD page
+// copy below is bilingual zh-Hant + EN.)
+// =============================================================================
+const
+  AMD_CHOICE_EFFICIENT = 0;   // Q4NX-only (NPU); smallest install; keyword fallback if the NPU is unavailable
+  AMD_CHOICE_MAXIMUM   = 1;   // Q4NX + GGUF; full assistant keeps working on the iGPU if the NPU fails
+
+var
+  GProbed:    Boolean;
+  GCpuVendor: String;
+  GHasNpu:    Boolean;
+  GAmdPage:   TInputOptionWizardPage;
+
+// NPU name markers — MUST mirror HardwareProbe.NpuMarkers (lower-case substring match).
+function NpuMarkerHit(const LowerName: String): Boolean;
+begin
+  Result :=
+    (Pos('npu compute accelerator', LowerName) > 0) or
+    (Pos('npu compute',             LowerName) > 0) or
+    (Pos('ipu device',              LowerName) > 0) or
+    (Pos('amd ipu',                 LowerName) > 0) or
+    (Pos('ai boost',                LowerName) > 0) or
+    (Pos('neural processor',        LowerName) > 0);
+end;
+
+// CPU vendor via WMI Win32_Processor (Manufacturer + brand Name).
+function DetectCpuVendor(): String;
+var
+  Locator, Services, ObjectSet, Item: Variant;
+begin
+  Result := '';
+  try
+    Locator  := CreateOleObject('WbemScripting.SWbemLocator');
+    Services := Locator.ConnectServer('localhost', 'root\CIMV2');
+    ObjectSet := Services.ExecQuery('SELECT Manufacturer, Name FROM Win32_Processor');
+    for Item in ObjectSet do
+    begin
+      if not VarIsNull(Item.Manufacturer) then Result := VarToStr(Item.Manufacturer);
+      if (not VarIsNull(Item.Name)) and (Trim(VarToStr(Item.Name)) <> '') then
+        Result := Result + ' | ' + VarToStr(Item.Name);
+      Break;
+    end;
+  except
+    Result := '';
+  end;
+end;
+
+// NPU presence: any Win32_PnPEntity whose Name matches a marker.
+function HasNpuDevice(): Boolean;
+var
+  Locator, Services, ObjectSet, Item: Variant;
+  LowerName: String;
+begin
+  Result := False;
+  try
+    Locator  := CreateOleObject('WbemScripting.SWbemLocator');
+    Services := Locator.ConnectServer('localhost', 'root\CIMV2');
+    ObjectSet := Services.ExecQuery('SELECT Name FROM Win32_PnPEntity');
+    for Item in ObjectSet do
+    begin
+      if not VarIsNull(Item.Name) then
+      begin
+        LowerName := Lowercase(VarToStr(Item.Name));
+        if NpuMarkerHit(LowerName) then
+        begin
+          Result := True;
+          Break;
+        end;
+      end;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+procedure ProbeHardware();
+begin
+  if GProbed then Exit;
+  GCpuVendor := Lowercase(DetectCpuVendor());
+  GHasNpu    := HasNpuDevice();
+  GProbed    := True;
+  Log('SenseEase NPU probe: vendor="' + GCpuVendor + '" hasNpu=' + IntToStr(Integer(GHasNpu)));
+end;
+
+function IsAmd(): Boolean;
+begin
+  ProbeHardware();
+  Result := (Pos('amd', GCpuVendor) > 0) or (Pos('ryzen', GCpuVendor) > 0);
+end;
+
+function IsIntel(): Boolean;
+begin
+  ProbeHardware();
+  Result := (Pos('intel', GCpuVendor) > 0);
+end;
+
+// AMD Ryzen-AI NPU box -> the FastFlowLM pack (flm runtime + Q4NX).
+function IsAmdNpu(): Boolean;
+begin
+  Result := IsAmd() and GHasNpu;
+end;
+
+// Intel box -> the OpenVINO build (OpenVINO picks NPU->CPU itself; the runtime verifies).
+function IsIntelCpu(): Boolean;
+begin
+  Result := IsIntel();
+end;
+
+// Universal GGUF UNLESS this is an AMD-NPU box that chose "Efficient" (Q4NX-only).
+function WantsGguf(): Boolean;
+begin
+  if IsAmdNpu() and (GAmdPage <> nil) then
+    Result := (GAmdPage.SelectedValueIndex = AMD_CHOICE_MAXIMUM)
+  else
+    Result := True;
+end;
+
+// The AMD-only Efficient/Maximum choice page; Intel / non-NPU machines never see it.
+procedure InitializeWizard();
+begin
+  if IsAmdNpu() then
+  begin
+    GAmdPage := CreateInputOptionPage(
+      wpSelectDir,
+      '助手模型 / Assistant model',
+      '為你的 NPU 選擇安裝方式。 / Choose how the on-device assistant installs for your NPU.',
+      '螢幕防護與安全機制不受影響。 / Screen protection and the safety floor are never affected.',
+      True, False);
+    GAmdPage.Add(
+      '效率 ～2.5 GB — 助手在 NPU 上執行（最省電、最小安裝）；NPU 不可用時切換為簡易關鍵字模式。' + #13#10 +
+      'Efficient ~2.5 GB — runs on the NPU (smallest install); switches to simple keyword mode if the NPU is unavailable.');
+    GAmdPage.Add(
+      '最高可靠性（建議）～5 GB — 另外安裝在顯示晶片上執行的通用模型，即使 NPU 失效仍維持完整助手品質。' + #13#10 +
+      'Maximum reliability (recommended) ~5 GB — also installs the universal model on the graphics chip, so the full assistant keeps working if the NPU fails.');
+    GAmdPage.SelectedValueIndex := AMD_CHOICE_MAXIMUM;  // Kirby 2026-06-23: default = Maximum (the GGUF safety floor for Beta)
+  end;
+end;
+
 // H25 (PII): on uninstall, OFFER to delete the user's personal data directory.
 // [UninstallDelete] is intentionally empty so a normal reinstall preserves data;
 // this is the explicit, opt-in path for a user who wants a clean removal. Default
