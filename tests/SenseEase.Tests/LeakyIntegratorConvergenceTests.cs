@@ -20,6 +20,25 @@ namespace SenseEase.Tests;
 /// </summary>
 public class LeakyIntegratorConvergenceTests
 {
+    // Audit 2026-06-22: a non-finite OFI must not poison Pressure into a permanent NaN — `NaN >= trigger`
+    // is false, so a poisoned Pressure would silently keep the mask from ever re-engaging. The entry
+    // finite-guard + NaN-safe clamp keep Pressure finite and let a later normal sample re-accumulate.
+    [Fact]
+    public void NonFiniteOfi_DoesNotPoisonPressure()
+    {
+        var li = new LeakyIntegrator();
+        li.Step(50.0, 1.0, 0.1);
+        Assert.True(li.Pressure > 0);
+
+        li.Step(double.NaN, 1.0, 0.1);
+        Assert.True(double.IsFinite(li.Pressure));
+        li.Step(double.PositiveInfinity, 1.0, 0.1);
+        Assert.True(double.IsFinite(li.Pressure));
+
+        double after = li.Step(50.0, 1.0, 0.1);   // a normal sample still accumulates — protection recovers
+        Assert.True(double.IsFinite(after) && after > 0);
+    }
+
     // ── Real constants under test (single source of truth = SenseDefaults) ──────
     private const double Alpha100  = SenseDefaults.BaseDecayAlpha;     // 100 ms reference decay
     private const double NoiseGate = SenseDefaults.NoiseGateThreshold; // sub-threshold OFI discarded

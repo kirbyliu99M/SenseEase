@@ -39,6 +39,13 @@ public sealed class LeakyIntegrator
     /// </param>
     public double Step(double opticalFlowIndex, double flowWeight, double dtSeconds = 1.0)
     {
+        // Finite-guard (audit 2026-06-22): a non-finite OFI (corrupt WGC frame, or a future
+        // divide-by-zero in OFI normalization) would make Pressure NaN — and `NaN < 0` is false, so
+        // the clamp below would never reset it. Pressure would stay NaN forever, the mask could never
+        // re-engage (`pressure >= trigger` is false for NaN), and protection would be silently
+        // disabled until restart. Treat any non-finite sample as zero stimulus.
+        if (!double.IsFinite(opticalFlowIndex)) opticalFlowIndex = 0.0;
+
         // Noise Gate: ignore sub-threshold flow entirely.
         double gated = opticalFlowIndex < _noiseGateThreshold ? 0.0 : opticalFlowIndex;
 
@@ -49,7 +56,9 @@ public sealed class LeakyIntegrator
         // alpha(dt) = alpha_100ms^(dt / 0.1s), keeping tau stable across variable sample periods.
         double alphaDt = Math.Pow(_decayAlpha, dtSeconds / 0.1);
         Pressure = (alphaDt * Pressure) + stimulus;
-        if (Pressure < 0) Pressure = 0;
+        // `!(Pressure > 0)` also catches NaN (NaN < 0 is false) — defense in depth with the entry
+        // guard; behaviour-identical to `< 0` for every finite value (== 0 is a no-op).
+        if (!(Pressure > 0)) Pressure = 0;
         return Pressure;
     }
 

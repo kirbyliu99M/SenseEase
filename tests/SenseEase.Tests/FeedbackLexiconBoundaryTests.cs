@@ -80,4 +80,25 @@ public class FeedbackLexiconBoundaryTests
     [InlineData("can you make it darker")]
     public void GenuineInput_IsNotDismissiveClosure(string text)
         => Assert.False(FeedbackLexicon.IsDismissiveClosure(text));
+
+    // Directional override gated to ReportDiscomfort (audit 2026-06-22): a darker/grid cue on a
+    // NON-actuating intent must not produce a delta (defense-in-depth with the gate's whitelist).
+    [Theory]
+    [InlineData("Unknown")]
+    [InlineData("ReportComfort")]
+    [InlineData("ResetRequest")]
+    public void DeriveAdjustments_DirectionalOverride_SkippedForNonActuating(string intent)
+    {
+        var (fov, md, gv, _) = FeedbackLexicon.DeriveAdjustments(intent, 3, "邊緣再暗一點");
+        Assert.Equal(0, fov);
+        Assert.Equal(0.0, md, 6);
+        Assert.Equal(0.0, gv, 6);
+    }
+
+    [Fact]
+    public void DeriveAdjustments_DirectionalOverride_AppliesForReportDiscomfort()
+    {
+        var (_, md, _, _) = FeedbackLexicon.DeriveAdjustments("ReportDiscomfort", 3, "邊緣再暗一點");
+        Assert.True(md > 0);   // a darker cue still deepens the mask on the actuating intent
+    }
 }

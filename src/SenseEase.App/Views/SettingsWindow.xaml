@@ -86,8 +86,7 @@
                 BorderBrush="{DynamicResource CardBorder}"
                 BorderThickness="1"
                 CornerRadius="16"
-                Effect="{StaticResource Elev.3}"
-                RenderTransformOrigin="0.5,0.4">
+                RenderTransformOrigin="0.5,0.4"><!-- Effect=Elev.3 removed (audit 2026-06-22): software-render flash. Depth = acrylic blur-behind + CardBorder. -->
             <Border.RenderTransform>
                 <ScaleTransform x:Name="SlabScale" ScaleX="1" ScaleY="1"/>
             </Border.RenderTransform>

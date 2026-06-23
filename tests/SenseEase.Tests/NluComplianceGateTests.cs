@@ -140,6 +140,41 @@ public class NluComplianceGateTests
         Assert.Equal(0.0, r.GridVisibilityDelta, 6);
     }
 
+    // Whitelist actuators (audit 2026-06-22): ONLY ReportDiscomfort may carry deltas. A model that emits
+    // deltas on any OTHER intent must be neutralized by the gate (I1/I6) — previously only AnalyzeRequest/
+    // FollowupRequest were zeroed, so ReportComfort+deltas and Unknown+deltas leaked through.
+    [Theory]
+    [InlineData("ReportComfort")]
+    [InlineData("Unknown")]
+    [InlineData("ResetRequest")]
+    public void ModelDeltasOnNonActuatingIntent_AreZeroed(string intent)
+    {
+        var r = NluComplianceGate.Check(Raw(intent, fov: -20, md: 0.2, gv: -0.3), "everything's good right now");
+        Assert.Equal(0, r.FovDelta);
+        Assert.Equal(0.0, r.MaskDepthDelta, 6);
+        Assert.Equal(0.0, r.GridVisibilityDelta, 6);
+    }
+
+    [Fact]
+    public void DismissiveBrushOff_WithDarkerCue_DoesNotActuate()
+    {
+        // "算了，邊緣再暗一點" (never mind, make the edge a bit darker): a brush-off the model tags
+        // ReportComfort → demoted to Unknown → must NOT leak the lexicon's darker-override (+0.15 md).
+        var r = NluComplianceGate.Check(Raw("ReportComfort", reply: "好的", fov: null, md: null, gv: null),
+            "算了，邊緣再暗一點");
+        Assert.Equal("Unknown", r.Intent);
+        Assert.Equal(0, r.FovDelta);
+        Assert.Equal(0.0, r.MaskDepthDelta, 6);
+        Assert.Equal(0.0, r.GridVisibilityDelta, 6);
+    }
+
+    [Fact]
+    public void ReportDiscomfort_StillActuates_AfterWhitelist()
+    {
+        var r = NluComplianceGate.Check(Raw("ReportDiscomfort", fov: -8, md: 0.06), "I'm really dizzy");
+        Assert.True(r.FovDelta < 0);   // the one actuating intent is unaffected by the whitelist
+    }
+
     // ── Stage B: the source-gated Case-1 clarify ────────────────────────────────────────
 
     [Fact]

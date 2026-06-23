@@ -104,8 +104,7 @@
                 BorderBrush="{DynamicResource CardBorder}"
                 BorderThickness="1"
                 CornerRadius="16"
-                Effect="{StaticResource Elev.3}"
-                RenderTransformOrigin="0.5,0.4">
+                RenderTransformOrigin="0.5,0.4"><!-- Effect=Elev.3 removed (audit 2026-06-22): software-render flash. -->
             <Border.RenderTransform>
                 <ScaleTransform x:Name="SlabScale"/>
             </Border.RenderTransform>
@@ -138,8 +137,7 @@
                         BorderBrush="{DynamicResource CardBorder}"
                         BorderThickness="1"
                         CornerRadius="{StaticResource Radius.md}"
-                        Effect="{StaticResource Elev.2}"
-                        Padding="20,18">
+                        Padding="20,18"><!-- Effect=Elev.2 removed (audit 2026-06-22): software-render flash. -->
                     <DockPanel>
                         <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>

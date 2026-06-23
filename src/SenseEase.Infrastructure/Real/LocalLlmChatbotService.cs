@@ -120,6 +120,12 @@ public sealed class LocalLlmChatbotService : IChatbotService
     private static readonly string[] DefaultStopTokens = { "[INST]", "User:" };
     private readonly List<ChatMessage> _history = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
+    // Load serialization (audit 2026-06-22): the LOAD/LAUNCH path mutates _serverProcess / IsModelLoaded /
+    // _apiKey, which the request _lock does NOT guard. Two concurrent loads — the chat panel and the
+    // feedback-box NLU both wrap ONE instance — would double-spawn the server and clobber the shared bearer
+    // key. This serializes load-vs-load AND (via MaybeUnloadIfIdle taking it) load-vs-idle-unload. Always
+    // acquired BEFORE _lock where both are held, so there is no lock-ordering deadlock.
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
 
     private Process? _serverProcess;
 
@@ -158,7 +164,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
     private readonly Func<CancellationToken, Task<ManagedBackend?>>? _managedBackendStarter;
     // Local server build (ultrabook #5): Vulkan (universal default) or the Intel OpenVINO build. Affects only
     // the LOCAL launch path — the FLM managed-NPU path is separate. Both are llama.cpp servers (grammar+bearer).
-    private readonly LocalServerKind _localServerKind;
+    private LocalServerKind _localServerKind;   // mutable: an OpenVINO start failure falls back to Vulkan (LoadAsync)
     // Warm-on-load gate (2026-06-22): host predicate that, when it returns true, SKIPS the post-load warmup
     // prefill. MainViewModel wires it to "on battery AND power-save" so a constrained ultrabook can decline
     // the one-time ~4,500-token prefill; null ⇒ always warm. Queried LIVE at each load (reflects the battery
@@ -413,8 +419,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
-        // Idle-unload window (ultrabook plan #1): default 10 min; ≤ 0 keeps the model resident.
-        _idleTimeout = idleTimeout ?? TimeSpan.FromMinutes(10);
+        // Idle-unload window (ultrabook plan #1): default 5 min (Kirby 2026-06-23); ≤ 0 keeps the model resident.
+        _idleTimeout = idleTimeout ?? TimeSpan.FromMinutes(5);
         // External backend (ultrabook #5): an explicit arg wins, else the env override (dev/validation seam).
         _externalBaseUrl = string.IsNullOrWhiteSpace(externalBaseUrl)
             ? Environment.GetEnvironmentVariable("SENSEEASE_LLM_BASEURL") : externalBaseUrl;
@@ -465,19 +471,43 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// </summary>
     public async Task LoadAsync()
     {
-        if (IsModelLoaded) return;
-        // External backend (ultrabook #5): an already-running OpenAI server (e.g. FastFlowLM on the NPU).
-        // We connect rather than launch; the local GGUF need not even be present.
-        if (IsExternal) { _externalBackendLabel = "external server (env override)"; await ConnectExternalAsync().ConfigureAwait(false); return; }
-        // Managed NPU backend (ultrabook #5): on an AMD Ryzen-AI box, bring up FastFlowLM (reuse-or-launch) and
-        // drive it over the same external seam. A null result (no flm / model not installed / never answered)
-        // falls through to the bundled Vulkan launch below, so the chatbot still works on any machine.
-        if (_managedBackendStarter is not null && await TryStartManagedBackendAsync().ConfigureAwait(false))
-            return;
-        if (!IsModelAvailable) return;
-        // Qwen is the sole model (Mistral fallback removed 2026-06-19). On failure LaunchAsync sets
-        // LoadError + throws → the caller drops to the deterministic lexicon path. No in-process swap.
-        await LaunchAsync().ConfigureAwait(false);
+        if (IsModelLoaded) return;                           // fast path — no lock once loaded
+        // Serialize concurrent loads (audit 2026-06-22): without this, two callers can both pass the
+        // IsModelLoaded check and double-spawn the server / clobber the bearer key. The re-check below makes
+        // check-then-act atomic. A separate lock (not _lock) so a load never blocks an in-flight chat request.
+        await _loadLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (IsModelLoaded) return;                       // re-check under the lock
+            // External backend (ultrabook #5): an already-running OpenAI server (e.g. FastFlowLM on the NPU).
+            // We connect rather than launch; the local GGUF need not even be present.
+            if (IsExternal) { _externalBackendLabel = "external server (env override)"; await ConnectExternalAsync().ConfigureAwait(false); return; }
+            // Managed NPU backend (ultrabook #5): on an AMD Ryzen-AI box, bring up FastFlowLM (reuse-or-launch)
+            // and drive it over the same external seam. A null result (no flm / model not installed / never
+            // answered) falls through to the bundled Vulkan launch below, so the chatbot still works anywhere.
+            if (_managedBackendStarter is not null && await TryStartManagedBackendAsync().ConfigureAwait(false))
+                return;
+            if (!IsModelAvailable) return;
+            // Qwen is the sole model (Mistral fallback removed 2026-06-19). On failure LaunchAsync sets
+            // LoadError + throws → the caller drops to the deterministic lexicon path.
+            try
+            {
+                await LaunchAsync().ConfigureAwait(false);
+            }
+            catch when (_localServerKind == LocalServerKind.OpenVino)
+            {
+                // Ultrabook #5: the Intel OpenVINO server can fail to come up on a weak iGPU/NPU (the llama.cpp
+                // -fit probe crashing, or a flaky NPU driver). Rather than drop straight to the lexicon, retry
+                // ONCE with the universal Vulkan server (same GGUF) that every install ships. LaunchAsync already
+                // killed the half-spawned OV process in its own catch, so the loopback port is free; if the
+                // Vulkan retry ALSO throws, the filter no longer matches → it propagates → the caller's lexicon
+                // fallback (no loop). de7723a makes the Vulkan exe's integrity check pass on the retry.
+                WgcDiagLog.Append($"[{DateTime.UtcNow:O}] [Llm.Backend] OpenVINO server failed to start — falling back to the Vulkan server.");
+                _localServerKind = LocalServerKind.Vulkan;
+                await LaunchAsync().ConfigureAwait(false);
+            }
+        }
+        finally { _loadLock.Release(); }
     }
 
     /// <summary>Managed NPU backend (ultrabook #5): ask the injected starter to acquire a FastFlowLM server
@@ -496,7 +526,16 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _serverProcess = mb.OwnedProcess;          // killed on Dispose iff we launched it (else null = reused)
         _externalBackendLabel = mb.OwnedProcess is not null ? "FastFlowLM NPU (launched)" : "FastFlowLM NPU (reused)";
         await ConnectExternalAsync().ConfigureAwait(false);
-        if (IsModelLoaded) return true;
+        if (IsModelLoaded)
+        {
+            // Idle-unload (audit 2026-06-22): arm the poll for a FLM server WE launched so its ~3 GB NPU
+            // footprint is reclaimed after _idleTimeout — the battery-constrained ultrabook is exactly the
+            // case the feature exists for. Previously StartIdleTimer ran only on the Vulkan path, so a
+            // launched FLM was held all session. MaybeUnloadIfIdle's guard skips a REUSED flm (_serverProcess
+            // null — not ours to kill); no-op if the timer is already armed or unloading is disabled.
+            StartIdleTimer();
+            return true;
+        }
 
         // Acquired but couldn't connect (rare race) — undo external mode + don't leak a process we own.
         _externalBaseUrl = null;
@@ -622,6 +661,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
             string serverArgs =
                 $"--model \"{_modelPath}\" " +
                 $"--n-gpu-layers {_nGpuLayers ?? 99} " +
+                // Disable llama.cpp's auto-fit device-memory probe (--fit [on|off], default on): with
+                // --n-gpu-layers set explicitly it is redundant, and on a weak Intel iGPU/NPU the probe
+                // ("fitting params to device memory") crashes the server at startup → no readiness → the chat
+                // silently drops to the lexicon. Confirmed on an Intel Core Ultra 5 336H (2026-06-23).
+                $"--fit off " +
                 $"--host 127.0.0.1 --port {ServerPort} " +
                 // H9: disable the built-in web UI (no need for an attack surface) and
                 // pin the context so a model swap can't silently shift behaviour.
@@ -1552,29 +1596,38 @@ public sealed class LocalLlmChatbotService : IChatbotService
         // set). Never one we merely connect to (env override / a reused FLM → _serverProcess null) — not ours.
         if (IsExternal && _serverProcess is null) return;
         if (!IsModelLoaded || !IdleWindowElapsed()) return;
-        if (!_lock.Wait(0)) return;                 // a request/load holds the lock → skip, retry next poll
+        // Serialize against a concurrent load FIRST (audit 2026-06-22): the load path holds _loadLock, so
+        // taking it here means we never tear _serverProcess/_apiKey/IsModelLoaded out from under an in-flight
+        // LaunchAsync. Then the request _lock ensures no chat call is mid-flight. Both non-blocking (skip +
+        // retry next poll). _loadLock-before-_lock matches LoadAsync's order → no deadlock.
+        if (!_loadLock.Wait(0)) return;             // a load/launch is in flight → skip, retry next poll
         try
         {
-            // Re-check under the lock — state may have changed since the lock-free fast path above.
-            if (!IsModelLoaded || !IdleWindowElapsed()) return;
-            try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
-            try { _serverProcess?.Dispose(); } catch { }
-            _serverProcess = null;
-            IsModelLoaded = false;
-            ActiveBackend = "lexicon";
-            // Reset external mode so the next LoadAsync re-runs the managed starter (relaunch flm) instead of
-            // re-connecting to the port we just killed. Harmless for the local path (these are already null).
-            _externalBaseUrl = null;
-            _externalModelName = null;
-            _externalBackendLabel = null;
-            LogDiag("LLM backend unloaded (idle) — frees memory; next message re-loads on demand.");
-            // Mirror the load-failure cleanup: drop the per-process key + bearer so a re-load mints fresh.
-            if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
-                LlamaSessionKey.Set(null);
-            _apiKey = null;
-            _http.DefaultRequestHeaders.Authorization = null;
+            if (!_lock.Wait(0)) return;             // a chat request holds the lock → skip, retry next poll
+            try
+            {
+                // Re-check under the locks — state may have changed since the lock-free fast path above.
+                if (!IsModelLoaded || !IdleWindowElapsed()) return;
+                try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
+                try { _serverProcess?.Dispose(); } catch { }
+                _serverProcess = null;
+                IsModelLoaded = false;
+                ActiveBackend = "lexicon";
+                // Reset external mode so the next LoadAsync re-runs the managed starter (relaunch flm) instead
+                // of re-connecting to the port we just killed. Harmless for the local path (already null).
+                _externalBaseUrl = null;
+                _externalModelName = null;
+                _externalBackendLabel = null;
+                LogDiag("LLM backend unloaded (idle) — frees memory; next message re-loads on demand.");
+                // Mirror the load-failure cleanup: drop the per-process key + bearer so a re-load mints fresh.
+                if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
+                    LlamaSessionKey.Set(null);
+                _apiKey = null;
+                _http.DefaultRequestHeaders.Authorization = null;
+            }
+            finally { _lock.Release(); }
         }
-        finally { _lock.Release(); }
+        finally { _loadLock.Release(); }
     }
 
     // Test seams (idle-unload timing): stamp "now" as the last activity + read whether the idle window has
@@ -1595,6 +1648,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _apiKey = null;
         try { _http.Dispose(); } catch { }
         try { _lock.Dispose(); } catch { }
+        try { _loadLock.Dispose(); } catch { }
     }
 
     private sealed class ModelDecision

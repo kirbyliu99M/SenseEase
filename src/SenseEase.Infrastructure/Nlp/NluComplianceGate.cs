@@ -168,9 +168,16 @@ internal static class NluComplianceGate
         // unaffected (those don't go through this NLU path).
         const double fw = 0.0;
 
-        // AnalyzeRequest / FollowupRequest are non-actuating — never derive deltas.
+        // WHITELIST the actuating intent (audit 2026-06-22): ONLY a genuine discomfort / adjustment
+        // report (ReportDiscomfort) may carry deltas. Every other intent — AnalyzeRequest,
+        // FollowupRequest, ReportComfort, ResetRequest, Unknown — is non-actuating and is zeroed here,
+        // so a misbehaving temperature-0.4 model (or a brush-off the model demoted to Unknown that
+        // still names a darker/grid cue) can NEVER deepen the mask / tighten the FOV on a non-symptom
+        // turn (I1/I6). Previously only AnalyzeRequest/FollowupRequest were zeroed (a blacklist), which
+        // let a ReportComfort/Unknown turn carrying model deltas through the apply branch.
+        // (ResetRequest is zeroed too: the prompt contract is zero-delta + a separate host-side reset.)
         int fov; double md, gv;
-        if (intent == "AnalyzeRequest" || intent == "FollowupRequest")
+        if (intent != "ReportDiscomfort")
         {
             fov = 0; md = 0; gv = 0;
         }

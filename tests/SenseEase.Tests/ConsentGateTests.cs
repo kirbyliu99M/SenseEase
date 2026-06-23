@@ -170,6 +170,26 @@ public class ConsentGateTests : IDisposable
     }
 
     [Fact]
+    public void AutoProtect_OnThenOff_DropsTheImplicitSession_SoTheBubbleReAsks()
+    {
+        // Deadswitch regression (Kirby 2026-06-23): turning Auto Protect ON activates the standing session
+        // (_overlaySessionActive=true); turning it OFF must drop that session so we return to "ask each time".
+        // Before the fix the flag lingered, so the consent bubble never re-asked after an on→off flip.
+        var vm = NewVm();
+        int asks = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+
+        vm.AlwaysAllowOverlay = true;                  // standing consent
+        Assert.False(vm.ShouldHoldMaskForConsent(8));  // session live → un-held, no bubble
+        Assert.Equal(0, asks);
+
+        vm.AlwaysAllowOverlay = false;                 // the fix: drop the implicit session
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6));    // dormant again → held AND re-asks at the impact tier
+        Assert.Equal(1, asks);
+    }
+
+    [Fact]
     public void Decline_StaysDormant_NoReAskWhileCoolingDown()
     {
         var vm = NewVm();

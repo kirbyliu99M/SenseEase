@@ -154,7 +154,8 @@
                 <Setter Property="Height" Value="22"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Foreground" Value="{DynamicResource Popup.Ink1}"/>
-                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <!-- Audit 2026-06-22 (WCAG 2.4.7): show the shared keyboard focus ring (was {x:Null}). -->
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
@@ -517,11 +518,11 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Button Width="26" Height="26" Margin="0,0,4,0" Cursor="Hand"
-                                                            FocusVisualStyle="{x:Null}"
+                                                            FocusVisualStyle="{DynamicResource FocusVisible}"
                                                             Command="{Binding DataContext.SelectFmsCommand,
                                                                               RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}"
                                                             CommandParameter="{Binding Value}"
-                                                            AutomationProperties.Name="{Binding Value}">
+                                                            AutomationProperties.Name="{Binding AccessibleName}">
                                                         <Button.Template>
                                                             <ControlTemplate TargetType="Button">
                                                                 <Border x:Name="sq" CornerRadius="6" BorderThickness="1"
@@ -704,7 +705,12 @@
                             Content="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"/></Button.ToolTip>
                     </Button>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,2">
+                <!-- Persistent-mask switch temporarily HIDDEN (Kirby 2026-06-23): its backing flag
+                     (PersistentOverlayEnabled) is overloaded with the strength-baseline floor, so it self-lit
+                     whenever the user dragged the level bar / hit +-. Always-on is already reachable that way
+                     (any level > 1 floors the baseline). Reinstate once the read state is split out
+                     (PersistentMaskUserChosen) — see the 2026-06-23 audit. -->
+                <StackPanel Orientation="Horizontal" Margin="0,2" Visibility="Collapsed">
                     <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding PersistentMaskOn}"
                               Foreground="{DynamicResource Popup.Ink1}"
                               Content="{loc:T Zh='常駐遮罩', En='Persistent mask'}"

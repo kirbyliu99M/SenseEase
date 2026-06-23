@@ -42,6 +42,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(Func<bool> hasVestibularDiagnosis)
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => SenseEase.App.Services.OverlayZOrder.Keep(this); // keep above the overlay
 
         // UX-16 (2026-06-11): the window title was the zh-only literal
         // "SenseEase 設定". Bind it live to the language singleton — the same

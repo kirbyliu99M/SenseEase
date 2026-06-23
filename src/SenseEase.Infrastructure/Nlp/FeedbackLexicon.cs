@@ -234,13 +234,17 @@ internal static class FeedbackLexicon
             fov = SenseDefaults.FovStepBySeverity[severity - 1];
             md  = SenseDefaults.MaskDepthStepBySeverity[severity - 1];
             gv  = severity >= 3 ? 0.06 : 0.03;
-        }
-        // ReportComfort / ResetRequest / Unknown -> all zero.
 
-        // Directional overrides: explicit cues beat the severity-derived defaults.
-        var (hintMd, hintGv, _, _) = ClassifyShaderHints(text);
-        if (hintMd != 0) md = hintMd;
-        if (hintGv != 0) gv = hintGv;
+            // Directional overrides: explicit cues beat the severity-derived defaults. GATED to
+            // ReportDiscomfort (audit 2026-06-22): the only actuating intent. Previously this override
+            // ran for EVERY intent, so a non-actuating turn that named an edge/grid cue — e.g. a
+            // brush-off "算了，邊緣再暗一點" the model demoted to Unknown — leaked a +0.15 mask delta.
+            // A non-actuating intent must NEVER actuate via the override (I1/I6).
+            var (hintMd, hintGv, _, _) = ClassifyShaderHints(text);
+            if (hintMd != 0) md = hintMd;
+            if (hintGv != 0) gv = hintGv;
+        }
+        // ReportComfort / ResetRequest / Unknown -> all zero (severity defaults AND the override skipped).
 
         // C7: clamps reference the single-source per-call bounds in SenseDefaults.
         return (Math.Clamp(fov, SenseDefaults.MaxFovDeltaPerCall, 0),

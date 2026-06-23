@@ -47,6 +47,7 @@ public partial class NpsSurveyWindow : Window, IShellSurface
         Closed += (_, _) => viewModel.PropertyChanged -= OnVmPropertyChanged;
         Opacity = 0;                       // fade in via OnEntrance (avoids an unsettled-position flash)
         SourceInitialized += OnSourceInitialized;
+        SourceInitialized += (_, _) => SenseEase.App.Services.OverlayZOrder.Keep(this); // keep above the overlay
         Loaded += (_, _) => AnchorBottomRight();
         SizeChanged += (_, _) => AnchorBottomRight();
         // TASK #6: track Auto/Light/Dark so the glass adapts instead of being fixed

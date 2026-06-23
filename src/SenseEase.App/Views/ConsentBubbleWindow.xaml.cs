@@ -41,6 +41,10 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
         // No-activate (NOT click-through) — the buttons stay clickable but the bubble never grabs
         // foreground from the user's app/game. Applied once the HWND exists.
         SourceInitialized += (_, _) => { try { ClickThrough.EnableNoActivate(this); } catch { } };
+        // Z-order: keep the consent bubble above the comfort overlay (re-lifted in the overlay's own tick).
+        // Without this the overlay covers the bubble — it gets raised but hidden, so protection looks like it
+        // engaged with no consent prompt. See OverlayZOrder.
+        SourceInitialized += (_, _) => SenseEase.App.Services.OverlayZOrder.Keep(this);
         // Track Auto/Light/Dark so the bubble adapts (it was light-token-locked: merged only the LIGHT
         // PopupGlassTokens, so it stayed light-blue glass even in Dark mode + showed failing navy ink).
         Loaded += OnThemeLoaded;

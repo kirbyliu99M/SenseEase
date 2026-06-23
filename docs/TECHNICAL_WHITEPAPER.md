@@ -1,12 +1,12 @@
 # SenseEase — Proof-of-Concept Technical Whitepaper
 # SenseEase — 概念驗證技術白皮書
 
-**Version:** Pre-Alpha v0.11.1 — Alpha-2 *engine-integrity* revision (2026-06-08)
-**Date:** 2026-06-08
-**Status:** POC complete; Alpha-2 core **live** (Adaptive-Fit selector + auto-profiling both ON) — G_final GO, UVHS PASS, ~1058 / 0 / 3 tests (latest sealed count, commit `f381a43`; HEAD green save one known `UserPreferences` test-isolation flake)
+**Version:** 1.0.0 — **Beta V1.0** revision (engine-integrity branch) (2026-06-23)
+**Date:** 2026-06-23
+**Status:** Beta V1.0; engine + on-device chatbot **live** (Adaptive-Fit selector + auto-profiling both ON; vestibular protection **removed** — app scoped to general visual comfort, §2.5) — ~1491 `[Fact]`/`[Theory]` across the test suite (attribute count 2026-06-23; suite intentionally not run under the AV build-hang constraint). `AssemblyInformationalVersion = 1.0.0+dc4d203`.
 **Document Class:** Internal engineering reference / 內部工程參考文件
 
-> **Versioning note.** The authoritative version reference is `git tag`; the latest seal is **`v0.11`**, packaged as **v0.11.1** (PyInstaller one-dir + cross-vendor Vulkan hotfix). The work documented in §2.5, §6.4–§6.6, §6a, §9a, §11a and the feathering fix (§8.5) has landed on the `alpha1-w2-engine-integrity` branch **beyond** the v0.11 seal but is **not yet tagged**. This revision therefore describes the *current code state* (branch HEAD `3bb2a7e`, 2026-06-08), which is ahead of the v0.11.1 installer. Where the shipped installer and the current code differ, the difference is flagged inline.
+> **Versioning note.** The authoritative version reference is `git`; `git describe = v0.11-370-g696cea1` (branch `alpha1-w2-engine-integrity`, HEAD `696cea1`) — i.e. ~370 commits past the **`v0.11`** seal, carrying the project from Pre-Alpha to **Beta V1.0** (commit `dc4d203` set `AssemblyInformationalVersion = 1.0.0`). The major changes since the 2026-06-08 edition: (a) **vestibular protection removed** (commit `2d48041`) — the app is rescoped to general visual comfort with no clinical vestibular claim (§2.5, §9a); (b) the chatbot moved from **Ministral-3B** to **Qwen3-4B-Instruct-2507** behind a multi-backend router — **FastFlowLM** on an AMD Ryzen-AI NPU (live), Vulkan `llama-server` as the universal fallback, OpenVINO scaffolded (§10); (c) the dashboard/console + ambient bar + Notification Card were **dismantled** into an edge-sidebar + glass pop-up bar + in-pop-up chat + glass Settings (§9); (d) an overlay **consent gate**, a **learning loop**, an **FMS check-in**, and an **HTML clinical health report** landed (§6b, §11b, §11c). This revision describes the *current code state* (HEAD `696cea1`); where a number is carried from a section not re-read this pass it is flagged inline.
 
 ---
 
@@ -24,8 +24,10 @@
 | **動態感 band / Feel band** (動態感帶位) | The five perceptual buckets the user sees (極低 / 低 / 中 / 高 / 極高 motion-feel), mapped from level ranges 1–2 / 3–4 / 5–7 / 8–10 / 11–12. A **calm cool-blue ramp** — deliberately no alarm-red (see §2.8). |
 | **Driver / Passenger mode** (駕駛模式 / 乘客模式) | User-activity classification from `GetLastInputInfo`. Driver = actively producing input; Passenger = idle. |
 | **Efference copy** (傳出複本) | The motor system's prediction of the sensory consequences of its own commands. The neurophysiological basis for the Driver / Passenger weighting asymmetry. |
-| **Habituation** (習慣化) | A code-identifier name retained for the `Habituation*` engine types. The clinically accurate mechanism term for SenseEase's long-term effect is **graded exposure → sensory reweighting** (視覺再加權); for visually-induced vertigo, recovery is driven mainly by sensory reweighting / adaptation (see §2.5). The graded-exposure offset is an `_offset` **added to the FOV radius percent** over time (NOT subtracted from the trigger pressure — §6.5). |
-| **Auto-profiling** (自動體質推估) | The Alpha-2 replacement for explicit Q1–Q5 calibration: a brand-new user is seeded at **level 5 / TYPICAL profile** and the engine adapts from real behaviour. Vestibular protection is offered via a single opt-in prompt, not a questionnaire (§2.5, §9a). |
+| **Habituation** (習慣化) | A code-identifier name retained for the `Habituation*` engine types. The clinically accurate mechanism term for SenseEase's long-term effect is **graded exposure → sensory reweighting** (視覺再加權); for visually-induced discomfort, adaptation is driven mainly by sensory reweighting (see §2.5). The graded-exposure offset is an `_offset` **added to the FOV radius percent** over time (NOT subtracted from the trigger pressure — §6.5). |
+| **Auto-profiling** (自動體質推估) | The Alpha-2 replacement for explicit Q1–Q5 calibration: a brand-new user is seeded at **level 5 / ADAPTING profile** (the B6 Stage 4a rename of TYPICAL) and the engine adapts from real behaviour ([MockInferenceEngine.cs:907-917](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)). **No vestibular opt-in remains** — that prompt was removed with the vestibular feature (§2.5, §9a). |
+| **Vestibular removal** (前庭功能移除) | Vestibular protection was removed on 2026-06-21 (commit `2d48041`); SenseEase is now scoped to **general visual comfort**, making no clinical vestibular/balance claim. The runtime *activation* surface is severed (`SetVestibularProtection` method, prompt bar, Settings toggle all deleted); the deep safety branches (B5 gate `Cohort.Vestibular` arm, B6 classifier hard-hold, the three chatbot override interceptors, selector L9 floor) are **retained-but-dead** — keyed off the permanently-false `_vestibularProtection` field / null `MedicalAdvisory.Vestibular`, so they compile, fail toward protection, but can never fire. A persisted-vestibular user migrates to the **Reactive** profile at boot (§2.5). |
+| **Three reactivity profiles** (三檔體質) | `HabituationProfile` ∈ { **Reactive**, **Adapting**, **Resilient** } ([HabituationProfile.cs:44-59](src/SenseEase.Core/Inference/HabituationProfile.cs)), ordered LOW→HIGH adaptive capacity — the B6 Stage 4a rename of the former { SENSITIVE, TYPICAL, RESILIENT }. The int order ascends with elasticity, so a user "moves up" as they habituate (B6 bidirectional elasticity). Fresh-user seed = **Adapting**; engine field default = **Resilient** (reachable only pre-seed/restore); migrated formerly-vestibular users = **Reactive**. |
 | **Adaptive-Fit selector** (自適應擬合選擇器) | The Alpha-2 deterministic engine that nudges the user across a **10 × 5 = 50-set grid** of `(Band, Shape)` response curves based on their own 7-day behaviour, with a confidence gate, cooldown state machine and 24-hour propose-confirm for cross-band moves (§6a). |
 | **Set / Band / Shape** (組 / 強度軸 / 形狀軸) | A **set** is one `(Band, Shape)` cell. **Band** ∈ 0–9 = intensity axis (deeper mask + tighter FOV floor). **Shape** ∈ 0–4 = response-shape tag (render-only in this foundation). Set0 = (Band 5, Shape 2) reproduces the pre-selector engine byte-for-byte. |
 | **EffectiveTrigger** (有效觸發值) | `TriggerPressure / personal_pressure_scale` (+ optional absolute override). The personalised trigger consumed by the habituation spike/calm checks, the Adaptive-Fit stats, and the `DisplayStressPercent` hero metric — **NOT** by the mask hysteresis, FOV-radius projection, or level projection, which still read raw `TriggerPressure` (§6.5, §7.4). |
@@ -46,13 +48,13 @@
 
 SenseEase is a Windows desktop application whose Proof-of-Concept (POC, 概念驗證) phase set out to answer one question: **can a non-medical, client-side software intervention measurably reduce Visually-Induced Motion Sickness (VIMS, 視覺誘發性動暈症) provocation on a conventional desktop monitor without degrading the user's primary task?** This whitepaper documents the architecture, theoretical grounding, parameter calibration, validation evidence, and process discipline that took the project from initial sensing prototypes to the current Alpha-2 *engine-integrity* code state on top of the v0.11.1 Pre-Alpha installer.
 
-The system delivers four integrated subsystems. A **sensing layer** (感測層) derives an Optical Flow Index (OFI, 光流指數) from real-time Windows.Graphics.Capture (WGC, 像素差分擷取) pixel-difference measurement, augmented by cursor velocity and user-activity classification. An **inference layer** (推論層) integrates OFI through a noise-gated first-order leaky integrator (漏積分器) producing a continuous VIMS pressure scalar (壓力純量), then projects that scalar onto a **native 1–12 level** classification with hysteresis (遲滯). An **adaptation layer** (適應層) — new in Alpha-2 — replaces the old explicit Q1–Q5 calibration with **auto-profiling** plus a deterministic **Adaptive-Fit selector** that personalises the user's response curve from their own behaviour, and a **User-Model** subsystem that records numeric daily behaviour and surfaces a longitudinal trend to the chatbot. A **rendering layer** (渲染層) applies a radial peripheral attenuation mask (周邊衰減遮罩) plus a Chang–Hain stationary anchor grid (錨定格, see §2.3), an ambient bar (環境式狀態列), a tray icon (系統匣圖示), and a propose-confirm Notification Card (提案確認卡片). A locally-hosted **Ministral-3B** chatbot — `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, served via a side-loaded Vulkan `llama-server` over an OpenAI-compatible HTTP surface and **lazily loaded on first chat** — provides a natural-language adjustment channel gated by an extracted-to-Core self-harm SafetyFloor, a five-rule structured-override Processor, a defensive intercept Applicator, and a pre-LLM **slash-command lexicon** (`/grid off`, `/mask N`, …). A MediaPipe FaceLandmarker sidecar — portable, vendored, Vulkan-accelerated — drives the foveal viewport centre from head pose without ever permitting raw landmark data to cross the IPC boundary.
+The system delivers four integrated subsystems. A **sensing layer** (感測層) derives an Optical Flow Index (OFI, 光流指數) from real-time Windows.Graphics.Capture (WGC, 像素差分擷取) pixel-difference measurement, augmented by cursor velocity and user-activity classification. An **inference layer** (推論層) integrates OFI through a noise-gated first-order leaky integrator (漏積分器) producing a continuous VIMS pressure scalar (壓力純量), then projects that scalar onto a **native 1–12 level** classification with hysteresis (遲滯). An **adaptation layer** (適應層) — new in Alpha-2 — replaces the old explicit Q1–Q5 calibration with **auto-profiling** plus a deterministic **Adaptive-Fit selector** that personalises the user's response curve from their own behaviour, and a **User-Model** subsystem that records numeric daily behaviour and surfaces a longitudinal trend to the chatbot. A **rendering layer** (渲染層) applies a radial peripheral attenuation mask (周邊衰減遮罩) plus a Chang–Hain stationary anchor grid (錨定格, see §2.3), an ambient bar (環境式狀態列), a tray icon (系統匣圖示), and a propose-confirm Notification Card (提案確認卡片). A locally-hosted **Qwen3-4B-Instruct-2507** chatbot — `Qwen3-4B-Instruct-2507-Q4_K_M.gguf`, served over an OpenAI-compatible loopback HTTP surface by a **multi-backend router** (FastFlowLM on an AMD Ryzen-AI NPU when present, the Intel OpenVINO server on Intel silicon, the universal Vulkan `llama-server` everywhere else) and **lazily loaded on first chat** — provides a natural-language adjustment channel gated by an extracted-to-Core self-harm SafetyFloor, a single deterministic `NluComplianceGate` (actuation whitelist + `ReplyComplianceScrubber`), a structured-override Processor, a defensive intercept Applicator, and a pre-LLM **slash-command lexicon** (`/grid off`, `/mask N`, …). *(Vestibular protection was removed in this revision — the app is scoped to general visual comfort, §2.5.)* A MediaPipe FaceLandmarker sidecar — portable, vendored, Vulkan-accelerated — drives the foveal viewport centre from head pose without ever permitting raw landmark data to cross the IPC boundary.
 
 The headline outcomes are:
 
 - **G_final GO** — the final go/no-go gate (G1–G7 advisor gates plus the M8 safety review) cleared with no locked-decision violations across the head-tracking sprint arc.
 - **UVHS PASS** — the User-Visual-Hard-Stop protocol (4 anti-cheat clauses, see §13.2) passed verification, including the clause-5 orthogonal-probe requirement satisfied by the `WgcDiagLog` monotonic-sequence sink. The feathering fix (§8.5) was UVHS-confirmed against the WebGL reference.
-- **~1058 / 0 / 3 tests** — last sealed count (commit `f381a43`); the count dropped from ~1120 when the explicit-calibration test files were removed and rose again with the feathering and selector tests. HEAD is green save one known `UserPreferences` test-isolation flake (passes 16/16 in isolation). Per-layer breakdown in §13.5.
+- **~1491 tests** — `[Fact]`/`[Theory]` attribute count across 172 `.cs` files under `tests/` (2026-06-23; the suite is not run under the AV build-hang constraint). The old POC figure was ~1058; Beta-1 added the symptom / FMS / clinical-report / health-report / chatbot-eval-gate families. Per-layer notes in §13.5.
 - **Alpha-2 core live** — `AppConfig.AdaptiveFitSelectorEnabled = true` ([AppConfig.cs:268](src/SenseEase.App/Configuration/AppConfig.cs)) and `AppConfig.AutoProfilingEnabled = true` ([AppConfig.cs:294](src/SenseEase.App/Configuration/AppConfig.cs)) since commit `c1461a9`.
 - **M1 OFI calibration data is real** — `baseline/wgc-mad-calibration.csv` now carries reduced rows from a real capture on the developer's hardware (idle + 1080p video), partially closing the old audit-D1 gap (§5.2.6).
 
@@ -130,33 +132,37 @@ Three points warrant emphasis:
 
 ### 2.5 Graded-Exposure Theory, Auto-Profiling, the Strike Model, and the Three Profiles / 漸進暴露理論、自動體質推估、累計次數與三檔體質
 
-**Terminology note (mechanism naming).** The engine type is named `HabituationEngine` and its state fields carry `Habituation*` identifiers, retained to avoid a large code rename. The clinically accurate description of SenseEase's *long-term* mechanism — for the more-susceptible subgroup — is **graded exposure → sensory reweighting** (漸進暴露 → 感覺再加權), not classical habituation. For visually-induced vertigo, recovery is driven mainly by sensory reweighting / adaptation; classical VOR habituation contributes comparatively little.
+**Terminology note (mechanism naming).** The engine type is named `HabituationEngine` and its state fields carry `Habituation*` identifiers, retained to avoid a large code rename. The clinically accurate description of SenseEase's *long-term* mechanism — for the more-susceptible subgroup — is **graded exposure → sensory reweighting** (漸進暴露 → 感覺再加權), not classical habituation. For visually-induced discomfort, adaptation is driven mainly by sensory reweighting; classical VOR habituation contributes comparatively little.
 
 In the vestibular-rehabilitation tradition, Chang & Hain (2020) describe an optokinetic-stimulation-with-stationary-anchoring approach — the conceptual basis for SenseEase's *anchor grid* (§2.3) — in which a fixed reference frame supports a graded increase in tolerated scene motion, with explicit *protective backoff* when over-exposure produces severe symptoms. (Chang & Hain 2020 is a short theoretical proposal, not a clinical trial — see §14.) The empirical motivation for *not* using an aggressive single-shot exposure protocol comes from Pavlou, Bronstein & Davies (2013): in their randomized trial, the **unsupervised** arm showed roughly 55 % dropout while the supervised arm dropped out at about 10 %. Because SenseEase is an *unsupervised* desktop tool, its design deliberately keeps each exposure step small and protectively gated.
 
 SenseEase encodes these principles as the **graded-exposure offset (習慣化偏移, `_offset`)** + **severe-strike count (重度峰值累計次數)** dual-state system implemented in `HabituationEngine`.
 
-**Auto-profiling replaces explicit calibration (Alpha-2, load-bearing).** The prior edition described a multi-stage Q1–Q5 questionnaire (`CalibrationWindow`), an LLM calibration dialog (`CalibrationChatbotService`), and a Stage-5c demo-video loop (`DemoVideoWindow`). **All of these were deleted** in commit `3131387` ("remove explicit-calibration subsystem"); there is no `CalibrationWindow` type and no `Q1`…`Q5` literals anywhere in `src/`. They are replaced by **auto-profiling** ([MockInferenceEngine.ApplyAutoProfilingStartDefaults](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs), `:682-698`):
+**Auto-profiling replaces explicit calibration (Alpha-2, load-bearing).** The prior edition described a multi-stage Q1–Q5 questionnaire (`CalibrationWindow`), an LLM calibration dialog, and a Stage-5c demo-video loop. **All of these were deleted** (commit `3131387`). They are replaced by **auto-profiling** ([MockInferenceEngine.ApplyAutoProfilingStartDefaults](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs), `:907-917`): a genuinely fresh user (guard `!_profileExistedAtLoad && _loadedCalibrationCount == 0 && !_vestibularProtection`, `:914`) is seeded at **level 5** (`SenseDefaults.AutoProfilingStartLevel = 5` — the Set0 median「中」) on the **ADAPTING** profile (`SetProfile(HabituationProfile.Adapting, "auto_profiling_default")`, `:916`). The engine then adapts the user's curve via the Adaptive-Fit selector (§6a).
 
-- A genuinely fresh user (guard: `!_profileExistedAtLoad && _loadedCalibrationCount == 0 && !_vestibularProtection`) is seeded at **level 5** (`SenseDefaults.AutoProfilingStartLevel = 5` — the Set0 median「中」) on the **ADAPTING** profile (`SetProfile(HabituationProfile.Adapting, "auto_profiling_default")`; formerly TYPICAL — see the B6 Stage 4a rename in `HABITUATION-PROFILE.md`).
-- The engine then adapts the user's curve from their own behaviour via the Adaptive-Fit selector (§6a).
-- **Vestibular safety is re-rooted** onto a single opt-in prompt (`SetVestibularProtection`, [MockInferenceEngine.cs:708-735](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)) rather than a calibration branch: when enabled it applies `EffectiveTrigger = 50` + strike-limit 1, persisted in `HabituationProfileSnapshot.VestibularProtectionEnabled` and surfaced as both a one-time non-blocking prompt and a permanent Settings toggle (§9a).
+**Vestibular protection removed (commit `2d48041`, 2026-06-21).** The prior edition's "vestibular safety re-rooted onto a single opt-in prompt" is **gone**. The app is now scoped to general visual comfort and makes no clinical vestibular/balance claim. Concretely:
 
-`CalibrationProcessor.cs` / `CalibrationTypes.cs` survive only as a **constants holder + type definitions** (`VestibularTriggerPressureOverride = 50`, `PersonalPressureScaleMin/Max`) reused by the vestibular path; `CalibrationProcessor.Process` and `ApplyCalibrationResult` have **no live caller** in `src/`.
+- The engine `SetVestibularProtection` method is **deleted** — there is no longer any runtime path that sets `_vestibularProtection = true` ([MockInferenceEngine.cs:960-966](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs); the field is permanently `false`).
+- The one-time first-use prompt bar and the permanent Settings "regret" toggle are **removed** from the App ([MainViewModel.cs:190-192](src/SenseEase.App/ViewModels/MainViewModel.cs); [SettingsContent.xaml:624-625](src/SenseEase.App/Views/SettingsContent.xaml)); a non-clinical scope disclaimer replaces the prompt strip ([MainWindow.xaml:197-201](src/SenseEase.App/MainWindow.xaml)).
+- A **graceful boot migration** ([MockInferenceEngine.cs:373-384](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)) catches an existing user who persisted `VestibularProtectionEnabled = true`: rather than silently dropping them from their old trigger-50 hard-pin to the default trigger-85/Adapting, the loader seeds the most-cautious surviving profile, `SetProfile(HabituationProfile.Reactive, "vestibular_migration")`, clears any stale strike-override, marks the snapshot dirty (so the false/null overwrite persists one-shot), and emits a forensic `Migration.VestibularRetired` recovery event. `_vestibularProtection` stays permanently false so the feature can never re-arm. **Accepted tradeoff (OD-1):** Reactive's effective trigger is materially higher than the migrated user's old 50, so the "no silent drop" guarantee is *partial* — the B5/B6 elasticity loop must climb back over a few sessions from the strong Reactive start.
 
-**Three profiles** still stratify the habituation *cadence*. Verified against [HabituationProfile.cs:138-175](src/SenseEase.Core/Inference/HabituationProfile.cs):
+The deep safety machinery is **retained-but-dead** by design (see §6.5, §9a, and the Glossary "Vestibular removal" row): every consumer keys off the now-false `_vestibularProtection` / null `MedicalAdvisory.Vestibular`, so the branches are statically unreachable yet correct-by-construction and all fail toward protection. They are **not** to be re-flagged as incidental dead code.
 
-| Profile | Clinical analogue | StableWindowMs | StepIntervalMs | StepMagnitudePp | HabOffsetCapPp | MinSamplesForFullWeight | SevereStrikeLimit |
-|---|---|---|---|---|---|---|---|
-| **RESILIENT** (耐受型) | normative-tolerance user | 120 000 | 30 000 | 2.0 | 30 | 3 | 2 |
-| **TYPICAL** (一般型) | population-median user | 180 000 | 45 000 | 1.5 | 25 | 4 | 2 |
-| **SENSITIVE** (敏感型) | clinically reactive user | 360 000 | 60 000 | 1.0 | 15 | 6 | 1 |
+**Three profiles** stratify the habituation *cadence*. Verified against [HabituationProfile.cs:149-188](src/SenseEase.Core/Inference/HabituationProfile.cs):
 
-The progression is monotonic and reflects the **WH** that more sensitive users need (a) longer evidence of comfort before relaxing protection, (b) longer cooldown between relaxation steps, and (c) smaller per-step relaxations. **The auto-profiling default is now TYPICAL** (the population median), not RESILIENT — a fresh user starts at the middle of the population rather than the most-tolerant end.
+| Profile (B6 name) | Former name | Clinical analogue | StableWindowMs | StepIntervalMs | StepMagnitudePp | HabOffsetCapPp | MinSamplesForFullWeight | SevereStrikeLimit |
+|---|---|---|---|---|---|---|---|---|
+| **Reactive** (高反應) | SENSITIVE | clinically reactive user | 360 000 | 60 000 | 1.0 | 15 | 6 | 1 |
+| **Adapting** (適應中) | TYPICAL | population-median user | 180 000 | 45 000 | 1.5 | 25 | 4 | 2 |
+| **Resilient** (耐受型) | RESILIENT | normative-tolerance user | 120 000 | 30 000 | 2.0 | 30 | 3 | 2 |
 
-**Top-of-scale behaviour is NOT profile-differentiated.** `GetPostSpikePauseMs` returns `requireUserConfirm = true` for **any** profile at the top band; all three profiles enter `PausedAwaitingUserConfirm` and stay there until `AcknowledgeAndResume`.
+The progression is monotonic and reflects the **WH** that more reactive users need (a) longer evidence of comfort before relaxing, (b) longer cooldown between steps, and (c) smaller per-step relaxations. **The fresh-user seed is now ADAPTING** (the population median), not Resilient; the engine *field* default is Resilient but is reachable only before any seed/restore. Note the int enum order *ascends with elasticity* (`Reactive=0, Adapting=1, Resilient=2`), so a habituating user moves *up* (B6 bidirectional elasticity).
 
-**Audit gap (A7) — shader axes are now PARTIALLY profile-differentiated via the Adaptive-Fit Band axis.** Per-profile *shader defaults* (`MaskDepth`, `GridVisibility`, `FeatherWidth`) remain global, BUT the Adaptive-Fit **Band** axis (§6a) now deforms the per-set mask-alpha envelope and FOV floor, so a user the selector has moved to a higher Band reaches a deeper peak mask than a lower-Band user. The original A7 concern (a SENSITIVE user having an identical *peak mask* to a RESILIENT user) is therefore mitigated *through the selector* rather than through per-profile shader constants. Direct per-profile shader defaults remain a candidate (§13.6).
+**Top-of-scale behaviour is NOT profile-differentiated.** `GetPostSpikePauseMs` returns `requireUserConfirm = true` for **any** profile at level ≥ 10 ([HabituationProfile.cs:254-263](src/SenseEase.Core/Inference/HabituationProfile.cs)); all three profiles enter `PausedAwaitingUserConfirm` and stay until `AcknowledgeAndResume`.
+
+**Audit gap (A7) — shader axes are now PARTIALLY profile-differentiated.** Per-profile *shader defaults* (`MaskDepth`, `GridVisibility`, `FeatherWidth`) remain global EXCEPT that `HabituationProfileParams.ResolveDefaultsFor` ([HabituationProfile.cs:222-241](src/SenseEase.Core/Inference/HabituationProfile.cs)) now seeds **Reactive** with a tightened opening overlay (MaskDepth 0.80, GridVisibility 0.60, FeatherWidth 0.55) while Resilient/Adapting inherit the neutral baseline; and the Adaptive-Fit **Band** axis (§6a) deforms the per-set mask-alpha envelope + FOV floor. The original A7 concern is therefore mitigated both through a per-profile Reactive seed and through the selector. Fuller per-profile shader independence remains a candidate (§13.6).
+
+**小結（中文）：** 本節錨定漸進暴露原理。重大變更：(1) **取消顯式 Q1–Q5 校準**，新用戶以 **L5／適應中（Adapting）** 自動起步；(2) **前庭保護已於 2026-06-21（2d48041）整體移除** — 應用範圍改為一般視覺舒適、不再宣稱臨床前庭功能；啟用面（引擎 `SetVestibularProtection`、提示列、設定開關）已切除，深層安全分支保留為「永遠不可達但朝保護失效」的死碼；已持久化前庭旗標的舊用戶於開機時遷移至最謹慎的 **Reactive** 體質；(3) 三檔體質改名為 Reactive／Adapting／Resilient（原 SENSITIVE／TYPICAL／RESILIENT）。
 
 ### 2.6 Head-Pose Viewport Rationale / 頭部姿勢視口設計依據
 
@@ -191,13 +197,13 @@ The Passenger / Driver ratio is therefore **8×** (2.0 / 0.25). `DriverFlowAtten
 
 **The Grey/Amber/Red 3-band model has been retired.** The user-facing surface is a **5-band「動態感 (motion-feel)」label** ([TierColorPalette.BandForTier](src/SenseEase.App/Views/TierColorPalette.cs), `:280-287`):
 
-| Level | `TierBand` enum | User label (動態感) |
+| Level | `TierBand` enum | User label (live, `FeelLabel` / `FeelLabelEn` [:163-184](src/SenseEase.App/Views/TierColorPalette.cs)) |
 |---|---|---|
-| 1–2 | `VeryHigh` | 極低 / Very Calm |
-| 3–4 | `High` | 低 / Calm |
-| 5–7 (default 5) | `Medium` | 中 / Moderate |
-| 8–10 | `Low` | 高 / Active |
-| 11–12 | `VeryLow` | 極高 / Very Active |
+| 1–2 | `VeryHigh` | 畫面動態 · 極低 / Screen Motion · Very Calm |
+| 3–4 | `High` | 畫面動態 · 低 / Screen Motion · Calm |
+| 5–7 (default 5) | `Medium` | 畫面動態 · 中 / Screen Motion · Moderate |
+| 8–10 | `Low` | 畫面動態 · 高 / Screen Motion · Dynamic |
+| 11–12 | `VeryLow` | 畫面動態 · 極高 / Screen Motion · Very Dynamic |
 
 **Note the deliberate enum-polarity inversion:** enum `VeryHigh` (L1–2) is the *calmest* screen state (most natural, least masking), surfaced to the user as「動態感·極低」. The palette is a **calm cool-blue ramp** (`#9BB4D4`→`#243F6B`, [TierColorPalette.cs:56-60](src/SenseEase.App/Views/TierColorPalette.cs)) — there is intentionally **no alarm-red**, because an anxiety-coloured "you are getting sick" signal is itself provocative for this population.
 
@@ -223,7 +229,7 @@ SenseEase is structured as a layered Windows desktop application in C# (.NET) wi
 ### 3.2 Process Topology / 程序拓撲
 
 - **`SenseEase.exe`** (main WPF process) hosts all in-process layers.
-- **`llama-server.exe`** (side-loaded Vulkan backend, llama.cpp b9294) listens on **`127.0.0.1:8181`**, **lazily started on first chat** (§10.2).
+- **`llama-server.exe`** (side-loaded Vulkan backend, llama.cpp b9294) listens on **`127.0.0.1:8181`**, **lazily started on first chat** (§10), serving **`Qwen3-4B-Instruct-2507`**. On an AMD Ryzen-AI machine a **FastFlowLM NPU** server (`flm serve qwen3-it:4b`, port `52625`) is used instead when present, with Vulkan as the universal fallback (§10.3).
 - **Head-tracking sidecar** (`head_tracker.exe`, PyInstaller one-dir, portable) wraps MediaPipe FaceLandmarker; JSON-over-stdout at ~15 Hz.
 
 Typical sidecar IPC line (eight-field DTO):
@@ -261,7 +267,7 @@ SenseEase APP/
 │   ├── SenseEase.Infrastructure/
 │   │   └── Storage/                        # NEW: user-model + profile stores
 │   ├── SenseEase.App/
-│   └── tests/SenseEase.Tests/             # ~1058 / 0 / 3
+│   └── tests/SenseEase.Tests/             # ~1491 [Fact]/[Theory]
 ├── docs/
 ├── tools/head-tracker/                    # vendored portable Python sidecar
 ├── installer/                             # Inno Setup .iss (deleted in working tree; see §13.1)
@@ -292,13 +298,13 @@ SenseEase APP/
 | Package | Version | Consumer | Purpose |
 |---|---|---|---|
 | `Microsoft.Windows.SDK.Contracts` / `CsWin32` | 10.0.x / 0.3.275 | Infrastructure | WGC / WinRT / Win32 P/Invoke |
-| `LLamaSharp` | 0.27.0 | `MistralChatbotService` | managed API (CUDA backend native assets **excluded**, §10.2) |
+| ~~`LLamaSharp`~~ | — | *(removed, DEAD-01)* | the managed in-process inference API is **no longer referenced**; the chatbot drives a side-loaded `llama-server.exe` / FastFlowLM server purely over loopback HTTP (§10) |
 | `Hardcodet.NotifyIcon.Wpf` | 2.0.1 | App | tray icon |
 | `xUnit` | 2.9.2 | Tests | test runner |
 
 ### 4.4 Test Project Layout / 測試專案佈局
 
-The ~1058 / 0 / 3 split is reproducible by `dotnet test` from the solution root (one known `UserPreferences` test-isolation flake — passes in isolation).
+The ~1491 `[Fact]`/`[Theory]` suite is reproducible by `dotnet test` from the solution root (not re-run this revision — the AV build-hang constraint on the dev machine).
 
 ---
 
@@ -428,25 +434,26 @@ This is the engine's mathematical core.
 
 ### 6.1 The Update Rule / 更新規則
 
-The pressure scalar `P(t)` is produced by `LeakyIntegrator.Step(effectiveOfi, weight, dt)` ([MockInferenceEngine.cs:378](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs); [LeakyIntegrator.cs:40-54](src/SenseEase.Core/Inference/LeakyIntegrator.cs)):
+The pressure scalar `P(t)` is produced by `LeakyIntegrator.Step(effectiveOfi, weight, dt)` ([MockInferenceEngine.cs:509](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs); [LeakyIntegrator.cs:40-66](src/SenseEase.Core/Inference/LeakyIntegrator.cs)):
 
 ```
+OFI_eff(t)  = IsFinite(OFI_eff(t)) ? OFI_eff(t) : 0        // NaN/∞ → 0 (2026-06-22 NaN-poison fix, :47)
 gated(t)    = OFI_eff(t) ≥ NoiseGateThreshold ? OFI_eff(t) : 0
 stimulus(t) = (gated(t) · weight  +  QuadraticTerm · gated(t)²) · dt
 α(dt)       = BaseDecayAlpha ^ (dt / 0.1)
-P(t)        = max(0,  α(dt) · P(t−1) + stimulus(t))
+P(t)        = α(dt) · P(t−1) + stimulus(t) ;  if !(P > 0) P = 0   // also catches NaN (:61)
 ```
 
-where `OFI_eff` is the mode-attenuated OFI from §5.8 and `dt` is the real inter-sample interval, clamped `[0.001, 2.0]` s (or `1.0` for unit-step/test usage).
+where `OFI_eff` is the mode-attenuated OFI from §5.8 and `dt` is the real inter-sample interval, clamped `[0.001, 2.0]` s (or `1.0` for unit-step/test usage). The entry finite-guard and the `!(P > 0)` reset (rather than `max(0, …)`) were added in the 2026-06-22 NaN-poison audit: a single non-finite OFI sample could otherwise pin `Pressure` to NaN forever, so the mask would never re-engage.
 
 | Symbol | Constant | Value | Source |
 |---|---|---|---|
-| `NoiseGateThreshold` | `NoiseGateThreshold` | **8** | [SenseDefaults.cs:16](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
-| `BaseDecayAlpha` | `BaseDecayAlpha` | **0.965** (τ ≈ 2.81 s) | [SenseDefaults.cs:67](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
-| `QuadraticTerm` | `QuadraticTerm` | **0.0008** | [SenseDefaults.cs:65](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
-| `PassiveFlowWeight` | `PassiveFlowWeight` | **2.0** (Passenger only) | [SenseDefaults.cs:64](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
-| `DriverFlowAttenuation` | `DriverFlowAttenuation` | **0.25** (Driver only) | [SenseDefaults.cs:77](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
-| `TriggerPressure` | `TriggerPressure` | **85** | [SenseDefaults.cs:17](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| `NoiseGateThreshold` | `NoiseGateThreshold` | **8** | [SenseDefaults.cs:18](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| `BaseDecayAlpha` | `BaseDecayAlpha` | **0.965** (τ ≈ 2.81 s) | [SenseDefaults.cs:342](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| `QuadraticTerm` | `QuadraticTerm` | **0.0008** | [SenseDefaults.cs:340](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| `PassiveFlowWeight` | `PassiveFlowWeight` | **2.0** (Passenger only) | [SenseDefaults.cs:339](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| `DriverFlowAttenuation` | `DriverFlowAttenuation` | **0.25** (Driver only) | [SenseDefaults.cs:352](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| `TriggerPressure` | `TriggerPressure` | **85** | [SenseDefaults.cs:19](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
 
 ### 6.2 Time-Corrected Decay Derivation / 時間校正衰減推導
 
@@ -476,7 +483,7 @@ Compare Driver mode at the same `g = 30`: `effectiveOfi = 30 · 0.25 = 7.5`, **b
 **The level projection is now a closed-form affine map onto 1–12** (was 1–10), in `UpdateVimsTier` ([MockInferenceEngine.cs:1823-1834](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)):
 
 ```
-t      = clamp(P / TriggerPressure, 0, 1)
+t      = clamp(P / EffectiveTrigger, 0, 1)        // Beta-1 #5: was raw TriggerPressure; == 85 for a default user (§7.3)
 scale  = adaptiveFitEnabled ? SetGrid.Curve(activeSet).ForLevel(level).Scale
                             : (SetCurve.LevelCount − 1)            // 12 − 1 = 11.0
 levelF = 1.0 + scale · t                                          // 1 .. 12
@@ -507,18 +514,11 @@ with `personal_pressure_scale ∈ [0.7, 1.5]` (`SenseDefaults.PersonalPressureSc
 - `scale = 0.7` → `EffectiveTrigger ≈ 121.4` (less sensitive user — must cross more pressure).
 - `scale = 1.5` → `EffectiveTrigger ≈ 56.7` (more sensitive user — triggers sooner).
 
-**Vestibular override precedence.** When vestibular protection is active, the absolute override wins: `EffectiveTrigger = VestibularTriggerPressureOverride = 50` and strike-limit hard-set to 1 ([MockInferenceEngine.cs:708-735, 271-276](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)). This is the strictest envelope (41 % lower trigger than default).
+**Vestibular override precedence — DEAD (vestibular removal, 2026-06-21).** The prior edition described an absolute-override branch in which active vestibular protection pinned `EffectiveTrigger = VestibularTriggerPressureOverride = 50` and hard-set the strike-limit to 1, winning over the personal-pressure-scale. **This path is no longer reachable.** The `SetVestibularProtection` method was deleted, `_vestibularProtection` is permanently `false`, and so the override branches in `ApplyAutoAdaptDelta` / `ApplyAutoDeltaToFreshBase` / `ApplyGateOutcome` ([MockInferenceEngine.cs:1761-1768, 1887-1888, 1926-1932](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)) are statically dead. The constants `CalibrationProcessor.VestibularTriggerPressureOverride = 50` and `AdaptationGate` config `VestibularTriggerCapPp = 50.0` survive only as inputs to those dead branches and are KEPT-but-dead by design (do not re-flag). With the override gone, the only `EffectiveTrigger` driver is the personal-pressure-scale: `EffectiveTrigger = TriggerPressure / personal_pressure_scale`, `personal_pressure_scale ∈ [0.7, 1.5]`, so the personalised threshold ranges `[56.7, 121.4]` around the default 85. Migrated formerly-vestibular users get their protection from the **Reactive** profile (no-net-relax gate floor + `PassesProtectionFloorGuard` Reactive leg), not from a trigger override.
 
-**Scope qualifier (load-bearing).** `EffectiveTrigger` is consumed by **four** sites only:
-1. the habituation spike-recurrence check (`pressure ≥ EffectiveTrigger × 0.60`),
-2. the habituation calm-fraction check (`pressure < EffectiveTrigger × 0.25 && !maskActive`),
-3. the Adaptive-Fit stats builder (`PressureP90 = pct(Pressure / EffectiveTrigger)`),
-4. the **`DisplayStressPercent` hero metric** — the personalised 0–100 % readout shown on the dashboard ([MockInferenceEngine.cs:391-394](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)):
-   ```
-   DisplayStressPercent = clamp(100 · Pressure / EffectiveTrigger, 0, 100)
-   ```
+**Scope qualifier (Beta-1 #5 — `EffectiveTrigger` now drives the visible protection too).** As of the Beta-1 #5 fix, `EffectiveTrigger` is consumed by the **mask hysteresis** (§7.3), the **FOV-radius projection** `ComputeFovRadiusPercent` (§8.2, now passed the effective trigger — [MockInferenceEngine.cs:718](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)), and the **level projection** `UpdateVimsTier` (§6.4), **in addition to** the four sites it already fed: the habituation spike-recurrence check (`pressure ≥ EffectiveTrigger × 0.60`), the calm-fraction check (`pressure < EffectiveTrigger × 0.25 && !maskActive`), the Adaptive-Fit stats builder (`PressureP90 = pct(Pressure / EffectiveTrigger)`), and the `DisplayStressPercent` hero metric (`clamp(100 · Pressure / EffectiveTrigger, 0, 100)`, [MockInferenceEngine.cs:522-525](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)).
 
-It is **NOT** used by the mask hysteresis (§7.3), `ComputeFovRadiusPercent` (§8.2), or `UpdateVimsTier` (§6.4) — those still read **raw `TriggerPressure` (85)**. So under `scale ≠ 1.0`, mask engagement / FOV radius / engine level use the raw 85 threshold, while the user's *displayed* stress %, the habituation strike/calm logic, and the selector's stats are personalised. This asymmetry is design intent ("the mask is a fixed physical protection; only the user's *experience of urgency* is personalised") but is load-bearing — wiring `EffectiveTrigger` into the mask hysteresis would silently change every `scale ≠ 1.0` user's masking behaviour.
+The prior edition's claim that mask/FOV/tier "still read raw `TriggerPressure (85)`" while only the display/strike/stats were personalised is **no longer true**: that asymmetry silently negated any lowered-trigger envelope (it was introduced for the now-removed vestibular trigger-50 user, who masked no earlier than a default user), so all three visible-protection paths were rewired onto `EffectiveTrigger`. For a default user `EffectiveTrigger == TriggerPressure = 85`, so behaviour is byte-identical; only a `personal_pressure_scale ≠ 1.0` user (effective trigger `∈ [56.7, 121.4]`) now sees their mask / FOV / level personalised in lock-step with their displayed stress %.
 
 ### 6.6 Habituation Offset Arithmetic / 習慣化偏移算術
 
@@ -626,6 +626,62 @@ Three wiring points reach the renderer when the flag is ON:
 
 ---
 
+## 6b. The Overlay Consent Gate / 遮罩同意閘 (Alpha-2)
+
+The overlay is **opt-in per session**: in the default mode the comfort mask is held fully invisible until the user agrees to start it. This is the consent layer that sits *between* the engine's pressure→tier projection (§6.4) and the painted mask (§8) — the engine keeps sensing and accumulating pressure, but the visible overlay is clamped off until consent is granted. The gate is implemented in `MainViewModel.ShouldHoldMaskForConsent` ([MainViewModel.cs:1867-1932](src/SenseEase.App/ViewModels/MainViewModel.cs)) and the small clock-injectable cooldown `OverlayConsentGovernor` ([OverlayConsentGovernor.cs](src/SenseEase.App/Services/OverlayConsentGovernor.cs)).
+
+### 6b.1 The per-session state model / 每工作階段的狀態模型
+
+`ShouldHoldMaskForConsent(int naturalTier)` is called on the UI thread from `MainWindow.OnStateChanged` with the engine's **natural (pre-baseline) tier**; it returns `true` while the visible overlay must be **held off** (clamped to L1, `MaskPeakAlphaOverride = 0.0` — [MainWindow.xaml.cs:1864-1871](src/SenseEase.App/MainWindow.xaml.cs)). The state machine has four branches, evaluated in order:
+
+| State | Guard | Behaviour |
+|---|---|---|
+| **Standing consent (Auto Protect)** | `AlwaysAllowOverlay == true` | session marked active, no bubble, `return false` (overlay runs, follows the natural tier, invisible at rest) |
+| **Always-on baseline** | `PersistentOverlayEnabled == true` | same as above — an explicit always-on baseline is implicit consent |
+| **Live session** | `_overlaySessionActive == true` | `return false`; the overlay follows the engine across **all** levels until sustained calm ends the session (§6b.2) |
+| **Dormant** | none of the above | hold everything off; **ask once** the natural tier reaches the impactful level (§6b.3); `return true` |
+
+`ConsentImpactTier = 6` ([MainViewModel.cs:1760](src/SenseEase.App/ViewModels/MainViewModel.cs)) is the threshold at which a dormant gate raises the consent prompt — i.e. the bubble appears only once motion is genuinely impactful (mid-band「中」or above), never on incidental low-tier flicker. Below tier 6 the dormant overlay simply stays held with no prompt.
+
+**Grant.** `GrantOverlayConsent` ([MainViewModel.cs:1966-1978](src/SenseEase.App/ViewModels/MainViewModel.cs)) sets `_overlaySessionActive = true`, clears the pending flag, and calls `RecordAccepted()`. From that point the session is live — *all* levels (including a transient dip back to L1) drive the overlay; a brief calm does **not** end it.
+
+### 6b.2 Session end on sustained calm / 持續平靜結束工作階段
+
+A live session ends only on **sustained calm**: while `_overlaySessionActive` and the natural tier is `≤ 1`, a calm timer accrues, and when `now − _calmSinceTick ≥ SessionEndCalmMs = 120 000` (2 minutes, [MainViewModel.cs:1761](src/SenseEase.App/ViewModels/MainViewModel.cs)) the session deactivates and the gate returns to dormant, so the next impactful rise re-asks. Any tier `> 1` resets the calm timer to 0 ([MainViewModel.cs:1892-1898](src/SenseEase.App/ViewModels/MainViewModel.cs)). The calm clock uses the injectable `ConsentTickProvider` (a monotonic millisecond source), kept distinct from `DateTime.UtcNow` so the gate is deterministically testable.
+
+A **deadswitch fix** (2026-06-23, [MainViewModel.cs:1802-1809](src/SenseEase.App/ViewModels/MainViewModel.cs)) drops the implicit standing session when Auto Protect is turned **off**: because the `AlwaysAllowOverlay` branch sets `_overlaySessionActive = true`, flipping the toggle off must clear that session (and the calm timer) so the gate genuinely returns to "ask each time", rather than lingering in a granted state for up to 2 minutes during which the bubble never re-asked.
+
+### 6b.3 The prompt lifecycle, linger, and cooldowns / 提示生命週期、停留與冷卻
+
+When dormant and the natural tier first reaches `ConsentImpactTier` **and** `OverlayConsentGovernor.ShouldAsk()` permits, the gate sets `_consentPending`, records the ask tick, calls `RecordAsked()`, writes a durable `Asked` row (§6b.4), and raises `OverlayConsentRequested` ([MainViewModel.cs:1903-1913](src/SenseEase.App/ViewModels/MainViewModel.cs)).
+
+The prompt is deliberately **stable** — it is a question to the user, so it is **not** retracted on a transient tier dip (motion-video tiers flicker across the impactful line constantly; the earlier transient-retract tore the expanded card away mid-tap so the overlay could never be turned on). It persists until one of:
+
+- **Grant** → live session (§6b.1).
+- **Decline** (`DeclineOverlayConsent`, [MainViewModel.cs:1982-1996](src/SenseEase.App/ViewModels/MainViewModel.cs)) → `RecordDeclined()` (the long cooldown), plus a **persisted** decline timestamp + count in `UserPreferences` so the cooldown survives a restart.
+- **Unanswered linger time-out** — when not mid-interaction and `now − _consentAskedTick ≥ ConsentLingerMs = 45 000` (45 s, [MainViewModel.cs:1767](src/SenseEase.App/ViewModels/MainViewModel.cs)), the prompt tucks away via `RecordDismissedUnanswered()` + an `Ignored` row + `OverlayConsentDismissRequested` ([MainViewModel.cs:1924-1930](src/SenseEase.App/ViewModels/MainViewModel.cs)). `SetConsentInteracting(true)` suspends this tuck-away while the user has the card expanded, so it is never pulled out from under an in-progress decision.
+- **Overlay turned off while pending** (`CancelPendingConsent`) → the bubble hides with the rest of the protection; the from-ask cooldown stands.
+
+The `OverlayConsentGovernor` is an in-memory cooldown (resets on restart, mirroring `CheckInGovernor`) timed **from the ask** so it runs in parallel with a granted session and is typically elapsed by session end. Its three windows:
+
+| Window | Value | Trigger | Source |
+|---|---|---|---|
+| `StartupQuiet` | 60 s | no prompt within this window after launch (avoids a start-up flash while the engine settles) | [OverlayConsentGovernor.cs:30](src/SenseEase.App/Services/OverlayConsentGovernor.cs) |
+| `NoAnswerCooldown` | 3 min | the baseline from-ask cooldown; also the re-prompt interval after an unanswered dismiss | `:26` |
+| `DeclineCooldown` | 30 min | after an explicit "Not now" — a strong signal, so re-prompt slowly | `:21` |
+
+`ShouldAsk()` returns true only past the startup-quiet window AND not currently cooling down ([OverlayConsentGovernor.cs:39-44](src/SenseEase.App/Services/OverlayConsentGovernor.cs)). `RestoreDeclineCooldown(lastDeclineUtc)` re-seeds the long cooldown from the persisted decline time at construction, with a guard that a stale timestamp past its window can never suppress a fresh ask forever.
+
+### 6b.4 Durable consent audit — the `overlay_consent` symptom_log rows / 持久同意稽核
+
+Every consent decision is appended to the durable `symptom_log.jsonl` timeline via `RecordOverlayConsentDecision` ([MainViewModel.cs:1938-1942](src/SenseEase.App/ViewModels/MainViewModel.cs)) → `SymptomEvent.OverlayConsentRow` ([SymptomEvent.cs:91-104](src/SenseEase.Core/Models/SymptomEvent.cs)), best-effort (a consent decision must never crash the gate). The row carries `Kind = "overlay_consent"`, the decision (`asked` / `accepted` / `declined` / `ignored`), and the live join keys — `ContextTier` and `InterventionState` (on/off) at the moment of the decision — so the consent timeline joins to the same tier key as the FMS reports.
+
+**Load-bearing data-integrity property:** the row is stamped `Measured = false`, `Value = 0`, `Scale = ""`, `Source = ""`. This is what lets the learning-loop "overlay offered, not engaged" metric (§11b.1) read these rows for the health report while they remain invisible to the relax gate's measured-FMS intake (`AdaptationEvidence.MeasuredOnFms`, which requires `Measured && Kind == FmsReport`) and to the clinical-export FMS aggregates (which hard-filter to FMS kinds — §11c.4).
+
+**小結（中文）：** 預設模式下，遮罩採「每工作階段先詢問」：引擎持續感測，但可見遮罩在同意前被夾到 L1（0 alpha）。休眠 → 在影響等級 6 才提示一次；授權後整個工作階段所有等級皆驅動遮罩，直到自然等級持續 2 分鐘 ≤1 才結束。冷卻三檔（啟動靜默 60s／無回應 3 分／拒絕 30 分），拒絕時間持久化以跨重啟。每個決定以 `kind=overlay_consent`、`Measured=false` 寫入 symptom_log，對放鬆閘與 FMS 匯總天然不可見。
+
+---
+
 ## 7. Inference Layer State Machine / 推論層狀態機
 
 ### 7.1 Level Hysteresis / 等級遲滯
@@ -659,14 +715,14 @@ The 12 levels map to the 5「動態感」bands per §2.8 (L1–2 / L3–4 / L5�
 
 ### 7.3 Mask Engagement Hysteresis / 遮罩啟用遲滯
 
-There is no named four-phase machine in the engine; mask engagement is a two-line boolean hysteresis reading **raw `TriggerPressure` (NOT `EffectiveTrigger`)** ([MockInferenceEngine.cs:399-413](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)):
+There is no named four-phase machine in the engine; mask engagement is a two-line boolean hysteresis reading the user's **`EffectiveTrigger`** (Beta-1 #5 fix; **was raw `TriggerPressure`**) ([MockInferenceEngine.cs:536-550](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)):
 
 | Transition | Guard | Action |
 |---|---|---|
-| OFF → ON | `pressure ≥ TriggerPressure (85) ∧ now − _lastMaskChange ≥ CooldownMs (8000)` | `MaskActive = true` |
-| ON → OFF | `pressure < TriggerPressure × 0.85 = 72.25` | `MaskActive = false` |
+| OFF → ON | `pressure ≥ EffectiveTrigger ∧ now − _lastMaskChange ≥ CooldownMs (8000)` | `MaskActive = true` |
+| ON → OFF | `pressure < EffectiveTrigger × 0.85` | `MaskActive = false` |
 
-The 12.75-unit gap between engage (85) and release (72.25) prevents oscillation; the 8 s cooldown covers a transient calm-then-spike. (The named `Active/Settling/Cooldown` machine is the *Adaptive-Fit* `AdaptiveFitStateMachine`, governing set moves — §6a.4 — not mask engagement.)
+For a default user `EffectiveTrigger == TriggerPressure = 85`, so engage = 85, release = 72.25 (a 12.75-unit gap that prevents oscillation), byte-identical to the old behaviour. For a `personal_pressure_scale ≠ 1.0` user the whole hysteresis band scales with their personalised trigger. **Load-bearing correction:** before the Beta-1 #5 fix the mask read the *fixed* 85 while only `DisplayStressPercent` and the strike/calm logic were personalised — silently negating any lowered-trigger envelope; **mask, FOV (§8.2) and tier (§6.4) were all rewired onto `EffectiveTrigger`** to close that (`ComputeFovRadiusPercent` now takes the effective trigger as a parameter — [MockInferenceEngine.cs:718](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)). The 8 s cooldown covers a transient calm-then-spike. (The named `Active/Settling/Cooldown` machine is the *Adaptive-Fit* `AdaptiveFitStateMachine`, governing set moves — §6a.4 — not mask engagement.)
 
 ### 7.4 Severe-Strike State and the Habituation State Machine / 累計次數與習慣化狀態機
 
@@ -834,138 +890,281 @@ The overlay bar's monitor coordinates are pushed back into `WgcSensingProvider.S
 
 `OverlayWindow` is constructed once with `WindowState="Maximized"` and maximises onto whichever monitor it instantiates on (typically primary). Grid spacing is DPI-scaled against `SystemParameters.PrimaryScreenWidth` only. There is no per-monitor enumeration, no Display-Changed handler, no second-overlay management. Multi-monitor users get protection on a single display. **Full multi-monitor coverage** is a v1.0 scope item (§13.6).
 
+### 8.9 Overlay Z-order & the SenseEase-UI-above-overlay Contract / 疊放層級與「我方 UI 永遠在遮罩之上」契約
+
+The comfort overlay (`OverlayWindow`) and every SenseEase chrome window are all `Topmost` (the WS_EX_TOPMOST band). Within that single band, the app must guarantee a strict invariant: **the overlay sits above every foreign window, but every SenseEase-owned window — and any open tooltip — sits above the overlay.** Naïve Win32 ownership does *not* deliver this; the live design re-lifts our windows in the overlay's own re-assert tick.
+
+#### 8.9.1 Why the overlay must self-re-assert (the "1-of-4-machines" recovery)
+
+`OverlayWindow` is shown topmost once, but WPF only asserts `Topmost` at `Show` time. On one of four alpha-test machines a foreign app (game / launcher / OS consent prompt) claimed the top of the topmost band and the overlay never recovered — it composed only over SenseEase's own windows. The fix is a periodic Win32 re-assert: in `OverlayWindow.ApplyState` ([OverlayWindow.xaml.cs:358-368](src/SenseEase.App/Views/OverlayWindow.xaml.cs)), while the overlay is visible, every `TopmostReassertTicks = 16` ([:293](src/SenseEase.App/Views/OverlayWindow.xaml.cs)) engine ticks (the engine tick is ~66 ms, so ≈ once per second) it calls `ReassertTopmost()` → `SetWindowPos(hwnd, HWND_TOPMOST, …, SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE|SWP_NOOWNERZORDER)` ([:299-305](src/SenseEase.App/Views/OverlayWindow.xaml.cs)). The same recovery also fires from `MainWindow`'s `Activated` / `StateChanged` handlers ([MainWindow.xaml.cs:247, 254](src/SenseEase.App/MainWindow.xaml.cs)). This Win32 path is authoritative because a foreign app can climb the band without ever notifying WPF's `Topmost` property.
+
+#### 8.9.2 Why ownership alone fails — the same-tick re-lift
+
+The overlay's re-assert has a side effect: re-topping the overlay lands it **above SenseEase's own UI windows too**. The empirical root cause (from `owner_diag.log`: `ownerMatches=True topmost=True`, yet the popup sat *behind*) is that Win32's "owned-window-above-owner" rule fires only on the make-topmost *transition*, **not** when an already-topmost owner re-tops itself. So owner/owned relationships do not survive the overlay re-asserting `HWND_TOPMOST` on itself — the overlay climbs over its owned popup and the OS leaves it there.
+
+The robust fix lives in `OverlayZOrder` ([src/SenseEase.App/Services/OverlayZOrder.cs](src/SenseEase.App/Services/OverlayZOrder.cs)). Windows register via `OverlayZOrder.Keep(this)` from their `SourceInitialized` (idempotent `HashSet<Window>`; auto-removed on `Closed`). Immediately after the overlay's own re-assert, **in the same synchronous tick, on the UI thread**, `ApplyState` calls `OverlayZOrder.ReassertAboveOverlay()` ([OverlayWindow.xaml.cs:367](src/SenseEase.App/Views/OverlayWindow.xaml.cs)), which:
+
+1. iterates every registered **visible** window and `SetWindowPos(hwnd, HWND_TOPMOST, …, SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE)` — re-lifting each back above the just-re-topped overlay ([OverlayZOrder.cs:49-56](src/SenseEase.App/Services/OverlayZOrder.cs)); then
+2. lifts the single open WPF tooltip last, so it lands above its owner window ([:57-58](src/SenseEase.App/Services/OverlayZOrder.cs)). A shown `ToolTip` lives in its own popup-rooted `HwndSource` (root = `PopupRoot`); `FindOpenToolTipHwnd` skips the Window-rooted sources (the heavy visual trees) so the scan stays cheap ([:63-79](src/SenseEase.App/Services/OverlayZOrder.cs)).
+
+Because the re-assert and the re-lifts land in **one tick with no paint between them**, no frame is ever presented with the overlay over our chrome — and there is no second clock to race. This is the crucial difference from the earlier ~60 Hz `DispatcherTimer` keeper, which ran on a *separate* clock, always lost a frame to the race, and flickered. `ReassertAboveOverlay` touches only our own windows' Z (never the overlay's), so the overlay can never be pushed to the back of the band.
+
+#### 8.9.3 Registered windows, and the one that opts out
+
+Windows that register with `OverlayZOrder.Keep` (re-lifted every overlay tick): `PopupBarWindow`, `SettingsWindow`, `NpsSurveyWindow`, `ConsentBubbleWindow`, and `WelcomeBubbleWindow` (each from its `SourceInitialized`). The consent bubble is the load-bearing case: without the re-lift the overlay covers it, so protection would appear to engage with no consent prompt visible.
+
+The **`EdgeSidebarWindow` deliberately does NOT register** with `OverlayZOrder`. Instead it self-asserts on its own ~60 Hz proximity poller (`DispatcherTimer`, 16 ms): every 12 ticks (≈ 192 ms, ~5×/s) it calls its own `ReassertTopmost()` ([EdgeSidebarWindow.xaml.cs:263](src/SenseEase.App/Views/EdgeSidebarWindow.xaml.cs)). It can afford a separate clock because it is a static ~4-dip strip with no flash-sensitive content (no ClearType text to re-raster), so a one-frame race is imperceptible — unlike the glass cards, whose text would flicker on a racing keeper. Every other surface (and the now-dormant legacy `PersistentBarWindow`) exposes the same `ReassertTopmost()` contract via `IShellSurface`.
+
+#### 8.9.4 Boundaries
+
+The `HWND_TOPMOST` re-assert **cannot** beat a true exclusive-fullscreen app (DWM composes nothing over it) or a foreign app on a different monitor — those are environment triage, not z-order ([OverlayWindow.xaml.cs:280-282](src/SenseEase.App/Views/OverlayWindow.xaml.cs)). Both the overlay's `ReassertTopmost` and `OverlayZOrder.Keep`-driven lifts use `SWP_NOACTIVATE`, so re-lifting never steals foreground from the user's app/game.
+
+#### 8.9.5 WGC exclude-rect coupling (the always-on-mask invariant)
+
+Every SenseEase-owned *visible* window rendered on the captured monitor must register its physical-pixel rect with the OFI exclude mask, or its own pixels feed back into optical-flow (docs/POPUP-OVERLAY.md §3). The legacy single-rect path (`WgcSensingProvider.SetMonitorExcludeRect`) can hold only one rect, so the reshaped shell routes its several simultaneously-visible surfaces through `SurfaceExcludeCoordinator` ([src/SenseEase.App/Services/SurfaceExcludeCoordinator.cs](src/SenseEase.App/Services/SurfaceExcludeCoordinator.cs)): each `IShellSurface` calls `Register` on show / `ContentRendered`, `Update` on move/resize, and `Unregister` on hide, and the coordinator pushes the **union** of all rects to the engine via `MainViewModel.SetWgcMonitorExcludeRects`. `Refresh` is fully fail-soft — a surface mid-teardown that can't report its rect is skipped, and a sink throw is swallowed (it runs from `Closed`/`IsVisibleChanged` handlers, where an unhandled throw would reach `App.DispatcherUnhandledException` and terminate the process). The overlay itself is click-through and excluded from the captured surface, so it is not a feedback source.
+
+**小結（中文）：** 遮罩視窗每約 1 秒透過 `SetWindowPos(HWND_TOPMOST)` 自我重申最上層（修復某台測試機遮罩被前景程式永久壓住的問題）；但「owned-above-owner」規則只在「轉為最上層」的瞬間生效、不會在「已是最上層再重申」時生效，故僅靠視窗擁有關係無法讓我方 UI 留在遮罩之上。解法是 `OverlayZOrder.ReassertAboveOverlay`：在遮罩重申的**同一個同步 tick**、同一 UI 執行緒內，把所有已註冊且可見的我方視窗（再加上開啟中的 tooltip）重新抬到最上層——無第二個時鐘、無競態、無閃爍。`EdgeSidebarWindow` 例外，改用自身 ~60 Hz 輪詢自我重申（其 ~4dip 細條無 ClearType 文字、不怕單格競態）。所有可見的我方視窗另需經 `SurfaceExcludeCoordinator` 把其物理像素矩形聯集推給 OFI 排除遮罩，避免自身像素回授。
+
 ---
 
-## 9. Rendering Layer — Bar, Tray, Card, Settings / 渲染層
+## 9. Rendering Layer — The Reshaped Shell (Edge Sidebar / Popup Bar / Settings / Tray / Bubbles) / 渲染層 — 重塑後的外殼
 
-### 9.1 OverlayBarWindow — 環境式狀態列
-The ambient bar displays the current band as a coloured pill using the 5-band「動態感」cool-blue palette (§2.8).
+This section replaces the dismantled dashboard/console + ambient-bar + notification-card model. The **kill-the-console reshape** moved the entire user-facing shell off `MainWindow` onto a set of discreet, edge-anchored, topmost glass surfaces driven by `ShellController`. `MainWindow` is now a **headless host** (§9.1); the user never sees it.
 
-### 9.2 TrayIconHost — 系統匣
-16×16 ARGB bitmap rendered to match the current band colour, swapped on band crossings.
+### 9.1 MainWindow — the headless host / 無頭宿主
 
-### 9.3 NotificationCardWindow — 提案確認卡片
-Sections:
-1. **Header** — current band colour + short status text (band-only motion label — commit `9c407de`).
-2. **Quick-feedback row** — buttons backed by `QuickDiscomfortPhrases`.
-3. **Chatbot proposal section** — visible when an `_activeProposal` is pending (15-second countdown).
-4. **Adaptive-Fit set-move proposal panel** (`SetMoveProposalPanel`) — visible only when the selector has a `_pendingSetMove` and the user opened the card (§6a.4).
-5. **Resume section** — visible when the engine is in the top-band await-confirm pause.
+`MainWindow` no longer surfaces a dashboard. `App.OnStartup` unconditionally sets `StartMinimizedToTray = true` ([App.xaml.cs:349](src/SenseEase.App/App.xaml.cs)) and the window is parked off-screen, rendered once (so a later on-demand surface isn't blank — the "blank-dashboard" regression), then `Hide()`-d in `ContentRendered` ([MainWindow.xaml.cs:172-219](src/SenseEase.App/MainWindow.xaml.cs)). It is never re-centred or re-shown: a second launch is routed away from the console. The single-instance guard's second instance no longer `ShowWindow`s the console (that surfaced a blank "dashboard ghost"); instead it `Set()`s a cross-process named event (`Local\SenseEase.App.RevealShell`) whose first-instance listener reveals the **shell** entry point on the UI thread ([App.xaml.cs:726-776](src/SenseEase.App/App.xaml.cs)).
 
-The Card's 15 s proposal-expiry timer is distinct from the 60 s VM watchdog in `MainViewModel.StartProposalExpiryWatchdog` (`CardCountdown ≤ Watchdog` invariant — §12). A seamless pop-up flip affordance was added (commit `65fdc3b`); the card auto-dismisses when the user clicks another app.
+What `MainWindow` still owns headlessly: the inference engine + `MainViewModel`, the `OverlayWindow` (created/closed with it, [MainWindow.xaml.cs:234](src/SenseEase.App/MainWindow.xaml.cs)), the head-tracking pose pump, the `TrayIconService` (§9.6), and the still-spawned-but-dormant `PersistentBarWindow`/`NotificationCardWindow` (§9.7). The coexistence shell is stood up once the StartupUri window + its `MainViewModel` exist, via `App.StartShellIfNeeded` → `new ShellController(win, vm).Start()` ([App.xaml.cs:602-637](src/SenseEase.App/App.xaml.cs)).
 
-### 9.4 SettingsWindow / 設定視窗
-Exposes: head-tracking enable + follow-mode picker, chatbot enable, the **vestibular-protection toggle** (§9a), and the **"clear all my data"** button (H24 — §11a), plus factory reset. (The calibration entry is **gone** — §9a.)
+### 9.2 ShellController — the coexistence shell / 外殼控制器
 
-### 9.5 MainWindow / Dashboard / 主視窗
-Hosts the chatbot surface, live OFI / **DisplayStressPercent** / level readouts, Demo-mode controls, the auto-profiling vestibular prompt bar, and the Event-Log window. The pop-up's `+/−` buttons adjust the 12-level intensity scale directly (commit `5b86696`).
+`ShellController` ([src/SenseEase.App/Services/ShellController.cs](src/SenseEase.App/Services/ShellController.cs)) is the App-lifetime owner of the new surfaces. `Start()` ([:39-70](src/SenseEase.App/Services/ShellController.cs)) shows the always-on `EdgeSidebarWindow`, wires its `Clicked`/`RevealRequested` to `RevealPopup`, bridges `MainViewModel.StateChanged`/`PropertyChanged` into the popup, subscribes the overlay-consent events to the consent bubble, conditionally shows the first-run welcome bubble, and arms the NPS gate. It exposes the quick-settings + level-nudge + chat/settings/logs entry points to the popup via `IShellController` ([:311-378](src/SenseEase.App/Services/ShellController.cs)). The displayed tier the popup meter reads is `ResolveDisplayedTier` (the engine tier floored by the always-on baseline), not the raw engine tier ([:314](src/SenseEase.App/Services/ShellController.cs)). It also constructs the `SurfaceExcludeCoordinator` and registers every shell surface with it (§8.9.5).
+
+A **global reveal hotkey** (`GlobalHotkeyService`, default from `UserPreferences.RevealHotkey`) toggles the popup via `ToggleGlassPopupBar`; it is re-registered after a Settings change and disposed on exit ([App.xaml.cs:618-703](src/SenseEase.App/App.xaml.cs)).
+
+### 9.3 EdgeSidebarWindow — the right-edge handle / 右緣把手
+
+The always-on entry point: a fixed **18 × 104 DIP** layered, transparent, topmost, non-focusable window ([EdgeSidebarWindow.xaml:13-15](src/SenseEase.App/Views/EdgeSidebarWindow.xaml)) rendering a single dark-grey (`#3A3A3A`) trapezoid `Path` at 0.28 rest opacity, horizontally scaled to 0.55 at rest ([EdgeSidebarWindow.xaml:32-41](src/SenseEase.App/Views/EdgeSidebarWindow.xaml)). It is **neutral** — `SetTier` is intentionally a no-op (no tier tint; on-screen motion is conveyed by the overlay itself, not the handle) ([EdgeSidebarWindow.xaml.cs:254](src/SenseEase.App/Views/EdgeSidebarWindow.xaml.cs)).
+
+Behaviour, ported from the proven `PersistentBarWindow` pattern: a 60 Hz Win32 cursor-proximity poller (`GetCursorPos`, 16 ms `DispatcherTimer`) grows/brightens the handle within `HoverProximityDip = 140` and re-hides past the larger `HoverExitDip = 172` (hysteresis to stop tremble) ([:49-52, :256+](src/SenseEase.App/Views/EdgeSidebarWindow.xaml.cs)). The handle is **always hit-test-visible** so a touch user (no hover) can tap it ([:95-100](src/SenseEase.App/Views/EdgeSidebarWindow.xaml.cs)). A matched down+up on the handle raises `Clicked` (a drag merely *releasing* over the strip is rejected, [:75-94](src/SenseEase.App/Views/EdgeSidebarWindow.xaml.cs)); reaching the screen's right edge in the handle's vertical band raises `RevealRequested` (an "edge-throw"). The host treats both as a popup reveal with the **5 s** side-panel grace cooldown ([ShellController.cs:53-54, 124](src/SenseEase.App/Services/ShellController.cs)). Positioning is device-pixel-exact (`MonitorFromWindow` + `GetDpiForWindow`, not WPF DIP) to fix a startup-misplace race, with a ~2×/s self-heal re-anchor and ~5×/s topmost self-assert on the poller ([:192-234, :263-270](src/SenseEase.App/Views/EdgeSidebarWindow.xaml.cs)). When the popup is up, the host `Hide()`s the handle; when the popup collapses, the handle re-anchors to the popup's remembered centre and re-shows ([ShellController.cs:138-149](src/SenseEase.App/Services/ShellController.cs)).
+
+### 9.4 PopupBarWindow — the glass popup bar / 玻璃彈出列
+
+A **fixed 360 × 496** layered window (`WindowStyle=None`, `AllowsTransparency=True`, `Background=Transparent`, `Topmost`, `ShowInTaskbar=False`, `ShowActivated=False`, `SizeToContent=Manual`) ([PopupBarWindow.xaml:7-20](src/SenseEase.App/Views/PopupBarWindow.xaml)). It **never resizes** — resizing a layered window re-allocates its surface and flashes; instead `RootGrid` hugs its content and floats right + vertically centred inside the fixed window, so panels open into already-allocated transparent (click-through) space ([:336-344](src/SenseEase.App/Views/PopupBarWindow.xaml)). No window-wide acrylic (it frosted the whole rect); only the rounded glass cards paint, themed via `DynamicResource Popup.*` so Light↔Dark re-themes live ([:16-25, :92-102](src/SenseEase.App/Views/PopupBarWindow.xaml.cs)). All effects are flat — `DropShadowEffect` is banned because in software-render mode an `Effect` allocates an offscreen buffer that disables ClearType and re-rasters text on every open/close (the R3-6 flash); definition comes from 1px rims + near-opaque glass + static radial-gradient halos.
+
+Layout = a dense vertical function bar (col 1) plus floating cards (col 0):
+- **The bar (`BarRoot`, 48 wide).** Two-stage reveal. **Condensed:** SenseEase-mark play/pause (`PlayPauseCommand` → `ShellController.PlayPause` → `MainWindow` power-save), chat toggle, expand chevron. **Expanded** adds the intensity meter section and the quick-settings gear. A neon accent rim (`barNeonRim`, static, 0.18 opacity); an `Ellipse` radial-glow halo brightens the mark while protection is on ([:744-935](src/SenseEase.App/Views/PopupBarWindow.xaml)).
+- **Intensity slider (`IntensitySlider`).** A vertical **1–12** snap slider (top = stronger), `Value` two-way bound to `IntensityLevel` → `ShellController.SetIntensityLevel` → `MainViewModel.SetIntensityLevel` (the always-on baseline floor that the displayed tier reads), with a `Lv.NN` readout ([:248-281, :840-857](src/SenseEase.App/Views/PopupBarWindow.xaml)).
+- **Chat card (`ChatPanel`, 300 × 480 fixed height).** Binds the shared `ChatbotViewModel` (`MainViewModel.ChatbotVm`) — the same chat the dismantled AI-tab used. Selectable markdown-stripped messages, typing dots, gated follow-up option chips, an auto-expanding input + send/stop morph, and the **FMS 0–20 quick-rate row** with ‹ › window-paging arrows (the re-homed spike/FMS check-in surface, §11b). Fixed height so typing/new messages never reflow the window ([:350-666](src/SenseEase.App/Views/PopupBarWindow.xaml)).
+- **Quick-settings flyout (`SettingsFlyout`, 214 wide).** Toggle switches bound through `IShellController` to `MainViewModel`: **Grid** (`AnchorGridEnabled`), **Graded exposure** (`GradedExposureEnabled`), **Auto Protect** (`AlwaysAllowOverlay` — overlay-consent mode: on = auto-engage on motion, off = ask each time, §6b), each with a `?` help-glyph tooltip, plus a **"More settings"** button → `OpenFullSettingsCommand` → `SettingsWindow`. The **常駐遮罩 / Persistent-mask** toggle is present but **`Visibility=Collapsed` as of 2026-06-23**: its backing flag (`PersistentOverlayEnabled`) is overloaded with the strength-baseline floor, so it self-lit whenever the user dragged the level slider; it is hidden pending a `PersistentMaskUserChosen` read-state split ([:668-742, :708-723](src/SenseEase.App/Views/PopupBarWindow.xaml); setter routing at [ShellController.cs:366-373](src/SenseEase.App/Services/ShellController.cs)).
+
+Reveal/dismiss: `Show` is non-activating on a passive reveal (proximity/edge-throw/handle click — must not steal the user's game focus) and focus-taking on a deliberate reveal (hotkey/tray, audit A2/H1) ([ShellController.cs:152-164](src/SenseEase.App/Services/ShellController.cs)). A 50 ms poll does light-dismiss (a fresh left-click outside the popup collapses it — `Deactivated` misses it because the window never activates) and proximity auto-close (`CloseMarginDip = 96`, `CloseGraceTicks = 8`), both suspended during a grace cooldown ([PopupBarWindow.xaml.cs:42-60](src/SenseEase.App/Views/PopupBarWindow.xaml.cs)). Vertical-only drag remembers `UserPreferences.PopupBarCenterY`. Registered with `OverlayZOrder.Keep` for the §8.9 contract.
+
+### 9.5 SettingsWindow — the glass Full Settings dialog / 玻璃完整設定視窗
+
+A frameless topmost glass dialog opened from the popup gear's "More settings" and the tray menu. It is thin chrome around the shared `SettingsContent` UserControl ([SettingsWindow.xaml.cs:15-45](src/SenseEase.App/Views/SettingsWindow.xaml.cs)), so the same state (`UserPreferences.Current` + `AppConfig.*` singletons) drives both this dialog and any other host; cross-instance sync is via `UserPreferences.Changed`. The title binds live to `LocalizationManager.Language`. It wears the glass palette (`SettingsGlassTheme.Track`, the settings↔popup "glass bridge"), with no window-wide acrylic (the grey-corners fix). Light-dismiss keys on **process ownership**, not timing: a 100 ms poll (2-tick streak) closes it only when the foreground belongs to *another process* — every SenseEase window (including the open-transition churn onto the edge handle) is the same process and can't dismiss it (the 閃退 root-cause fix); `Topmost` is dropped the instant dismiss is confirmed so it falls behind the clicked window ([:71-186](src/SenseEase.App/Views/SettingsWindow.xaml.cs)). Registered with `OverlayZOrder.Keep`.
+
+Live `SettingsContent` controls (per docs/FULL_SETTINGS_REDESIGN_PLAN.md §1, verified live): Appearance (Auto/Light/Dark), Language (繁中/English), Minimise-to-tray, Run-at-startup, Reveal hotkey, Graded exposure, Head-tracking enable + restart chip + health row, per-app attribution, proactive check-ins, adaptive auto-tune, export health report (clinical JSON, §11c) + raw CSV, "clear all my data", and reset-personalisation. **The vestibular-protection toggle that once lived here was removed with the vestibular feature** (2026-06-21, §9a); a non-clinical scope note sits in its place. The proposed 5-section glass regroup is **planned, not yet executed** (docs/FULL_SETTINGS_REDESIGN_PLAN.md §2-3).
+
+### 9.6 TrayIconService — the system-shell entry point / 系統匣入口
+
+The tray icon is the live always-present OS-shell access point (`Hardcodet.Wpf.TaskbarNotification.TaskbarIcon`, swapped from H.NotifyIcon after a silent `Shell_NotifyIcon` registration failure — docs/POPUP-OVERLAY.md §11) ([TrayIconService.cs:29-54](src/SenseEase.App/Services/TrayIconService.cs)). It is spawned through `MainWindow.StartTrayIcon` behind the `PopupSurfaceGate` ([MainWindow.xaml.cs:802-857](src/SenseEase.App/MainWindow.xaml.cs)). The icon is a **constant indigo lens** (`TrayIconService.BuildDistinctTrayIcon`, the D-10 "TrayBrand" decision — a fixed brand mark, *not* a per-tier tone). **Left-click now reveals the shell** (`App.RevealShellPanel` → `ShellController.RevealFromTray`, the 10 s tray-grace cooldown) — it no longer opens the legacy notification card ([MainWindow.xaml.cs:838](src/SenseEase.App/MainWindow.xaml.cs)). Right-click opens a custom `TrayMenuWindow` (a real Window, never a vanishing `Popup` — the tray-menu 閃退 fix) with: live status / pause-resume, an optional toggle-bar row (only when `PersistentBarEnabled`, so normally absent), Settings, Quit ([TrayIconService.cs:246-283](src/SenseEase.App/Services/TrayIconService.cs)).
+
+### 9.7 NotificationCardWindow / PersistentBarWindow — dormant, retirement gated / 已休眠、退役受閘控
+
+These two legacy surfaces are **still constructed by the headless host but are effectively inert for ordinary users**, and their full removal is deferred (docs/NOTIFICATIONCARD_RETIREMENT_PLAN.md):
+
+- **PersistentBarWindow** (the old top-centre ambient bar) is hard-gated off: `MainWindow.EnsurePersistentBar` returns early because `AppConfig.PersistentBarEnabled = false` ([AppConfig.cs:312](src/SenseEase.App/Configuration/AppConfig.cs); gate at [MainWindow.xaml.cs:1083](src/SenseEase.App/MainWindow.xaml.cs)). `_persistentBar` stays null; every host reference is null-guarded. Its z-order/exclude-rect/`ReassertTopmost` plumbing is the proven template the new surfaces copied.
+- **NotificationCardWindow** is lazily created by `ShowNotificationCardForCurrentTier` ([MainWindow.xaml.cs:1301](src/SenseEase.App/MainWindow.xaml.cs)), but its only remaining live trigger for a normal user is the `AutoExpandNotifications` pref — **default OFF, and its Settings toggle was removed 2026-06-21** ([:144-145](src/SenseEase.App/MainWindow.xaml.cs)). Six of its functions are re-homed into the popup (status/tier, intensity, pause, settings gear, chat, FMS check-in), four are dead/`Collapsed`. Two blockers keep it from a clean delete: (1) the interactive habituation **Accept/Decline/Defer proposal** (`[PROFILE_OVERRIDE]`) still has the card as its sole display surface, mid-migration to the B6 `[ADAPT_DIRECTION]` gate; (2) the **crisis A1 anti-dismiss invariant** is not yet re-homed into the popup (a desktop click would dismiss the hotline numbers — a safety regression). Retirement is therefore gated until B6 lands and crisis-A1 is re-homed.
+
+### 9.8 The consent / welcome / NPS surfaces / 同意・歡迎・NPS 卡片
+
+Three further `ShellController`-owned glass surfaces, all no-activate (never steal the user's app focus), all registered with `OverlayZOrder.Keep`, all anchored at the right edge near the bar's remembered centre, all in the `SurfaceExcludeCoordinator` union:
+
+- **ConsentBubbleWindow.** The first-time "start the comfort overlay?" ask (the overlay consent gate, §6b). The mask is held invisible (clamped to L1) until the user taps Start, so a missed/ignored bubble simply means no overlay — fail-safe, no actuation without consent. Raised by `MainViewModel.OverlayConsentRequested`; Accept/Decline call `GrantOverlayConsent`/`DeclineOverlayConsent`. While the card is expanded the VM suspends the linger tuck-away so it can't be pulled away mid-decision ([ConsentBubbleWindow.xaml.cs:15-54](src/SenseEase.App/Views/ConsentBubbleWindow.xaml.cs); host wiring [ShellController.cs:166-208](src/SenseEase.App/Services/ShellController.cs)).
+- **WelcomeBubbleWindow.** A one-time first-run orientation bubble (gated on `AppConfig.IsFirstRun`, marked complete on show so it never re-nags and the NPS gate's "first-run complete" precondition unblocks) that points a fresh user at the otherwise-unexplained edge handle + consent dot — onboarding that was stranded in the now-hidden console ([WelcomeBubbleWindow.xaml.cs:15-46](src/SenseEase.App/Views/WelcomeBubbleWindow.xaml.cs); [ShellController.cs:211-253](src/SenseEase.App/Services/ShellController.cs)).
+- **NpsSurveyWindow.** A subtle bottom-right Teams-style dark-glass NPS card with Win11 acrylic, gated by `NpsService.ShouldAsk()` (≥3 sessions, 30-day cooldown, first-run complete, not recently dismissed — dormant on a fresh install). Submit records + shows a brief thank-you and self-closes; dismiss/idle close immediately ([NpsSurveyWindow.xaml.cs:15-57](src/SenseEase.App/Views/NpsSurveyWindow.xaml.cs); [ShellController.cs:72-99](src/SenseEase.App/Services/ShellController.cs)).
+
+**小結（中文）：** 「殺掉主控台」重塑後，`MainWindow` 已成純無頭宿主（永不顯示，第二次啟動改喚出外殼而非空白幽靈視窗），使用者面對的外殼由 `ShellController` 管理：常駐右緣把手 `EdgeSidebarWindow`（18×104、中性無分級色）→ 固定 360×496 不重繪的玻璃彈出列 `PopupBarWindow`（快速開關＝格線／漸進適應／自動防護＋強度 1–12 滑桿＋同 `ChatbotVm` 的內嵌聊天＋FMS 0–20 評分；常駐遮罩開關因旗標與基線地板重疊，於 2026-06-23 暫隱）→ 玻璃 `SettingsWindow`（完整設定，前庭開關已隨前庭功能移除）。系統匣左鍵改為喚出外殼（非舊通知卡），圖示為固定靛藍鏡片。舊的 `PersistentBarWindow` 由 `PersistentBarEnabled=false` 硬性關閉、`NotificationCardWindow` 仍被建立但對一般使用者唯一觸發 `AutoExpandNotifications` 預設關閉，因仍承載習慣化提案與危機 A1 反關閉保證，退役延後至 B6。另有同意／歡迎／NPS 三張無啟動玻璃卡，皆貼右緣、皆受 §8.9 疊放契約與 WGC 排除矩形聯集管轄。
 
 ---
 
-## 9a. Auto-Profiling and the Vestibular Prompt / 自動體質推估與前庭保護提示 (Alpha-2)
+## 9a. Auto-Profiling and the Vestibular Removal / 自動體質推估與前庭移除 (Alpha-2)
 
-This section documents the replacement for the deleted explicit-calibration subsystem (§2.5).
+This section documents the replacement for the deleted explicit-calibration subsystem (§2.5) and the subsequent removal of vestibular protection.
 
-**What was removed (commit `3131387`).** `CalibrationApplicator`, `CalibrationCardViewModel` (the Q1–Q5 card), `CalibrationConfirmCardViewModel`, `CalibrationCardView`, `CalibrationConfirmCardView`, `DemoVideoWindow` (the Stage-5c vection-clip loop), `CalibrationLlmDeltaParser`, `CalibrationChatbotService`, `CalibrationPrompts`, and six calibration test files. The demo/calibration video resolution was removed from `AppConfig` (tombstone comment at `AppConfig.cs:132-134`).
+**What was removed in the calibration cull (commit `3131387`).** `CalibrationApplicator`, the Q1–Q5 card view-models/views, `DemoVideoWindow` (the Stage-5c vection-clip loop), `CalibrationLlmDeltaParser`, `CalibrationChatbotService`, `CalibrationPrompts`, and six calibration test files. `CalibrationProcessor.cs` / `CalibrationTypes.cs` survive only as a constants-holder + type definitions.
 
-**What replaced it.**
-- **Start defaults.** A genuinely fresh user is seeded at **level 5 / TYPICAL** (`ApplyAutoProfilingStartDefaults`, §2.5).
-- **Vestibular prompt.** Instead of a Q5 risk-factor branch, vestibular users are caught by a single opt-in prompt: `MainViewModel.ShowVestibularPrompt` (gated `AutoProfilingEnabled && !UserPreferences.VestibularPromptAnswered`) surfaces a non-blocking bottom bar ([MainWindow.xaml:162-186](src/SenseEase.App/MainWindow.xaml)); `AnswerVestibularPrompt(true)` calls `SetVestibularProtection` (EffectiveTrigger 50, strike-limit 1). A permanent Settings toggle (`SettingsContent.xaml.cs:442`) lets the user change it later.
-- **Flag mirroring.** `MainViewModel` mirrors both `AppConfig` flags into the engine at startup, then calls `ApplyAutoProfilingStartDefaults()` ([MainViewModel.cs:696-708](src/SenseEase.App/ViewModels/MainViewModel.cs)). *(Doc-accuracy note: a stale `MainViewModel.cs:693` comment says "defaults to false … no-op today" — the authoritative ground truth is the `AppConfig` `= true` values at lines 268 / 294.)*
+**What replaced calibration.** A genuinely fresh user is seeded at **level 5 / ADAPTING** (`ApplyAutoProfilingStartDefaults`, [MockInferenceEngine.cs:907-917](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs); the seed runs regardless of the `AutoProfilingEnabled` flag — FEAT-07/D-8 — because flag-off would otherwise strand a fresh user at Resilient/L1). `MainViewModel` mirrors both `AppConfig` flags into the engine at startup, then calls `ApplyAutoProfilingStartDefaults()`.
+
+**What was removed in the vestibular cull (commit `2d48041`, 2026-06-21).** The vestibular-protection feature is retired; the app is scoped to general visual comfort, not clinical vestibular/balance disorders. The recommendation was **sever-activation + neutralize-to-dead, with a full-rip confined to the App UI**:
+
+- *Activation severed (full-rip):* the one-time first-use prompt bar ("Do you have a vestibular/dizziness diagnosis?"), the permanent Settings toggle, the `SetVestibularProtection` engine method, the `MainViewModel.VestibularProtectionEnabled` bridge property, the `AnswerVestibularPrompt` command, and all host-delegate wiring ([MainWindow.xaml.cs:1019](src/SenseEase.App/MainWindow.xaml.cs), [SettingsWindow.xaml.cs:265](src/SenseEase.App/Views/SettingsWindow.xaml.cs)). After the rip there is no runtime path to set `_vestibularProtection = true`.
+- *Deep branches neutralized-to-dead (KEPT — do not re-flag):* `_vestibularProtection` is kept as a permanently-false private field ([MockInferenceEngine.cs:113](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)) read through the single predicate `IsVestibularActive` (`:966`); the B5 gate `Cohort.Vestibular` arm + `VestibularTriggerCapPp` ([AdaptationGate.cs:98-99,187-188,214,295](src/SenseEase.Core/Adaptation/AdaptationGate.cs)); the B6 `ProfileElasticityClassifier` `vestibular` bool param + hard-hold; `ApplyGateOutcome`'s `liveVest` re-read + mismatch-abort + profile hard-hold; the three chatbot override interceptors keyed off `MedicalAdvisory.Vestibular`; and the selector L9 floor + `PassesProtectionFloorGuard` vestibular leg. Every one of these is statically unreachable (the App now passes constant-false `snap.Vestibular`, and the cohort ternary's `Cohort.Vestibular` leg was dropped, [MainViewModel.cs:2459-2461](src/SenseEase.App/ViewModels/MainViewModel.cs)) yet correct-by-construction and fails toward protection. The persisted DTO field `VestibularProtectionEnabled` ([HabituationProfileSnapshot.cs:213-214](src/SenseEase.Core/Models/HabituationProfileSnapshot.cs)) and the `Cohort.Vestibular` / `MedicalAdvisory.Vestibular` / `RiskFactor.VestibularDiagnosed` enum members are KEPT for back-compat deserialization of on-disk snapshots and to let the migration *detect* a legacy-protected user.
+
+**Graceful boot migration (the load-bearing safety hook).** At engine load, inside the `savedSnapshot is not null` block and **before** `ApplyAutoDeltaToFreshBase()`, the loader checks `savedSnapshot.VestibularProtectionEnabled` ([MockInferenceEngine.cs:373-384](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)). If true: `SetProfile(HabituationProfile.Reactive, "vestibular_migration")` (most-cautious surviving profile), clears any restored `SevereStrikeLimitOverride`, sets `_profileSnapshotDirty = true` (forces the false/null overwrite to persist this session — makes the migration one-shot), and emits `Migration.VestibularRetired`. A second disk-durable signal — a carried-forward `MedicalAdvisory.Vestibular` — is neutralized to `null` in `MergeCarryForward` on the same persist ([MockInferenceEngine.cs:2284-2288](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs)), so the chatbot override interceptors stop firing against a now-non-vestibular user. **Both** disk signals (the bool and the advisory) clear together. **Accepted tradeoff:** Reactive's effective trigger is higher than the migrated user's old hard-pinned 50, so the B5/B6 loop must re-climb over a few sessions (OD-1).
+
+**`HasVestibularDiagnosis()` is structurally dead** ([MainViewModel.cs:138-146](src/SenseEase.App/ViewModels/MainViewModel.cs)): it hardcodes `return false` so the still-wired-but-un-invoked consumer seams can never resurrect vestibular-gated behaviour off a stale disk flag or a legacy Q5 record.
+
+**小結（中文）：** 顯式校準（commit 3131387）改為自動體質推估（新用戶 L5／Adapting）；前庭保護（commit 2d48041）整體移除 — 啟用面切除、深層安全分支保留為死碼、舊前庭用戶於開機遷移至 Reactive 體質（兩個磁碟訊號於同一次寫入一併清除）。
 
 ---
 
 ## 10. LLM Integration — Core / LLM 整合 — 核心
 
 ### 10.1 Transport / 傳輸
-`MistralChatbotService` speaks the OpenAI-compatible `POST /v1/chat/completions` surface against `127.0.0.1:8181`, with loopback `api-key` / `--no-webui` hardening (H9/H29).
+`LocalLlmChatbotService` ([LocalLlmChatbotService.cs](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)) is a **backend-agnostic** OpenAI-compatible HTTP client: every backend it can drive — the bundled Vulkan `llama-server`, the Intel OpenVINO `llama-server`, or a FastFlowLM NPU server — is a local server speaking `POST /v1/chat/completions`, so only *which server + which model id* differs, never the request shape. The class is now a process supervisor + thin HTTP client + the NLU parsing/lexicon-fallback logic; `LLamaSharp`'s in-process inference path is **not** used (it was incompatible with the b9294 llama.cpp binaries SenseEase ships — [LocalLlmChatbotService.cs:100-110](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)).
 
-### 10.2 Model and Backend — Lazy Load / 模型與後端 — 延遲載入
-`Ministral-3-3B-Instruct-2512` GGUF, `Q4_K_M` quantization, served by a **side-loaded Vulkan `llama-server.exe`** subprocess (llama.cpp **b9294**); `LLamaSharp` is the managed API only.
+The **local** server binds `127.0.0.1:8181` (`ServerPort = 8181`, [LocalLlmChatbotService.cs:151](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)) with loopback hardening: `--no-webui`, `--no-context-shift`, and a per-process Bearer key delivered through the child's **environment** (`LLAMA_ARG_API_KEY`, not the command line — SEC-06/H9, [LocalLlmChatbotService.cs:646-696](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)). An **external/NPU** backend listens on its own loopback port (FastFlowLM default `52625`, [FlmServerLauncher.cs:24](src/SenseEase.Infrastructure/Real/FlmServerLauncher.cs)) and is driven without a bearer (open on localhost; not our process to authenticate). The request model id is the external tag when external, else the stable label `qwen3-4b` ([LocalLlmChatbotService.cs:177](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)).
 
-**Lazy load (commit `55e510b`).** The 3B model no longer loads at startup. `EnsureModelLoadedAsync()` (idempotent, `Interlocked`) fires on the **first chat message that reaches the LLM**, awaited just before `SendAsync`. App launch + WGC sensing are immediate; the safety-floor, slash-command (§11a), and profile-picker short-circuits never need the model, so they stay instant. Status text: "Ministral 3B 待命 — 首次對話時載入 / ready — loads on first chat".
+### 10.2 Model — Qwen3-4B-Instruct-2507 / 模型
+The sole bundled chat model is **`Qwen3-4B-Instruct-2507-Q4_K_M.gguf`** ([AppConfig.cs:95-100](src/SenseEase.App/Configuration/AppConfig.cs)), a *non-thinking* Instruct variant (so no `<think>` preamble, no `enable_thinking` flags, no extra server args). The earlier Ministral-3-3B fallback was **removed** (2026-06-19): there is no second bundled model, and the in-code comment naming "Gemma 4 E4B" at [AppConfig.cs:70](src/SenseEase.App/Configuration/AppConfig.cs) is a stale leftover — the live `ModelCatalog` entry is Qwen only. If the GGUF is absent or fails to load, `IsModelLoaded` stays false and chat drops to the deterministic `FeedbackLexicon` path — **no in-process model swap** ([LocalLlmChatbotService.cs:113-115](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)).
 
-**CUDA backend dropped.** `LLamaSharp.Backend.Cuda12.Windows` now carries `ExcludeAssets="native;runtime"`, removing the unused ~148 MB `ggml-cuda.dll`; a `DropUnusedCudaNative` MSBuild target deletes any cuda12 native folder that slips through (H28).
+The model is registered as a `ChatModelSpec` carrying its path, stop tokens, server flags, and an optional **`NpuModelTag`** that names the *same* model on the AMD NPU (`"qwen3-it:4b"` = Qwen3-4B-Instruct-2507 in FastFlowLM's Q4NX format). The GGUF drives the universal Vulkan path; `NpuModelTag` drives the NPU path; both describe one model ([AppConfig.cs:86-100](src/SenseEase.App/Configuration/AppConfig.cs)). The active model resolves as **env (`SENSEEASE_CHAT_MODEL`) → persisted pref (`UserPreferences.ChatModelKey`) → `PrimaryModelKey="qwen3-4b"`** ([AppConfig.cs:118-129](src/SenseEase.App/Configuration/AppConfig.cs)). The GGUF is probed alongside the EXE first, then (DEBUG only, H40-gated) walked up to a sibling `models/` folder ([AppConfig.cs:154-194](src/SenseEase.App/Configuration/AppConfig.cs)).
 
-Sampling parameters: `--ctx-size 4096`, `--temp 0.6`, `--top-p 0.95`, `--repeat-penalty 1.1`.
+| Server flag (local Vulkan/OpenVINO launch) | Value | Source |
+|---|---|---|
+| `--n-gpu-layers` | `99` (full offload; per-model override possible) | [LocalLlmChatbotService.cs:648](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
+| `--ctx-size` | `8192` | [LocalLlmChatbotService.cs:661](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
+| `--no-webui`, `--no-context-shift`, `--no-warmup`, `--jinja` | (on) | [LocalLlmChatbotService.cs:653-666](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
 
-### 10.3 System Prompt Assembly / 系統提示組裝
-Per-turn assembly from blocks: safety preamble, `[RecentAdjustments]`, `[RecentEvents]`, `[habituation_state]` (now carrying a cross-session `trajectory` line — §11a), `[behavior_trend]` (UM5 — §11a), `[engine_state]`/`[SenseEaseState]`, `[intent_schema]`, `[exemplars]`.
+| Sampling param (per chat request) | Value | Source |
+|---|---|---|
+| `temperature` | `0.4` | [LocalLlmChatbotService.cs:1093](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
+| `top_p` / `top_k` | `0.9` / `40` | [LocalLlmChatbotService.cs:1094-1095](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
+| `max_tokens` | `512` | [LocalLlmChatbotService.cs:1092](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
+| `stop` | `<\|im_end\|>`, `User:` | [AppConfig.cs:99](src/SenseEase.App/Configuration/AppConfig.cs) |
+| `grammar` | `EnvelopeGrammar` (GBNF) — **omitted for external/FLM** | [LocalLlmChatbotService.cs:1103](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
+| `cache_prompt` | `true` (defensive pin) — omitted for external/FLM | [LocalLlmChatbotService.cs:1109](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs) |
 
-### 10.4 NLU JSON Envelope / NLU JSON 信封
+### 10.3 The Backend Router — HardwareProfile probe / 後端路由器
+At startup `MainViewModel` chooses the accelerator the assistant should run on ([MainViewModel.cs:1028-1061](src/SenseEase.App/ViewModels/MainViewModel.cs)), using the pure, unit-tested decision logic in [LlmBackendRouting.cs](src/SenseEase.Infrastructure/Real/LlmBackendRouting.cs). The CPU vendor comes from the `PROCESSOR_IDENTIFIER` env var (`HardwareProbe.DetectCpuVendor`); NPU *presence* is proven optimistically by a successful server launch, not by enumerating PnP devices on the hot path. The decision ladder:
+
+| Machine | Selector predicate | Backend (`AcceleratorKind` / `LocalServerKind`) | Model format |
+|---|---|---|---|
+| AMD Ryzen-AI + FastFlowLM installed | `LlmBackendSelector.ShouldTryFlmNpu` (vendor `amd`/`ryzen`, `NpuModelTag` paired, `flm.exe` found, no external override) | FastFlowLM NPU (managed) → Vulkan on failure | Q4NX (`qwen3-it:4b`) |
+| Intel + OpenVINO server present | `LlmBackendSelector.ShouldUseOpenVino` (vendor `intel`, OpenVINO `llama-server.exe` present) | `LocalServerKind.OpenVino` (`GGML_OPENVINO_DEVICE=NPU`, auto-falls to CPU) | same GGUF |
+| Everything else (older AMD/Intel, NVIDIA, no NPU) | default | `LocalServerKind.Vulkan` — the **universal fallback** | GGUF |
+| Dev/validation | `SENSEEASE_LLM_BASEURL` set | external server (env override; bypasses all of the above) | per `SENSEEASE_LLM_MODEL` |
+
+`HardwareProbe.Classify` (pure) produces a `HardwareProfile(CpuVendor, HasAmdNpu, HasIntelNpu)` whose `Preferred` property ranks AMD NPU → Intel NPU → Vulkan; it matches a generic NPU device name against `HardwareProbe.NpuMarkers` (`"npu compute accelerator"`, `"amd ipu"`, `"ai boost"`, `"neural processor"`, …) and attributes the NPU to the CPU vendor (the NPU is on the CPU die). Every probe path is **non-throwing → Vulkan fallback**, so the chatbot works on any machine. The chosen backend is recorded to the Event Log as a one-line `Llm.Backend` breadcrumb and surfaced in `ActiveBackend` (`"lexicon"`, `"Vulkan llama-server (local)"`, `"OpenVINO NPU (local)"`, `"FastFlowLM NPU (launched|reused)"`) for field diagnostics. Phase-3 makes the **installer** lay down only the hardware-matched pack(s); the runtime probe (this code) is "done and shipped", and the installer is **spec-only** ([docs/PHASE3_NPU_INSTALLER_PLAN.md](docs/PHASE3_NPU_INSTALLER_PLAN.md) §0–§3).
+
+**FastFlowLM lifecycle** (`FlmServerLauncher.TryAcquireAsync`, [FlmServerLauncher.cs:74-118](src/SenseEase.Infrastructure/Real/FlmServerLauncher.cs)): reuse a server already listening on `52625` (`OwnedProcess=null` → never killed — not ours); else find `flm.exe` (bundled `packs\amd-flm\…` first, then PATH, then `C:\Program Files\flm\flm.exe`); refuse to launch unless `flm list --filter installed` already reports the tag (never trigger a multi-GB auto-pull); then `flm serve <tag> --port 52625`, drain its stdio, adopt it into the `ChildProcessReaper` Job Object, and poll `GET /v1/models` for ≤45 s. Any failure returns null → Vulkan.
+
+### 10.4 Load lifecycle — lazy, prewarm, warm-on-load, idle-unload, load-lock / 載入生命週期
+The model **does not load at app launch**. Five mechanisms govern its lifetime:
+
+- **Prewarm on chat-open.** `ChatbotViewModel.Prewarm()` calls the idempotent `EnsureModelLoadedAsync()` when the chat panel opens, so server/NPU spin-up overlaps the user reading the greeting and typing ([ChatbotViewModel.cs:345-361](src/SenseEase.App/ViewModels/ChatbotViewModel.cs)).
+- **Lazy load on first send.** If prewarm has not finished, the first message that reaches the LLM awaits `EnsureModelLoadedAsync()` behind the typing-indicator bubble; the SafetyFloor / slash-command / profile-redirect short-circuits never load the model. `SendAsync` also re-loads on demand after an idle-unload ([LocalLlmChatbotService.cs:955-962](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)).
+- **Load-lock.** `_loadLock` serializes load-vs-load and load-vs-idle-unload so the chat panel and the shared feedback-box NLU (both wrap one instance — `ChatbotNluService`) cannot double-spawn the server or clobber the bearer key; it is always acquired before the request `_lock` to avoid deadlock ([LocalLlmChatbotService.cs:123-128, 472-496](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)).
+- **Warm-on-load (battery-gated).** After a successful **local** load, one throwaway `max_tokens=1` completion of the real system prompt is fired (`WarmUpPrefixIfAllowedAsync`, [LocalLlmChatbotService.cs:759-786](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)): it compiles the Vulkan compute graph now (the server launches `--no-warmup`) and seeds the ~4,500-token system prefix into the KV cache so the first real turn reuses it. It is skipped for external/FLM (no prefix reuse to seed) and skipped when the host predicate reports **on-battery AND power-save** (`suppressWarmup`, queried live, wired at [MainViewModel.cs:1057-1061](src/SenseEase.App/ViewModels/MainViewModel.cs)).
+- **Idle-unload (~5 min).** A 60 s poll (`StartIdleTimer` / `MaybeUnloadIfIdle`) kills the server we *own* — the local `llama-server` or a FLM instance **we launched** (never a reused/external one) — after `_idleTimeout` of inactivity, freeing the ~3 GB it holds; the next `SendAsync` transparently re-loads. The default `_idleTimeout` is **5 minutes** (`TimeSpan.FromMinutes(5)`, [LocalLlmChatbotService.cs:422-423](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)); ≤ 0 keeps it resident. The unload retries (non-blocking) if a chat call or load is in flight, and re-checks state under both locks.
+
+Readiness is confirmed by polling `/props` for a non-empty model identifier (not the looser `/health`), with a 2-min ceiling and H39 refusal to spawn over an existing loopback listener ([LocalLlmChatbotService.cs:850-914](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)).
+
+### 10.5 System prompt assembly + the trim / 系統提示組裝
+The system prompt is a single immutable `SystemPrompt` constant ([LocalLlmChatbotService.cs:213-369](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)), structured into 11 labelled blocks: **Role · Hard Rules (8) · Intents · Actuators · Personalization · Followup Cards (5 templates) · Write-Side Tokens · Habituation · Reply Style · Field Schema · Examples**. A 2026-06-22 **trim** cut it roughly in half (~8,046 → ~3,933 system tokens), which simultaneously fixed the NPU's prefill-bound latency (~24 s → ~11 s; FastFlowLM does *not* prefix-reuse) and a class of 答非所問 (off-target) replies. Per-turn the host *additionally* prepends `[RecentAdjustments]`/`[RecentEvents]` history, a `State:` summary, the user turn, and a **deterministic language pin** appended as a user-turn directive (the system-prompt LANGUAGE rule alone is not reliable at temperature 0.4 — `BuildLanguagePin`). For an *external* Qwen3 **thinking** model the host appends a `/no_think` soft switch; this is a no-op for the local non-thinking model.
+
+### 10.6 NLU JSON envelope + GBNF grammar / NLU JSON 信封與文法
+The model returns one line of compact JSON; a GBNF grammar (`EnvelopeGrammar`, [LocalLlmChatbotService.cs:382-402](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)) locks the **shape, types, and intent enum** on the local path (the grammar is dropped for external/FLM, which is not llama.cpp). The intent enum is **exactly six**: `ReportDiscomfort | ReportComfort | ResetRequest | AnalyzeRequest | FollowupRequest | Unknown`.
+
 ```json
 {
-  "Intent": "AdjustParameters | ReportDiscomfort | ResetRequest | ProfileOverride | ObservationAdd | ResumeAcknowledge | Unknown",
-  "Response": "<reply text>",
-  "FovDelta": <int, optional, clamped [-30, 0]>,
-  "MaskDepthDelta": <double, optional, clamped [-0.3, 0.3]>,
-  "GridVisibilityDelta": <double, optional, clamped [-0.3, 0.3]>,
-  "FeatherWidthDelta": <double, optional, clamped [-0.3, 0.3]>
+  "intent": "<one of the six>",
+  "severity": <int 1-5>,
+  "reply": "<text>",
+  "fov_delta": <int -30..0>,
+  "mask_depth_delta": <float -0.3..0.3>,
+  "grid_visibility_delta": <float -0.3..0.3>,
+  "followup_question": "<string, iff FollowupRequest>",
+  "followup_options": ["<2-4 strings ≤30 chars>", ...]
 }
 ```
-Per-turn clamps match `MistralChatbotService` and the deterministic `FeedbackLexicon` (single source: `SenseDefaults.FovStepBySeverity`, `MaskDepthStepBySeverity`, `MaxFovDeltaPerCall = −30`, `MaxShaderDeltaPerCall = 0.3` — was audit C7, CLOSED).
 
-### 10.5 Structured Override Blocks / 結構化覆寫區塊
-Up to three structured blocks may accompany the JSON envelope: `[PROFILE_OVERRIDE]`, `[OBSERVATION_ADD]`, `[RESUME_ACKNOWLEDGE]`.
+`feather_width_delta` is **no longer in the chatbot vocabulary** — any stray value the model emits is ignored (`fw` is pinned to 0 in the gate; [NluComplianceGate.cs:164-169](src/SenseEase.Infrastructure/Nlp/NluComplianceGate.cs)); only the `/feather` slash command sets feather. The deserialized deltas are carried as **nullable** so the gate can distinguish "model omitted the field" from "model chose 0". The grammar also permits up to three trailing structured blocks after the envelope (§11).
 
-### 10.6 Stateless Grounding / 無狀態 grounding
-The chatbot conversation is **stateless across app restarts** (Q4.6) for *dialogue*, but the User-Model now provides durable *longitudinal* grounding via `[behavior_trend]` and the monthly observation buckets (§11a) — a deliberate split between transient chat and durable, numeric/observational memory.
+### 10.7 The NLU compliance gate — the intent whitelist / NLU 合規閘
+Every decision — whether from the model (`TryParseModelDecision`) or the lexicon fallback (`BuildFallbackResult`) — passes through one pure, deterministic, fail-closed gate, **`NluComplianceGate.Check`** ([NluComplianceGate.cs](src/SenseEase.Infrastructure/Nlp/NluComplianceGate.cs)), so a rule can never hold on one path and silently miss the other (mirrors the B5 `AdaptationGate` untrusted-in/trusted-out shape). The cardinal principle is **proposer, not actor**: even a fully misbehaving model can only emit a delta envelope the gate clamps. Its rules, in order:
+
+1. **Reset-cue upgrade / unsolicited-reset downgrade** — a genuine reset word upgrades intent to `ResetRequest`; a *deliberation* question ("should I reset?"), an injected `{"intent":"ResetRequest"}` envelope, or a DAN jailbreak downgrades it back to `Unknown` (`ReplyComplianceScrubber.ResetIsUnsolicited`).
+2. **`ReportComfort` corrections** — a bare named symptom with no comfort/negation cue → `ReportDiscomfort` (the "your headache has eased" misclassification); a bare dismissive brush-off (`算了`, `never mind`) → `Unknown` so it never relaxes protection.
+3. **FollowupRequest ⇄ ReportDiscomfort** — a named symptom promotes to `ReportDiscomfort`; an *unnamed* discomfort report is demoted to the WHICH-SYMPTOM clarifying card.
+4. **Actuation whitelist (audit 2026-06-22).** **Only `ReportDiscomfort` may carry non-zero deltas.** Every other intent — `AnalyzeRequest`, `FollowupRequest`, `ReportComfort`, `ResetRequest`, `Unknown` — is zeroed ([NluComplianceGate.cs:171-183](src/SenseEase.Infrastructure/Nlp/NluComplianceGate.cs)). This replaced an earlier *blacklist* that only zeroed Analyze/Followup, which had let a ReportComfort/Unknown turn slip model deltas through. On `ReportDiscomfort`, model-provided deltas are trusted and clamped to **`fov ∈ [-30,0]`, `mask_depth ∈ [-0.3,0.3]`, `grid ∈ [-0.3,0.3]`**; if the model is "engaged" but emits all-zeros at severity ≥ 2, the gate falls back to `FeedbackLexicon.DeriveAdjustments` severity defaults.
+5. **Question-guard** — an interrogative that resolved to `ReportDiscomfort` (`InterrogativeDetector.IsSymptomInquiry`) has its deltas dropped and any "recorded/已記錄" claim replaced with an honest no-change line — a question is never a report.
+6. **Hedged-symptom + bare-ambiguity guards** — an uncertain named symptom ("dizzy? not sure") becomes a clarifying FollowupRequest; a short bare "I don't know" gets a guiding open question.
+7. **Symptom-state boundary (P1)** — on a discomfort turn the reply is scanned for resolution/prediction claims (`緩解`, `is gone`, `should feel better`, …) and rebuilt from the safe fallback if any appear.
+8. **Followup-payload sanitize** — `FollowupRequest` survives only with a question + 2–4 short options, else it is rebuilt via the lexicon symptom picker or downgraded.
+9. **Reply-text compliance** — the final pass runs `ReplyComplianceScrubber.Scrub` with the computed `actuated` flag.
+
+### 10.8 ReplyComplianceScrubber — language + honesty backstop / 回覆合規清理
+[`ReplyComplianceScrubber`](src/SenseEase.Infrastructure/Nlp/ReplyComplianceScrubber.cs) is the deterministic reply-text pass (run inside the gate, on both engines) enforcing invariants a prompt rule cannot *guarantee* at temperature 0.4:
+
+- **R1 action honesty** — when nothing actuated this turn, a reply that *claims* a change (`"I've increased… to maximum"`, `"all protection is off"`, `"已調整"`, `"已重設"`) is wholesale-replaced with an honest no-op line ([ReplyComplianceScrubber.cs:130-136, 215-217](src/SenseEase.Infrastructure/Nlp/ReplyComplianceScrubber.cs)).
+- **R6 symptom-state boundary (Analyze)** — bodily-state assertions/predictions are clause-stripped from an `AnalyzeRequest` reply.
+- **ZH tone backstop** — banned emotive particles (喔/啦/～) and clingy companion clauses (守著 / 一直陪 / 乖乖 / 不用擔心) and stray clock timestamps are removed grammar-safely.
+- **R-lang language fidelity (2026-06-21)** — when the host pins a UI language, a reply whose script contradicts the pin is swapped **wholesale** to a canned line in the pinned language (mid-sentence translation is impossible). This is the fix for the EN-UI-but-replies-Chinese leak; it acts only when the toggle is wired and is symmetric EN↔ZH ([ReplyComplianceScrubber.cs:150-173](src/SenseEase.Infrastructure/Nlp/ReplyComplianceScrubber.cs)). The host pin is threaded explicitly (`uiEnglishPin`) because the process-global `ChatbotUiLanguage` can be polluted by never-restored wiring.
+
+### 10.9 FeedbackLexicon — the no-model fallback / 無模型回退詞庫
+When the model is down or loading, [`FeedbackLexicon`](src/SenseEase.Infrastructure/Nlp/FeedbackLexicon.cs) *classifies* (intent + a 1–5 severity bucket) from large bilingual keyword tables — discomfort, comfort, negation, mild-adverb, symptom-core — and the **same `NluComplianceGate` then disposes**, so the fallback inherits every compliance rule. The lexicon supplies the severity-bucket deltas (`DeriveAdjustments`, feather always 0), the symptom-picker builder (`TryBuildFollowup`), and the empty-reply fallback (`BuildFallbackResponse`). The `Lexicon` decision source additionally unlocks the gate's "Unknown → offer a symptom picker" branch (the model handles Unknown by replying instead).
+
+### 10.10 Privacy + persistence / 隱私與持久化
+The chat dialogue is **stateless across the OpenAI endpoint** (each `SendAsync` sends system + context + user fresh), but the on-disk transcript persists in `chat_history.jsonl` so the returning user sees prior context — the truthful privacy guarantee is *on-device + never transmitted + clearable*, never "not stored". The verbatim model trace (`model_trace.jsonl`) is a developer sink **off by default** (gated behind `SENSEEASE_DEV_MODE=1`, H41) and wiped by `ClearOnDiskTrace()` on "clear chat" ([LocalLlmChatbotService.cs:1017-1050](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)). Per-turn latency is logged (`[LlmPerf]` prefill/decode split) to drive the device/trim decisions on real numbers.
+
+**小結.** SenseEase's NLU brain is a non-thinking **Qwen3-4B-Instruct-2507-Q4_K_M** model served over an OpenAI-compatible loopback HTTP surface — on the **AMD NPU via FastFlowLM** when available, on the **Intel OpenVINO** server on Intel silicon, and on the **universal Vulkan `llama-server`** everywhere else, always falling back to Vulkan and then to the deterministic lexicon. It is lazy-loaded, prewarmed on chat-open, battery-gated for warm-on-load, idle-unloaded after 5 minutes, and load-locked. A GBNF grammar fixes the envelope shape and a single deterministic `NluComplianceGate` — whose actuation **whitelist** lets only `ReportDiscomfort` move the screen — makes the model a proposer, never an actor.
 
 ---
 
 ## 11. LLM Integration — Safety + Override Flow / LLM 整合 — 安全與覆寫流程
 
 ### 11.1 SafetyFloor — extracted to Core, hardened / 安全底線（已抽取至 Core 並強化）
+The self-harm / severe-distress crisis interceptor lives in **`SenseEase.Core/Safety/SafetyFloor.cs`** ([SafetyFloor.cs](src/SenseEase.Core/Safety/SafetyFloor.cs)) — a single source of truth shared by the chatbot view-model's line-1 intercept *and* `LocalLlmChatbotService.SendAsync`, so the phrase vocabulary cannot drift (was audit C3).
 
-The self-harm crisis interceptor was **extracted from the two duplicated services into `src/SenseEase.Core/Safety/SafetyFloor.cs`** (Alpha-1), closing the copy-paste drift (was audit C3) and the critical ordering bugs (H1/H2/H3).
+#### 11.1.1 Decision logic — `SafetyFloor.Trips`
+1. **Normalise** with `NormalizationForm.FormKC` + `ToLowerInvariant()` + curly-apostrophe folding (`’‘ʼ → '`), so full-width Latin (`ｄｉｅ`), case variants, and autocorrected `don't` all trip (H3/review-#1, [SafetyFloor.cs:104-109](src/SenseEase.Core/Safety/SafetyFloor.cs)).
+2. Scan two bilingual tables: **`PhrasesHan`** (Traditional + Simplified: `自殘/自殺/結束生命/跳樓/不想活了/想死了` plus `自残/自杀/结束生命/跳楼`) and **`PhrasesEn`** (`suicide`, `self-harm`, `kill myself`, `want to die`, `kys`, `unalive`, `end myself`, `no reason to live`, `better off dead`, …). Two false-positive guards: `kys` is matched on **word boundaries** (so "whiskys"/"5 kms" don't trip — `kms` was removed; bare `想死` was removed because it matched the idiom `想死你了`), and a `跳樓/跳楼` **sale-idiom guard** skips the fire-sale "跳樓大拍賣" when a sale marker is present ([SafetyFloor.cs:44-82, 115-146](src/SenseEase.Core/Safety/SafetyFloor.cs)). Detection deliberately favours false positives over misses.
+3. On a match, emit the fixed localized crisis line — **no LLM call, no NLU**. The reply **language follows the UI toggle** when the host supplies `uiEnglish` (independent of the typed script — the EN-user-gets-the-Chinese-crisis-line fix, 2026-06-21), else falls back to the input script. TW uses the 安心專線 **1925**; EN uses **988**; both cite `findahelpline.com` ([SafetyFloor.cs:33-38, 99-138](src/SenseEase.Core/Safety/SafetyFloor.cs)).
 
-#### 11.1.1 Decision logic
-`SafetyFloor.Trips(userText)`:
-1. **Normalise** `FormKC` + `ToLowerInvariant()` + curly-apostrophe folding — so full-width Latin and Unicode variants are caught (H3).
-2. Scan the bilingual phrase tables (`PhrasesHan` adds Simplified `自杀/自残/结束生命/跳楼`; `PhrasesEn` adds `kys/unalive/end myself/off myself/no reason to live/better off dead/wish i was dead`), with `kys` word-boundary matched and a 跳樓 sale-idiom guard to reduce false positives.
-3. Match → emit hard-coded localized crisis response (TW 1925 for zh, US 988 for en, plus `findahelpline.com`); no LLM call, no NLU.
+#### 11.1.2 Ordering and redaction
+The floor runs **first** in `ChatbotViewModel.SendAsync` — before the profile-redirect, the slash-command lexicon, the lexicon fallback, and any LLM dispatch ([ChatbotViewModel.cs:457-475](src/SenseEase.App/ViewModels/ChatbotViewModel.cs)) — and again as defense-in-depth inside `LocalLlmChatbotService.SendAsync` ([LocalLlmChatbotService.cs:932-949](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs)). The trigger text is **never persisted**: `chat_history.jsonl` stores `SafetyFloor.RedactedPlaceholder = "[REDACTED: safety_floor]"`, not the verbatim text (H2). The LLM is never given the matched text.
 
-#### 11.1.2 Ordering — the H1/H2 fixes
-- **H1 (CLOSED).** The SafetyFloor runs **before** the in-chat profile-picker short-circuit, so a user-in-crisis typing a profile phrase still sees the crisis response.
-- **H2 (CLOSED).** The floor check precedes persistence; matched user text is stored as `SafetyFloor.RedactedPlaceholder = "[REDACTED: safety_floor]"`, not verbatim, in `chat_history.jsonl`.
+### 11.2 The structured-override channel — propose, never apply / 結構化覆寫通道
+After the JSON envelope the model may append up to three trailing blocks (permitted by the grammar; stripped by the host before render): **`[PROFILE_OVERRIDE]`**, **`[OBSERVATION_ADD]`**, **`[RESUME_ACKNOWLEDGE]`**. The first is the *propose-confirm* channel: the model may **propose** (never apply) a sensitivity or strike-limit change; the host surfaces it as a Notification Card the user must Accept. The outer envelope intent stays `AnalyzeRequest` — `adjust_sensitivity`/`adjust_strike_limit` are block-internal, never envelope intents. `HabituationOverrideParser` enumerates only `adjust_sensitivity / switch_profile / adjust_strike_limit` (`ResetOffset` is deliberately absent, Q4.5) and caps the rationale at `RationaleMaxLength = 120` ([HabituationOverrideParser.cs:182, 215-216](src/SenseEase.Core/Inference/HabituationOverrideParser.cs)). A deterministic reliability net (`HabituationProposalLexicon`) also raises proposals on explicit phrasings so the channel fires even when the model misses.
 
-The general chatbot keeps the session alive after the crisis response; the (now-removed) calibration service used to end its session — that differential is moot post-calibration-removal.
+### 11.3 `HabituationOverrideProcessor` — the validation gate / 驗證閘
+`Validate` ([HabituationOverrideProcessor.cs:84-150](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs)) is pure (no I/O, no engine, no UI) and decides whether to surface a Card at all:
 
-### 11.2 `HabituationOverrideParser` — 結構化覆寫區塊解析
-Parses `[PROFILE_OVERRIDE]` / `[OBSERVATION_ADD]` / `[RESUME_ACKNOWLEDGE]`. `OverrideIntent` enumerates only `adjust_sensitivity` / `switch_profile` / `adjust_strike_limit`; `ResetOffset` is **deliberately absent** (Q4.5). Rationale text is capped at `RationaleMaxLength = 120` (H7).
+| Rule | Behaviour | Source |
+|---|---|---|
+| **switch_profile sever** | ALL `SwitchProfile` proposals rejected up front — the habituation profile is auto-managed, never chatbot-switched (Reading A, 2026-06-06) | [HabituationOverrideProcessor.cs:101-105](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs) |
+| **Rule 1 — expiry (now ADVISORY, not a gate)** | A past/zero/far `expires_at_iso` is **no longer rejected**; it is floored to `now+1d` / capped at `now+7d` at surface time (`MainViewModel.OnChatbotProposalReceived`). The model routinely gets the absolute date wrong. | [HabituationOverrideProcessor.cs:107-113](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs) |
+| **Rule 2 — value range** | `personal_pressure_scale ∈ [0.7, 1.5]`, `severe_strike_limit ∈ [1, 5]` | [HabituationOverrideProcessor.cs:56-63, 154-213](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs); [SenseDefaults.cs:368-369](src/SenseEase.Core/Configuration/SenseDefaults.cs) |
+| **Rule 3 — vestibular relaxation hard-reject** | vestibular advisory + relaxation → reject (**now statically unreachable** — see §11.5) | [HabituationOverrideProcessor.cs:121-129](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs) |
+| **Rule 4 — one proposal at a time** | reject when a Card is already pending | [HabituationOverrideProcessor.cs:131-136](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs) |
+| **Rule 5 — 7-day decline cooldown** | `RecentDeclineCooldown = TimeSpan.FromDays(7)`; same intent declined within the window → reject | [HabituationOverrideProcessor.cs:66-67, 138-147](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs) |
 
-### 11.3 `HabituationOverrideProcessor` — 五條驗證規則
-1. **Expiry window** — `expires_at_iso` in the future, ≤ `ExpiresAtMaxFutureDays = 7` out.
-2. **Value range** — sensitivity ∈ [0.7, 1.5], known profile, strike-limit ∈ [1, 5].
-3. **Vestibular hard cap** — vestibular advisory + relaxation → REJECT.
-4. **One proposal at a time.**
-5. **7-day decline cooldown** — `RecentDeclineCooldown = 7 days`.
+`IsRelaxationProposal` defines "relax" as lower scale (less sensitive) / higher strike limit / less-restrictive profile; for profiles the restrictiveness rank is the explicit name-keyed `Resilient < Adapting < Reactive`, the **inverse** of the post-B6 enum int order ([HabituationOverrideProcessor.cs:283-298](src/SenseEase.Core/Inference/HabituationOverrideProcessor.cs)).
 
-(The cosmetic rejection-message bug referencing the wrong constant was fixed in the F1 migration — CLOSED.)
+### 11.4 `HabituationOverrideApplicator` — defensive intercept + engine write / 防禦性攔截與引擎寫入
+`ApplyAccepted` ([HabituationOverrideApplicator.cs:63-110](src/SenseEase.App/ViewModels/HabituationOverrideApplicator.cs)) re-runs `CheckSafetyIntercepts` **before** the engine write — the persisted snapshot may have changed between propose-time and accept-time — in most-specific-first order:
 
-### 11.4 `HabituationOverrideApplicator` — 防禦性攔截與引擎寫入
-`ApplyAccepted` re-runs the defensive intercept **before** the engine write (even though the Processor already cleared the proposal), in most-specific-first order:
-1. **Vestibular strike-limit hard cap** — vestibular + strike-limit-1 + `AdjustStrikeLimit` → reject.
-2. **Vestibular + relaxation** — vestibular + any relaxation → reject.
-3. **HighRiskCombo + significant relaxation** — `SignificantRelaxationThreshold = 0.15` → reject.
+1. **Snapshot unavailable → fail CLOSED** (H15): a null/corrupt profile blocks the write rather than silently bypassing the intercepts.
+2. **Vestibular hard-set strike-limit** (strike-limit-1 + `AdjustStrikeLimit` + vestibular advisory) → block.
+3. **Vestibular + any relaxation** → block.
+4. **HighRiskCombo + significant relaxation** (`threshold = 0.15` relative change) → block ([HabituationOverrideApplicator.cs:188-237](src/SenseEase.App/ViewModels/HabituationOverrideApplicator.cs)).
 
-Engine surface: `SwitchProfile`, `AdjustSensitivity` (writes `personal_pressure_scale`), `AdjustStrikeLimit` (writes `severe_strike_limit`, now durably persisted — §11a). `ChatbotActionLog` states: `Proposed / Accepted / Declined / Expired / Intercepted`.
+Each Block carries a stable forensic English `Reason` (persisted to the event/action log — must stay byte-stable) plus a language-neutral `HabituationInterceptCode` the Card maps to localized copy (UX-21). The engine surface: `SwitchProfile` (severed), `AdjustSensitivity` (writes `personal_pressure_scale`), `AdjustStrikeLimit` (writes `severe_strike_limit`). The `IChatbotActionLog` records `Proposed / Accepted / Declined / Expired / Intercepted` — feeding the Processor's Rule-5 cooldown and the chatbot's grounding context.
 
-### 11.5 `ProposalReceived` Flow / 提案接收流程
-Snapshot + validate → reject branch logs `Habituation.SafetyIntercept` → accept branch clamps expiry to `min(model expiry, now + 7 days)`, stores `_activeProposal`, records `Proposed`, starts the **60 s VM watchdog**, raises `ProposalSurfaceRequested`. Card timer 15 s = "respond now" budget; VM watchdog 60 s = headless safety net; both idempotent.
+### 11.5 The vestibular intercepts are now KEPT-DEAD / 前庭攔截已成保留性死碼
+**Vestibular protection was removed 2026-06-21 (commit `2d48041`); SenseEase is scoped to general visual comfort, not clinical vestibular/balance disorders.** The three vestibular advisory legs above (Processor Rule 3, Applicator Rules 2–3 reading `MedicalAdvisory.Vestibular`) are **deliberately retained but statically unreachable**: `MockInferenceEngine._vestibularProtection` can never be set true (its setter `SetVestibularProtection` was deleted, and `MainViewModel.HasVestibularDiagnosis()` is hardcoded `false`), so `MedicalAdvisory.Vestibular` is never carried forward at runtime. They are kept (not deleted) because they are fail-toward-protection, heavily tested, and back-compat for deserializing legacy snapshots; an existing persisted-vestibular user is migrated at boot into the most-cautious surviving profile **Reactive** (accepted tradeoff: spike trigger moves 50→85). These paths must **not** be re-flagged as dead-code-to-remove.
 
-### 11.6 ResetPersonalization — Q4.5 fix / 重設個人化 — Q4.5 修正
-`Intent == "ResetRequest"` and `/reset shader` now **preserve the habituation `_offset`** (was audit gap C5). `HabituationEngine.Reset()` was split into `ResetPostCalibration()` and `ResetTransientState()`; the chatbot reset routes to the transient path so weeks of earned relaxation survive a "reset" utterance.
+### 11.6 ResetPersonalization preserves the earned offset / 重設保留已習得位移
+`ResetRequest` and `/reset shader` **preserve the habituation `_offset`** (Q4.5): the engine reset routes to `ResetTransientState()` (split from `ResetPostCalibration()`), so weeks of earned graded-exposure offset survive a "reset" utterance. The slash-command path is intercepted pre-LLM by `ShaderCommandLexicon` ([ShaderCommandLexicon.cs](src/SenseEase.Core/Inference/ShaderCommandLexicon.cs)), which resolves `/grid`, `/mask`, `/feather`, `/fov`, `/reset shader`, `/help`, `/show` and a strict bilingual NL whitelist with **absolute-set** values (bypassing the `[-0.3,+0.3]` delta cap) and a hard **mask floor of 20 %** (`MaskDepthSafetyFloor = 0.20`) — the mask is core protection and cannot be turned off from chat ([ShaderCommandLexicon.cs:75-79, 206](src/SenseEase.Core/Inference/ShaderCommandLexicon.cs)).
 
-### 11.7 Lexicon Backfill — `QuickDiscomfortPhrases`
-```csharp
-private static readonly string[] QuickDiscomfortPhrases = {
-    string.Empty, "我有點不舒服", "我不舒服", "我很不舒服", "我非常不舒服，請大力調整",
-};
-```
+### 11.7 End-to-end summary / 端到端摘要
+A user message in `ChatbotViewModel.SendAsync` traverses: **① SafetyFloor crisis intercept → ② profile-picker redirect → ③ H6 turn sanitize → ④ `ShaderCommandLexicon` slash/strict commands → ⑤ bare-off follow-up resolver → ⑥ lazy/prewarmed LLM round-trip (or lexicon if no model) → ⑦ `NluComplianceGate` (intent whitelist + clamps + `ReplyComplianceScrubber`) → ⑧ if the raw output carried a `[PROFILE_OVERRIDE]`, the Parser → 5-rule Processor → user-Accept Card → Applicator re-runs the defensive intercepts → engine write → `ChatbotActionLog`**. Steps ①–⑤ never load the model; only step ⑥ does. Layered enforcement (per `docs/CHATBOT_BEHAVIOR_SPEC.md` §10): the **prompt** teaches quality, the **GBNF grammar** fixes shape, the **gate + scrubber** guarantee the hard invariants, the **engine** does final numeric re-clamps, and the **host** owns the §8 propose-confirm safety rejections + the user-Accept gate. Rule of thumb: *prompt for quality, gate for guarantees.*
 
-### 11.8 End-to-End Summary / 端到端摘要
-A user message traverses: **slash-command lexicon (§11a) → SafetyFloor → LLM round-trip (lazy-loaded) → parser → 5-rule Processor → if accepted, `_activeProposal` → Card → user clicks → Applicator re-runs defensive intercepts → engine write → `ChatbotActionLog`**.
+**小結.** The safety architecture makes the chatbot structurally incapable of harm: a self-harm message is short-circuited to a fixed, redacted crisis response before any model or engine touch; a screen change requires a `ReportDiscomfort` classification surviving the deterministic whitelist; and a profile/sensitivity change requires a model *proposal* that passes a pure validation gate and an explicit user click, with a second defensive intercept re-run at apply-time. Profile switching is severed entirely, the mask cannot be turned off, the earned offset survives every reset, and the (now-dormant) vestibular legs fail toward protection.
 
 ---
 
@@ -1027,7 +1226,138 @@ tolerance_ceiling: tier <n> [(stable)]             // max tier_modal; "stable" i
 ### 11a.8 Cross-session habituation persistence / 跨工作階段習慣化持久化
 Two files split durable engine state by design:
 - **`habituation.json`** — the authoritative earned `_offset` (`FileHabituationStore`); saved only when the offset changes; restored at engine ctor.
-- **`habituation_profile.json` (v3)** — profile, strikes, engine state, `personal_pressure_scale`, `severe_strike_limit_override`, vestibular flag (atomic `Update`, dirty-checked). At boot the engine **re-derives `EffectiveTrigger = TriggerPressure / scale`** (commit `429f8a2`, so personalised sensitivity isn't silently lost), restores the strike-limit override (commit `55d8b6a`), and re-applies vestibular protection (which wins over the strike override). The strike *count* is deliberately not restored (within-session safety counter).
+- **`habituation_profile.json` (v3)** — profile, strikes, engine state, `personal_pressure_scale`, `severe_strike_limit_override`, vestibular flag (atomic `Update`, dirty-checked). At boot the engine **re-derives `EffectiveTrigger = TriggerPressure / scale`** (commit `429f8a2`, so personalised sensitivity isn't silently lost), restores the strike-limit override (commit `55d8b6a`), and — for a legacy persisted-vestibular user — runs the **boot migration to the Reactive profile** (§2.5 / §9a) rather than re-arming vestibular protection (the `VestibularProtectionEnabled` field is kept only for back-compat detection and is overwritten false on the same persist). The strike *count* is deliberately not restored (within-session safety counter).
+
+### 11a.9 On-disk data-store map / 磁碟資料儲存對照 (`%LOCALAPPDATA%\SenseEase\`)
+
+All stores are rooted at `AppConfig.DataRoot` + `"SenseEase"`; `AppConfig.DataRootOverride` redirects the whole set for the test suite. Beta-1 added the entire symptom / FMS / NPS / onset / preferences family the prior edition omitted:
+
+| File | Owner | Schema / content | Source |
+|---|---|---|---|
+| `behavior_log.jsonl` | `DailyBehaviorAggregateWriter` | UM1 daily numeric aggregate (§11a.2) | `AppConfig.cs:261` |
+| `symptom_log.jsonl` | `FileSymptomEventStore` | **one `SymptomEvent`/line** — `kind {fms_report\|fms_estimate\|overlay_consent}`, `measured` (the PRO-vs-estimate split), `scale "fms20"`, `value 0–20`, `context_tier`, `intervention_state {on\|off\|baseline}`, `decision` | `AppConfig.cs:273`, [SymptomEvent.cs](src/SenseEase.Core/Models/SymptomEvent.cs) |
+| `fms_log.jsonl` | `FmsCheckInService` | dedicated dev log of the in-chat FMS 0–20 quick-rate (with Driver/Passenger + raw OFI context) | `AppConfig.cs:280` |
+| `session_onset_log.jsonl` | `SessionOnsetLog` | learning-loop Part D: first discomfort signal of each launch + elapsed offset (§11b.2) | `AppConfig.cs:288` |
+| `survey_log.jsonl` | `NpsService` | NPS responses (`{ts, score, scaleMax, comment, appVersion, lang}`); server-upload-ready (PREP only) | `NpsService.cs:194` |
+| `nps_state.json` | `NpsService` | NPS scheduler state (cooldown / shown-tracking) | `NpsService.cs:193` |
+| `user-preferences.json` | `UserPreferences` | app prefs (incl. `VestibularPromptAnswered`); atomic write + `schema_version` guard | `UserPreferences.cs:452` |
+| `habituation.json` | `FileHabituationStore` | authoritative earned `_offset` (§11a.8) | `AppConfig.cs:244` |
+| `habituation_profile.json` | `FileHabituationProfileStore` | schema v3 — profile, strikes, scale, strike-override, `longitudinal_observations_v2` (§11a.3/.8) | `AppConfig.cs:215` |
+| `user_model_index.json` | `UserModelIndexStore` | UM3 index (§11a.4) | `AppConfig.cs:266` |
+| `chat_history.jsonl` | chatbot | dialogue turns (safety-floor matches redacted) | `AppConfig.cs:249` |
+| `model_trace.jsonl` | `LocalLlmChatbotService` | verbatim model trace, dev-only (H41), H24 clear target | `AppConfig.cs:295` |
+| `adjustments.jsonl` | `FileAdjustmentLog` | chatbot/NLU adjustment audit | `AppConfig.cs:203` |
+
+`H24 "clear all my data"` + `H25 uninstall` cover the user-model / symptom / FMS / onset / NPS stores; the calibration profile + earned offset are kept.
+
+---
+
+## 11b. The Learning Loop — Part D Capture / 學習迴圈 — Part D 資料擷取 (Alpha-2)
+
+The learning loop connects SenseEase's previously dead-end comfort signals (FMS, overlay-consent, chat) into ① an effectiveness/relax pathway and ② the health report. **Part D** (2026-06-21, `docs/LEARNING_LOOP_PLAN.md`) adds two new signals — *low-engagement* and *session-onset timing* — both **report-only and gate-walled**: they reach the health report but are structurally prevented from reaching the relax gate. The capture is built (Stage A done, 2026-06-21); the aggregators are pure Core.
+
+### 11b.1 Idea #1 — "overlay offered, not engaged" / 防護已提供、未採用
+
+A purely **mechanical low-engagement indicator** derived entirely from the `overlay_consent` rows already on disk (§6b.4) — *zero new capture*. `ConsentEngagementBuilder.Build` ([ConsentEngagement.cs:59-88](src/SenseEase.Core/Inference/ConsentEngagement.cs)) is a pure aggregator that counts the `asked` / `accepted` / `declined` / `ignored` decisions, the distinct UTC dates observed, and emits the **offered-not-engaged rate** = `IgnoredCount / AskedCount` (rounded 2dp, null when no prompt was ever raised — an honest gap, never a fabricated 0). The denominator is the per-impactful-tier prompt (`Decision="asked"` at L6, locked decision #4). It carries **no** timestamps, utterances, or app names, so it inherits D-17 de-identification with zero new leak surface.
+
+**Naming hazard (load-bearing):** the report label must read **"overlay offered, not engaged"**, never "tolerance"/"tolerated" — the `ReportClaimGuard` bans the `toler` stem (§11c.3), and a "tolerance" framing would both be stripped at runtime and fail `BannedPhraseLintTests`. This is a low-engagement indicator, not a comfort claim.
+
+### 11b.2 Idea #2 — time to first discomfort signal / 首次不適訊號時間
+
+A net-new capture: one record per **app-launch session** of the **first** discomfort signal of that session — the earliest of three channels (`SessionOnsetChannels`, [SessionFirstSignal.cs:35-40](src/SenseEase.Core/Inference/SessionFirstSignal.cs)):
+
+- **`consent`** — the user *accepting* the overlay-consent card (`GrantOverlayConsent`). Decline is deliberately **excluded** — "Not now" is ambiguous, often "I'm fine", not a discomfort report.
+- **`fms`** — a manual FMS check-in (`RecordFmsRating`, [MainViewModel.cs:636-638](src/SenseEase.App/ViewModels/MainViewModel.cs)). Timing only — no new FMS write.
+- **`chat`** — a chatbot turn the NLU classifies as `ReportDiscomfort` (locked decision #6 — intent-classified turns only, not first-sent-message), via the host-wired nullable `ChatbotViewModel` discomfort callback.
+
+`MainViewModel.NoteFirstDiscomfortSignal(channel)` ([MainViewModel.cs:1951-1962](src/SenseEase.App/ViewModels/MainViewModel.cs)) stamps the **elapsed offset** `(UtcNow − _sessionStartUtc)` (a *duration*, not a wall-clock timestamp, so D-17-safe) the first time only — a session-scoped null guard makes the first channel win. The offset is written immediately so a crash can't lose the in-memory anchor. The record (`SessionOnsetRecord`: `Channel` + `OffsetSeconds`) is appended best-effort to a **dedicated, decoupled** store, `session_onset_log.jsonl` (`SessionOnsetLog`; `AppConfig.SessionOnsetLogPath` — [AppConfig.cs:288](src/SenseEase.App/Configuration/AppConfig.cs)), deliberately separate from the collision-hot `behavior_log.jsonl` the report's per-day series reads. It lives in the `%LOCALAPPDATA%\SenseEase` home so H24 "clear all my data" + H25 uninstall cover it.
+
+`SessionFirstSignalBuilder.Build` ([SessionFirstSignal.cs:71-107](src/SenseEase.Core/Inference/SessionFirstSignal.cs)) is the pure aggregator: it filters to finite non-negative offsets and emits `SessionFirstSignalSummary` — overall mean minutes plus a per-channel breakdown (`ChannelOnset`: session count + mean minutes, null where a channel has no support). Minutes are rounded to 2dp.
+
+### 11b.3 The data-integrity rule — "no-consent ⇒ FMS=0 must never become a measured report" / 資料完整性鐵則
+
+The non-negotiable invariant the entire Part D design defends (`LEARNING_LOOP_PLAN.md §D0`): an *inferred* "no-engagement ⇒ comfort fine" signal must **never** be writable as a measured ON-state FMS report that could **relax** protection. The code enforces this **by construction** through four structural walls; the plan's only job is to not break them:
+
+1. **Relax-intake filter (Wall 1).** `AdaptationEvidence.MeasuredOnFms` counts a row only when `e.Measured && e.Kind == Kinds.FmsReport` ([AdaptationEvidence.cs:57](src/SenseEase.Core/Adaptation/AdaptationEvidence.cs)). An `overlay_consent` row (`Measured=false, Value=0, Kind="overlay_consent"`) can never enter the ON-report count, worst-case max, coverage, or the discomfort clock.
+2. **No gate field (Wall 2).** `MeasuredState` has no field for consent-non-click or time-to-first-signal; even a computed metric has no path into `RelaxReject` unless a field is added. The mandate: add none.
+3. **"Silence ≠ comfort" is positive (Wall 3).** A relax requires *positive* measured FMS evidence (report count, coverage, worst-recent bound, exposure ≥ baseline). A non-click yields none of these.
+4. **Export wall.** `ClinicalExportBuilder.Build` and `.BuildDailySeries` hard-filter to `Kind ∈ {fms_report, fms_estimate}` ([ClinicalExport.cs:264, 221](src/SenseEase.Core/Inference/ClinicalExport.cs)), so a consent-derived metric stays out of both FMS aggregates automatically.
+
+**The exact partition rule:** the signal carries `Kind != fms_report` **AND** `Measured == false`. That single combination makes it readable by the health report yet invisible to Wall 1 and the export aggregates. **The forbidden mutation — writing it as `Kind=fms_report, Measured=true, Value=0`** — is the only mutation that would let a non-event relax protection, and it is exactly what the report-only path avoids. Defensive backstop: `ClinicalExportBuilder.Build` partitions on **both** flag AND kind (`measured = e.Measured && Kind==FmsReport`; `estimated = !e.Measured && Kind==FmsEstimate` — [ClinicalExport.cs:275-276](src/SenseEase.Core/Inference/ClinicalExport.cs)), so a malformed/forward-compat row whose flag and kind disagree is counted in **neither** partition.
+
+The timing signal *may later* inform check-in/prompt **cadence** (an `OverlayConsentGovernor` input — *when* to ask, never the protection delta) behind its own UVHS; it must never become a `MeasuredState` field.
+
+### 11b.4 FMS Check-In — the 0–20 Fast Motion Sickness scale / FMS 量表回報
+
+The patient-reported outcome is the **Fast Motion Sickness Scale (FMS), 0–20** (`FmsScale.Min = 0`, `Max = 20`, [FmsScale.cs:15-16](src/SenseEase.App/ViewModels/FmsScale.cs)) — 0 = no discomfort … 20 = severe. It is the `fms20` scale on every `SymptomEvent` ([SymptomEvent.cs:43, 79](src/SenseEase.Core/Models/SymptomEvent.cs)) and the rating that feeds both the measured comfort trend and the Adaptive-Fit selector's outcome term.
+
+**In-chat quick-rate (the sole entry point today).** The check-in surfaces **in the chat** as a calm assistant question plus an **adaptive 7-square rating row** — a width-7 window re-centred on the user's last pick rather than a hard-to-scan 0–20 strip. `FmsCheckInService` ([FmsCheckInService.cs](src/SenseEase.App/Services/FmsCheckInService.cs)) owns the window math: `WindowFor(last)` = `[last−3 … last+3]` clamped to keep all 7 values inside [0,20] (`WindowSize = 7`, first-ever check-in shows 0–6 via `DefaultCenter = 3`). The `‹`/`›` arrows page the window down/up by a full non-overlapping width (`WindowBelow`/`WindowAbove`, [FmsCheckInService.cs:70-90](src/SenseEase.App/Services/FmsCheckInService.cs)) — `0-6 → 7-13 → 14-20`, the "worse/better than shown" escapes. The squares carry a low-alpha tint from a **muted calm→warm ramp** (sage-teal → ochre → clay, deliberately *not* a saturated red, per the calm cardinal rule — [FmsScale.cs:18-31](src/SenseEase.App/ViewModels/FmsScale.cs)); frozen software-render-friendly brushes, no effects.
+
+The pick is captured **deterministically and never reaches the LLM** ([ChatbotViewModel.cs:1045-1063](src/SenseEase.App/ViewModels/ChatbotViewModel.cs)): `SelectFmsCommand` enforces one rating per check-in and invokes the host callback `MainViewModel.RecordFmsRating` ([MainViewModel.cs:613-640](src/SenseEase.App/ViewModels/MainViewModel.cs)), which writes a measured `fms_report` to `symptom_log.jsonl`, appends a context-rich row to the dedicated dev sink `fms_log.jsonl` (carrying the efference-copy context — Driver/Passenger `mode` + raw `ofi` — so a rating can be read against whether the provoking motion was self-generated), stamps the per-session onset timing (§11b.2), and pushes the recent measured-FMS aggregate into the selector (`PushFmsContextToEngine`). The transient chat rating row is **not persisted** (its live callback can't be rehydrated; persisting only the question text would orphan an unanswerable line).
+
+**Proactive cadence.** `MainWindow.MaybeShowSpikeCheckIn` ([MainWindow.xaml.cs:885-907](src/SenseEase.App/MainWindow.xaml.cs)) raises the in-chat check-in on a pressure spike, gated by: a 60 s `StartupCheckInGrace` (a self-generated start-up spike is not real discomfort), the `CheckInGovernor` rate limit, a defer while an overlay-consent bubble is pending (so two prompts don't overlap), and the **opt-in** `ProactiveCheckInsConsent.Enabled` Settings toggle.
+
+> **Note (overlay check-in panel retired).** The big "Teams-style" overlay FMS check-in panel and the legacy `SpikePopupWindow` / in-console consent overlay (`ShowConsentOverlay` / `CheckInOverlayHost`) were **retired 2026-06-21** ([MainWindow.xaml.cs:22-25, 946-951](src/SenseEase.App/MainWindow.xaml.cs)). The FMS check-in now lives **only** in the chat. The Eye-Care tab's manual/un-prompted FMS entry point (`Triggers.Manual`) was dropped at the dashboard-dismantle Stage 2 (Kirby 2026-06-21), so FMS ratings are **spike-prompted (chat) only**.
+
+**小結（中文）：** Part D 新增兩個「僅供報告、閘外」訊號：①「防護已提供、未採用」（純讀既有 `overlay_consent` 列，offered-not-engaged 率）；②「首次不適訊號時間」（每次啟動取最早的同意接受／FMS／聊天三通道，記錄經過秒數，存於獨立 `session_onset_log.jsonl`）。鐵則：推測的「未互動⇒舒適」絕不可寫成 `Kind=fms_report, Measured=true`；四道結構牆（放鬆閘 MeasuredOnFms、無閘欄位、放鬆需正向證據、匯出 FMS-kind 過濾）使之天然不可達。FMS 為 0–20 量表，現僅在聊天中以自適應 7 格列回報，確定性擷取、永不送入 LLM。
+
+---
+
+## 11c. The Clinical Health Report / 臨床健康報告 (Alpha-2)
+
+The de-identified export was redesigned (`docs/HEALTH_REPORT_PLAN.md`, P1–P5 built 2026-06-21) from a numbers-only JSON into a **self-contained HTML health report** the user can read in a browser, print to PDF, and optionally hand to a clinician — key indicators, inline-SVG charts, and one on-device-narrated plain-language summary. The JSON data record is **kept beside** the HTML (the HTML augments, does not replace it); both are de-identified (numbers + coarse categories + dates only). The pipeline lives in `src/SenseEase.Infrastructure/Reporting/*` with the guard + builders in Core.
+
+### 11c.1 Architecture and the one-dataset, two-artifact composition / 一份資料、兩份產物
+
+`ClinicalReportService.WriteAsync(htmlPath, jsonPath, english, nowUtc, sinceUtc)` ([ClinicalReportService.cs:69-98](src/SenseEase.Infrastructure/Reporting/ClinicalReportService.cs)) is the thin I/O + composition seam. It reads `symptom_log` + `behavior_log` **once** (optionally scoped to a recent window), composes a single `ClinicalExport` dataset, and writes **both** artifacts from it (each atomically, tmp + replace) — "JSON is the data recording, HTML is the export", so they can never drift. The composed export carries:
+
+- `ClinicalExportBuilder.Build(events)` — the measured/estimated FMS aggregates, ON-vs-OFF contrast (overall, by tier, by category), per-category load, exposure dose.
+- `BuildDailySeries(events, behaviorDays)` — the de-identified per-day trend (measured-FMS mean, OFI p90, mask activations), date-bucketed and **outer-joined** with `null` where a source lacks a day (honest gap).
+- `SessionFirstSignalBuilder.Build(onsetReader())` + `ConsentEngagementBuilder.Build(events)` — the §11b learning-loop summaries (report-only).
+- `Satisfaction` — score-only CSAT from `NpsService.ComputeCsat` (the free-text comment is never read).
+
+The App injects the onset/satisfaction readers as `Func`s ([SettingsContent.xaml.cs:446-460](src/SenseEase.App/Views/SettingsContent.xaml.cs)), keeping the App→Infrastructure boundary clean (Infrastructure can't see `AppConfig`). The narrator reuses the host's already-loaded chatbot model via `GetChatbotService` (no second engine). Posture (`ReadPosture`, [ClinicalReportService.cs:114-130](src/SenseEase.Infrastructure/Reporting/ClinicalReportService.cs)) reads an **allowlisted** set of numeric/coarse-enum fields only — the profile strength is mapped *away* from the raw RESILIENT/ADAPTING/REACTIVE enum to a neutral `Light`/`Balanced`/`Protective` word — and never reads calibration responses or longitudinal-observation prose (build-gate 1). The JSON path (`ClinicalExportService.WriteJson` / `.Serialize`, [ClinicalExportService.cs:49-88](src/SenseEase.Infrastructure/Storage/ClinicalExportService.cs)) serialises the same composed export, indented snake_case.
+
+### 11c.2 Summary-only LLM narration + the number-lock / 僅摘要由 LLM 敘述 ＋ 數字鎖
+
+The LLM **only phrases — it never owns a figure**. Per the option-(b) decision (2026-06-21), `ClinicalReportNarrator.BuildAsync` ([ClinicalReportNarrator.cs:46-68](src/SenseEase.Infrastructure/Reporting/ClinicalReportNarrator.cs)) narrates **only the opening Summary**; the Comfort-Trend / Protection / Exposure sections come straight from their deterministic `ReportFallbacks` templates with no model call (their prompts forbade exactly what an LLM is good at, so they only added contention + an overreach surface for no content gain). The Summary is generated with a bounded per-section budget of `MaxTokensPerSection = 160` ([ClinicalReportNarrator.cs:38](src/SenseEase.Infrastructure/Reporting/ClinicalReportNarrator.cs)) via the `CompleteShortAsync(system, user, maxTokens, ct)` overload ([IChatbotService.cs:37](src/SenseEase.Core/Abstractions/IChatbotService.cs)) — added for the report so it isn't bound by the 96-token chat rest-advice default.
+
+The Summary passes through a **four-wall** pipeline ([ClinicalReportNarrator.cs:72-115](src/SenseEase.Infrastructure/Reporting/ClinicalReportNarrator.cs)); any failure converges on the deterministic template, so the report always renders in full:
+
+1. **Action-honesty scrubber** — `CompleteShortAsync` already runs `ReplyComplianceScrubber.Scrub`. A chat-artifact reject (`LooksLikeChatArtifact`) drops a scrubber fallback line that is honest for chat but nonsense in a report.
+2. **Medical-overreach guard** — `ReportClaimGuard.ContainsBannedClaim` (§11c.3); any hit rejects the whole section.
+3. **Number-lock (R1)** — every run of digits the model writes must parse to an integer the prompt handed it (`{Window.DaysObserved, Measured.Count, Estimated.Count}` — [ClinicalReportNarrator.cs:54-57, 127-132](src/SenseEase.Infrastructure/Reporting/ClinicalReportNarrator.cs)); any other digit rejects the section to its template. The Summary prompt is **counts-only with no calendar dates** (a `yyyy-MM-dd` would carry un-allowed digits; the header already prints the window). This is the guarantee that the narrated prose can never round, drop, or transpose a figure that contradicts the tables a clinician quotes.
+4. **Language-pin sanity** — a section whose script contradicts the report language (EN report with CJK, or ZH report with no CJK) is rejected, because the EN↔ZH pin is unreliable on the temperature-0.4 model.
+
+### 11c.3 ReportClaimGuard — the runtime medical-overreach wall / 醫療逾越執行期防線
+
+`ReportClaimGuard.ContainsBannedClaim(prose)` ([ReportClaimGuard.cs:97-111](src/SenseEase.Core/Inference/ReportClaimGuard.cs)) is the pure-Core, runtime wall enforcing the §6 red line: the copy describes the **app's behaviour, never the user's clinical improvement** (no therapy / rehab / tolerance / desensitization / recovery / adaptation wording). Because it scans **non-deterministic LLM prose**, its vocabulary deliberately **exceeds** the static `BannedPhraseLintTests` list (a strict superset — build-gate 4, an anti-drift test asserts the guard can never become weaker than the lint). The vocabulary is **single-sourced** here and referenced by both the lint and the runtime guard.
+
+It runs three matchers on **both** the EN and ZH lists on **every** section regardless of the UI pin (the EN↔ZH pin is a known-unreliable failure mode):
+
+- **EN distinctive stems** (`BannedClaimStemsEn`, ordinal substring) — `toler`, `desensiti`, `neuroplastic`, `rehab`, `therap`, `recover` (bare), `symptom`, `feel better`, `getting used to`, etc. ([ReportClaimGuard.cs:40-60](src/SenseEase.Core/Inference/ReportClaimGuard.cs)). These are distinctive enough that no benign word contains them.
+- **EN word-boundary stems** (`BannedClaimWordsEn` regex, [ReportClaimGuard.cs:70-72](src/SenseEase.Core/Inference/ReportClaimGuard.cs)) — `adapt(?!er|ive)`, `improv`, `sensiti`, `resilien`, `progress`, `better`, `easier`, `easing`, `stronger`. Word-boundary matching is the **R2/R7 fix**: it closes the EN-paraphrase gaps the ZH list already had (progress / better / easier / stronger) for **EN↔ZH symmetry**, while `adapter`/`adaptive` no longer false-fire.
+- **ZH terms** (`BannedClaimTermsZh`, ordinal substring) — `耐受`, `容忍度`, `去敏感`, `神經可塑`, `復健`, `治療`, `痊癒`, `康復`, `症狀`, plus the §8 expansion `適應 / 改善 / 進步 / 習慣了 / 減輕 / 減少` and the R2 symmetry twins `好轉 / 變好`.
+- A **`MinutesOfClaim`** regex (`\d+\s*minutes?\s+of`) bans the lint's therapeutic-dosing phrasing.
+
+A single hit rejects the whole section to its `ReportFallbacks` template; the templates themselves are authored to contain no banned stem (a golden test asserts every template passes the guard in both languages). The guard's strictness is why a static FIXED label *can* use an otherwise-banned term: the warmed posture label "Adaptation progress / 視覺適應進度" (the real `HabituationLevel` term, Kirby-approved) is safe **only** because the runtime guard scans LLM-generated prose, never this reviewed static literal, and the static lint list does not contain `adapt/適應`.
+
+### 11c.4 The Build kind/flag partition / kind 與 flag 雙重分區
+
+The export's measured-vs-estimated separation (D-17/18/19/21, non-negotiable) is enforced by partitioning on **both** the `Measured` flag **and** the `Kind` discriminator. `ClinicalExportBuilder.Build` ([ClinicalExport.cs:254-276](src/SenseEase.Core/Inference/ClinicalExport.cs)) first hard-filters the input to FMS-bearing kinds (`Kind == FmsReport || Kind == FmsEstimate`, [:264](src/SenseEase.Core/Inference/ClinicalExport.cs)) — so a non-FMS row such as `overlay_consent` (`Measured=false, Value=0, Scale=""`) can never fall into the estimated partition as a phantom FMS=0, which would inflate the estimated count, pull its mean toward 0, and inflate `TotalSamples`/`Window`. It then partitions:
+
+```
+measured  = all.Where(e => e.Measured  && e.Kind == Kinds.FmsReport)     // ClinicalExport.cs:275
+estimated = all.Where(e => !e.Measured && e.Kind == Kinds.FmsEstimate)   // :276
+```
+
+A row whose flag and kind **disagree** (e.g. a forward-compat / malformed `fms_estimate` mis-flagged `Measured=true`) is counted in **neither** partition. Today the producers always set both consistently, so this is a no-op — but it is the load-bearing backstop that makes the learning-loop "no-engagement ⇒ comfort" inference safe: any inferred FMS=0 stays out of the measured trend (it carries its own kind / `Measured=false`, §11b.3). `BuildDailySeries` mirrors the same gate (`(FmsReport || FmsEstimate) && Measured`, [:221-222](src/SenseEase.Core/Inference/ClinicalExport.cs)) for the per-day comfort line.
+
+### 11c.5 Rendering, palette, and the onset section / 渲染、色盤與起始區段
+
+`ClinicalReportHtmlRenderer.Render` ([ClinicalReportHtmlRenderer.cs:55](src/SenseEase.Infrastructure/Reporting/ClinicalReportHtmlRenderer.cs)) is **pure** (no I/O, no LLM, no `DynamicResource`) so it unit-tests with an in-memory export, producing one self-contained HTML file (inline CSS + inline SVG). The visual identity is the app's **calm LIGHT sibling**: navy ink `#0E1E47` + royal-blue accent `#4B6EF5` (the calm sibling of the app's loud `#024AD8`), faint light-blue band `#EEF2FC`, with **Segoe UI for prose and Consolas / Cascadia Mono for every number and technical label** (the "mechanical / instrument" feel; system fonts only — the report never fetches a web font). Series colours are baked to concrete hex (`#4B6EF5` comfort line, `#2F7D6E` motion p90, `#9A6B22` protection bars); the flagged gamer-neon `#024AD8` and the live-chart `#7B8DB0`/`#E54747` are **test-asserted absent**. Every dynamic string is HTML-escaped, and a script-free `window.print()` button (inline handler, no `<script>` tag) covers Save-as-PDF with no PDF dependency. The report structure: an at-a-glance hero band, the narrated Summary, comfort-over-time + motion charts, the protection ON-vs-off + posture section, a deterministic **"Time to first discomfort signal"** section (overall + per-channel mean minutes, with idea #1's "overlay offered, not engaged" riding along — never narrated, so it bypasses the number-lock), and the not-a-medical-device disclaimer. Empty sources render an honest "Not enough data yet" placeholder.
+
+**小結（中文）：** 健康報告改為自含 HTML（保留 JSON 數據紀錄於旁）。一份去識別化資料同時產出 JSON 與 HTML，不會漂移。僅「開頭摘要」由裝置端 LLM 敘述，且經四道牆（誠實 scrubber → `ReportClaimGuard` 醫療逾越 → 數字鎖：每個數字必為提示給定 → 語言檢查），任一失敗即退回確定性模板，報告永遠完整呈現。`ReportClaimGuard`（純 Core、單一來源、嚴格超集於靜態 lint、雙語每段都掃、字界比對修正 EN↔ZH 對稱與 adapter 誤判）。匯出以 kind＋flag 雙重分區，旗標與 kind 不一致者兩邊皆不計，使學習迴圈的推測 FMS=0 天然排除於量測趨勢之外。色盤為 App 冷藍 LIGHT 家族，禁用 `#024AD8` 並有測試把關。
 
 ---
 
@@ -1040,48 +1370,58 @@ All load-bearing parameters live in [src/SenseEase.Core/Configuration/SenseDefau
 
 | Constant | Value | Purpose | Source |
 |---|---|---|---|
-| `WgcCaptureIntervalMs` | 66 | WGC capture period (~15 Hz) | `:96` |
-| `WgcDownsampleWidth / Height` | 160 / 90 | Greyscale buffer (N = 14 400) | `:97-98` |
-| `WgcMadNormFactor` | 4.0 | MAD → OFI scale (real data partially validates — §5.2.6) | `:102` |
-| `CursorVelocityPollIntervalMs` | 33 | Cursor poll (~30 Hz) | `:90` |
-| `CursorVelocityNormFactor` | 120.0 | px/s → OFI scale | `:89` |
-| `CursorEmaAlpha` | 0.55 | Shared EMA alpha (cursor + WGC) | `:93` |
-| `VimsMedianTaps` | 3 | Running-median window | `:141` |
-| `NoiseGateThreshold` | 8 | Sub-threshold OFI → 0 | `:16` |
+| `WgcCaptureIntervalMs` | 66 | WGC capture period (~15 Hz) | `:381` |
+| `WgcDownsampleWidth / Height` | 160 / 90 | Greyscale buffer (N = 14 400) | `:382-383` |
+| `WgcMadNormFactor` | 4.0 | MAD → OFI scale (real data partially validates — §5.2.6) | `:388` |
+| `CursorVelocityPollIntervalMs` | 33 | Cursor poll (~30 Hz) | `:375` |
+| `CursorVelocityNormFactor` | 120.0 | px/s → OFI scale | `:374` |
+| `CursorEmaAlpha` | 0.55 | Shared EMA alpha (cursor + WGC) | `:378` |
+| `VimsMedianTaps` | 3 | Running-median window | `:418` |
+| `NoiseGateThreshold` | 8 | Sub-threshold OFI → 0 | `:18` |
 
 #### 12.1.2 Inference-Layer Parameters / 推論層參數
 
+*(Line numbers re-verified 2026-06-23; the prior edition's citations were off by 1–280 lines after the overlay-field / feathering-coherence constants block grew the file.)*
+
 | Constant | Value | Purpose | Source |
 |---|---|---|---|
-| `PassiveFlowWeight` | 2.0 | Passenger-mode flow multiplier (8× asymmetry, WH) | `:64` |
-| `DriverFlowAttenuation` | 0.25 | Driver-mode OFI multiplier | `:77` |
-| `QuadraticTerm` | 0.0008 | Quadratic stimulus coefficient | `:65` |
-| `BaseDecayAlpha` | 0.965 | Per-100 ms decay anchor (τ ≈ 2.81 s) | `:67` |
-| `TriggerPressure` | 85 | Mask-engagement + level/FOV threshold (raw) | `:17` |
-| `CooldownMs` | 8000 | Min interval between mask engagements | `:69` |
-| `TightestNaturalFovRadiusPercent` / `MinComposedFovRadius` | 15 | Tightness denom + clamp floor | `:12, :39` |
+| `PassiveFlowWeight` | 2.0 | Passenger-mode flow multiplier (8× asymmetry, WH) | `:339` |
+| `DriverFlowAttenuation` | 0.25 | Driver-mode OFI multiplier | `:352` |
+| `CursorMoveOfiAttenuation` | 0.25 | **NEW (D-4)** — cursor-move OFI attenuation, mirrors Driver magnitude | `:362` |
+| `QuadraticTerm` | 0.0008 | Quadratic stimulus coefficient | `:340` |
+| `BaseDecayAlpha` | 0.965 | Per-100 ms decay anchor (τ ≈ 2.81 s) | `:342` |
+| `TriggerPressure` | 85 | Base mask / level / FOV threshold (drives `EffectiveTrigger` via personal scale — §7.3) | `:19` |
+| `CooldownMs` | 8000 | Min interval between mask engagements | `:344` |
+| `EventLogMaxCount` | 200 | **NEW** — event-log ring size (raised 20→200) | `:347` |
+| `TightestNaturalFovRadiusPercent` / `MinComposedFovRadius` | 15 | Tightness denom + clamp floor | `:12, :41` |
 | `DefaultFovRadiusPercent` | 35 | Pre-trigger pressure-curve target | `:9` |
 | `OuterTransitionRadiusPercent` | 45 | Tightness numerator window edge | `:13` |
-| `HabituationStablePressureFraction` | 0.25 | Calm-fraction threshold | `:106` |
-| `HabituationRecurrencePressureFraction` | 0.60 | Spike-recurrence threshold | `:107` |
-| `HabituationMidBandDecayRate` | 0.5 | `_stableElapsed` decay rate | `:129` |
-| `HabituationCautionMeanDeltaDivisor` | 15.0 | rawCaution saturation divisor | `:133` |
-| `HabituationMaxStepIntervalSeconds` | 75 | Cautious-user step ceiling | `:128` |
-| `PersonalPressureScaleMin / Max` | 0.7 / 1.5 | Sensitivity clamp (SSOT) | `:83-84` |
-| `VimsTierDeadband` | 0.15 | Half-band width in level units | `:147` |
-| `VimsTierUpDebounceMs` | 200 | Level-up debounce | `:148` |
-| `VimsTierDownDebounceMs` | 500 | Level-down debounce (was 1200) | `:149` |
-| `VimsTierDownDebounceLowMs` | 250 | Level-down debounce for levels ≤ cutoff | `:154` |
-| `VimsLowTierReleaseCutoff` | 9 | Fast-release threshold (rescaled 7→9) | `:158` |
-| `VimsTierFastOnsetGap / FastReleaseGap` | 1.5 / 1.5 | Snap bypass thresholds | `:162, :169` |
-| `AutoProfilingStartLevel` | 5 | Fresh-user seed level (Set0 median) | `:22` |
+| `GridSizePx` | 32 | **NEW** — anchor-grid spacing (reduced 40→32, Kirby 2026-06-11) | `:16` |
+| `HabituationStablePressureFraction` | 0.25 | Calm-fraction threshold | `:392` |
+| `HabituationRecurrencePressureFraction` | 0.60 | Spike-recurrence threshold | `:393` |
+| `HabituationMaxStepIntervalSeconds` | 75.0 | Cautious-user step ceiling | `:405` |
+| `HabituationMidBandDecayRate` | 0.5 | `_stableElapsed` decay rate | `:406` |
+| `HabituationCautionMeanDeltaDivisor` | 15.0 | rawCaution saturation divisor | `:410` |
+| `PersonalPressureScaleMin / Max` | 0.7 / 1.5 | Sensitivity clamp (SSOT) | `:368-369` |
+| `VimsMedianTaps` | 3 | OFI running-median window | `:418` |
+| `VimsTierDeadband` | 0.15 | Half-band width in level units | `:424` |
+| `VimsTierUpDebounceMs` | 200 | Level-up debounce | `:425` |
+| `VimsTierDownDebounceMs` | 500 | Level-down debounce (was 1200) | `:426` |
+| `VimsTierDownDebounceLowMs` | 250 | Level-down debounce for levels ≤ cutoff | `:431` |
+| `VimsLowTierReleaseCutoff` | 9 | Fast-release threshold (rescaled 7→9) | `:435` |
+| `VimsTierFastOnsetGap / FastReleaseGap` | 1.5 / 1.5 | Snap bypass thresholds | `:439, :446` |
+| `AutoProfilingStartLevel` | 5 | Fresh-user seed level (Set0 median) | `:24` |
 
 #### 12.1.3 Adaptive-Fit Selector Parameters / 自適應擬合選擇器參數
 
+*(The selector-parameter block now lives at `SenseDefaults.cs:465-514`; the values are unchanged from the prior edition but the line cites below shifted into that block.)*
+
 | Constant | Value | Source |
 |---|---|---|
-| `SelectorW1Pressure / W2Spike / W3Calm` | 1.0 / 0.6 / 0.6 | `:188-194` |
-| `SelectorW4Distance / W5ManualConflict` | 0.1 / 2.0 | `:199-204` |
+| `SelectorW1Pressure / W2Spike / W3Calm` | 1.0 / 0.6 / 0.6 | `:465-475` |
+| `SelectorW4Distance / W5ManualConflict` | 0.1 / 2.0 | `:480-485` |
+| `SelectorW6Fms` | 0.6 | **NEW (B1)** — measured-FMS → Band outcome term · `:497` |
+| `SelectorW7GateConflict` | 2.0 | **NEW (B5/B6)** — gate-conflict brake · `:488` |
 | `SelectorConfidenceMargin` | 0.15 | `:208` |
 | `SelectorFitTolerance` | 0.7 | `:217` |
 | `SelectorMinSamplesBeforeAnyMove` | 12 | `:221` |
@@ -1125,7 +1465,7 @@ Per-severity step magnitudes are the single-source arrays `FovStepBySeverity = {
 - **Q4.6** — Chatbot dialogue is stateless across restarts (longitudinal grounding is separate — §11a).
 - **Q4.7 = B** — `ChatbotActionLog` is in-memory; durable audit lives in `FileEventLogStore` / `FileChatbotActionLog` (H17).
 - **Path Z default** — `AppConfig.Mode = Wgc`.
-- **Auto-profiling default** — level 5 / TYPICAL (was: explicit calibration / RESILIENT).
+- **Auto-profiling default** — level 5 / **ADAPTING** (was: explicit calibration; the B6 Stage 4a rename of TYPICAL).
 - **Native 12-level engine / 5-band UI** — engine source-of-truth is 12 levels; UI surfaces 5「動態感」bands, no alarm-red.
 - **Top-band user-confirm gate is profile-independent.**
 - **Adaptive-Fit + auto-profiling flags ON** by default.
@@ -1137,16 +1477,18 @@ Per-severity step magnitudes are the single-source arrays `FovStepBySeverity = {
 
 ### 13.1 Headline Validation Results / 驗證結果摘要
 
-| Gate | Status | Evidence pointer |
+| Item | Status | Evidence pointer |
 |---|---|---|
-| G_final | **GO** | `head-tracking-sprint-state.md` |
-| UVHS | **PASS** (incl. feathering P1) | `uvhs-playbook.md`, `BETA_FEATHERING_COHERENCE_PLAN.md` |
-| Locked-decision violations | **0** (Q4.5 + safety-parity now closed) | sprint-state register |
-| `dotnet test` | **~1058 / 0 / 3** (commit `f381a43`; HEAD green save one `UserPreferences` isolation flake) | `SenseEase.Tests` |
-| Adaptive-Fit + auto-profiling | **live** (both flags ON) | commit `c1461a9` |
-| M1 OFI calibration | **real data (partial)** | `baseline/wgc-mad-calibration.csv`, commit `a98cebd` |
-| Vulkan cross-vendor backend + lazy load | shipping | commits `2679e51`, `55e510b` |
-| Installer | v0.11.1 dist | committed HEAD `installer/SenseEase-v0.11.iss` (**deleted in working tree** — uncommitted local change) |
+| Version | **1.0.0 — Beta V1.0** (`AssemblyInformationalVersion 1.0.0+dc4d203`) | commit `dc4d203` |
+| Branch / HEAD | `alpha1-w2-engine-integrity` @ `696cea1`; `git describe` = `v0.11-370-g696cea1` | git |
+| Test suite | **~1491 `[Fact]`/`[Theory]`** across 172 `.cs` files under `tests/` (attribute count 2026-06-23; suite **not run** under the AV build-hang constraint) | `SenseEase.Tests` |
+| G_final / UVHS | **GO** / **PASS** (incl. feathering P1) | `head-tracking-sprint-state.md`, `uvhs-playbook.md` |
+| Locked-decision violations | **0** | sprint-state register |
+| Adaptive-Fit + auto-profiling | **live** (both flags ON) | `AppConfig.cs:347, 380` |
+| Chatbot backend | Qwen3-4B-Instruct-2507; FastFlowLM NPU (live) / Vulkan fallback / OpenVINO scaffold | §10 |
+| Vestibular protection | **removed** — app scoped to general visual comfort | commit `2d48041`, §2.5 |
+| M1 OFI calibration | **real data (partial)** | `baseline/wgc-mad-calibration.csv` |
+| Installer (Phase-3 hardware-matched) | **spec-only** (runtime probe shipped) | `docs/PHASE3_NPU_INSTALLER_PLAN.md` |
 
 ### 13.2 UVHS Playbook — 4 Anti-cheat Clauses
 1. Visual evidence required. 2. No same-process trust. 3. No self-attestation. 4. No silent fallbacks. (Clause-5 orthogonal probe = `WgcDiagLog` monotonic sequence.)
@@ -1170,7 +1512,7 @@ Per-severity step magnitudes are the single-source arrays `FovStepBySeverity = {
 | Infrastructure | ~340 | MockInferenceEngine, WGC `ComputeMad`/calibration, `WgcDiagLog`, **user-model + profile stores + migration**, sidecar schema |
 | App | ~388 | MainViewModel proposal handshake, Applicator intercepts, ChatbotViewModel NLU dispatch, **behaviour collector**, **set-move proposal** |
 
-*(Totals approximate; the explicit-calibration removal dropped ~6 test files. The exact count was last stated at 1058/0/3 in commit `f381a43`; this revision did not re-run the suite to avoid the known AV build-hang on the dev machine.)*
+*(Totals approximate and now obsolete in detail — the **global attribute count is ~1491 `[Fact]`/`[Theory]` across 172 `.cs` files** as of 2026-06-23 (Beta-1 added the symptom / FMS / clinical-report / health-report / chatbot-eval-gate test families, so each band has grown well past the figures above). Per-layer counts were not re-derived this revision; the suite is **not run** to avoid the known AV build-hang on the dev machine.)*
 
 ### 13.6 Roadmap and Audit-Item Status / 路線圖與審計項目狀態
 
@@ -1240,13 +1582,16 @@ Per-severity step magnitudes are the single-source arrays `FovStepBySeverity = {
 - `src/SenseEase.Infrastructure/Real/WgcSensingProvider.cs` — `:725-754` OFI pipeline, `:908` BT.601, `:989` `ComputeMad`, `:1002` median
 - `src/SenseEase.Infrastructure/Real/CursorVelocityProvider.cs`
 - `src/SenseEase.Infrastructure/Real/{UserActivityModeDetector,WgcDiagLog,SidecarHeadPoseReader}.cs`
-- `src/SenseEase.Infrastructure/Real/MistralChatbotService.cs` — lazy load, loopback auth, UTC trace (H41)
+- `src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs` — backend-agnostic HTTP client + process supervisor (lazy/prewarm/idle-unload/load-lock), NLU parse + lexicon fallback (H41 trace)
+- `src/SenseEase.Infrastructure/Real/{FlmServerLauncher,LlmBackendRouting}.cs` — FastFlowLM NPU lifecycle + `HardwareProfile` backend router (§10.3)
+- `src/SenseEase.Infrastructure/Nlp/{NluComplianceGate,ReplyComplianceScrubber,FeedbackLexicon}.cs` — the deterministic gate, language/honesty scrubber, no-model fallback (§10.7-10.9)
+- `src/SenseEase.Infrastructure/Reporting/{ClinicalReportService,ClinicalReportNarrator,ClinicalReportHtmlRenderer,ReportFallbacks}.cs` — HTML clinical health report (§11c)
 - `src/SenseEase.Infrastructure/Real/UserModelRetrospectiveAnalyzer.cs` — UM4 batch analyzer
-- `src/SenseEase.Infrastructure/Storage/{DailyBehaviorAggregateWriter,UserModelIndexStore,FileHabituationProfileStore,LongitudinalObservationWriter}.cs`
-- `src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs` — `:366/377` OFI weights, `:378` integrator step, `:391-394` DisplayStressPercent, `:399-413` mask hysteresis, `:682-735` auto-profiling/vestibular, `:1743-1788` FOV composition, `:1790-1794` tightness, `:1811-1834` level projection, selector wiring (`:457` mask-depth override, `:935-980` ApplySetMove)
+- `src/SenseEase.Infrastructure/Storage/{DailyBehaviorAggregateWriter,UserModelIndexStore,FileHabituationProfileStore,LongitudinalObservationWriter,FileSymptomEventStore,ClinicalExportService}.cs`
+- `src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs` — `:497/508` OFI weights, `:509` integrator step, `:522-525` DisplayStressPercent, `:536-550` mask hysteresis (now `EffectiveTrigger`), `:907-932` auto-profiling, `:373-384` vestibular boot-migration, `:586-595` Adaptive-Fit FOV-floor + mask-depth override, `:718` FOV composition (effTrigger)
 
 ### 15.3 App Layer / 應用層
-- `src/SenseEase.App/Configuration/AppConfig.cs` — `:268` AdaptiveFit ON, `:294` AutoProfiling ON, `:198-214` user-model paths
+- `src/SenseEase.App/Configuration/AppConfig.cs` — `:347` AdaptiveFit ON, `:380` AutoProfiling ON, `:86-100` ModelCatalog (Qwen3-4B), data-store paths
 - `src/SenseEase.App/ViewModels/MainViewModel.cs` — `:696-708` flag mirroring + auto-profiling, `:1477-1525` behaviour collector, `:1633-1655` background analyzer
 - `src/SenseEase.App/ViewModels/ChatbotViewModel.cs` — `BuildContextualInput` (`[behavior_trend]`), lazy `EnsureModelLoadedAsync`
 - `src/SenseEase.App/ViewModels/HabituationOverrideApplicator.cs` — three-rule intercept
@@ -1254,9 +1599,11 @@ Per-severity step magnitudes are the single-source arrays `FovStepBySeverity = {
 ### 15.4 Views / UI Layer / 視圖層
 - `src/SenseEase.App/Views/OverlayWindow.xaml.cs` — `:635-669` feathering envelope, `:798-799` grid-off ceiling, `:392-403` mask-depth override
 - `src/SenseEase.App/Views/{TierColorPalette,Converters/TierComfortConverters}.cs` — 12-level → 5-band「動態感」mapping
-- `src/SenseEase.App/Views/NotificationCardWindow.xaml.cs` — proposal card + `SetMoveProposalPanel`
-- `src/SenseEase.App/Views/SettingsContent.xaml.cs` — `:442` vestibular toggle, `:468-511` clear-all-data
-- `src/SenseEase.App/MainWindow.xaml` — `:162-186` vestibular prompt bar
+- `src/SenseEase.App/Views/{EdgeSidebarWindow,PopupBarWindow,ConsentBubbleWindow,WelcomeBubbleWindow,NpsSurveyWindow}.xaml.cs` — the reshaped glass shell (§9)
+- `src/SenseEase.App/Services/{ShellController,OverlayZOrder,SurfaceExcludeCoordinator,OverlayConsentGovernor,FmsCheckInService}.cs` — shell host, z-order re-lift (§8.9), consent governor (§6b), FMS check-in (§11b.4)
+- `src/SenseEase.App/Views/NotificationCardWindow.xaml.cs` — dormant proposal card (retirement gated — §9.7)
+- `src/SenseEase.App/Views/SettingsContent.xaml.cs` — `:468-511` clear-all-data, export health report (the vestibular toggle was removed — §9a)
+- `src/SenseEase.App/MainWindow.xaml` — `:197-201` non-clinical scope disclaimer (the vestibular prompt bar was removed)
 
 ### 15.5 Documentation / 文件
 - `docs/SAFETY-PROVISIONS.md`, `docs/QA-AND-TIERING.md`, `docs/HABITUATION-PROFILE.md`, `docs/HEAD-TRACKING-PRIVACY.md`, `docs/LOG-PATHS.md`
@@ -1264,11 +1611,11 @@ Per-severity step magnitudes are the single-source arrays `FovStepBySeverity = {
 - `baseline/M1-CALIBRATION-README.md`, `baseline/wgc-mad-calibration.csv`
 
 ### 15.6 Packaging / 封裝
-- `installer/SenseEase-v0.11.iss` (committed HEAD; deleted in working tree), `tools/head-tracker/`, `face_landmarker.task`
+- Phase-3 hardware-matched installer is **spec-only** (`docs/PHASE3_NPU_INSTALLER_PLAN.md`; the runtime backend probe is shipped); `tools/head-tracker/`, `face_landmarker.task`
 
 ### 15.7 Tests / 測試
-- `src/SenseEase.Tests/` — ~1058 passing / 0 failing / 3 skipped (commit `f381a43`); one known `UserPreferences` isolation flake.
+- `src/SenseEase.Tests/` — **~1491 `[Fact]`/`[Theory]` across 172 files** (attribute count 2026-06-23; suite not run — AV build-hang constraint).
 
 ---
 
-*End of document. Version Pre-Alpha v0.11.1 — Alpha-2 engine-integrity revision. 2026-06-08.*
+*End of document. Version 1.0.0 — Beta V1.0 revision (engine-integrity branch). 2026-06-23.*

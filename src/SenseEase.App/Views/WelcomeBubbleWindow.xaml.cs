@@ -39,6 +39,7 @@ public partial class WelcomeBubbleWindow : Window, IShellSurface
         // No-activate (NOT click-through): the button stays clickable but the bubble never grabs foreground
         // from the user's app/game. Applied once the HWND exists.
         SourceInitialized += (_, _) => { try { ClickThrough.EnableNoActivate(this); } catch { } };
+        SourceInitialized += (_, _) => SenseEase.App.Services.OverlayZOrder.Keep(this); // keep above the overlay
         Loaded += OnThemeLoaded;
         Closed += OnThemeClosed;
         Loaded += (_, _) => PlayEntrance();

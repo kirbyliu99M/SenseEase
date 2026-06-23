@@ -1795,7 +1795,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // level or freeze the auto-loop — that hard manual hold belongs to the 常駐遮罩 / Persistent mask
             // switch (see SetPersistentMaskFromUser). [UVHS fix 2026-06-21: the L6-freeze was mis-wired onto
             // this toggle, contradicting the contract above; moved to its correct home.]
-            if (value) CancelPendingConsent();  // turning it on hides any bubble waiting for an answer
+            if (value)
+                CancelPendingConsent();          // turning it ON hides any bubble waiting for an answer
+            else
+            {
+                // Deadswitch fix (Kirby 2026-06-23): while Auto Protect is ON, ShouldHoldMaskForConsent sets
+                // _overlaySessionActive=true (a standing granted session). Turning it OFF must DROP that
+                // implicit session so we genuinely return to the "ask each time" contract — otherwise the
+                // granted session lingered (until 2 min of sustained calm) and the consent bubble never
+                // re-asked after an on→off flip, exactly the dead-consent the user reported.
+                _overlaySessionActive = false;
+                _calmSinceTick = 0;
+            }
             UpdateFromState(_engine.Current);    // re-apply so the consent gate renders within a frame
             OnPropertyChanged(nameof(AlwaysAllowOverlay));
             AppendLog("OverlayConsent",

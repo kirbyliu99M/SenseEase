@@ -24,10 +24,7 @@
             BorderBrush="#FFFF9B6B"
             BorderThickness="1"
             MaxWidth="460">
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="14"
-                              ShadowDepth="3" Opacity="0.55"/>
-        </Border.Effect>
+        <!-- Audit 2026-06-22: removed DropShadowEffect (AllowsTransparency software-render flash). -->
         <TextBlock x:Name="DiagnosticText"
                    FontFamily="Consolas, Courier New, monospace"
                    FontSize="12"

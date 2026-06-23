@@ -63,9 +63,14 @@ public sealed class FmsButtonVm
 {
     public int Value { get; }
     public Brush IdleTint { get; }
+    // Audit 2026-06-22 (WCAG 1.3.1): a screen reader must announce each square with context, not the bare
+    // integer "6". Resolved in the active UI language at build time; the row is rebuilt per check-in.
+    public string AccessibleName { get; }
     public FmsButtonVm(int value)
     {
         Value = value;
         IdleTint = FmsScale.IdleTint(value);
+        AccessibleName = SenseEase.App.Localization.LocalizationManager.Current.Pick(
+            $"不適程度 {value}，最高 20", $"Discomfort {value} of 20");
     }
 }

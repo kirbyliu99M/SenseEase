@@ -82,6 +82,11 @@ public partial class PopupBarWindow : Window, IShellSurface
         _autoClose = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Input)
         { Interval = TimeSpan.FromMilliseconds(50) };
         _autoClose.Tick += OnAutoCloseTick;
+
+        // Z-order (2026-06-23): register to be re-lifted above the comfort overlay in the SAME tick the
+        // overlay re-asserts itself topmost (OverlayWindow.ApplyState → OverlayZOrder.ReassertAboveOverlay).
+        // Synchronous with the overlay's re-assert ⇒ no racing timer ⇒ no flicker; tooltips re-lifted too.
+        SourceInitialized += (_, _) => OverlayZOrder.Keep(this);
     }
 
     // ── Light/Dark theming for the popup cards ──────────────────────────────────

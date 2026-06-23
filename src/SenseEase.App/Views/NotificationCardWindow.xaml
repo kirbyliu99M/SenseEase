@@ -199,10 +199,9 @@
                 <TranslateTransform x:Name="SlideTransform"/>
             </TransformGroup>
         </Border.RenderTransform>
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="18"
-                              ShadowDepth="2" Opacity="0.10"/>
-        </Border.Effect>
+        <!-- Audit 2026-06-22: removed DropShadowEffect. On this AllowsTransparency (software-render)
+             window an Effect disables ClearType + re-rasters crisp↔grey on the entrance scale/slide.
+             The 1px CardBorder hairline + opaque Surface fill carry the edge (as PopupBar/ConsentBubble). -->
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- chatbot proposal (grows the card above the bar) -->

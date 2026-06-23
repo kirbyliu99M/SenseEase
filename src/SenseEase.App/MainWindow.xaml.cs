@@ -1809,12 +1809,28 @@ public partial class MainWindow : Window
                 _overlay.Closed += OnOverlayClosed;   // B4: keep VM in sync
             }
 
-            _overlay.Show();
-            // ABCD test fix: claim the top of the topmost band the moment the overlay
-            // shows — WPF asserts Topmost only once at Show, and a foreign topmost
-            // window (game/launcher/consent prompt) can sit above it from frame one.
-            _overlay.ReassertTopmost();
-            _overlay.ApplyState(_viewModel.CurrentState);
+            try
+            {
+                _overlay.Show();
+                // ABCD test fix: claim the top of the topmost band the moment the overlay
+                // shows — WPF asserts Topmost only once at Show, and a foreign topmost
+                // window (game/launcher/consent prompt) can sit above it from frame one.
+                _overlay.ReassertTopmost();
+                _overlay.ApplyState(_viewModel.CurrentState);
+            }
+            catch (Exception ex)
+            {
+                // Intel-iGPU hardening (2026-06-23 smoke test, symptom #4): the overlay is a Maximized +
+                // AllowsTransparency window, i.e. a full-screen SOFTWARE-composited layered surface. On some
+                // integrated-GPU / driver combos that surface fails to allocate/present and throws from Show()
+                // or the first render. This is the CORE-PROTECTION engage path, so an unguarded throw would
+                // reach App.DispatcherUnhandledException and can take the whole app down. Log it loudly so a
+                // smoke test surfaces the real cause, retract cleanly, and reflect that protection did NOT
+                // actually engage (rather than leaving the toggle "on" over a blank screen).
+                SafeLog($"[Overlay] engage FAILED — Show/render threw: {ex.GetType().Name}: {ex.Message}");
+                try { _overlay?.Hide(); } catch { /* best-effort */ }
+                _viewModel.OverlayVisible = false;
+            }
         }
         else
         {

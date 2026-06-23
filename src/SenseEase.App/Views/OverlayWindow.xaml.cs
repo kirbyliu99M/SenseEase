@@ -356,7 +356,16 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // (the 1-of-4-machines "overlay only shows over SenseEase" report) — the same
         // self-healing the persistent bar has had since Path Z iter 4.
         if (IsVisible && _topmostTick++ % TopmostReassertTicks == 0)
+        {
             ReassertTopmost();
+            // The overlay just re-topped — which lands it ABOVE SenseEase's own UI windows (the
+            // "owned-above-owner" rule only fires on the make-topmost transition, NOT on an already-topmost
+            // re-assert; verified empirically via owner_diag). Re-lift our windows + any open tooltip in this
+            // SAME synchronous tick so no frame ever paints with the overlay over our UI. No separate clock ⇒
+            // no race ⇒ no flicker (the one thing the old ~60 Hz keeper could not do). Touches only our own
+            // windows, never the overlay's Z — so the overlay can't be pushed to the back.
+            SenseEase.App.Services.OverlayZOrder.ReassertAboveOverlay();
+        }
 
         bool maskChanged = state.MaskActive != _lastMaskActive;
         _lastMaskActive  = state.MaskActive;

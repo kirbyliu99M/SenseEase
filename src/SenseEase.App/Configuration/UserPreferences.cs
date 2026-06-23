@@ -128,9 +128,11 @@ public sealed class UserPreferences
 
     /// <summary>Pop-up sprint Task 6 feature-flag dispatcher (spec §6).
     /// Default <c>true</c> = new bar/tray/card path. Setting to
-    /// <c>false</c> routes spike events back through the legacy
-    /// <see cref="Views.SpikePopupWindow"/> path (tab-switch + chat bubble
-    /// + floating popup) and suppresses the bar/tray spawn entirely.
+    /// <c>false</c> suppresses the new bar/tray spawn entirely (emergency
+    /// rollback). The legacy floating spike-popup it once fell back to was
+    /// retired in the 2026-06-21 dashboard dismantle (the SpikePopupWindow
+    /// view was deleted in the 2026-06-22 audit), so this flag now only gates
+    /// the bar/tray — see PopupSurfaceGate.ShouldSpawnProductionBarAndTray.
     /// <para>INTENTIONALLY not exposed in the settings UI — emergency
     /// rollback only. Edit the JSON directly if you need to fall back.
     /// Will be retired in a future sprint once the new mode has been

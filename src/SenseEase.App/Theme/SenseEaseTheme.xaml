@@ -82,11 +82,11 @@
     <CornerRadius x:Key="Radius.pill">999</CornerRadius>
 
     <!-- ═══ Elevation ════════════════════════════════════════════════════════ -->
-    <!-- Soft black shadow (NOT an indigo glow), softened for the airy look. -->
-    <DropShadowEffect x:Key="Elev.2" Color="#000000" Direction="270"
-                      ShadowDepth="2" BlurRadius="10" Opacity="0.06"/>
-    <DropShadowEffect x:Key="Elev.3" Color="#000000" Direction="270"
-                      ShadowDepth="4" BlurRadius="18" Opacity="0.09"/>
+    <!-- Elev.2 / Elev.3 DropShadowEffects REMOVED (audit 2026-06-22): every consumer was an
+         AllowsTransparency software-render window, where an Effect disables ClearType and re-rasters
+         crisp↔grey on the entrance animation. Depth now comes from the 1px CardBorder hairline and,
+         for Settings/EventLog, the Win11 acrylic blur-behind. Do NOT reintroduce a shared shadow
+         resource under software render — it cannot be used without the flash. -->
 
     <!-- ═══ Typography ═══════════════════════════════════════════════════════
          Font props only here; Foreground via DynamicResource so it resolves
