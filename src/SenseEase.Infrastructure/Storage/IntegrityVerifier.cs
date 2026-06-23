@@ -128,10 +128,17 @@ public static class IntegrityVerifier
     }
 
     /// <summary>Reads the manifest JSON and returns the hex hash string mapped to
-    /// <paramref name="fileName"/> (matched by the bare file name, case-insensitive),
-    /// or null when there is no such entry. Tolerates either a flat
-    /// <c>{ "name": "hash" }</c> object or a <c>{ "files": { ... } }</c> wrapper.</summary>
-    private static string? LookupExpectedHash(string manifestPath, string fileName)
+    /// <paramref name="fileName"/>, or null when there is no such entry. Tolerates either a flat
+    /// <c>{ "name": "hash" }</c> object or a <c>{ "files": { ... } }</c> wrapper.
+    ///
+    /// <para>The bundle ships SAME-NAMED files in different packs (the vulkan vs openvino
+    /// <c>llama-server.exe</c> / <c>llama.dll</c> / <c>ggml*.dll</c> — identical leaf names, DIFFERENT
+    /// bytes). So we match the entry whose dist-relative KEY is the most-specific PATH SUFFIX of
+    /// <paramref name="fileName"/>, and fall back to a bare-name match only when no path-suffix entry
+    /// exists. (A pure <c>Path.GetFileName</c> match returned whichever same-named entry sorted first and
+    /// handed back the WRONG hash — that failed the Vulkan startup gate closed when the openvino entry led
+    /// the manifest, suppressing the LLM + head-tracking on every packaged install.)</para></summary>
+    internal static string? LookupExpectedHash(string manifestPath, string fileName)
     {
         string json = File.ReadAllText(manifestPath);
         using var doc = JsonDocument.Parse(json);
@@ -148,19 +155,39 @@ public static class IntegrityVerifier
         if (root.ValueKind != JsonValueKind.Object)
             return null;
 
-        string key = Path.GetFileName(fileName);
+        string query = fileName.Replace('\\', '/');
+        string bare  = Path.GetFileName(fileName);
+
+        string? suffixHash = null;
+        int     bestKeyLen = -1;
+        string? bareHash   = null;
+
         foreach (JsonProperty prop in root.EnumerateObject())
         {
-            string propKey = Path.GetFileName(prop.Name);
-            if (string.Equals(propKey, key, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(prop.Name, fileName, StringComparison.OrdinalIgnoreCase))
+            if (prop.Value.ValueKind != JsonValueKind.String)
+                continue;
+
+            string key = prop.Name.Replace('\\', '/');
+
+            // Path-suffix match: the query equals the key, or ends with "/<key>" on a real path
+            // boundary (so "…/vulkan/llama-server.exe" can't match an unrelated "…server.exe").
+            bool isSuffix = string.Equals(query, key, StringComparison.OrdinalIgnoreCase)
+                            || query.EndsWith("/" + key, StringComparison.OrdinalIgnoreCase);
+            if (isSuffix && key.Length > bestKeyLen)
             {
-                return prop.Value.ValueKind == JsonValueKind.String
-                    ? prop.Value.GetString()
-                    : null;
+                suffixHash = prop.Value.GetString();
+                bestKeyLen = key.Length;
+            }
+
+            // First bare-name match wins — used only as a fallback when no path-suffix entry matched.
+            if (bareHash is null &&
+                string.Equals(Path.GetFileName(prop.Name), bare, StringComparison.OrdinalIgnoreCase))
+            {
+                bareHash = prop.Value.GetString();
             }
         }
-        return null;
+
+        return suffixHash ?? bareHash;
     }
 
     /// <summary>

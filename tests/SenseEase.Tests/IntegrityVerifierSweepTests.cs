@@ -99,6 +99,50 @@ public class IntegrityVerifierSweepTests : IDisposable
         Assert.Equal("llama-server.exe", results[0].Key);
     }
 
+    // ------------------------------------------------------------------
+    // LookupExpectedHash: same-leaf-name files in different packs must
+    // disambiguate by PATH SUFFIX, not bare name. This is the vulkan-vs-
+    // openvino llama-server.exe collision that bricked the packaged startup
+    // gate (the openvino entry led the manifest, so a bare-name lookup of the
+    // Vulkan exe returned the openvino hash → mismatch → IntegrityFailed →
+    // LLM + head-tracking suppressed on every install).
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void LookupExpectedHash_SameLeafNameDifferentPacks_MatchesByPathSuffix()
+    {
+        // Two llama-server.exe with DIFFERENT hashes, openvino listed FIRST (the exact shape the stage
+        // script emits + what shipped in SenseEase-Setup-1.0.0).
+        const string openvinoHash = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const string vulkanHash   = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        string manifest = Path.Combine(_root, "lookup.manifest.json");
+        File.WriteAllText(manifest,
+            "{\n" +
+            $"  \"runtimes/win-x64/native/openvino/llama-server.exe\": \"{openvinoHash}\",\n" +
+            $"  \"runtimes/win-x64/native/vulkan/llama-server.exe\": \"{vulkanHash}\"\n" +
+            "}");
+
+        // Each rooted install path (backslashes) must map to its OWN pack's hash, regardless of
+        // manifest order — this is what the startup gate passes via ResolveServerExePath().
+        string vulkanQuery   = @"C:\app\runtimes\win-x64\native\vulkan\llama-server.exe";
+        string openvinoQuery = @"C:\app\runtimes\win-x64\native\openvino\llama-server.exe";
+
+        Assert.Equal(vulkanHash,   IntegrityVerifier.LookupExpectedHash(manifest, vulkanQuery));
+        Assert.Equal(openvinoHash, IntegrityVerifier.LookupExpectedHash(manifest, openvinoQuery));
+    }
+
+    [Fact]
+    public void LookupExpectedHash_BareNameCaller_StillResolvesViaFallback()
+    {
+        // A bare-name query (no path) still resolves via the bare-name fallback when there is no
+        // path-suffix entry to disambiguate (back-compat).
+        const string hash = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        string manifest = Path.Combine(_root, "bare.manifest.json");
+        File.WriteAllText(manifest, $"{{ \"models/Qwen3-4B-Instruct-2507-GGUF/foo.gguf\": \"{hash}\" }}");
+
+        Assert.Equal(hash, IntegrityVerifier.LookupExpectedHash(manifest, "foo.gguf"));
+    }
+
     [Fact]
     public void Sweep_TamperedFile_ReturnsTampered()
     {
