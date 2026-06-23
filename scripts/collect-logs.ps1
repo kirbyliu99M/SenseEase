@@ -46,7 +46,7 @@ $senseEaseRoot = Join-Path $env:LOCALAPPDATA 'SenseEase'
 $diagDir       = Join-Path $senseEaseRoot   'diag'
 $logsDir       = Join-Path $senseEaseRoot   'logs'
 $crashLog      = Join-Path $senseEaseRoot   'crash.log'
-$llamaLog      = Join-Path $senseEaseRoot   'llama-server.log'
+$llamaLogs     = @(Get-ChildItem -Path $senseEaseRoot -Filter 'llama-server*.log' -File -ErrorAction SilentlyContinue)
 
 $dateStamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $outZip    = Join-Path ([Environment]::GetFolderPath('Desktop')) "SenseEase-diag-$dateStamp.zip"
@@ -63,7 +63,7 @@ if (Test-Path $logsDir) {
 }
 
 if (Test-Path $crashLog)  { $toZip.Add($crashLog) }
-if (Test-Path $llamaLog)  { $toZip.Add($llamaLog) }
+foreach ($l in $llamaLogs) { $toZip.Add($l.FullName) }
 
 if ($toZip.Count -eq 0) {
     Write-Host "No diagnostic files found under $senseEaseRoot — nothing to zip."

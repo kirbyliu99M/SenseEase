@@ -642,9 +642,12 @@ public sealed class LocalLlmChatbotService : IChatbotService
             // child has exactly the argument vector we pass. stdout is left attached
             // (not redirected) to avoid the WPF-no-console fast-exit we hit when
             // redirecting stdout from a windowed parent; only stderr is piped.
+            // Per-backend log file so an OpenVINO start failure is NOT overwritten by the Vulkan fallback's
+            // log — both are captured for diagnosis (llama-server-openvino.log / llama-server-vulkan.log).
+            string serverTag = _localServerKind == LocalServerKind.OpenVino ? "openvino" : "vulkan";
             string logPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SenseEase", "llama-server.log");
+                "SenseEase", $"llama-server-{serverTag}.log");
             Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
             try { File.Delete(logPath); } catch { }
 
