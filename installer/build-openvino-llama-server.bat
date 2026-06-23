@@ -34,15 +34,17 @@ REM GGML_NATIVE=ON bakes /arch:AVX-512 (VMOVUPS zmm) into a SINGLE monolithic
 REM ggml-cpu.dll with no runtime dispatch. On an Intel Arrow Lake CPU (NO AVX-512)
 REM that DLL hits STATUS_ILLEGAL_INSTRUCTION (0xC000001D) during llama_context
 REM build and the OV server crashes before returning a token -- on NPU/GPU/CPU
-REM alike (the host CPU backend runs for every OV device). GGML_NATIVE=OFF +
-REM GGML_BACKEND_DL=ON + GGML_CPU_ALL_VARIANTS=ON ships the dispatched ggml-cpu-*.dll
-REM set (like the Vulkan pack already does) so each CPU cpuid-selects a safe path.
+REM alike (the host CPU backend runs for every OV device). GGML_NATIVE=OFF (+ AVX2
+REM cap, AVX-512 OFF) builds a SINGLE non-AVX-512 ggml-cpu.dll -- the PROVEN fix
+REM (rebuilt + disasm-verified 2026-06-23: the VMOVUPS-zmm signature 62 F1 7C 48 went
+REM 916 -> 0). Sufficient for the all-AVX2 AI-PC fleet. For full portability instead,
+REM use -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON (dispatched set; untested w/ OV).
 REM You CANNOT DLL-swap a fix in -- the OV/Vulkan ggml ABIs differ; rebuild is the only path.
 REM ----------------------------------------------------------------------------
 cmake -B build\ReleaseOV -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_OPENVINO=ON ^
       -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake ^
       -DLLAMA_CURL=OFF -DGGML_VULKAN=OFF ^
-      -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON || (echo cmake configure failed & exit /b 1)
+      -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF || (echo cmake configure failed & exit /b 1)
 
 cmake --build build\ReleaseOV --target llama-server --parallel || (echo build failed & exit /b 1)
 
