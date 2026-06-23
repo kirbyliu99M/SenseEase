@@ -79,9 +79,16 @@ UninstallDisplayName={#MyAppVerName}
 ; ----- Compression (LZMA2 ultra64 for the ~6.8 GB Phase-3 payload) -----
 ; Note: the GGUF (~2.5 GB) + Q4NX (~3.1 GB) are already quantized so compress poorly (~10-15%).
 ; Solid compression boosts ratio for the many small framework DLLs at the cost of slower install.
+; Pass ISCC /DFastBuild for a re-test iteration: skips LZMA entirely (~5 min vs ~50 min) at the cost of a
+; bigger (uncompressed) output. Distribution builds (no /DFastBuild) keep ultra64 for the smallest set.
+#ifdef FastBuild
+Compression=none
+SolidCompression=no
+#else
 Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
+#endif
 
 ; ----- Disk spanning (REQUIRED for the all-in-one offline bundle) -----
 ; The 3-backend payload (GGUF + Q4NX + OpenVINO + FLM + head-tracker sidecar) compresses to > 4.2 GB,
