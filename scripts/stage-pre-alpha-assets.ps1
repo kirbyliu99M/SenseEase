@@ -342,6 +342,41 @@ if (-not (Test-Path $flmRuntimeSrc)) {
 }
 
 # -----------------------------------------------------------------------------
+# 4c. Bundle the Intel OpenVINO GenAI pack (host + INT4 IR) -- Phase-2 pivot
+# -----------------------------------------------------------------------------
+# Intel Core Ultra boxes run the OpenVINO GenAI host (ov::genai::LLMPipeline) on the NPU/iGPU -- the 2026-06-24
+# pivot that retires the ggml-openvino llama-server. Bundle the host exe tree + the INT4 IR so the install is
+# offline-capable. The .iss lays both under {app}\packs\intel-ov, where OvGenAiHostLauncher.FindExe /
+# FindModelDir probe:
+#   host -> {app}\packs\intel-ov\host\genai_host.exe (+ its PyInstaller _internal/ tree)
+#   IR   -> {app}\packs\intel-ov\model               (openvino_model.xml/.bin + the tokenizer IR)
+# Sources come from the build env (SENSEEASE_OVHOST_SRC = the host PyInstaller dist tree; SENSEEASE_OVIR_SRC =
+# the INT4 OpenVINO IR dir). A missing source => the Intel pack is ABSENT (Intel boxes then use Vulkan, exactly
+# like the launcher's graceful null). Non-fatal, mirrors the AMD pack. See docs/OV_GENAI_HOST.md.
+Write-Section "Bundle Intel OpenVINO GenAI pack (host + IR) -- Phase-2 pivot"
+$ovHostSrc = $env:SENSEEASE_OVHOST_SRC
+$ovIrSrc   = $env:SENSEEASE_OVIR_SRC
+$intelPackDest = Join-Path $Dist "packs/intel-ov"
+if ([string]::IsNullOrWhiteSpace($ovHostSrc) -or -not (Test-Path $ovHostSrc)) {
+    Write-Warning "OV GenAI host source not set/found (SENSEEASE_OVHOST_SRC) -- the Intel OV pack will be ABSENT (Intel boxes use Vulkan)."
+} elseif ([string]::IsNullOrWhiteSpace($ovIrSrc) -or -not (Test-Path $ovIrSrc)) {
+    Write-Warning "OV IR model source not set/found (SENSEEASE_OVIR_SRC) -- skipping the Intel OV pack."
+} else {
+    $ovHostDest = Join-Path $intelPackDest "host"
+    New-Item -ItemType Directory -Path $ovHostDest -Force | Out-Null
+    robocopy $ovHostSrc $ovHostDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    Assert-Robocopy "OV GenAI host"
+    $ovHostMB = [math]::Round((Get-ChildItem $ovHostDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+    Write-Host "  staged: OV GenAI host -> packs/intel-ov/host ($ovHostMB MB)"
+    $ovModelDest = Join-Path $intelPackDest "model"
+    New-Item -ItemType Directory -Path $ovModelDest -Force | Out-Null
+    robocopy $ovIrSrc $ovModelDest /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    Assert-Robocopy "OV IR model"
+    $ovIrMB = [math]::Round((Get-ChildItem $ovModelDest -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+    Write-Host "  staged: OV IR model -> packs/intel-ov/model ($ovIrMB MB)"
+}
+
+# -----------------------------------------------------------------------------
 # 5. Drop canonical README into dist
 # -----------------------------------------------------------------------------
 Write-Section "Drop canonical README"
@@ -504,6 +539,26 @@ if (Test-Path $ovManifestRoot) {
 $amdManifestRoot = Join-Path $Dist "packs/amd-flm"
 if (Test-Path $amdManifestRoot) {
     Get-ChildItem -Path $amdManifestRoot -Recurse -File -Include *.exe, *.dll, *.q4nx -ErrorAction SilentlyContinue |
+        Sort-Object FullName |
+        ForEach-Object {
+            $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')
+            if (-not $manifest.Contains($rel)) {
+                $manifest[$rel] = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                $hashedCount++
+                Write-Host "  hashed: $rel"
+            }
+        }
+}
+
+# Phase-2 pivot: hash the Intel OpenVINO GenAI pack (the host exe + its native DLLs/_internal + the INT4 IR
+# model). Decision #8 (2026-06-25): hash EVERYTHING incl. the ~2.2 GB IR weights -- the host runs over loopback
+# with no bearer, so the install-time manifest is the primary tamper check. The runtime sweep
+# (VerifyManifestSweep) streams each file + runs on a background Task.Run, so the large IR hash adds no felt
+# startup latency (it overlaps the host's cold-compile). The IR = *.xml (graph) + *.bin (weights, incl. the
+# tokenizer/detokenizer IR); the host = *.exe + *.dll + *.pyd (_internal/). De-dup via Contains().
+$intelOvManifestRoot = Join-Path $Dist "packs/intel-ov"
+if (Test-Path $intelOvManifestRoot) {
+    Get-ChildItem -Path $intelOvManifestRoot -Recurse -File -Include *.exe, *.dll, *.pyd, *.xml, *.bin -ErrorAction SilentlyContinue |
         Sort-Object FullName |
         ForEach-Object {
             $rel = $_.FullName.Substring($distFull.Length).TrimStart('\', '/').Replace('\', '/')

@@ -215,9 +215,26 @@ int main() {
         try {
             load_pipeline();
         } catch (const std::exception& e) {
-            g_error = std::string(typeid(e).name()) + ": " + e.what();
-            g_compiling = false;
-            log_line(std::string("LOAD FAILED: ") + e.what());
+            // Decision #1 (auto-probe NPU -> iGPU): a NPU compile/load failure is not necessarily fatal — the
+            // iGPU runs the SAME IR at equivalent quality. Retry the load ONCE on the iGPU before reporting
+            // error, mirroring the generate-path device-loss fallback. Only NPU falls back; a GPU/CPU load
+            // failure is terminal (the app's selector then drops to the Vulkan/CPU server). g_compiling stays
+            // true across the retry, so /health reports "compiling" (still working), not "error".
+            log_line(std::string("LOAD FAILED on ") + DEVICE + ": " + e.what());
+            if (DEVICE == "NPU") {
+                log_line("auto-probe: NPU load failed; retrying on iGPU...");
+                DEVICE = "GPU";
+                try {
+                    load_pipeline();
+                } catch (const std::exception& e2) {
+                    g_error = std::string(typeid(e2).name()) + ": " + e2.what();
+                    g_compiling = false;
+                    log_line(std::string("LOAD FAILED on iGPU too: ") + e2.what());
+                }
+            } else {
+                g_error = std::string(typeid(e).name()) + ": " + e.what();
+                g_compiling = false;
+            }
         }
     }).detach();
 

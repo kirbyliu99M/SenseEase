@@ -1034,6 +1034,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // is cheap + synchronous (env var + a file check); the real launch happens later, async, in LoadAsync.
         Func<CancellationToken, Task<ManagedBackend?>>? npuStarter = null;
         LocalServerKind localServerKind = LocalServerKind.Vulkan;
+        bool ovManagedPath = false;
         bool llmExternalOverride = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SENSEEASE_LLM_BASEURL"));
         string llmCpuVendor = HardwareProbe.DetectCpuVendor();
         if (LlmBackendSelector.ShouldTryFlmNpu(chatModel.NpuModelTag, llmCpuVendor,
@@ -1046,19 +1047,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
             npuStarter = ct => FlmServerLauncher.TryAcquireAsync(npuTag, FlmServerLauncher.DefaultPort, npuTrace, ct);
         }
         else if (LlmBackendSelector.ShouldUseOpenVino(llmCpuVendor,
-                     openVinoServerPresent: File.Exists(LocalLlmChatbotService.ResolveServerExePath(LocalServerKind.OpenVino)),
+                     openVinoServerPresent: OvGenAiHostLauncher.FindExe() is not null,
                      externalOverrideSet: llmExternalOverride))
         {
-            localServerKind = LocalServerKind.OpenVino;   // Intel NPU/iGPU via the OpenVINO local server (same GGUF, grammar + bearer kept)
+            // OV GenAI host (2026-06-24 pivot): spawn+own the OpenVINO GenAI host on the Intel NPU/iGPU and drive
+            // it over the managed-backend seam (same as FLM). The host self-falls-back NPU→iGPU at load+generate
+            // (decision #1); ANY failure to come up falls through to the bundled Vulkan server inside LoadAsync,
+            // so chat works on every machine. The retired ggml-openvino local-llama-server path
+            // (LocalServerKind.OpenVino) is no longer routed to.
+            Action<string> ovTrace = m => { try { _log?.Append(new EventLogEntry { Timestamp = DateTime.UtcNow, Category = "Llm.Backend", Message = m }); } catch { } };
+            npuStarter = ct => OvGenAiHostLauncher.TryAcquireAsync(OvGenAiHostLauncher.DefaultModelId, device: "NPU", OvGenAiHostLauncher.DefaultPort, ovTrace, ct);
+            ovManagedPath = true;
         }
+        // OV managed path (#38b/#38a): the host cold-compiles the NPU blob (≈237 s on a cache miss) — give the
+        // external connect a long readiness budget (gated on /health=ready, NOT /v1/models) and DISABLE
+        // idle-unload (decision #6) so an idle window can't kill the host and force a re-compile. FLM keeps the
+        // default 12 s budget + 5 min idle-unload (its launcher already confirms readiness on /v1/models).
+        TimeSpan? llmIdleTimeout = ovManagedPath ? TimeSpan.Zero : (TimeSpan?)null;
+        TimeSpan? llmReadyBudget = ovManagedPath ? TimeSpan.FromSeconds(300) : (TimeSpan?)null;
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
-            nGpuLayers: chatModel.NGpuLayers, managedBackendStarter: npuStarter, localServerKind: localServerKind,
+            nGpuLayers: chatModel.NGpuLayers, idleTimeout: llmIdleTimeout,
+            managedBackendStarter: npuStarter, localServerKind: localServerKind,
             // Warm-on-load skip (Option C, 2026-06-22): on a battery-bound ultrabook that is ALSO in power-save,
             // decline the one-time ~4,500-token warmup prefill. Queried live at each (re)load; plugged-in or
             // non-power-save machines always warm. _powerSaveActiveLookup may be null until MainWindow wires it
             // → treated as "not power-save" (warm), the safe default.
-            suppressWarmup: () => SenseEase.App.Services.SystemPowerStatus.OnBattery() && (_powerSaveActiveLookup?.Invoke() ?? false));
+            suppressWarmup: () => SenseEase.App.Services.SystemPowerStatus.OnBattery() && (_powerSaveActiveLookup?.Invoke() ?? false),
+            externalReadyBudget: llmReadyBudget);
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete

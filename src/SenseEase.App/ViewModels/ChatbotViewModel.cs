@@ -409,11 +409,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     // LogModelDiagnostic). The transient "loading" line and both unavailable lines
     // are the only chat statuses the user ever sees.
 
-    /// <summary>First-chat "getting ready" status (~30 s on a cold model load).</summary>
+    /// <summary>First-chat "getting ready" status. Most backends warm in a few seconds; the OV NPU host can
+    /// cold-compile on a first run (#38d — the pre-built blob makes the common case fast, but a driver-mismatch
+    /// recompile takes longer), so the copy sets a calm "can take a little longer" expectation instead of a hard
+    /// number it could overrun. Clears the instant the model is ready, so fast backends barely show it.</summary>
     private static string AssistantLoadingText() =>
         LocalizationManager.Current.Pick(
-            "助理正在準備，第一次約需 30 秒",
-            "The assistant is getting ready — first time takes ~30s");
+            "助理正在準備中，第一次啟動可能需要稍候片刻",
+            "The assistant is getting ready — the first run can take a little longer");
 
     /// <summary>Single calm line for every "assistant can't run right now" state —
     /// model missing, lexicon fallback, load failure, or a failed chat turn. Points

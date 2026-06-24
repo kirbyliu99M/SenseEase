@@ -80,9 +80,12 @@ public class NluComplianceGateTests
     [Fact]
     public void BareUncertainty_GivesGuidingClarification_NotColdDeflection()
     {
-        // "I don't know" — bare uncertainty, NO symptom named: the bot should GUIDE with an open clarifying
-        // question (pointing at discomfort vs adjust) instead of the cold no-action deflection.
-        var r = NluComplianceGate.Check(Raw("Unknown", reply: "ok"), "I don't know");
+        // "I don't know" — bare uncertainty, NO symptom named: when the model returns NO substantive reply,
+        // the gate GUIDES with an open clarifying question (discomfort vs adjust) instead of the cold no-action
+        // deflection. Companion reframe (88f966c) made the canned guide the FALLBACK for an empty model reply
+        // (a real reply is preserved), so pass an empty reply; pin English so the assertion is
+        // language-deterministic regardless of the ambient ChatbotUiLanguage.
+        var r = NluComplianceGate.Check(Raw("Unknown", reply: null), "I don't know", uiEnglishPin: true);
 
         Assert.Equal(0, r.FovDelta);
         Assert.Contains("tell me a bit more", r.Response, System.StringComparison.OrdinalIgnoreCase); // guiding

@@ -164,6 +164,14 @@ public sealed class LocalLlmChatbotService : IChatbotService
     // this to bring up a FastFlowLM server on the AMD NPU. Success switches the service to external mode pointed
     // at it; failure (null) falls through to the bundled Vulkan launch. Null on machines/builds without an NPU.
     private readonly Func<CancellationToken, Task<ManagedBackend?>>? _managedBackendStarter;
+    // External readiness budget (#38a, 2026-06-25): how long ConnectExternalAsync polls the host's /health
+    // for status=ready before giving up. The OV GenAI host answers /v1/models 200 the instant its socket is
+    // up — long BEFORE the NPU blob is compiled — so gating on /v1/models marked the model ready while it was
+    // still cold-compiling, routing the first turns to the lexicon. We gate on /health (ready|compiling|error)
+    // instead, polling within this budget. The field-test env-override host is pre-warmed (ready on the first
+    // probe), so a short default suffices; the spawn+own cold-compile path (≈237 s) passes a longer budget.
+    private readonly TimeSpan _externalReadyBudget;
+    private static readonly TimeSpan _externalReadyPoll = TimeSpan.FromSeconds(1);
     // Local server build (ultrabook #5): Vulkan (universal default) or the Intel OpenVINO build. Affects only
     // the LOCAL launch path — the FLM managed-NPU path is separate. Both are llama.cpp servers (grammar+bearer).
     private LocalServerKind _localServerKind;   // mutable: an OpenVINO start failure falls back to Vulkan (LoadAsync)
@@ -443,7 +451,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         string? externalBaseUrl = null, string? externalModelName = null,
         Func<CancellationToken, Task<ManagedBackend?>>? managedBackendStarter = null,
         LocalServerKind localServerKind = LocalServerKind.Vulkan,
-        Func<bool>? suppressWarmup = null)
+        Func<bool>? suppressWarmup = null,
+        TimeSpan? externalReadyBudget = null)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -462,6 +471,9 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _managedBackendStarter = managedBackendStarter;
         _localServerKind = localServerKind;
         _suppressWarmup = suppressWarmup;
+        // #38a: default budget rides out the bind/connect race + a brief warm (the pre-warmed field-test host
+        // is ready on the first probe). The spawn+own cold-compile path passes a longer one. ≤ 0 = single probe.
+        _externalReadyBudget = externalReadyBudget ?? TimeSpan.FromSeconds(12);
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -593,35 +605,129 @@ public sealed class LocalLlmChatbotService : IChatbotService
         catch { /* diagnostics are best-effort */ }
     }
 
-    /// <summary>External-backend connect (ultrabook #5): confirm the already-running OpenAI server answers
-    /// (<c>GET /v1/models</c>), then mark loaded. We do NOT launch or supervise it — no bearer, no
-    /// idle-unload, no child process. Never throws; a failure leaves <see cref="IsModelLoaded"/> false so the
+    /// <summary>Health of an external OpenAI host as reported by its <c>/health</c> endpoint.</summary>
+    public enum ExternalHealth { Ready, Compiling, Error }
+
+    /// <summary>External-backend connect (ultrabook #5 + #38a): confirm the already-running OpenAI server is
+    /// actually READY before marking loaded. We gate on <c>GET /health</c> — the OV GenAI host reports
+    /// <c>status=ready|compiling|error</c> there — polling within <see cref="_externalReadyBudget"/> while it
+    /// compiles, because <c>/v1/models</c> answers 200 the instant the socket binds, long before the NPU blob
+    /// is built (gating on it marked the model ready mid-compile → first turns silently hit the lexicon). A
+    /// host WITHOUT <c>/health</c> (a plain llama.cpp / FastFlowLM server → 404) falls back to the legacy
+    /// <c>/v1/models</c> probe, so existing backends are unaffected. We do NOT launch or supervise the server —
+    /// no bearer, no child process. Never throws; a failure leaves <see cref="IsModelLoaded"/> false so the
     /// caller drops to the deterministic lexicon, exactly as a local launch failure would.</summary>
     private async Task ConnectExternalAsync()
     {
-        try
+        DateTime deadline = _utcNow() + _externalReadyBudget;
+        bool healthSupported = true;
+        bool announcedCompiling = false;
+        Exception? lastError = null;
+
+        while (true)
         {
-            using var resp = await _http.GetAsync($"{ServerUrl}/v1/models").ConfigureAwait(false);
-            if (resp.IsSuccessStatusCode)
+            try
             {
-                IsModelLoaded = true;
-                LoadError = null;
-                ActiveBackend = _externalBackendLabel ?? "external server";
-                Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
-                LogDiag($"LLM backend ready: {ActiveBackend} @ {ServerUrl}");
+                using var resp = await _http.GetAsync($"{ServerUrl}/health").ConfigureAwait(false);
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    healthSupported = false;     // host has no /health → use the legacy /v1/models probe
+                    break;
+                }
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                switch (ParseExternalHealth(body, resp.IsSuccessStatusCode))
+                {
+                    case ExternalHealth.Ready:
+                        MarkExternalLoaded();
+                        return;
+                    case ExternalHealth.Error:
+                        IsModelLoaded = false;
+                        LoadError = $"External LLM at {ServerUrl} reported an error during model load.";
+                        return;
+                    default:                     // Compiling — keep polling until ready or the budget elapses.
+                        if (!announcedCompiling)
+                        {
+                            announcedCompiling = true;
+                            // #38d consumes this trace to surface a first-run "preparing AI (~1 min, once)" notice.
+                            LogDiag($"LLM backend preparing @ {ServerUrl} — first run can compile for ~1 min on the NPU.");
+                        }
+                        break;
+                }
             }
-            else
+            catch (Exception ex) { lastError = ex; /* socket not up yet — keep trying within the budget */ }
+
+            if (_utcNow() >= deadline) break;
+            try { await Task.Delay(_externalReadyPoll).ConfigureAwait(false); } catch { break; }
+        }
+
+        if (!healthSupported)
+        {
+            // Legacy path: a host without /health. A 200 on /v1/models is the best readiness signal we have.
+            try
             {
+                using var resp = await _http.GetAsync($"{ServerUrl}/v1/models").ConfigureAwait(false);
+                if (resp.IsSuccessStatusCode) { MarkExternalLoaded(); return; }
                 IsModelLoaded = false;
                 LoadError = $"External LLM at {ServerUrl} returned HTTP {(int)resp.StatusCode}.";
             }
+            catch (Exception ex)
+            {
+                IsModelLoaded = false;
+                LoadError = $"External LLM unreachable at {ServerUrl}: {ex.Message}";
+            }
+            return;
         }
-        catch (Exception ex)
-        {
-            IsModelLoaded = false;
-            LoadError = $"External LLM unreachable at {ServerUrl}: {ex.Message}";
-        }
+
+        // /health existed but never reached ready within the budget (still compiling, or unreachable throughout).
+        IsModelLoaded = false;
+        LoadError = lastError is null
+            ? $"External LLM at {ServerUrl} did not become ready within {_externalReadyBudget.TotalSeconds:0}s."
+            : $"External LLM unreachable at {ServerUrl}: {lastError.Message}";
     }
+
+    /// <summary>Mark the connected external backend loaded + ready (shared by the /health and /v1/models paths).</summary>
+    private void MarkExternalLoaded()
+    {
+        IsModelLoaded = true;
+        LoadError = null;
+        ActiveBackend = _externalBackendLabel ?? "external server";
+        Volatile.Write(ref _lastActivityTicks, _utcNow().Ticks);
+        LogDiag($"LLM backend ready: {ActiveBackend} @ {ServerUrl}");
+    }
+
+    /// <summary>Interpret an external host's <c>/health</c> response. The OV GenAI host returns
+    /// <c>{"status":"ready|compiling|error"}</c>; llama.cpp returns <c>{"status":"ok"}</c> (200) or a 503 while
+    /// loading. We read the JSON <c>status</c> when present (ready/ok ⇒ Ready; loading/compiling ⇒ Compiling;
+    /// error ⇒ Error) and otherwise fall back to the HTTP code (200 ⇒ Ready, non-200 ⇒ Compiling). Internal for
+    /// unit coverage; never throws.</summary>
+    internal static ExternalHealth ParseExternalHealth(string? body, bool httpOk)
+    {
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body!, _jsonDocOpts);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("status", out var s)
+                    && s.ValueKind == JsonValueKind.String)
+                {
+                    string status = (s.GetString() ?? string.Empty).Trim().ToLowerInvariant();
+                    if (status.Contains("error")) return ExternalHealth.Error;
+                    if (status.Contains("compil") || status.Contains("loading")) return ExternalHealth.Compiling;
+                    if (status == "ready" || status == "ok") return ExternalHealth.Ready;
+                }
+            }
+            catch { /* non-JSON /health body — fall through to the HTTP code */ }
+        }
+        return httpOk ? ExternalHealth.Ready : ExternalHealth.Compiling;
+    }
+
+    /// <summary>#38f resilience: re-acquire a backend WE launched only when our own server process has exited
+    /// (a crash). A healthy server (<paramref name="ownedProcessExited"/> false) or a reused/env-override
+    /// server (no owned process → <paramref name="haveOwnedProcess"/> false) is never re-acquired — so the
+    /// working FLM/OV/Vulkan happy path is untouched. Pure; internal for unit coverage.</summary>
+    internal static bool ShouldReacquireOwnedProcess(bool isLoaded, bool haveOwnedProcess, bool ownedProcessExited)
+        => isLoaded && haveOwnedProcess && ownedProcessExited;
 
     private async Task LaunchAsync()
     {
@@ -1024,6 +1130,27 @@ public sealed class LocalLlmChatbotService : IChatbotService
         // EM5-10: floor passed — now it is safe to add the user turn to history
         // ahead of the model/lexicon path below.
         _history.Add(new ChatMessage { Role = ChatRole.User, Content = pureUserText });
+
+        // #38f resilience: a backend WE launched (FLM, the OV host, or the Vulkan server) that has exited
+        // unexpectedly (a crash) → drop to unloaded so the reload-on-demand path below re-acquires it
+        // (relaunch) instead of failing every turn. Guarded on our OWN process having actually exited, so a
+        // healthy server and a reused/env-override server (which we don't own → _serverProcess is null) are
+        // never touched — the working FLM path keeps running exactly as today.
+        if (ShouldReacquireOwnedProcess(IsModelLoaded, _serverProcess is not null, _serverProcess?.HasExited == true))
+        {
+            LogDiag("LLM backend process exited unexpectedly — re-acquiring on this turn.");
+            IsModelLoaded = false;
+            try { _serverProcess!.Dispose(); } catch { }
+            _serverProcess = null;
+            // For a MANAGED backend the external pin was set when we launched it; clear it so LoadAsync re-runs
+            // the managed starter (relaunch) rather than reconnecting to the dead URL. Local Vulkan leaves these
+            // null (no-op); a user env override never reaches here (it owns no process → _serverProcess null).
+            if (_managedBackendStarter is not null)
+            {
+                _externalBaseUrl = null;
+                _externalModelName = null;
+            }
+        }
 
         // Re-load on demand: the local GGUF is present, OR a managed NPU backend is configured (the GGUF may
         // be absent on an NPU-only install), OR we're in external mode. Covers the first load AND a re-load

@@ -257,8 +257,8 @@ public class ChatbotViewModelStatusCopyTests
     // ── 4. Loading copy localizes, no jargon ────────────────────────────────
 
     [Theory]
-    [InlineData(UILanguage.ChineseTraditional, "助理正在準備，第一次約需 30 秒")]
-    [InlineData(UILanguage.English, "The assistant is getting ready — first time takes ~30s")]
+    [InlineData(UILanguage.ChineseTraditional, "助理正在準備中，第一次啟動可能需要稍候片刻")]
+    [InlineData(UILanguage.English, "The assistant is getting ready — the first run can take a little longer")]
     public void LoadingStatus_Localizes_NoModelNameNoPath(UILanguage lang, string expected)
     {
         // Model available so the FIRST send kicks the lazy load and sets the loading line.
