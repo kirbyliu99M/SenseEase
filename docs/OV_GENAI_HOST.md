@@ -20,6 +20,13 @@ Both speak OpenAI on `127.0.0.1:<port>` and expose:
 - `GET /v1/models` → 200 (lists the model) **the instant the socket binds** — NOT a readiness signal.
 - `POST /v1/chat/completions` → 503 `{"error":"model not ready"}` until ready, else the completion.
 
+**Request body — chunked transfer-encoding (Intel field bug, 2026-06-25):** the .NET `HttpClient` posts the
+chat request with `Transfer-Encoding: chunked` (no `Content-Length`). The C++ host's **cpp-httplib de-chunks
+this natively** into `req.body` (verify on the Intel box before shipping); the Python hosts' bare `http.server`
+does NOT, so they were taught to de-chunk manually. An empty / missing-`messages` body must fail with **400**,
+never generate from nothing — an empty body produced ~28 s of off-prompt text the app then rendered as a
+lexicon "which-symptom" card (the misdiagnosed "never generates" symptom).
+
 Env (identical across both hosts):
 
 | Var | Default | Meaning |
@@ -61,6 +68,10 @@ default-OFF in the plugin, and it does **not** lift the static `MAX_PROMPT_LEN=6
 still overflows, so the prompt-shrink work is separate and complementary. A rejected property throws at NPU
 load, which the load-time NPU→iGPU fallback catches (no wedge). **Validate with a TTFT A/B on the Arrow Lake
 box before relying on it.**
+
+**Batch caveat (Intel field, 2026-06-25):** prefix caching can WEDGE the NPU under batch / concurrent load —
+keep it OFF (`OVHOST_PREFIX_CACHE=NO`) for batch evals run against the host. The app is interactive (one turn
+at a time, the case prefix caching is for), so the default-ON is correct there; only batch runs need it off.
 
 ---
 

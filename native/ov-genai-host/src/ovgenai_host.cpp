@@ -272,6 +272,16 @@ int main() {
             res.set_content(json({{"error", std::string("bad json: ") + e.what()}}).dump(), "application/json");
             return;
         }
+        // Intel field bug (2026-06-25): the .NET HttpClient posts with Transfer-Encoding: chunked (no
+        // Content-Length). cpp-httplib de-chunks that into req.body natively, so unlike the Python bare
+        // http.server (which read only Content-Length → empty body → ~28 s of off-prompt text the app then
+        // rendered as a lexicon card) this host reads it correctly. This guard is belt-and-braces: an
+        // empty/missing-messages body must FAIL LOUDLY (400), never generate from nothing.
+        if (!body.contains("messages") || !body["messages"].is_array() || body["messages"].empty()) {
+            res.status = 400;
+            res.set_content(R"({"error":"no messages in request body"})", "application/json");
+            return;
+        }
         if (!g_ready.load()) {
             res.status = 503;
             res.set_content(R"({"error":"model not ready"})", "application/json");
