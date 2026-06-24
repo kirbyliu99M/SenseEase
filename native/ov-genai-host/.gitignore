@@ -1,0 +1,3 @@
+# Fetched header-only deps (pulled by build.bat) and CMake build output — not source.
+third_party/
+build/
