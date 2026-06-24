@@ -21,6 +21,7 @@ import cases as CASES
 P = pathlib.Path(__file__).resolve().parent
 SYS_PROMPT = (P / "system_prompt.txt").read_text(encoding="utf-8")
 GRAMMAR = (P / "grammar.gbnf").read_text(encoding="utf-8")
+TEMP = 0.4  # decode temperature; --temp overrides (use 0 to mirror the greedy NPU GenAI host)
 
 EN_PIN = "(REPLY ONLY in US English — regardless of the language used in the recent-adjustments list, the state context, or anything else above. Do NOT use Chinese or any other script.)"
 ZH_PIN = "(REPLY ONLY in Traditional Chinese / 繁體中文 — regardless of the language used in the recent-adjustments list, the state context, or anything else above. Do NOT use Simplified Chinese, English, or any other script.)"
@@ -51,7 +52,7 @@ def call(port, user_msg, grammar=True, timeout=120):
     body = {
         "messages": [{"role": "system", "content": SYS_PROMPT},
                      {"role": "user", "content": user_msg}],
-        "max_tokens": 512, "temperature": 0.4, "top_p": 0.9, "top_k": 40,
+        "max_tokens": 512, "temperature": TEMP, "top_p": 0.9, "top_k": 40,
         "stop": ["<|im_end|>", "User:"],
     }
     if grammar:
@@ -253,4 +254,7 @@ if __name__ == "__main__":
     ap.add_argument("--no-grammar", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--cases-json", default=None, help="load cases from a JSON array file instead of cases.py")
-    run(ap.parse_args())
+    ap.add_argument("--temp", type=float, default=0.4, help="decode temperature (use 0 to mirror the greedy NPU host)")
+    args = ap.parse_args()
+    TEMP = args.temp
+    run(args)
