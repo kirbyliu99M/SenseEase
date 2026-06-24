@@ -293,10 +293,17 @@ internal static class NluComplianceGate
             && !InterrogativeDetector.IsCommandInquiry(userText))
         {
             fov = 0; md = 0.0; gv = 0.0;
-            bool zh = uiEnglishPin is bool en ? !en : FeedbackLexicon.PreferZh(userText);
-            reply = zh
-                ? "沒關係，可以多說一點嗎？是覺得哪裡不舒服，還是想調整一下防護呢？"
-                : "No problem — tell me a bit more. Is something feeling uncomfortable, or would you like to adjust the protection?";
+            // Companion reframe (charter, 2026-06-25): keep the no-actuation, but do NOT discard a
+            // genuine helpful model reply — the canned guide is only a FALLBACK for an empty reply.
+            // (Intent here is never ReportDiscomfort, so the whitelist at the top already zeroed deltas;
+            // this turn still cannot actuate or claim a change.)
+            if (string.IsNullOrWhiteSpace(reply))
+            {
+                bool zh = uiEnglishPin is bool en ? !en : FeedbackLexicon.PreferZh(userText);
+                reply = zh
+                    ? "沒關係，可以多說一點嗎？是覺得哪裡不舒服，還是想調整一下防護呢？"
+                    : "No problem — tell me a bit more. Is something feeling uncomfortable, or would you like to adjust the protection?";
+            }
         }
 
         string response = (reply ?? string.Empty).Trim();

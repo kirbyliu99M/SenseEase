@@ -1107,6 +1107,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // the one instance makes reader and writer serialise on the same lock. (G4 is also
         // making the writer internally path-keyed — both changes are good.)
         ChatbotVm.LoadBehaviorAggregates  = () => _behaviorWriter.ReadAll();
+        ChatbotVm.GetSessionMinutes       = () => (int)SessionUptime.TotalMinutes;
         ChatbotVm.IsPowerSaveActive       = () => _powerSaveActiveLookup?.Invoke() ?? false;
         ChatbotVm.AdjustmentApplied += (_, _) => UpdateFromState(_engine.Current);
         // Calibration CARD removed (2026-06-08): the 5-card Q&A, confirm card, the

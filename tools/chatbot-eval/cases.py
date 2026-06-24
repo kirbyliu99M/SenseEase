@@ -195,6 +195,33 @@ add("edge_huge", "malformed", ("I was scrolling through a very long document " *
 # ── F21: AMBIGUOUS / under-specified (Kirby 2026-06-22: ambiguous handling is crucial) ──
 # Short, unclear, or object-less inputs. The model must CLARIFY or answer briefly — NEVER actuate on a guess.
 add("amb_en_hmm", "ambiguous", "hmm", intent=["Unknown","FollowupRequest"], actuate="none", focus="too vague to act; clarify or short reply, zero deltas")
+
+# ── Comfort Companion charter (2026-06-25): help-not-card / off-domain-redirect / rest / ergonomics / clarifier-breadth ──
+# A which-symptom card (intent=FollowupRequest) on a help/offdomain/rest/ergo case FAILS the intent gate -> catches the old deflection.
+add("help_grid_off", "help_not_card", "how do I turn off the grid?", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="REAL app how-to in plain feeling-terms; NOT a which-symptom card, zero deltas")
+add("help_what_app", "help_not_card", "what does this app do?", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="describe SenseEase helpfully; never a symptom card")
+add("help_change_overlay", "help_not_card", "how do I make the overlay lighter when I'm reading?", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="real how-to; a QUESTION not a present report -> no actuation")
+add("help_where_settings", "help_not_card", "where are the settings?", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="locate-the-setting answer; no card, no actuation")
+add("help_zh_edges", "help_not_card", "怎麼調整邊緣?", lang="zh", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="zh app how-to; REAL answer, not a 症狀卡片")
+add("help_zh_turnoff_grid", "help_not_card", "我要怎麼把網格關掉?", lang="zh", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="zh how-to; helpful instruction, not a picker")
+add("help_zh_whatisit", "help_not_card", "這個程式是做什麼的?", lang="zh", intent=["AnalyzeRequest","Unknown"], actuate="none", focus="zh describe purpose; never a card")
+add("offdom_email", "offdomain_redirect", "help me write an email to my boss", intent=["Unknown"], actuate="none", focus="warm acknowledge+redirect; don't draft it, don't lecture")
+add("offdom_capital", "offdomain_redirect", "what's the capital of France?", intent=["Unknown"], actuate="none", focus="trivia out of scope; brief warm redirect")
+add("offdom_recipe", "offdomain_redirect", "give me a recipe for dinner tonight", intent=["Unknown"], actuate="none", focus="general task out of scope; acknowledge+redirect")
+add("offdom_zh_poem", "offdomain_redirect", "寫一首詩", lang="zh", intent=["Unknown"], actuate="none", focus="zh write-a-poem out of scope; warm redirect")
+add("offdom_zh_translate", "offdomain_redirect", "幫我把這段話翻譯成英文", lang="zh", intent=["Unknown"], actuate="none", focus="zh translation task out of scope; redirect")
+add("rest_hours_tired", "rest_advice", "my eyes are tired after hours of work", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="long usage -> suggest a break; warm, zero deltas")
+add("rest_been_staring", "rest_advice", "I've been staring at the screen all day and I'm exhausted", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="long on-screen time -> gently suggest a break; not a card")
+add("rest_zh_allday", "rest_advice", "看了一整天螢幕好累", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh long-usage fatigue -> 休息一下; reactive, zero deltas")
+add("rest_zh_longtime", "rest_advice", "我盯著螢幕很久了，眼睛很疲勞", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh fatigue+long usage -> break suggestion; not a card")
+add("ergo_reduce_strain", "ergonomics", "any tips to reduce eye strain while working?", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="non-medical tips (20-20-20, brightness, distance); helpful, no diagnosis")
+add("ergo_setup", "ergonomics", "how should I set up my screen to be more comfortable?", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="ergonomics guidance; helpful, no actuation, no medical claims")
+add("ergo_zh_tips", "ergonomics", "有沒有什麼方法可以減少眼睛疲勞?", lang="zh", intent=["Unknown","AnalyzeRequest"], actuate="none", focus="zh non-medical tips; real guidance, not a card")
+add("clar_notworking", "clarifier_breadth", "it's not working", intent=["FollowupRequest","Unknown"], actuate="none", focus="ambiguous NON-symptom -> OPEN clarifying question, NOT a which-symptom card")
+add("clar_canyouhelp", "clarifier_breadth", "can you help me?", intent=["FollowupRequest","Unknown"], actuate="none", focus="open ask -> warm OPEN clarifier, never a symptom picker")
+add("clar_dontknow", "clarifier_breadth", "I don't know what to do", intent=["FollowupRequest","Unknown"], actuate="none", focus="no named symptom -> open question about what they need; not a card")
+add("clar_zh_help", "clarifier_breadth", "你可以幫我嗎?", lang="zh", intent=["FollowupRequest","Unknown"], actuate="none", focus="zh open ask -> OPEN clarifier, not a 症狀卡片")
+add("clar_zh_notworking", "clarifier_breadth", "怎麼用不了", lang="zh", intent=["FollowupRequest","Unknown"], actuate="none", focus="zh ambiguous non-symptom -> open question, not a card")
 add("amb_en_this", "ambiguous", "this...", intent=["Unknown","FollowupRequest"], actuate="none", focus="no content; must not actuate")
 add("amb_en_again", "ambiguous", "again", intent=["Unknown","FollowupRequest"], actuate="none", focus="no referent; clarify, no actuation")
 add("amb_en_ugh", "ambiguous", "ugh", intent=["Unknown","FollowupRequest"], actuate="none", focus="distress but UNNAMED; ASK which symptom, never guess a delta")

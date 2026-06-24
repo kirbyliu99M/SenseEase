@@ -213,6 +213,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// (graceful for test contexts / no behaviour history).</summary>
     public Func<IReadOnlyList<DailyBehaviorAggregate>>? LoadBehaviorAggregates { get; set; }
 
+    /// <summary>Companion rest-advice (charter, 2026-06-25): host-wired reader for the CURRENT
+    /// session's on-screen minutes (live uptime), surfaced in [SenseEaseState] as usage(session=…)
+    /// so the model can suggest a break when usage runs long. Coarse minutes only — PII-safe,
+    /// on-device. Null = field reports 0 (graceful for test contexts).</summary>
+    public Func<int>? GetSessionMinutes { get; set; }
+
     /// <summary>The underlying on-device chatbot service. Exposed (read-only) so a host that already owns
     /// this VM can reuse the SAME loaded model for an off-band one-shot completion (e.g. the health-report
     /// narrator's per-section <c>CompleteShortAsync</c>) instead of spinning up a second service. Callers
@@ -1113,6 +1119,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
 
         var sh = _engine.Current.Shader;
         var bl = _engine.BaselineShader;
+        // Companion rest-advice (charter, 2026-06-25): expose live usage time so the model can suggest a
+        // break when on-screen time runs long. session = this session's uptime (minutes); today =
+        // cumulative foreground minutes from the daily aggregate (0 if not yet written). PII-safe, on-device.
+        int sessionMin = GetSessionMinutes?.Invoke() ?? 0;
+        int todayMin = behaviorRows?.LastOrDefault(r => r.Date == DateTime.Now.ToString("yyyy-MM-dd"))?.SessionMinutes ?? 0;
         sb.Append("[SenseEaseState mode=").Append(_engine.Current.Mode)
           .Append(" ofi=").Append(_engine.Current.RawOpticalFlowIndex.ToString("F1"))
           .Append(" pressure=").Append(_engine.Current.Pressure.ToString("F1"))
@@ -1123,7 +1134,8 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
           .Append(" feather=").Append(sh.FeatherWidth.ToString("F2")).Append(')')
           .Append(" defaults(maskDepth=").Append(bl.MaskDepth.ToString("F2"))
           .Append(" gridVis=").Append(bl.GridVisibility.ToString("F2"))
-          .Append(" feather=").Append(bl.FeatherWidth.ToString("F2")).Append(")]\n")
+          .Append(" feather=").Append(bl.FeatherWidth.ToString("F2")).Append(')')
+          .Append(" usage(session=").Append(sessionMin).Append("m today=").Append(todayMin).Append("m)]\n")
           .Append("User: ").Append(text);
         // Item 11b — per-turn mood hint: adapt the companion's tone to the user's current distress
         // (driven by the live engine tier). Sits next to the input so the small model weights it.

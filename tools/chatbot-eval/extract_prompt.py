@@ -109,7 +109,7 @@ def main():
     (OUT / "grammar.gbnf").write_text(grammar, encoding="utf-8")
 
     # sanity checks
-    assert prompt.startswith("You are the NLU brain of SenseEase"), prompt[:60]
+    assert prompt.startswith("You are SenseEase's comfort companion"), prompt[:60]
     assert "SYMPTOM-STATE BOUNDARY" in prompt
     assert "feather_width_delta" not in grammar, "grammar should NOT contain feather"
     assert "intent ::=" in grammar
