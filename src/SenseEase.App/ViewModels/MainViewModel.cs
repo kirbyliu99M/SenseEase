@@ -1074,7 +1074,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // non-power-save machines always warm. _powerSaveActiveLookup may be null until MainWindow wires it
             // → treated as "not power-save" (warm), the safe default.
             suppressWarmup: () => SenseEase.App.Services.SystemPowerStatus.OnBattery() && (_powerSaveActiveLookup?.Invoke() ?? false),
-            externalReadyBudget: llmReadyBudget);
+            externalReadyBudget: llmReadyBudget,
+            managedIsOvHost: ovManagedPath);
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete

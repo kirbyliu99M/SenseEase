@@ -180,6 +180,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
     // the one-time ~4,500-token prefill; null ⇒ always warm. Queried LIVE at each load (reflects the battery
     // state then, not at ctor). See WarmUpPrefixIfAllowedAsync.
     private readonly Func<bool>? _suppressWarmup;
+    // #38 prefix-warm (2026-06-25): true ONLY for the managed OpenVINO GenAI host. Lets the connect-time
+    // prefix-warm run on that external backend — it has NPU prefix caching (NPUW_LLM_ENABLE_PREFIX_CACHING),
+    // so seeding the system-prefix KV at chat-open makes the user's FIRST turn reuse it (~4.3 s) instead of
+    // paying the ~20 s cold prefill. FLM (no prefix reuse) + a dev env-override stay unwarmed.
+    private readonly bool _managedIsOvHost;
     private bool IsExternal => !string.IsNullOrWhiteSpace(_externalBaseUrl);
     private string ServerUrl => IsExternal ? _externalBaseUrl! : $"http://127.0.0.1:{ServerPort}";
     // The model id sent in each chat request. External backends require it; the bundled llama-server serves
@@ -452,7 +457,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         Func<CancellationToken, Task<ManagedBackend?>>? managedBackendStarter = null,
         LocalServerKind localServerKind = LocalServerKind.Vulkan,
         Func<bool>? suppressWarmup = null,
-        TimeSpan? externalReadyBudget = null)
+        TimeSpan? externalReadyBudget = null,
+        bool managedIsOvHost = false)
     {
         _modelPath = modelPath;
         _stopTokens = stopTokens is { Length: > 0 } ? stopTokens : DefaultStopTokens;
@@ -474,6 +480,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         // #38a: default budget rides out the bind/connect race + a brief warm (the pre-warmed field-test host
         // is ready on the first probe). The spawn+own cold-compile path passes a longer one. ≤ 0 = single probe.
         _externalReadyBudget = externalReadyBudget ?? TimeSpan.FromSeconds(12);
+        _managedIsOvHost = managedIsOvHost;
     }
 
     public bool IsModelAvailable => File.Exists(_modelPath);
@@ -569,7 +576,8 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _externalBaseUrl = mb.BaseUrl;
         _externalModelName = mb.ModelTag;
         _serverProcess = mb.OwnedProcess;          // killed on Dispose iff we launched it (else null = reused)
-        _externalBackendLabel = mb.OwnedProcess is not null ? "FastFlowLM NPU (launched)" : "FastFlowLM NPU (reused)";
+        string backendName = _managedIsOvHost ? "OpenVINO GenAI host" : "FastFlowLM NPU";
+        _externalBackendLabel = $"{backendName} ({(mb.OwnedProcess is not null ? "launched" : "reused")})";
         await ConnectExternalAsync().ConfigureAwait(false);
         if (IsModelLoaded)
         {
@@ -577,8 +585,12 @@ public sealed class LocalLlmChatbotService : IChatbotService
             // footprint is reclaimed after _idleTimeout — the battery-constrained ultrabook is exactly the
             // case the feature exists for. Previously StartIdleTimer ran only on the Vulkan path, so a
             // launched FLM was held all session. MaybeUnloadIfIdle's guard skips a REUSED flm (_serverProcess
-            // null — not ours to kill); no-op if the timer is already armed or unloading is disabled.
+            // null — not ours to kill); no-op if the timer is already armed or unloading is disabled (OV: 0).
             StartIdleTimer();
+            // #38 prefix-warm: for the managed OV host ONLY, seed the system-prefix KV at chat-open (overlaps
+            // the user reading the greeting / typing) so their FIRST turn reuses it (~4.3 s) instead of the
+            // ~20 s cold prefill. Self-gates — FLM/env-override return early (no prefix reuse). Best-effort.
+            await WarmUpPrefixIfAllowedAsync().ConfigureAwait(false);
             return true;
         }
 
@@ -920,12 +932,15 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// type window: (1) the Vulkan shaders / compute graph compile NOW instead of on the user's first send (we
     /// launch with --no-warmup, so nothing else does this); (2) the ~4,500-token system prefix lands in the
     /// server's KV cache, so the first real turn reuses it (verified on b9294: a repeat re-prefills a few
-    /// tokens, not ~4,500). Skipped for external/FLM (no prefix reuse to seed) and when the host predicate
-    /// reports battery + power-save (Option C: a constrained ultrabook declines the one-time prefill). Never
-    /// throws, never touches _history or the NLU pipeline.</summary>
+    /// tokens, not ~4,500). Runs for the local owned server AND the managed OpenVINO host (#38, 2026-06-25 —
+    /// the OV host has NPU prefix caching, NPUW_LLM_ENABLE_PREFIX_CACHING, so seeding the prefix at chat-open
+    /// turns the user's first turn warm ~4.3 s instead of the ~20 s cold prefill). Skipped for FLM/env-override
+    /// (no prefix reuse to seed) and when the host predicate reports battery + power-save (Option C: a
+    /// constrained ultrabook declines the one-time prefill). Never throws, never touches _history/the NLU pipeline.</summary>
     private async Task WarmUpPrefixIfAllowedAsync()
     {
-        if (!IsModelLoaded || IsExternal) return;            // local owned-server path only
+        if (!IsModelLoaded) return;
+        if (IsExternal && !_managedIsOvHost) return;          // local owned server, OR the managed OV host (prefix cache)
         if (_suppressWarmup?.Invoke() == true) return;       // battery + power-save → decline the cold prefill
         await _lock.WaitAsync().ConfigureAwait(false);
         try
@@ -954,7 +969,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
 
     /// <summary>Test seam (no real server): the warm-on-load GATING decision — local path AND not host-
     /// suppressed (battery + power-save). The predicate is queried live. Mirrors the IdleWindow*ForTest seams.</summary>
-    internal bool WarmOnLoadAllowedForTest() => !IsExternal && _suppressWarmup?.Invoke() != true;
+    internal bool WarmOnLoadAllowedForTest() => (!IsExternal || _managedIsOvHost) && _suppressWarmup?.Invoke() != true;
 
     /// <summary>H39: returns true if <paramref name="port"/> already has an active
     /// IPv4/IPv6 loopback TCP listener. Used to refuse spawning a second server on

@@ -49,6 +49,26 @@ public class LocalLlmChatbotServiceWarmupTests
     }
 
     [Fact]
+    public void Warm_Allowed_OnManagedOvHost_EvenThoughExternal()
+    {
+        // #38 (2026-06-25): the managed OpenVINO GenAI host IS external, but it has NPU prefix caching
+        // (NPUW_LLM_ENABLE_PREFIX_CACHING), so the connect-time prefix-warm SHOULD run to seed the system-prefix
+        // KV — making the user's first turn warm. FLM / env-override stay unwarmed (the test above).
+        using var svc = new LocalLlmChatbotService(NoModel,
+            externalBaseUrl: "http://127.0.0.1:8181", suppressWarmup: () => false, managedIsOvHost: true);
+        Assert.True(svc.WarmOnLoadAllowedForTest());
+    }
+
+    [Fact]
+    public void Warm_Skipped_OnManagedOvHost_WhenBatteryPowerSave()
+    {
+        // Even the OV host declines the one-time ~20 s cold prefill on a constrained (battery + power-save) box.
+        using var svc = new LocalLlmChatbotService(NoModel,
+            externalBaseUrl: "http://127.0.0.1:8181", suppressWarmup: () => true, managedIsOvHost: true);
+        Assert.False(svc.WarmOnLoadAllowedForTest());
+    }
+
+    [Fact]
     public void Predicate_IsQueriedLive_NotSnapshotAtCtor()
     {
         bool onBatteryAndPowerSave = false;
