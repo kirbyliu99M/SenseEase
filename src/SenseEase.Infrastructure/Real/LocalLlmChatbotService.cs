@@ -140,12 +140,14 @@ public sealed class LocalLlmChatbotService : IChatbotService
     private long _lastActivityTicks;
     private System.Threading.Timer? _idleTimer;
 
-    // H34: cap the response buffer (512 KiB — chat completions are <<256 tokens)
-    // and drop the per-call timeout to 60 s so a wedged server can't hang the
-    // chat turn for minutes. The /props readiness poll during startup is well under 60 s.
+    // H34: cap the response buffer (512 KiB — chat completions are <<256 tokens).
+    // Per-call timeout = 120 s (was 60): a COLD prefill of the ~4,900-token NLU prompt on a slow NPU/iGPU
+    // backend (OpenVINO cold compile, or a weak Intel iGPU) exceeds 60 s and was being cancelled mid-prefill
+    // → 0 tokens generated → silent lexicon fallback (Intel field repro, SOURCE_CHANGES §B3). 120 s covers
+    // the cold first turn; warm-up + prefix-cache keep later turns well under it.
     private readonly HttpClient _http = new()
     {
-        Timeout = TimeSpan.FromSeconds(60),
+        Timeout = TimeSpan.FromSeconds(120),
         MaxResponseContentBufferSize = 512 * 1024,
     };
     private const int ServerPort = 8181;
@@ -764,6 +766,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
             _apiKey = null;
             LlamaSessionKey.Set(null);
             _http.DefaultRequestHeaders.Authorization = null;
+            // B2 (SOURCE_CHANGES §B2): the force-killed child can keep holding ServerPort for a beat — poll
+            // until it actually stops listening (bounded) so a retry (e.g. the OV→Vulkan fallback in LoadAsync)
+            // doesn't trip the loopback guard ("…already has a loopback listener…") and wedge on a dead-but-
+            // port-held server.
+            await WaitForPortFreeAsync(ServerPort, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
             throw;
         }
         // Warm-on-load (2026-06-22): reached ONLY after a successful load — the catch above always rethrows, so
@@ -815,6 +822,18 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// <summary>H39: returns true if <paramref name="port"/> already has an active
     /// IPv4/IPv6 loopback TCP listener. Used to refuse spawning a second server on
     /// our port (stale orphan, or a squatter we'd then hand our key to).</summary>
+    /// <summary>B2 (SOURCE_CHANGES §B2): after force-killing a failed/wedged server, wait (bounded) for
+    /// <paramref name="port"/> to actually stop listening, so a retry's loopback guard doesn't refuse to
+    /// spawn against the dying process that still holds the port.</summary>
+    private static async Task WaitForPortFreeAsync(int port, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (IsLoopbackPortListening(port) && DateTime.UtcNow < deadline)
+        {
+            try { await Task.Delay(100).ConfigureAwait(false); } catch { break; }
+        }
+    }
+
     private static bool IsLoopbackPortListening(int port)
     {
         try

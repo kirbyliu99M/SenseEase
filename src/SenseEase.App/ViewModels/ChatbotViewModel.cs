@@ -60,8 +60,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// <summary>NE6: hard ceiling (seconds) on a single interactive LLM call so a
     /// stalled model surfaces a calm retry hint instead of hanging the typing
     /// indicator forever. The HTTP client has its own timeout; this caps the call
-    /// cooperatively end-to-end and lets a superseding turn abort it.</summary>
-    private const int InteractiveLlmTimeoutSeconds = 60;
+    /// cooperatively end-to-end and lets a superseding turn abort it.
+    /// 120 s (was 60): a cold prefill of the ~4,900-token NLU prompt on a slow NPU/iGPU backend exceeds
+    /// 60 s and was being cancelled → 0 tokens → lexicon (Intel field repro, SOURCE_CHANGES §B3).</summary>
+    private const int InteractiveLlmTimeoutSeconds = 120;
 
     /// <summary>H5: per-session ceiling on OBSERVATION_ADD persistence. The parser
     /// already caps observations at 2 PER RESPONSE; this bounds the TOTAL across a
