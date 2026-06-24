@@ -53,6 +53,8 @@ static const int         PORT    = std::stoi(env_or("OVHOST_PORT", "8181"));
 static const std::string MODELID = env_or("OVHOST_MODELID", "qwen3-4b");
 static const std::string CACHE   = env_or("OVHOST_CACHE", "C:\\ovgenai\\ov_cache");
 static const std::string LOGPATH = env_or("OVHOST_LOG", default_log_path());
+// OV 2025.4+ NPU prefix-KV reuse across turns (PR #31669); opt-in. OVHOST_PREFIX_CACHE=NO disables it for the A/B.
+static const std::string PREFIX_CACHE = env_or("OVHOST_PREFIX_CACHE", "YES");
 
 // ----------------------------------------------------------------------------- state
 static std::atomic<bool> g_ready{false};
@@ -114,6 +116,12 @@ static void load_pipeline() {
         cfg["MAX_PROMPT_LEN"]   = 6144;
         cfg["MIN_RESPONSE_LEN"] = 512;
         cfg["GENERATE_HINT"]    = std::string("BEST_PERF");
+        // OV 2025.4+ NPU prefix caching (PR #31669): reuse the identical system-prompt prefix KV across turns
+        // -> cut TTFT (our 2026.2.1 is downstream; plugin default is OFF). Opt-in; OVHOST_PREFIX_CACHE=NO
+        // disables it for the A/B. A rejected property throws at NPU load -> the load-time NPU->iGPU fallback
+        // catches it, so this can't wedge the host.
+        if (PREFIX_CACHE == "YES" || PREFIX_CACHE == "yes" || PREFIX_CACHE == "1")
+            cfg["NPUW_LLM_ENABLE_PREFIX_CACHING"] = std::string("YES");
     }
     log_line("loading model=" + MODEL + " device=" + DEVICE + " cache=" + CACHE);
     auto t0 = std::chrono::steady_clock::now();

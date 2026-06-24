@@ -46,6 +46,24 @@ Only NPU falls back; a GPU/CPU failure is terminal → the app's selector drops 
 
 ---
 
+## NPU KV / prefix caching (`NPUW_LLM_ENABLE_PREFIX_CACHING`)
+
+Distinct from `CACHE_DIR` (which caches the *compiled blob*) — this caches the *computed KV*. The GenAI
+`LLMPipeline` does **not** do resident-KV continuation on NPU (it `reset_state()`s + re-presents the full
+prompt every turn; that path is CPU/GPU-only), and the ContinuousBatching `enable_prefix_caching` flag is
+silently ignored on NPU. **But** OpenVINO **2025.4+** (PR #31669) added an NPU-plugin property,
+`NPUW_LLM_ENABLE_PREFIX_CACHING:YES`, that reuses the KV of a repeated **prefix** (our identical system
+prompt) across turns → lower TTFT. Our 2026.2.1 stack is downstream of 2025.4, so it should be available.
+
+The host sets it on the NPU config, gated by `OVHOST_PREFIX_CACHE` (default `YES`; `NO` disables it for an
+A/B). Caveats: it's an NPU-plugin key (verify `LLMPipeline` forwards it — openvino.genai #3366/#35641), it's
+default-OFF in the plugin, and it does **not** lift the static `MAX_PROMPT_LEN=6144` window — a too-long prompt
+still overflows, so the prompt-shrink work is separate and complementary. A rejected property throws at NPU
+load, which the load-time NPU→iGPU fallback catches (no wedge). **Validate with a TTFT A/B on the Arrow Lake
+box before relying on it.**
+
+---
+
 ## App integration
 
 - **Launcher:** `OvGenAiHostLauncher.TryAcquireAsync` (mirrors `FlmServerLauncher`). Reuse-or-launch on
