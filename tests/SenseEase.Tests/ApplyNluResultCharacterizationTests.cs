@@ -356,12 +356,12 @@ public class ApplyNluResultCharacterizationTests
             // replays Source="user"/FovRadius, so the deferred delta lands in the log with exactly that shape.
             Assert.Contains(log.Records, r => r.Parameter == "FovRadius" && r.Delta == -8 && r.Source == "user");
             Assert.False(AnyAssistant(vm, "Protection up")); // and NO false "✓ Protection up" confirmation
-            // The honest "I'll apply that once the overlay is on" line replaces the LLM's "Tightening…"
-            // claim in visibleReply — but that warm reply is revealed by FakeStreamAsync on a background
-            // task, so it is not synchronously observable in this harness (same as every warm reply here;
-            // existing tests assert the synchronous ✓ summary instead). The substitution mirrors the
-            // already-tested NEW-B14 rest-advice hold; the synchronous proof above is that NOTHING actuated
-            // and NO ✓ confirmation shipped — i.e. the bot cannot have truthfully claimed a change.
+            // 2026-06-26: on a consent-HELD turn the gate ships a FIXED honest promise line ("I'll ease your
+            // visuals as soon as protection kicks in") — a deterministic string, so no model text and no false
+            // claim can ship. That reply reveals via FakeStreamAsync on a background task, so it is not
+            // synchronously observable here; the synchronous proof above is that NOTHING actuated and NO ✓
+            // confirmation shipped. The held delta is persisted (asserted above) AND applies live on consent
+            // kick-in — see ConsentGateTests.HeldDelta_AppliesLive_OnConsentGrant_OnceOnly.
         });
 
     [Fact]

@@ -98,7 +98,7 @@ public class ReplyComplianceScrubberTests
         const string honest = "I can't sense that — only you can tell. For now I've left everything as-is.";
         var r = NluComplianceGate.Check(
             Raw("Unknown", reply: honest, fov: 0, md: 0.0, gv: 0.0),
-            "do you think I'm dizzy?");
+            "do you think I'm dizzy?", uiEnglishPin: true);      // pin EN (see RealAdjustment_ActionClaim_IsKept)
 
         Assert.Contains("left everything as-is", r.Response);     // not a claim → not scrubbed
     }
@@ -109,8 +109,9 @@ public class ReplyComplianceScrubberTests
         var r = NluComplianceGate.Check(
             Raw("ReportDiscomfort", reply: "I've eased the on-screen motion a little to lighten the load.",
                 fov: -7, md: 0.05, gv: 0.02),
-            "I have a mild headache");
-
+            "I have a mild headache", uiEnglishPin: true); // pin EN so a sibling-collection pollution of the
+                                                           // shared ChatbotUiLanguage global can't backstop-swap
+                                                           // this English reply to a Chinese canned line.
         Assert.Contains("eased the on-screen motion", r.Response); // actuated → honest claim survives
     }
 
@@ -157,5 +158,43 @@ public class ReplyComplianceScrubberTests
         string s = ReplyComplianceScrubber.Scrub(
             "Activity rose around 21:10 and settled after.", "AnalyzeRequest", actuated: false, "why?", uiEnglishPin: true);
         Assert.DoesNotContain("21:10", s);
+    }
+
+    // ── actuated:false honesty (used by NluComplianceGate.Check on every model reply): a false action-claim
+    //    is replaced with the honest no-action line; a genuinely natural reply survives unchanged. ──
+
+    [Fact]
+    public void Scrub_ActionClaim_AtActuatedFalse_BecomesHonestNoActionLine()
+    {
+        // Consent-held turn: the model claims a change but nothing actuated → the false claim must be
+        // replaced with the honest no-action line (R1), never shipped to the user.
+        string s = ReplyComplianceScrubber.Scrub(
+            "I've eased the on-screen motion a little to lighten the load.",
+            "ReportDiscomfort", actuated: false, "I feel a bit uneasy", uiEnglishPin: true);
+        Assert.DoesNotContain("eased the on-screen motion", s); // the false claim is gone
+        Assert.Contains("haven't changed anything", s);         // honest no-action line
+    }
+
+    [Fact]
+    public void Scrub_NaturalEmpathyReply_AtActuatedFalse_SurvivesNotReplaced()
+    {
+        // A natural/empathetic reply with NO action claim must pass through — the consent gate holds
+        // actuation but never hijacks the conversation with a canned line.
+        string s = ReplyComplianceScrubber.Scrub(
+            "That sounds uncomfortable. There was a lot moving on screen just then.",
+            "ReportDiscomfort", actuated: false, "I feel a bit uneasy", uiEnglishPin: true);
+        Assert.Contains("That sounds uncomfortable", s);        // natural reply preserved
+        Assert.DoesNotContain("haven't changed anything", s);   // NOT swapped for the canned honest line
+    }
+
+    [Fact]
+    public void Scrub_ActionClaim_AtActuatedFalse_ZhMode_BecomesHonestNoActionLine()
+    {
+        // ZH-mode mirror of the honesty guard: a Chinese action-claim with nothing actuated must also be
+        // replaced with the ZH honest no-action line (the scrubber is language-symmetric).
+        string s = ReplyComplianceScrubber.Scrub(
+            "已加強你的保護，畫面周邊會更暗一些。", "ReportDiscomfort", actuated: false, "我有點不舒服", uiEnglishPin: false);
+        Assert.DoesNotContain("已加強", s);   // the false claim is gone
+        Assert.Contains("未變更", s);          // ZH honest no-action line ("目前未變更任何設定…")
     }
 }

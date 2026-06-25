@@ -309,6 +309,50 @@ public class ConsentGateTests : IDisposable
     }
 
     [Fact]
+    public void HeldDelta_AppliesLive_OnConsentGrant_OnceOnly()
+    {
+        // Live-apply-on-consent (Kirby 2026-06-26): a chat delta held while the overlay was off applies to the
+        // LIVE engine the moment protection kicks in — exactly ONCE (consume-once, so no compounding/over-dim).
+        var vm = NewVm();
+        int before = vm.UserFovOffsetForTests;                 // clean isolated engine → 0
+        vm.InjectHeldDeltaForTests((Fov: -8, Md: 0.0, Gv: 0.0, Fw: 0.0, DeliberatePref: false));
+        Assert.Equal(before, vm.UserFovOffsetForTests);        // protection still OFF → NOT applied yet
+
+        vm.GrantOverlayConsent();                               // protection kicks in
+        Assert.Equal(before - 8, vm.UserFovOffsetForTests);    // applied live, once
+
+        vm.GrantOverlayConsent();                               // a second grant must NOT re-apply (consume-once)
+        Assert.Equal(before - 8, vm.UserFovOffsetForTests);    // still -8, not -16
+    }
+
+    [Fact]
+    public void HeldDelta_MixedBatch_NetsBothFovBuckets_OnConsentGrant()
+    {
+        // Audit fix (Kirby 2026-06-26): a held discomfort turn (-6, charged) + a held deliberate-preference
+        // turn (-7, neutral) must NET both FOV buckets (-13) on kick-in. The habituation ledger is charged by
+        // the DISCOMFORT magnitude only — guaranteed by construction (ApplyHeldDeltaOnConsentKickIn issues two
+        // SEPARATE ApplyUserFeedback calls, isDeliberatePreference false for discomfort, true for preference).
+        var vm = NewVm();
+        int before = vm.UserFovOffsetForTests;
+        vm.InjectHeldDeltaForTests((Fov: -6, Md: 0.0, Gv: 0.0, Fw: 0.0, DeliberatePref: false)); // discomfort
+        vm.InjectHeldDeltaForTests((Fov: -7, Md: 0.0, Gv: 0.0, Fw: 0.0, DeliberatePref: true));  // preference
+        vm.GrantOverlayConsent();
+        Assert.Equal(before - 13, vm.UserFovOffsetForTests);   // both buckets applied → net -13
+    }
+
+    [Fact]
+    public void HeldDelta_SelfDrains_WhenConsentAlreadyActive()
+    {
+        // Audit fix (TOCTOU): if consent is already active when the held delta is noted (a grant that landed
+        // in the cross-thread gap), it applies IMMEDIATELY instead of waiting for the next grant.
+        var vm = NewVm();
+        vm.AlwaysAllowOverlay = true;                          // consent active (no held delta yet → no-op drain)
+        int before = vm.UserFovOffsetForTests;
+        vm.InjectHeldDeltaForTests((Fov: -5, Md: 0.0, Gv: 0.0, Fw: 0.0, DeliberatePref: false));
+        Assert.Equal(before - 5, vm.UserFovOffsetForTests);   // self-drained on note (consent was already on)
+    }
+
+    [Fact]
     public void Decline_StaysDormant_NoReAskWhileCoolingDown()
     {
         var vm = NewVm();

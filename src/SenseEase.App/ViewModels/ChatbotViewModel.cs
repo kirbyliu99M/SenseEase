@@ -17,6 +17,7 @@ using SenseEase.Core.Abstractions;
 using SenseEase.Core.Inference;
 using SenseEase.Core.Models;
 using SenseEase.Core.Safety;
+using SenseEase.Infrastructure.Nlp;
 using SenseEase.Infrastructure.Real;
 using SenseEase.Infrastructure.Storage;
 
@@ -218,6 +219,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// so the model can suggest a break when usage runs long. Coarse minutes only — PII-safe,
     /// on-device. Null = field reports 0 (graceful for test contexts).</summary>
     public Func<int>? GetSessionMinutes { get; set; }
+
+    /// <summary>Live-apply-on-consent (Kirby 2026-06-26): raised on a consent-HELD actuation turn (overlay off)
+    /// with the deltas the user wanted but couldn't get. The host (MainViewModel) remembers them and applies
+    /// them the moment protection kicks in this session, so "I'll ease your visuals as soon as protection kicks
+    /// in" is truthful. The same deltas are ALSO persisted for next-launch replay; the two paths read different
+    /// sources, so there is no double-apply. The bool is the habituation-ledger flag (deliberate-preference
+    /// unless the turn was a genuine ReportDiscomfort), mirroring ApplyNluResult. Null host ⇒ no-op (tests).</summary>
+    public Action<(int Fov, double Md, double Gv, double Fw, bool DeliberatePref)>? OnHeldDeltaForConsent { get; set; }
 
     /// <summary>The underlying on-device chatbot service. Exposed (read-only) so a host that already owns
     /// this VM can reuse the SAME loaded model for an off-band one-shot completion (e.g. the health-report
@@ -693,18 +702,20 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 visibleReply = !string.IsNullOrWhiteSpace(regenerated) ? regenerated : DeterministicRestAdvice();
             }
 
-            // W-G (2026-06-20): gate chat-driven engine actuation on overlay CONSENT. A chat "make it
-            // stronger" must not mutate persistent FOV/shader state before the user has actually started the
-            // comfort overlay (a granted session, Auto Protect, or a standing baseline) — that silently
-            // changes protection they can't see, and the upstream gate already scrubbed the reply with
-            // actuated=true, so it would falsely claim a change. Mirror the rest-advice hold: zero the deltas
-            // BEFORE ApplyNluResult (→ it applies nothing, empty summary, no false ✓ row) and replace the
-            // reply with an honest record-and-learn acknowledgement — NOT a "turn protection on" instruction.
-            // Post-symptom feedback (the common case) arrives AFTER the episode with the overlay legitimately
-            // off; the chatbot records + learns rather than pushing the user to enable protection. The
-            // longitudinal-observation learner (below) still records the turn regardless of this gate. A held
-            // rest turn already zeroed the deltas above, so this never double-fires; the consent gate the
-            // overlay itself enforces stays the source of truth — this is defense-in-depth at the chat seam.
+            // W-G (2026-06-20) + Option E (Kirby 2026-06-26): gate chat-driven engine ACTUATION on overlay
+            // CONSENT — but NEVER hijack the conversation. A chat "make it stronger" must not mutate persistent
+            // FOV/shader state before the user has started the comfort overlay (a granted session, Auto Protect,
+            // or a standing baseline) — that silently changes protection they can't see. So we zero the deltas
+            // BEFORE ApplyNluResult (→ it applies nothing, empty summary, no false ✓ row) and HOLD them.
+            // Conversation stays FREE: instead of a canned "noted" deflection, we re-run the model's OWN reply
+            // through ReplyComplianceScrubber at actuated:false — a natural/empathetic reply survives verbatim,
+            // and only a false "I changed it" claim is replaced with an honest no-action line (R1). Post-symptom
+            // feedback (the common case) arrives AFTER the episode with the overlay legitimately off; the chatbot
+            // converses + records + learns rather than nagging the user to enable protection. The held deltas are
+            // still persisted (Approach A) + replayed next session as the baseline, so the learning applies going
+            // forward. The longitudinal-observation learner (below) records the turn regardless. A held rest turn
+            // already zeroed the deltas above, so this never double-fires; the overlay's own consent gate stays
+            // the source of truth — this is defense-in-depth at the chat seam.
             bool wantsActuation = result.FovDelta != 0 || result.MaskDepthDelta != 0
                                || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0;
             // Approach A (Kirby 2026-06-21): when the overlay is off we still hold the wanted deltas back from
@@ -720,9 +731,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 result.MaskDepthDelta = 0;
                 result.GridVisibilityDelta = 0;
                 result.FeatherWidthDelta = 0;
+                // Fixed honest promise (Kirby 2026-06-26): a deterministic line — no model text ships here, so
+                // it CANNOT make a false actuation claim (this closes the action-claim-detector gap a 4B model
+                // keeps finding, e.g. "已輕柔調整" evading the "已調整" phrase list). The held delta is persisted
+                // below AND applied LIVE the moment protection kicks in THIS session (OnHeldDeltaForConsent →
+                // MainViewModel.ApplyHeldDeltaOnConsentKickIn), so the promise is truthful, not a deflection.
                 visibleReply = LocalizationManager.Current.Pick(
-                    "好的，我記下了，會用這個來調整往後給你的防護。",
-                    "Got it — I've noted that, and I'll use it to tune your protection going forward.");
+                    "好的，等防護一啟動，就會立即為你放鬆畫面。",
+                    "Got it — I'll ease your visuals as soon as protection kicks in.");
             }
 
             ChatMessageViewModel? assistantBubble = null;
@@ -744,7 +760,14 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 // ApplyNluResult) to the durable adjustment log, so next session's replay restores it as the
                 // baseline. Same parameter names ApplyNluResult logs ⇒ the boot-replay nets them identically.
                 if (overlayOffPersist is { } heldOff)
+                {
                     PersistOverlayOffAdjustment(heldOff.Fov, heldOff.Md, heldOff.Gv, heldOff.Fw, text);
+                    // Live-apply-on-consent: surface the held delta so the host applies it the moment protection
+                    // kicks in this session. Mirror ApplyNluResult's habituation flag (charge the ledger only for
+                    // a genuine discomfort report, not a deliberate "make it stronger" preference).
+                    OnHeldDeltaForConsent?.Invoke(
+                        (heldOff.Fov, heldOff.Md, heldOff.Gv, heldOff.Fw, result.Intent != "ReportDiscomfort"));
+                }
 
                 // NEW-B13 (W-B 2026-06-20): the user asked to strengthen/ease but the engine was already at
                 // the limit, so NOTHING applied (empty summary) — yet the upstream scrub blessed the reply

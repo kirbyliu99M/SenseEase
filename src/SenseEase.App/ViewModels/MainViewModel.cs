@@ -1077,6 +1077,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             externalReadyBudget: llmReadyBudget,
             managedIsOvHost: ovManagedPath);
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
+        // Live-apply-on-consent: remember a chat delta the user wanted while the overlay was off, to apply it
+        // the moment protection kicks in this session (see ApplyHeldDeltaOnConsentKickIn).
+        ChatbotVm.OnHeldDeltaForConsent = NoteHeldDeltaForConsent;
 
         // M3 7d/7e/7f/7g: wire chatbot write-side. Casting to the concrete
         // engine type is OK here because MainViewModel constructed it above
@@ -1617,6 +1620,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             PersistentOverlayBaselineTier = target;                          // setter clamps 1..12
             if (!PersistentOverlayEnabled) PersistentOverlayEnabled = true;  // auto-opens overlay
             _baselineConsentedThisSession = true;  // a LIVE user-set baseline is in-session consent (shows w/o a bubble)
+            ApplyHeldDeltaOnConsentKickIn();        // baseline protection just engaged → apply any held easing live
         }
         if (!OverlayVisible) OverlayVisible = true;
         UpdateFromState(_engine.Current);
@@ -1656,6 +1660,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             PersistentOverlayBaselineTier = target;                          // setter clamps 1..12
             if (!PersistentOverlayEnabled) PersistentOverlayEnabled = true;  // auto-opens overlay
             _baselineConsentedThisSession = true;  // a LIVE user-set baseline is in-session consent (shows w/o a bubble)
+            ApplyHeldDeltaOnConsentKickIn();        // baseline protection just engaged → apply any held easing live
         }
         if (!OverlayVisible) OverlayVisible = true;
         UpdateFromState(_engine.Current);
@@ -1828,7 +1833,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // switch (see SetPersistentMaskFromUser). [UVHS fix 2026-06-21: the L6-freeze was mis-wired onto
             // this toggle, contradicting the contract above; moved to its correct home.]
             if (value)
+            {
                 CancelPendingConsent();          // turning it ON hides any bubble waiting for an answer
+                ApplyHeldDeltaOnConsentKickIn(); // Auto Protect just engaged → apply any held easing live now
+            }
             else
             {
                 // Deadswitch fix (Kirby 2026-06-23): while Auto Protect is ON, ShouldHoldMaskForConsent sets
@@ -1887,6 +1895,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             (_engine as MockInferenceEngine)?.SetAutoLevelHold(true, ConsentImpactTier);
             PersistentOverlayEnabled = true;
             _baselineConsentedThisSession = true;  // a LIVE 常駐遮罩 toggle is in-session consent (shows w/o a bubble)
+            ApplyHeldDeltaOnConsentKickIn();        // protection just engaged → apply any held easing live now
         }
         else
         {
@@ -2042,7 +2051,66 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // first-of-session onset timing. (Decline is intentionally NOT counted — "Not now" is ambiguous,
         // often "I'm fine", not a discomfort report.)
         NoteFirstDiscomfortSignal(SenseEase.Core.Inference.SessionOnsetChannels.Consent);
+        ApplyHeldDeltaOnConsentKickIn();   // protection just kicked in → apply any held easing live now
     }
+
+    // ── Live-apply-on-consent (Kirby 2026-06-26) ──────────────────────────────────────────────────────
+    // The accumulated chat delta the user wanted while the overlay was OFF (held by the chat consent gate,
+    // surfaced via ChatbotViewModel.OnHeldDeltaForConsent). Applied to the LIVE engine the moment protection
+    // kicks in this session so "I'll ease your visuals as soon as protection kicks in" is truthful. The SAME
+    // delta is also persisted to the adjustment log for next-launch replay — the two read DIFFERENT sources
+    // (memory this session, log next session), so there is no double-apply / compounding.
+    //
+    // THREAD INVARIANT: OnHeldDeltaForConsent is raised INSIDE ChatbotViewModel's _dispatcher.Invoke and every
+    // drain site (the consent-grant methods + the self-drain in NoteHeldDeltaForConsent) runs on the UI thread,
+    // so the consume-once guard needs no lock. Moving the surface onto the chat background thread would break it.
+    //
+    // FOV is split into a DISCOMFORT bucket (charges the habituation ledger via NotifyDiscomfort) and a
+    // PREFERENCE bucket (neutral). A mixed held batch (a real "I feel dizzy" turn + a deliberate "make it
+    // stronger" turn) must charge the ledger by the DISCOMFORT magnitude ONLY — mirroring the per-turn
+    // consented path (ApplyNluResult). AND-folding one flag charged the whole summed FOV as discomfort, which
+    // eroded the earned Q4.5 offset (and could trip a SEVERE strike when two mild deltas summed past the
+    // threshold). Net FOV = FovDiscomfort + FovPref, unchanged, so the log-replay no-double-apply invariant holds.
+    private (int FovDiscomfort, int FovPref, double Md, double Gv, double Fw)? _heldDeltaThisSession;
+
+    /// <summary>Accumulate a held chat delta this session (SUM, so multiple held reports all apply on kick-in;
+    /// the log nets them identically next launch). A genuine ReportDiscomfort FOV goes to the discomfort bucket
+    /// (charged), a deliberate-preference FOV to the neutral bucket. Self-drains if consent is ALREADY active —
+    /// a grant that landed in the cross-thread gap between the gate's consent read and this note — so the
+    /// promise isn't silently delayed to the next grant / launch.</summary>
+    private void NoteHeldDeltaForConsent((int Fov, double Md, double Gv, double Fw, bool DeliberatePref) held)
+    {
+        int fd = held.DeliberatePref ? 0 : held.Fov;   // discomfort-charged FOV
+        int fp = held.DeliberatePref ? held.Fov : 0;   // neutral-preference FOV
+        _heldDeltaThisSession = _heldDeltaThisSession is { } p
+            ? (p.FovDiscomfort + fd, p.FovPref + fp, p.Md + held.Md, p.Gv + held.Gv, p.Fw + held.Fw)
+            : (fd, fp, held.Md, held.Gv, held.Fw);
+        if (IsOverlayConsented) ApplyHeldDeltaOnConsentKickIn();   // consent already on (TOCTOU) → apply now
+    }
+
+    /// <summary>Apply any held chat delta the moment protection kicks in this session, so the chatbot's
+    /// "I'll ease your visuals as soon as protection kicks in" is truthful. CONSUME-ONCE (cleared BEFORE the
+    /// apply so a duplicate / re-entrant consent-grant call is a no-op). Applies via the engine knobs DIRECTLY
+    /// (ApplyUserFeedback / ApplyShaderAdjustment) which do NOT append to the adjustment log — the delta is
+    /// already logged once for next-launch replay, so this never double-applies / over-dims (the engine also
+    /// clamps FOV to [-60,0] and shader knobs to [0,1]). The two FOV buckets apply as SEPARATE flagged calls so
+    /// only the discomfort magnitude reaches the habituation ledger. No-op when nothing was held.</summary>
+    private void ApplyHeldDeltaOnConsentKickIn()
+    {
+        if (_heldDeltaThisSession is not { } held) return;
+        _heldDeltaThisSession = null;   // consume-once: clear BEFORE applying
+        if (held.FovDiscomfort != 0) _engine.ApplyUserFeedback(held.FovDiscomfort, isDeliberatePreference: false);
+        if (held.FovPref != 0)       _engine.ApplyUserFeedback(held.FovPref, isDeliberatePreference: true);
+        if (held.Md != 0 || held.Gv != 0 || held.Fw != 0)
+            _engine.ApplyShaderAdjustment(held.Md, held.Gv, held.Fw);
+        UpdateFromState(_engine.Current);
+    }
+
+    // Test hooks (InternalsVisibleTo SenseEase.Tests) — inject a held delta + observe the engine FOV offset, so
+    // the consume-once / apply-on-consent behaviour is unit-testable without driving a full chat turn.
+    internal void InjectHeldDeltaForTests((int Fov, double Md, double Gv, double Fw, bool DeliberatePref) held)
+        => NoteHeldDeltaForConsent(held);
+    internal int UserFovOffsetForTests => _engine.UserFovOffset;
 
     /// <summary>User explicitly tapped "Not now" → stay dormant; the LONG decline cooldown (30 min, Kirby
     /// 2026-06-20) blocks re-prompting until a fresh impactful rise after it elapses.</summary>
