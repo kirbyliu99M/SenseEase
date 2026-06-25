@@ -244,6 +244,16 @@ public sealed class UserPreferences
     [JsonPropertyName("always_allow_overlay")]
     public bool AlwaysAllowOverlay { get; set; } = false;
 
+    /// <summary>"One-tap consent" mode (Kirby 2026-06-25): after the user ticks "don't show this card
+    /// again" on the consent bubble, the bubble STILL appears on each impactful rise, but a SINGLE tap on
+    /// it grants instantly — the card no longer expands. DISTINCT from <see cref="AlwaysAllowOverlay"/>
+    /// (Auto Protect), which suppresses the bubble entirely and auto-engages silently: one-tap keeps the
+    /// per-episode tap so the overlay never actuates without the user's deliberate tap. The two are
+    /// orthogonal (Auto Protect ON wins → no bubble at all). Default <c>false</c>; additive — old files load
+    /// with it absent. Cleared by Settings → Reset preferences (kept by "Clear all my data", like every pref).</summary>
+    [JsonPropertyName("overlay_consent_one_tap")]
+    public bool OverlayConsentOneTap { get; set; } = false;
+
     /// <summary>Overlay-consent durability (W-E, 2026-06-20): the UTC time of the last EXPLICIT "Not now"
     /// decline. The <c>OverlayConsentGovernor</c> is in-memory, so on launch it re-seeds its 30-min decline
     /// cooldown from this — an explicit decline survives a restart instead of re-nagging on the next

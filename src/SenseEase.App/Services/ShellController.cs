@@ -170,7 +170,16 @@ public sealed class ShellController : IShellController
         if (_consentBubble is null)
         {
             _consentBubble = new ConsentBubbleWindow();
-            _consentBubble.ConsentAccepted += (_, _) => { _vm.GrantOverlayConsent(); _consentBubble?.Hide(); };
+            _consentBubble.ConsentAccepted += (_, _) =>
+            {
+                _vm.GrantOverlayConsent();
+                // "Don't show this card again" ticked → turn on ONE-TAP consent mode (NOT Auto Protect): the
+                // bubble keeps appearing on future motion but a single tap grants without the card. Deliberately
+                // does NOT touch AlwaysAllowOverlay, so the Auto Protect quick-setting stays independent.
+                // Persisted; cleared by Settings → Reset preferences (Kirby 2026-06-25).
+                if (_consentBubble?.DontAskAgain == true) _vm.OverlayConsentOneTap = true;
+                _consentBubble?.Hide();
+            };
             _consentBubble.ConsentDeclined += (_, _) => { _vm.DeclineOverlayConsent(); _consentBubble?.Hide(); };
             // While the user has the card expanded, the VM suspends the linger tuck-away so it can't pull
             // the card away mid-decision (Kirby 2026-06-20).
@@ -183,6 +192,10 @@ public sealed class ShellController : IShellController
                 else { _exclude.Unregister(_consentBubble!); _vm.SetConsentInteracting(false); }
             };
         }
+        // Reflect the persisted one-tap preference before showing: when on, a tap on the bubble grants
+        // directly (no card); when off, a tap expands the card. Read each Show so a Reset-preferences flip
+        // takes effect on the next appearance.
+        _consentBubble.OneTapMode = _vm.OverlayConsentOneTap;
         _consentBubble.Show();
         PositionConsentBubble();
         _consentBubble.ReassertTopmost();

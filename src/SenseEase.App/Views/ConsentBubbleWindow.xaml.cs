@@ -35,6 +35,20 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
     /// linger tuck-away while expanded so the card can't be pulled away mid-decision (Kirby 2026-06-20).</summary>
     public event EventHandler<bool>? ExpandedChanged;
 
+    /// <summary>True when the user ticked "don't show this card again" before tapping Start (Kirby 2026-06-25).
+    /// The host then turns on ONE-TAP consent mode (<c>OverlayConsentOneTap</c>) — NOT Auto Protect — so the
+    /// bubble keeps appearing on future motion but a single tap grants without the card (persisted; cleared by
+    /// Settings → Reset preferences). Reset to false on each reshow — the window is created once and reused.
+    /// Null-safe before the template has realized the checkbox.</summary>
+    public bool DontAskAgain => DontAskAgainCheck?.IsChecked == true;
+
+    /// <summary>One-tap consent mode (Kirby 2026-06-25): when true, a tap (or Enter/Space) on the collapsed
+    /// avatar GRANTS directly — fires <see cref="ConsentAccepted"/> — instead of expanding the card, so the
+    /// bubble is the sole one-tap confirm. Set by the host (<c>ShellController</c>) before each Show from the
+    /// persisted pref. When false the avatar expands the card as before (the only place the card + its
+    /// "don't show again" checkbox are reachable). Esc still declines in either mode (fail-safe).</summary>
+    public bool OneTapMode { get; set; }
+
     public ConsentBubbleWindow()
     {
         InitializeComponent();
@@ -137,7 +151,12 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
     private static readonly Duration ExpandDur = new(TimeSpan.FromMilliseconds(220));
     private static readonly Duration CollapseDur = new(TimeSpan.FromMilliseconds(150));
 
-    private void OnAvatarClicked(object sender, RoutedEventArgs e) => SetExpanded(!_expanded);
+    private void OnAvatarClicked(object sender, RoutedEventArgs e)
+    {
+        // One-tap mode: a tap on the bubble IS the consent — grant directly, no card. Otherwise expand.
+        if (OneTapMode) { ConsentAccepted?.Invoke(this, EventArgs.Empty); Hide(); }
+        else SetExpanded(!_expanded);
+    }
 
     /// <summary>Re-collapse to the avatar (+ restore the notice dot) every time the bubble is shown,
     /// since ShellController creates the instance once and reuses it via Show()/Hide().</summary>
@@ -154,6 +173,17 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
         MessageBubble.Visibility = Visibility.Collapsed;
         MsgShift.Y = 0;
         if (NoticeDot is not null) NoticeDot.Visibility = Visibility.Visible;
+        // Reset the "don't ask again" tick — a fresh ask must not carry a stale check from a prior episode.
+        if (DontAskAgainCheck is not null) DontAskAgainCheck.IsChecked = false;
+        // Reflect one-tap vs expand in the avatar's accessible name (the host sets OneTapMode before Show).
+        if (AvatarBtn is not null)
+        {
+            var loc = SenseEase.App.Localization.LocalizationManager.Current;
+            AvatarBtn.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,
+                OneTapMode
+                    ? loc.Pick("SenseEase 通知，點一下即可開啟防護", "SenseEase notice — tap to start protection")
+                    : loc.Pick("SenseEase 通知，點按展開", "SenseEase notice — tap to expand"));
+        }
     }
 
     private void SetExpanded(bool expand)
@@ -236,7 +266,9 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
         if (!_expanded && (e.Key == Key.Enter || e.Key == Key.Space))
         {
             e.Handled = true;
-            SetExpanded(true);
+            // One-tap mode: Enter/Space on the avatar grants directly (mirrors the tap); else expand the card.
+            if (OneTapMode) { ConsentAccepted?.Invoke(this, EventArgs.Empty); Hide(); }
+            else SetExpanded(true);
             return;
         }
         base.OnKeyDown(e);
@@ -254,15 +286,16 @@ public partial class ConsentBubbleWindow : Window, IShellSurface
     {
         var dpi = VisualTreeHelper.GetDpi(this);
         double w = ActualWidth, h = ActualHeight;
-        // R3-7: the window is now a fixed 320x240 that is mostly transparent; the VISIBLE content hugs the
+        // R3-7: the window is a fixed 320x300 that is mostly transparent; the VISIBLE content hugs the
         // right edge, vertically centred. Exclude only a CONTENT footprint (sized for the expanded bubble,
         // constant so it covers both the collapsed avatar and the expanded bubble) — not the whole window,
         // which would over-exclude the transparent area from sensing. Fall back to the window if unrealized.
+        // (2026-06-25: ch grew 220→264 for the extra "don't show again" row, which can wrap to two lines.)
         if (w <= 0 || h <= 0)
             return ((int)Math.Floor(Left * dpi.DpiScaleX), (int)Math.Floor(Top * dpi.DpiScaleY),
                     (int)Math.Ceiling(Width * dpi.DpiScaleX), (int)Math.Ceiling(Height * dpi.DpiScaleY));
 
-        const double cw = 300, ch = 220;
+        const double cw = 300, ch = 264;
         double cLeftDip = Left + (w - cw) - 4;          // right-aligned (RootGrid margin ~10)
         double cTopDip = Top + ((h - ch) / 2.0);        // vertically centred
         int left = (int)Math.Floor(cLeftDip * dpi.DpiScaleX);

@@ -10,7 +10,7 @@
         ShowInTaskbar="False"
         ShowActivated="False"
         ResizeMode="NoResize"
-        SizeToContent="Manual" Width="320" Height="240"
+        SizeToContent="Manual" Width="320" Height="300"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
@@ -18,8 +18,8 @@
     <!-- Item 1 — the consent bubble, REFIT 2026-06-19 (Kirby): a subtle, OS-incorporated rounded MESSAGE
          bubble. At rest it is a small circular avatar (the SenseEase mark centred) carrying a red NOTICE
          dot — no question text, so it is not abrupt. Tapping it EXPANDS the message bubble (the question +
-         Start / Not now) using the popup's flash-free logic: the WINDOW is a FIXED 320x240 (SizeToContent
-         =Manual) that NEVER resizes; the message section grows Height 0->natural + slides/fades INSIDE it
+         Start / Not now / "don't ask again") using the popup's flash-free logic: the WINDOW is a FIXED
+         320x300 (SizeToContent=Manual) that NEVER resizes; the message section grows Height 0->natural + slides/fades INSIDE it
          (no layered-window resize = no flash; no DropShadowEffect for the same reason). The mask stays OFF
          (clamped to L1) until the user taps Start — fail-safe: a missed/ignored bubble means no overlay.
          No-activate (never steals the user's app focus). Popup.* tokens, view-local merge. -->
@@ -116,6 +116,22 @@
                     </StackPanel>
                     <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="19" Foreground="{DynamicResource Popup.Ink1}"
                                Text="{loc:T Zh='偵測到畫面晃動。要為你開啟舒適防護來緩和嗎？', En='SenseEase noticed some on-screen motion. Start the comfort overlay to ease it?'}"/>
+                    <!-- "Don't show this card again" → on Start, turns on ONE-TAP consent mode
+                         (OverlayConsentOneTap): the bubble still appears on future motion, but a single tap
+                         grants without the card. NOT Auto Protect (which would suppress the bubble entirely).
+                         Persisted; cleared by Settings → Reset preferences (Kirby 2026-06-25). Reset to
+                         unchecked on each reshow. -->
+                    <CheckBox x:Name="DontAskAgainCheck" Margin="0,12,0,0" Cursor="Hand"
+                              Foreground="{DynamicResource Popup.Ink2}" FontSize="12"
+                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                              VerticalContentAlignment="Top"
+                              FocusVisualStyle="{DynamicResource FocusVisible}"
+                              AutomationProperties.Name="{loc:T Zh='下次不再顯示卡片，一鍵即可開啟防護', En='Don’t show this card again — one tap to protect'}">
+                        <!-- TextBlock (not a bare string) so the label WRAPS within the card instead of
+                             clipping at the right edge; the box top-aligns with the first line. -->
+                        <TextBlock TextWrapping="Wrap" LineHeight="16"
+                                   Text="{loc:T Zh='下次不再顯示卡片（一鍵即可開啟防護）', En='Don’t show this card again — one tap to protect'}"/>
+                    </CheckBox>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                         <Button x:Name="NotNowBtn" Style="{StaticResource ConsentGhostBtn}" Click="OnNotNowClicked"
                                 Content="{loc:T Zh='暫時不要', En='Not now'}"

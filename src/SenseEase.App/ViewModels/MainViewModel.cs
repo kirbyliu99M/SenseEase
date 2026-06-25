@@ -214,8 +214,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             UserPreferences.Current.Save();
             OnPropertyChanged(nameof(GradedExposureEnabled));
             AppendLog("Habituation",
-                value ? Loc("已於設定啟用漸進適應。", "Graded exposure enabled in Settings.")
-                      : Loc("已於設定暫停漸進適應。", "Graded exposure paused in Settings."),
+                value ? Loc("已於設定啟用漸進適應。", "Adaptive Training enabled in Settings.")
+                      : Loc("已於設定暫停漸進適應。", "Adaptive Training paused in Settings."),
                 CurrentState);
         }
     }
@@ -1616,6 +1616,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             PersistentOverlayBaselineTier = target;                          // setter clamps 1..12
             if (!PersistentOverlayEnabled) PersistentOverlayEnabled = true;  // auto-opens overlay
+            _baselineConsentedThisSession = true;  // a LIVE user-set baseline is in-session consent (shows w/o a bubble)
         }
         if (!OverlayVisible) OverlayVisible = true;
         UpdateFromState(_engine.Current);
@@ -1654,6 +1655,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             PersistentOverlayBaselineTier = target;                          // setter clamps 1..12
             if (!PersistentOverlayEnabled) PersistentOverlayEnabled = true;  // auto-opens overlay
+            _baselineConsentedThisSession = true;  // a LIVE user-set baseline is in-session consent (shows w/o a bubble)
         }
         if (!OverlayVisible) OverlayVisible = true;
         UpdateFromState(_engine.Current);
@@ -1776,7 +1778,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // next level-6 rise asks again. A user-chosen always-on baseline (PersistentOverlayEnabled, e.g.
     // the slider) is explicit consent → it runs the session with no bubble.
     private const int ConsentImpactTier = 6;
-    private const long SessionEndCalmMs = 120_000; // natural tier <=1 this long ⇒ the session ends
+    // Sustained sub-impactful motion (natural tier < ConsentImpactTier) for this long ⇒ the session ends
+    // (2026-06-25: was "natural tier <=1", unreachable on a noisy box). internal so the gate tests can drive it.
+    internal const long SessionEndCalmMs = 120_000;
     // How long the consent bubble lingers VISIBLE, unanswered, before it tucks itself away (so it isn't a
     // permanent fixture). On tuck-away RecordDismissedUnanswered re-times the SHORT no-answer cooldown from
     // that moment, so the bubble stays gone for exactly NoAnswerCooldown and then RE-APPEARS on the next
@@ -1784,12 +1788,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // durations are independent (no ordering invariant). internal so the linger/persist tests can read it.
     internal const long ConsentLingerMs = 45_000;
     private bool _overlaySessionActive;
+    // Gate-restored-baselines fix (Kirby 2026-06-25): a persistent-overlay baseline RESTORED from disk at
+    // launch must NOT silently bypass the consent bubble (the QA "Auto Protect OFF but overlay engaged +
+    // permanent session" report — the strength slider durably set persistent_overlay_enabled). Only a
+    // baseline the user sets LIVE this session (slider / +/- / 常駐遮罩) or an explicit grant counts as
+    // in-session consent; HydratePersistentOverlayFromPrefs leaves this false, so a restored baseline still
+    // passes the consent gate before the overlay first becomes visible. In-memory (resets each launch).
+    private bool _baselineConsentedThisSession;
 
     /// <summary>W-G (2026-06-20): true when the comfort overlay may engage WITHOUT holding for consent —
-    /// Auto Protect (always-allow), a live granted session, or a standing always-on baseline. The chatbot
-    /// gates its engine actuation on this so a chat-driven change can't mutate persistent protection state
-    /// before the user has consented to the overlay.</summary>
-    internal bool IsOverlayConsented => AlwaysAllowOverlay || _overlaySessionActive || PersistentOverlayEnabled;
+    /// Auto Protect (always-allow), a live granted session, or a standing always-on baseline that was set
+    /// LIVE this session / since granted. The chatbot gates its engine actuation on this so a chat-driven
+    /// change can't mutate persistent protection state before the user has consented to the overlay.
+    /// (2026-06-25: a baseline merely restored from disk is NOT yet consent — see
+    /// <see cref="_baselineConsentedThisSession"/> — so it no longer pre-blesses chat actuation either.)</summary>
+    internal bool IsOverlayConsented =>
+        AlwaysAllowOverlay || _overlaySessionActive || (PersistentOverlayEnabled && _baselineConsentedThisSession);
     private long _calmSinceTick;    // tick when calm began; 0 = not currently calm
     private long _consentAskedTick; // tick when the bubble was last raised; 0 = not pending
     private bool _consentPending;
@@ -1836,6 +1850,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>"One-tap consent" mode (Kirby 2026-06-25) — see <see cref="UserPreferences.OverlayConsentOneTap"/>.
+    /// When ON, the consent bubble still appears on each impactful rise (the gate is UNCHANGED), but the host
+    /// makes a single tap on the bubble grant directly instead of expanding the card. Set when the user ticks
+    /// "don't show this card again" on the bubble. ORTHOGONAL to <see cref="AlwaysAllowOverlay"/> (Auto Protect):
+    /// this never suppresses the bubble or pre-grants — it only changes what a tap does, so the overlay still
+    /// waits for the user's deliberate tap. Persisted; the host (<c>ShellController</c>) reads it before each
+    /// Show and on the bubble's accept callback. Does NOT touch the consent GATE, so Auto Protect is untouched.</summary>
+    public bool OverlayConsentOneTap
+    {
+        get => UserPreferences.Current.OverlayConsentOneTap;
+        set
+        {
+            if (OverlayConsentOneTap == value) return;
+            UserPreferences.Current.OverlayConsentOneTap = value;
+            UserPreferences.Current.Save();
+            OnPropertyChanged(nameof(OverlayConsentOneTap));
+        }
+    }
+
     /// <summary>Item 4 (UVHS fix 2026-06-21): the USER's manual 常駐遮罩 / Persistent mask switch — invoked here
     /// from <c>ShellController.PersistentMaskEnabled</c> (the bar toggle), deliberately NOT from the
     /// <see cref="PersistentOverlayEnabled"/> property setter, so the intensity slider's baseline-floor use of
@@ -1853,6 +1886,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // baseline (the setter also auto-opens the overlay).
             (_engine as MockInferenceEngine)?.SetAutoLevelHold(true, ConsentImpactTier);
             PersistentOverlayEnabled = true;
+            _baselineConsentedThisSession = true;  // a LIVE 常駐遮罩 toggle is in-session consent (shows w/o a bubble)
         }
         else
         {
@@ -1894,8 +1928,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        // Always-on baseline (slider / PersistentOverlay) = explicit consent → run the session, no bubble.
-        if (PersistentOverlayEnabled)
+        // Always-on baseline (slider / 常駐遮罩) set LIVE this session = explicit consent → run the session,
+        // no bubble. A baseline merely RESTORED from disk falls through to the dormant ask path below, so the
+        // overlay still passes the consent bubble before first becoming visible (Kirby 2026-06-25: the
+        // cross-restart silent-bypass bug behind the QA "Auto Protect OFF but overlay engaged" report).
+        if (PersistentOverlayEnabled && _baselineConsentedThisSession)
         {
             _overlaySessionActive = true;
             _consentPending = false;
@@ -1905,9 +1942,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         if (_overlaySessionActive)
         {
-            // Session live → the overlay follows the engine across ALL levels. End it on sustained calm
-            // (natural tier back at L1 for SessionEndCalmMs) so the next level-6 rise re-asks.
-            if (naturalTier <= 1)
+            // Session live → the overlay follows the engine across ALL levels. End it on sustained SUB-IMPACTFUL
+            // motion (natural tier below the impactful threshold for SessionEndCalmMs) so the next level-6 rise
+            // re-asks. (Kirby 2026-06-25: the old "natural tier <=1" test was unreachable on a noisy/video QA
+            // box — the tier rarely sat at dead-calm for two unbroken minutes — so a granted session never
+            // ended and felt permanent. "< ConsentImpactTier" still ends it after sustained gentle motion.)
+            if (naturalTier < ConsentImpactTier)
             {
                 long now = ConsentTickProvider();
                 if (_calmSinceTick == 0) _calmSinceTick = now;
@@ -1917,11 +1957,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        // Dormant → hold EVERYTHING off; ask only at the impactful tier.
+        // Dormant → hold EVERYTHING off; ask once the would-be VISIBLE level reaches the impactful tier.
         if (!_consentPending)
         {
-            // No prompt up → raise one once the motion reaches the impactful tier and the cooldown allows.
-            if (naturalTier >= ConsentImpactTier && _overlayConsent.ShouldAsk())
+            // The trigger level is the max of live motion and a RESTORED always-on baseline, so a restored
+            // baseline that wants to show at rest (e.g. tier 9) prompts at launch — after StartupQuiet —
+            // instead of waiting for a real motion spike (Kirby 2026-06-25: gate restored baselines). A
+            // baseline set LIVE this session never reaches here (it took the consented-bypass branch above).
+            int gateTier = PersistentOverlayEnabled
+                ? Math.Max(naturalTier, PersistentOverlayBaselineTier)
+                : naturalTier;
+            if (gateTier >= ConsentImpactTier && _overlayConsent.ShouldAsk())
             {
                 _consentPending = true;
                 _consentAskedTick = ConsentTickProvider();
@@ -1984,6 +2030,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void GrantOverlayConsent()
     {
         _overlaySessionActive = true;
+        // The grant also blesses any restored baseline for the rest of this run, so the user's standing
+        // baseline is honored after the session later ends on calm without re-holding it on every dip.
+        _baselineConsentedThisSession = true;
         _consentPending = false;
         _consentInteracting = false;
         _calmSinceTick = 0;

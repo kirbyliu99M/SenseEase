@@ -158,15 +158,87 @@ public class ConsentGateTests : IDisposable
     }
 
     [Fact]
-    public void AlwaysOnBaseline_IsImplicitConsent_NeverGated()
+    public void AlwaysOnBaseline_SetLiveThisSession_IsImplicitConsent_NeverGated()
     {
         var vm = new MainViewModel();
-        vm.SetIntensityLevel(6); // user opted into an always-on baseline → PersistentOverlayEnabled = true
+        vm.SetIntensityLevel(6); // user opted into an always-on baseline LIVE → PersistentOverlayEnabled = true
         int asks = 0;
         vm.OverlayConsentRequested += (_, _) => asks++;
 
         Assert.False(vm.ShouldHoldMaskForConsent(8));
         Assert.Equal(0, asks);
+        Assert.True(vm.IsOverlayConsented); // a live-set baseline is in-session consent
+    }
+
+    // ── Gate-restored-baselines fix (Kirby 2026-06-25): a persistent_overlay baseline RESTORED from disk
+    //    (e.g. the strength slider durably set it in a PRIOR run) must NOT silently bypass the consent
+    //    bubble — the root cause of the QA "Auto Protect OFF but overlay engaged + permanent session" report.
+    //    Only a LIVE in-session baseline (above) or an explicit grant counts as consent. ──
+
+    [Fact]
+    public void RestoredBaseline_FromDisk_StillHeldAndAsks_NotASilentBypass()
+    {
+        // Simulate the QA box: a prior run's slider drag persisted an always-on baseline (tier 9).
+        UserPreferences.Current.PersistentOverlayEnabled = true;
+        UserPreferences.Current.PersistentOverlayBaselineTier = 9;
+        UserPreferences.Current.Save();
+        UserPreferences.ResetCacheForTesting();       // restart: the fresh VM re-reads the baseline from disk
+
+        var vm = new MainViewModel();                 // hydrates the baseline, but NOT in-session consent
+        vm.OverlayConsentGovernorForTests.StartupQuiet = TimeSpan.Zero;
+        Assert.True(vm.PersistentOverlayEnabled);     // precondition: the baseline actually hydrated
+        Assert.Equal(9, vm.PersistentOverlayBaselineTier);
+        int asks = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+
+        Assert.False(vm.IsOverlayConsented);          // a restored baseline is not yet consent
+        // Even at REST (natural L1) the restored tier-9 baseline would be visible → prompt at launch, held.
+        Assert.True(vm.ShouldHoldMaskForConsent(1));
+        Assert.Equal(1, asks);
+    }
+
+    [Fact]
+    public void RestoredBaseline_AfterGrant_IsHonoredForTheRun()
+    {
+        UserPreferences.Current.PersistentOverlayEnabled = true;
+        UserPreferences.Current.PersistentOverlayBaselineTier = 9;
+        UserPreferences.Current.Save();
+        UserPreferences.ResetCacheForTesting();         // restart: re-read the baseline from disk
+
+        var vm = new MainViewModel();
+        vm.OverlayConsentGovernorForTests.StartupQuiet = TimeSpan.Zero;
+        Assert.True(vm.PersistentOverlayEnabled);       // precondition: the baseline hydrated
+
+        Assert.True(vm.ShouldHoldMaskForConsent(1));   // held + ask at launch
+        vm.GrantOverlayConsent();                       // user taps Start
+
+        Assert.True(vm.IsOverlayConsented);
+        Assert.False(vm.ShouldHoldMaskForConsent(1));   // baseline now honored at rest — un-held, no re-hold
+        Assert.False(vm.ShouldHoldMaskForConsent(8));
+    }
+
+    [Fact]
+    public void GrantedSession_Ends_AfterSustainedSubImpactfulMotion_NotJustDeadCalm()
+    {
+        // Permanent-session fix: the end-test is now "natural < impactful" (not "natural <= 1"), so a
+        // granted session ends after sustained GENTLE motion — reachable on a noisy/video box.
+        var vm = NewVm();
+        vm.OverlayConsentGovernorForTests.NoAnswerCooldown = TimeSpan.Zero; // bypass the real-time re-ask cooldown
+        long tick = 1_000; vm.ConsentTickProvider = () => tick;             // non-zero: 0 is the "not calm" sentinel
+        int asks = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+
+        Assert.True(vm.ShouldHoldMaskForConsent(6));  // ask #1
+        vm.GrantOverlayConsent();                      // session live
+        Assert.Equal(1, asks);
+
+        // Sustained tier-3 motion (never dead-calm at L1, but below the impactful threshold).
+        Assert.False(vm.ShouldHoldMaskForConsent(3));          // session live; calm window opens
+        tick += MainViewModel.SessionEndCalmMs;
+        Assert.False(vm.ShouldHoldMaskForConsent(3));          // calm window elapsed → the session ends here
+        // Proof it truly ended: the next impactful rise re-asks (old <=1 behaviour would never end → no re-ask).
+        Assert.True(vm.ShouldHoldMaskForConsent(6));
+        Assert.Equal(2, asks);
     }
 
     [Fact]
@@ -187,6 +259,53 @@ public class ConsentGateTests : IDisposable
 
         Assert.True(vm.ShouldHoldMaskForConsent(6));    // dormant again → held AND re-asks at the impact tier
         Assert.Equal(1, asks);
+    }
+
+    // ── One-tap consent mode (Model-2, Kirby 2026-06-25): ticking "don't show the card again" turns on
+    //    ONE-TAP mode, NOT Auto Protect. The consent GATE is unchanged (the bubble still appears); only the
+    //    view's tap-handler changes (a tap grants without the card). These pin the orthogonality the user
+    //    flagged — one-tap must NOT touch Auto Protect, and must NOT suppress the bubble. ──
+
+    [Fact]
+    public void OneTapConsentMode_DoesNotTouchAutoProtect_NorSuppressTheBubble()
+    {
+        var vm = NewVm();
+        int asks = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+
+        vm.OverlayConsentOneTap = true;                 // user ticked "don't show the card again"
+
+        Assert.True(vm.OverlayConsentOneTap);
+        Assert.False(vm.AlwaysAllowOverlay);            // Auto Protect untouched (the user's key concern)
+        Assert.True(vm.ShouldHoldMaskForConsent(6));    // gate UNCHANGED → still held + the bubble still appears
+        Assert.Equal(1, asks);
+    }
+
+    [Fact]
+    public void AutoProtect_StillWins_OverOneTap_NoBubble()
+    {
+        // Orthogonality the other way: with BOTH set, Auto Protect's "no bubble, auto-engage" still wins.
+        var vm = NewVm();
+        int asks = 0;
+        vm.OverlayConsentRequested += (_, _) => asks++;
+
+        vm.OverlayConsentOneTap = true;
+        vm.AlwaysAllowOverlay = true;
+
+        Assert.False(vm.ShouldHoldMaskForConsent(8));   // Auto Protect branch → un-held, no bubble
+        Assert.Equal(0, asks);
+    }
+
+    [Fact]
+    public void OneTapConsent_Persists_AndResetPreferencesClearsIt()
+    {
+        UserPreferences.Current.OverlayConsentOneTap = true;
+        UserPreferences.Current.Save();
+        UserPreferences.ResetCacheForTesting();
+        Assert.True(UserPreferences.Current.OverlayConsentOneTap);   // survives a reload
+
+        UserPreferences.ResetToDefaults();                            // Settings → Reset preferences
+        Assert.False(UserPreferences.Current.OverlayConsentOneTap);   // cleared, per the chosen reset scope
     }
 
     [Fact]
