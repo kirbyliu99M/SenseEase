@@ -71,7 +71,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; The entire staged dist: the self-contained app + packs\intel-ov\host (the OV host)
 ; + packs\intel-ov\model (the INT4 IR). Single backend, installed unconditionally.
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.log,createdump.exe"
+; NOTE: do NOT exclude *.xml — the OpenVINO IR topology files (openvino_model.xml + tokenizer/detokenizer)
+; live under packs\intel-ov\model and MUST ship, else the host loads weights-only and fails (Intel field bug).
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"

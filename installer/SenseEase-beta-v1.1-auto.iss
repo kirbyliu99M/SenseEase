@@ -59,7 +59,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Base: the self-contained app + sidecar; carve out \packs (re-added Check-gated below).
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.log,createdump.exe,\packs\*"
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\packs\*"
 ; Intel OpenVINO GenAI pack (host + INT4 IR) — Intel boxes only.
 Source: "{#DistRoot}\packs\intel-ov\*"; DestDir: "{app}\packs\intel-ov"; Check: IsIntelCpu; Flags: ignoreversion recursesubdirs createallsubdirs
 ; AMD FastFlowLM runtime — AMD-NPU boxes only. FlmServerLauncher.FindExe probes {app}\packs\amd-flm\flm FIRST.

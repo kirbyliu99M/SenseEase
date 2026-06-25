@@ -59,7 +59,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Everything EXCEPT the Q4NX -> {app}  (the self-contained app + sidecar + packs\amd-flm\flm).
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.log,createdump.exe,\packs\amd-flm\q4nx\*"
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\packs\amd-flm\q4nx\*"
 ; Q4NX -> FLM's OWN per-user store (writable at lowest privilege) so `flm serve qwen3-it:4b` resolves it.
 ; The dest dir name MUST be the FLM catalog name (Qwen3-4B-Instruct-2507-NPU2).
 Source: "{#DistRoot}\packs\amd-flm\q4nx\Qwen3-4B-Instruct-2507-NPU2\*"; DestDir: "{%USERPROFILE}\.flm\models\Qwen3-4B-Instruct-2507-NPU2"; Flags: ignoreversion recursesubdirs createallsubdirs
