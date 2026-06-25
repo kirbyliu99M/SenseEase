@@ -815,7 +815,7 @@ public partial class SettingsContent : UserControl
                     "Reset preferences?\n\n" +
                     "Will restore to defaults: appearance (Auto), language (Traditional Chinese), " +
                     "the notification & background toggles, and the notification-card position.\n" +
-                    "This does not delete your data and does not affect graded-exposure progress.\n\n" +
+                    "This does not delete your data and does not affect Adaptive Training progress.\n\n" +
                     "This cannot be undone.")))
             return;
 
@@ -866,7 +866,7 @@ public partial class SettingsContent : UserControl
                     "Clear all the data SenseEase built about you and reset?\n\n" +
                     "Will delete: behaviour log, analysis index, longitudinal observations, " +
                     "model diagnostic trace, chat transcript, check-in history, legacy calibration history.\n" +
-                    "Will keep: your graded-exposure progress and preferences.\n\n" +
+                    "Will keep: your Adaptive Training progress and preferences.\n\n" +
                     "This cannot be undone."),
                 DialogKind.Warning))
             return;

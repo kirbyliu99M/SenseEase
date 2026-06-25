@@ -697,10 +697,10 @@
                 <StackPanel Orientation="Horizontal" Margin="0,2">
                     <CheckBox Style="{StaticResource SettingSwitch}" IsChecked="{Binding GradedExposureOn}"
                               Foreground="{DynamicResource Popup.Ink1}"
-                              Content="{loc:T Zh='漸進適應', En='Graded exposure'}"
+                              Content="{loc:T Zh='漸進適應', En='Adaptive Training'}"
                               AutomationProperties.HelpText="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"/>
                     <Button Style="{StaticResource HelpGlyph}" Margin="6,0,0,0" VerticalAlignment="Center"
-                            AutomationProperties.Name="{loc:T Zh='漸進適應說明', En='Graded exposure help'}">
+                            AutomationProperties.Name="{loc:T Zh='漸進適應說明', En='Adaptive Training help'}">
                         <Button.ToolTip><ToolTip Style="{StaticResource HelpTip}"
                             Content="{loc:T Zh='開啟後，SenseEase 會在您舒適時逐步、緩慢地放寬防護，幫助您按自己的步調適應。隨時可暫停。', En='When on, SenseEase gradually relaxes protection while you are comfortable, helping you adjust at your own pace. Pause anytime.'}"/></Button.ToolTip>
                     </Button>

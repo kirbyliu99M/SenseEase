@@ -323,7 +323,7 @@
                 <StackPanel Orientation="Vertical">
                     <CheckBox x:Name="ToggleGradedExposure"
                               Style="{StaticResource SettingSwitch}"
-                              Content="{loc:T Zh='啟用漸進適應（緩慢提高舒適度）', En='Enable graded exposure (slowly builds comfort)'}"
+                              Content="{loc:T Zh='啟用漸進適應（緩慢提高舒適度）', En='Enable Adaptive Training (slowly builds comfort)'}"
                               Foreground="{DynamicResource TextPrimary}"
                               FontSize="13"
                               Checked="OnToggleGradedExposureChanged"
@@ -644,7 +644,7 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource GroupHeader}"
                            Text="{loc:T Zh='重設與清除', En='Reset &amp; clear'}"/>
-                <TextBlock Text="{loc:T Zh='把外觀、語言、通知與背景開關，以及通知卡片的位置還原成預設值。不會刪除你的資料或漸進適應進度。', En='Restore appearance, language, the notification &amp; background toggles, and the notification-card position to their defaults. This does not delete your data or graded-exposure progress.'}"
+                <TextBlock Text="{loc:T Zh='把外觀、語言、通知與背景開關，以及通知卡片的位置還原成預設值。不會刪除你的資料或漸進適應進度。', En='Restore appearance, language, the notification &amp; background toggles, and the notification-card position to their defaults. This does not delete your data or Adaptive Training progress.'}"
                            FontSize="12"
                            Foreground="{DynamicResource TextTertiary}"
                            TextWrapping="Wrap"
@@ -661,14 +661,14 @@
                         BorderThickness="1"
                         Cursor="Hand"
                         Click="OnResetPreferencesClicked"
-                        ToolTip="{loc:T Zh='把外觀、語言、通知與背景開關及通知卡片位置還原成預設值；不影響你的資料或漸進適應進度。', En='Restore appearance, language, notification &amp; background toggles, and the notification-card position to defaults; your data and graded-exposure progress are unaffected.'}"/>
+                        ToolTip="{loc:T Zh='把外觀、語言、通知與背景開關及通知卡片位置還原成預設值；不影響你的資料或漸進適應進度。', En='Restore appearance, language, notification &amp; background toggles, and the notification-card position to defaults; your data and Adaptive Training progress are unaffected.'}"/>
 
                 <Border Background="{DynamicResource Separator}" Height="1" Margin="0,14,0,12"/>
 
                 <!-- UX-09 + FEAT-13 (B1b): the caption + confirm dialog plainly enumerate
                      everything deleted and everything kept, so the label never overstates.
                      Destructive — placed LAST in the group (low-vision top-down scan safety). -->
-                <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄、感受紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, check-in history, and legacy calibration history SenseEase has built about you. Your graded-exposure progress and preferences are kept. This cannot be undone.'}"
+                <TextBlock Text="{loc:T Zh='清除 SenseEase 為你建立的長期行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄、感受紀錄與舊版校正紀錄。你的漸進適應進度與偏好設定會保留，此動作無法復原。', En='Clear the behaviour log, analysis index, longitudinal observations, model diagnostic trace, chat transcript, check-in history, and legacy calibration history SenseEase has built about you. Your Adaptive Training progress and preferences are kept. This cannot be undone.'}"
                            FontSize="12"
                            Foreground="{DynamicResource TextTertiary}"
                            TextWrapping="Wrap"
@@ -685,7 +685,7 @@
                         BorderThickness="1"
                         Cursor="Hand"
                         Click="OnClearAllDataClicked"
-                        ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察、模型追蹤、對話紀錄與舊版校正紀錄；保留漸進適應進度與偏好設定。', En='Deletes the behaviour log, analysis index, longitudinal observations, model trace, chat transcript, and legacy calibration history; keeps your graded-exposure progress and preferences.'}"/>
+                        ToolTip="{loc:T Zh='刪除行為紀錄、分析索引、長期觀察、模型追蹤、對話紀錄與舊版校正紀錄；保留漸進適應進度與偏好設定。', En='Deletes the behaviour log, analysis index, longitudinal observations, model trace, chat transcript, and legacy calibration history; keeps your Adaptive Training progress and preferences.'}"/>
             </StackPanel>
 
         </StackPanel>
