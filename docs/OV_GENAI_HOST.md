@@ -96,16 +96,29 @@ at a time, the case prefix caching is for), so the default-ON is correct there; 
 ## Cache & the pre-built blob (decision #3)
 
 OpenVINO compiles the model once and stores a blob in `CACHE_DIR`, **keyed by a hash of
-{model + device + plugin config + NPU driver/compiler version}**. Cache hit → import (~5 s); miss → recompile
-(~237 s on the NPU) and re-cache locally. Setting `CACHE_DIR` bypasses the driver's own UMD cache.
+{model **absolute path** + device + plugin config + NPU driver/compiler version}**. Cache hit → import (~6 s);
+miss → recompile (**field-measured ~5½ min cold on the NPU**, longer than the earlier ~237 s estimate) and
+re-cache locally. Setting `CACHE_DIR` bypasses the driver's own UMD cache.
+
+> **Field bug 2026-06-26 (Cache-issue-breakdown.md) — the cold compile wasn't persisting.** Two app-side defects
+> combined: (a) the readiness watchdog **killed the host mid-compile** once the budget elapsed (the old
+> "rare race" teardown in `TryStartManagedBackendAsync`), interrupting OpenVINO's blob export → nothing cached →
+> every cold start recompiled + the host churned; (b) on a fresh box `%LOCALAPPDATA%\SenseEase\ov_cache` didn't
+> exist yet. **Fixes:** the launcher now **pre-creates** the cache dir, and a still-`compiling` host is **left
+> running** to finish + export its blob (budget raised to 360 s; the host is only torn down on a genuine
+> error/dead-process). Because the install model path is **stable**, once the blob exists for that path every
+> later launch **hits** it (~6 s warm). NB the path-keying means a blob built at a *different* path (e.g. a dev
+> tree) won't hit a different install path — see the pre-built-blob caveat below.
 
 **Blob portability is NOT guaranteed across OV / NPU-driver versions** (Intel: pre-compiled blobs are
 development-only as a hard dependency). A driver update silently invalidates the blob → one recompile, then
 cached. So the shipping strategy is a **hybrid**:
 
-1. **Ship the pre-built blob** seeded into `%LOCALAPPDATA%\SenseEase\ov_cache` — the fast path on a matched box.
-2. **Keep the first-run "preparing AI (~1 min, once)" message** as the graceful fallback when the blob misses
-   and the host recompiles.
+1. **Ship the pre-built blob** seeded into `%LOCALAPPDATA%\SenseEase\ov_cache` — the fast path on a matched box,
+   **but only if it was compiled at the exact install model path** (`…\packs\intel-ov\model`); a dev-path blob
+   misses. When the install path can't be fixed at build time, rely on the persist-on-first-run path above.
+2. **Keep the first-run "preparing AI (a few minutes, first run only)" message** as the graceful fallback when
+   the blob misses and the host recompiles. The compile is now a **one-time** cost that survives restarts.
 3. **Pin the NPU-driver version** across the controlled-AIPC fleet so the blob actually hits.
 
 > **PINNED NPU-DRIVER VERSION (fill at blob-build time):** `<intel-npu-driver-version>` — the driver the shipped

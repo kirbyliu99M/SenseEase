@@ -173,11 +173,16 @@ public static class OvGenAiHostLauncher
             psi.EnvironmentVariables["OVHOST_MODELID"] = DefaultModelId;
             // Per-user-writable CACHE_DIR (the host's C:\ovgenai default isn't writable on a per-user install).
             // The compiled NPU blob lands here; a shipped pre-built blob can be seeded into this dir (decision #3).
+            // CREATE the directory before launch (Intel field bug 2026-06-26): on a fresh box %LOCALAPPDATA%\
+            // SenseEase\ov_cache doesn't exist yet, and if OpenVINO can't open CACHE_DIR it silently skips the
+            // blob export → every cold start pays the full ~5-min NPU compile. A stable, pre-created, writable
+            // dir + the fixed install model path turns that compile into a one-time cost that survives reboots.
             try
             {
                 string cache = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "SenseEase", "ov_cache");
+                try { Directory.CreateDirectory(cache); } catch { /* best-effort; host also create_directories() */ }
                 psi.EnvironmentVariables["OVHOST_CACHE"] = cache;
             }
             catch { /* fall back to the host's own default */ }

@@ -1059,12 +1059,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             npuStarter = ct => OvGenAiHostLauncher.TryAcquireAsync(OvGenAiHostLauncher.DefaultModelId, device: "NPU", OvGenAiHostLauncher.DefaultPort, ovTrace, ct);
             ovManagedPath = true;
         }
-        // OV managed path (#38b/#38a): the host cold-compiles the NPU blob (≈237 s on a cache miss) — give the
-        // external connect a long readiness budget (gated on /health=ready, NOT /v1/models) and DISABLE
-        // idle-unload (decision #6) so an idle window can't kill the host and force a re-compile. FLM keeps the
-        // default 12 s budget + 5 min idle-unload (its launcher already confirms readiness on /v1/models).
+        // OV managed path (#38b/#38a): the host cold-compiles the NPU blob — a field-measured ~5½ min on a cold
+        // cache miss (Intel box 2026-06-26), longer than the earlier ≈237 s estimate — so give the external
+        // connect a long readiness budget (gated on /health=ready, NOT /v1/models) and DISABLE idle-unload
+        // (decision #6) so an idle window can't kill the host and force a re-compile. 360 s covers the observed
+        // cold compile with margin; even if it overruns, the host is now LEFT RUNNING to finish + cache (see
+        // TryStartManagedBackendAsync), so the next turn reconnects and the next LAUNCH is warm (~6 s). FLM keeps
+        // the default 12 s budget + 5 min idle-unload (its launcher already confirms readiness on /v1/models).
         TimeSpan? llmIdleTimeout = ovManagedPath ? TimeSpan.Zero : (TimeSpan?)null;
-        TimeSpan? llmReadyBudget = ovManagedPath ? TimeSpan.FromSeconds(300) : (TimeSpan?)null;
+        TimeSpan? llmReadyBudget = ovManagedPath ? TimeSpan.FromSeconds(360) : (TimeSpan?)null;
         _llm = new LocalLlmChatbotService(chatModel.ModelPath, _adjustmentLog, _log,
             stopTokens: chatModel.StopTokens, extraServerArgs: chatModel.ExtraServerArgs,
             nGpuLayers: chatModel.NGpuLayers, idleTimeout: llmIdleTimeout,

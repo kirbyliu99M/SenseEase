@@ -109,6 +109,10 @@ static std::string build_prompt(const json& messages) {
 // ----------------------------------------------------------------------------- pipeline load
 static void load_pipeline() {
     ov::AnyMap cfg;
+    // Ensure CACHE_DIR exists + is writable BEFORE compile (Intel field bug 2026-06-26): if OpenVINO can't open
+    // the cache dir it silently skips the blob export, so every cold start pays the full ~5-min NPU compile.
+    // The app launcher also pre-creates this dir; doing it here too keeps a standalone host self-sufficient.
+    try { std::filesystem::create_directories(CACHE); } catch (...) { /* OV falls back to no-cache */ }
     cfg["CACHE_DIR"] = CACHE;
     if (DEVICE == "NPU") {
         // Validated NPU props (genai_host.py). §D also lists PREFILL_HINT="DYNAMIC" as optional;

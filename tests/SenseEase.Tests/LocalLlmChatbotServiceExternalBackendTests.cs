@@ -78,6 +78,9 @@ public class LocalLlmChatbotServiceExternalBackendTests
 
         Assert.False(svc.IsModelLoaded);                // did NOT false-start on the 200 /v1/models
         Assert.NotNull(svc.LoadError);
+        // The not-ready reason is recorded as 'compiling' (not a hard error) — the signal the managed path uses
+        // to LEAVE a still-compiling host running so its NPU cache blob persists (Intel fix 2026-06-26).
+        Assert.Contains("compiling", svc.LoadError!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -150,6 +153,17 @@ public class LocalLlmChatbotServiceExternalBackendTests
     [InlineData(false, true, true, false)]   // not loaded → the normal reload-on-demand path handles it
     public void ShouldReacquireOwnedProcess_TruthTable(bool loaded, bool owned, bool exited, bool expected)
         => Assert.Equal(expected, LocalLlmChatbotService.ShouldReacquireOwnedProcess(loaded, owned, exited));
+
+    [Theory]
+    // KEYSTONE of the Intel NPU-cache fix (2026-06-26): never tear down a still-compiling host — it must finish
+    // its cold compile + export the cache blob, else every cold start recompiles and the host churns.
+    [InlineData(true,  true,  false, false)] // compiling + OUR process is alive  → LEAVE (let it finish + cache)
+    [InlineData(true,  false, false, false)] // compiling + reused (not owned)     → LEAVE (can't/needn't kill)
+    [InlineData(true,  true,  true,  true)]  // compiling but OUR process DIED     → tear down → relaunch next turn
+    [InlineData(false, true,  false, true)]  // hard error / never bound + owned   → tear down (kill + fall back)
+    [InlineData(false, false, false, true)]  // hard error / never bound + reused  → tear down (unpin + fall back)
+    public void ShouldTearDownUnreadyManagedHost_TruthTable(bool compiling, bool owned, bool exited, bool expected)
+        => Assert.Equal(expected, LocalLlmChatbotService.ShouldTearDownUnreadyManagedHost(compiling, owned, exited));
 
     /// <summary>A throwaway loopback OpenAI-ish host for readiness tests: dispatches by request path through a
     /// caller-supplied responder (returns (statusCode, jsonBody)). Loopback prefix needs no admin/URL ACL.</summary>

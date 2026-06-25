@@ -501,7 +501,7 @@ public sealed class LocalLlmChatbotService : IChatbotService
         _serverProcess = mb.OwnedProcess;          // killed on Dispose iff we launched it (else null = reused)
         string backendName = _managedIsOvHost ? "OpenVINO GenAI host" : "FastFlowLM NPU";
         _externalBackendLabel = $"{backendName} ({(mb.OwnedProcess is not null ? "launched" : "reused")})";
-        await ConnectExternalAsync().ConfigureAwait(false);
+        ConnectOutcome outcome = await ConnectExternalAsync().ConfigureAwait(false);
         if (IsModelLoaded)
         {
             // Idle-unload (audit 2026-06-22): arm the poll for a FLM server WE launched so its ~3 GB NPU
@@ -517,7 +517,25 @@ public sealed class LocalLlmChatbotService : IChatbotService
             return true;
         }
 
-        // Acquired but couldn't connect (rare race) — undo external mode + don't leak a process we own.
+        // Acquired but not ready yet. A host still COMPILING is healthy — LEAVE IT RUNNING so the NPU
+        // cold-compile finishes AND OpenVINO writes its cache blob to the per-install CACHE_DIR. Killing a
+        // compiling host here (the old "rare race" teardown) both wasted the ~5-min compile and threw the cache
+        // away, so EVERY cold start recompiled and the readiness watchdog churned the host (Intel field bug
+        // 2026-06-26). Keep external mode pinned so the NEXT SendAsync reconnects to this same host (warm/ready
+        // by then) instead of launching a second one; this turn falls to the calm "preparing" status / lexicon.
+        // Guard: if we OWN the process and it has actually died mid-compile, fall through to teardown so the
+        // next turn relaunches cleanly (a dead host would otherwise stay pinned and stick on the lexicon).
+        if (!ShouldTearDownUnreadyManagedHost(
+                stillCompiling: outcome == ConnectOutcome.Compiling,
+                haveOwnedProcess: _serverProcess is not null,
+                ownedProcessExited: _serverProcess?.HasExited == true))
+        {
+            LogDiag("LLM backend still compiling past the readiness budget — left running to finish + cache; will reconnect next turn.");
+            return false;
+        }
+
+        // Genuine failure (error / never bound / our compiling host died) — undo external mode + don't leak a
+        // process we own, so the caller falls cleanly back to the bundled Vulkan launch (or the lexicon).
         _externalBaseUrl = null;
         _externalModelName = null;
         if (_serverProcess is not null)
@@ -543,6 +561,14 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// <summary>Health of an external OpenAI host as reported by its <c>/health</c> endpoint.</summary>
     public enum ExternalHealth { Ready, Compiling, Error }
 
+    /// <summary>Outcome of one <see cref="ConnectExternalAsync"/> attempt. Lets the managed-backend caller tell a
+    /// host that is still healthily <see cref="Compiling"/> (leave it running so the NPU cold-compile finishes AND
+    /// OpenVINO writes its cache blob to the per-install <c>CACHE_DIR</c>) apart from one that <see cref="Error"/>ed
+    /// or never bound (<see cref="Unreachable"/> → tear it down + fall back). Killing a still-compiling host both
+    /// wasted the ~5-min compile and threw away the cache, so every cold start recompiled — Intel field bug
+    /// 2026-06-26 (Cache-issue-breakdown.md).</summary>
+    private enum ConnectOutcome { Ready, Compiling, Error, Unreachable }
+
     /// <summary>External-backend connect (ultrabook #5 + #38a): confirm the already-running OpenAI server is
     /// actually READY before marking loaded. We gate on <c>GET /health</c> — the OV GenAI host reports
     /// <c>status=ready|compiling|error</c> there — polling within <see cref="_externalReadyBudget"/> while it
@@ -552,11 +578,11 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// <c>/v1/models</c> probe, so existing backends are unaffected. We do NOT launch or supervise the server —
     /// no bearer, no child process. Never throws; a failure leaves <see cref="IsModelLoaded"/> false so the
     /// caller drops to the deterministic lexicon, exactly as a local launch failure would.</summary>
-    private async Task ConnectExternalAsync()
+    private async Task<ConnectOutcome> ConnectExternalAsync()
     {
         DateTime deadline = _utcNow() + _externalReadyBudget;
         bool healthSupported = true;
-        bool announcedCompiling = false;
+        bool announcedCompiling = false;   // saw the socket bound + /health=compiling at least once
         Exception? lastError = null;
 
         while (true)
@@ -574,17 +600,18 @@ public sealed class LocalLlmChatbotService : IChatbotService
                 {
                     case ExternalHealth.Ready:
                         MarkExternalLoaded();
-                        return;
+                        return ConnectOutcome.Ready;
                     case ExternalHealth.Error:
                         IsModelLoaded = false;
                         LoadError = $"External LLM at {ServerUrl} reported an error during model load.";
-                        return;
+                        return ConnectOutcome.Error;
                     default:                     // Compiling — keep polling until ready or the budget elapses.
                         if (!announcedCompiling)
                         {
                             announcedCompiling = true;
-                            // #38d consumes this trace to surface a first-run "preparing AI (~1 min, once)" notice.
-                            LogDiag($"LLM backend preparing @ {ServerUrl} — first run can compile for ~1 min on the NPU.");
+                            // #38d consumes this trace to surface a first-run "preparing" notice. The NPU cold
+                            // compile is a one-time cost (~several minutes) the cache makes survive restarts.
+                            LogDiag($"LLM backend preparing @ {ServerUrl} — first run can compile for a few minutes on the NPU (once).");
                         }
                         break;
                 }
@@ -601,23 +628,31 @@ public sealed class LocalLlmChatbotService : IChatbotService
             try
             {
                 using var resp = await _http.GetAsync($"{ServerUrl}/v1/models").ConfigureAwait(false);
-                if (resp.IsSuccessStatusCode) { MarkExternalLoaded(); return; }
+                if (resp.IsSuccessStatusCode) { MarkExternalLoaded(); return ConnectOutcome.Ready; }
                 IsModelLoaded = false;
                 LoadError = $"External LLM at {ServerUrl} returned HTTP {(int)resp.StatusCode}.";
+                return ConnectOutcome.Error;
             }
             catch (Exception ex)
             {
                 IsModelLoaded = false;
                 LoadError = $"External LLM unreachable at {ServerUrl}: {ex.Message}";
+                return ConnectOutcome.Unreachable;
             }
-            return;
         }
 
-        // /health existed but never reached ready within the budget (still compiling, or unreachable throughout).
+        // /health existed but never reached ready within the budget. Distinguish a host still healthily COMPILING
+        // (we saw status=compiling — leave it running to finish + cache) from one that never bound (Unreachable).
         IsModelLoaded = false;
+        if (announcedCompiling)
+        {
+            LoadError = $"External LLM at {ServerUrl} did not become ready within {_externalReadyBudget.TotalSeconds:0}s (still compiling).";
+            return ConnectOutcome.Compiling;
+        }
         LoadError = lastError is null
             ? $"External LLM at {ServerUrl} did not become ready within {_externalReadyBudget.TotalSeconds:0}s."
             : $"External LLM unreachable at {ServerUrl}: {lastError.Message}";
+        return ConnectOutcome.Unreachable;
     }
 
     /// <summary>Mark the connected external backend loaded + ready (shared by the /health and /v1/models paths).</summary>
@@ -663,6 +698,17 @@ public sealed class LocalLlmChatbotService : IChatbotService
     /// working FLM/OV/Vulkan happy path is untouched. Pure; internal for unit coverage.</summary>
     internal static bool ShouldReacquireOwnedProcess(bool isLoaded, bool haveOwnedProcess, bool ownedProcessExited)
         => isLoaded && haveOwnedProcess && ownedProcessExited;
+
+    /// <summary>Decide whether to TEAR DOWN (kill + unpin) a managed host that <see cref="ConnectExternalAsync"/>
+    /// left not-ready. Keystone of the Intel cache fix (2026-06-26): a host still <paramref name="stillCompiling"/>
+    /// with a live process — or a REUSED host we don't own (<paramref name="haveOwnedProcess"/> false) — is LEFT
+    /// RUNNING so the NPU cold-compile finishes AND OpenVINO exports its cache blob; tearing it down mid-compile
+    /// both wasted the ~5-min compile and threw away the cache, so every cold start recompiled + the host churned.
+    /// Everything else is torn down so the next turn relaunches cleanly: a hard error / never-bound host, or an
+    /// owned compiling host that <paramref name="ownedProcessExited"/> (died mid-compile — a dead host left pinned
+    /// would otherwise stick on the lexicon). Pure; internal for unit coverage.</summary>
+    internal static bool ShouldTearDownUnreadyManagedHost(bool stillCompiling, bool haveOwnedProcess, bool ownedProcessExited)
+        => !(stillCompiling && (!haveOwnedProcess || !ownedProcessExited));
 
     private async Task LaunchAsync()
     {
