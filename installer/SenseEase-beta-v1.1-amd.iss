@@ -12,8 +12,8 @@
   #define DistRoot SourcePath + "..\dist\beta-v1.1-amd"
 #endif
 #define MyAppName      "SenseEase"
-#define MyAppVersion   "1.1.0"
-#define MyAppVerName   "SenseEase Beta V1.1 (AMD)"
+#define MyAppVersion   "1.2.0"
+#define MyAppVerName   "SenseEase Beta V1.2 (AMD)"
 #define MyAppPublisher "ATCC A02_SenseEase"
 #define MyAppExeName   "SenseEase.App.exe"
 #define IconSource     SourcePath + "..\src\SenseEase.App\Resources\AppIcon.ico"
@@ -49,7 +49,7 @@ LZMAUseSeparateProcess=yes
 DiskSpanning=yes
 DiskSliceSize=2100000000
 OutputDir={#SourcePath}
-OutputBaseFilename=SenseEase-Beta-V1.1-AMD
+OutputBaseFilename=SenseEase-Beta-V1.2-AMD
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -59,7 +59,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Everything EXCEPT the Q4NX -> {app}  (the self-contained app + sidecar + packs\amd-flm\flm).
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\packs\amd-flm\q4nx\*"
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\packs\amd-flm\q4nx\*,\runtimes\win-x64\native\vulkan\*"
 ; Q4NX -> FLM's OWN per-user store (writable at lowest privilege) so `flm serve qwen3-it:4b` resolves it.
 ; The dest dir name MUST be the FLM catalog name (Qwen3-4B-Instruct-2507-NPU2).
 Source: "{#DistRoot}\packs\amd-flm\q4nx\Qwen3-4B-Instruct-2507-NPU2\*"; DestDir: "{%USERPROFILE}\.flm\models\Qwen3-4B-Instruct-2507-NPU2"; Flags: ignoreversion recursesubdirs createallsubdirs

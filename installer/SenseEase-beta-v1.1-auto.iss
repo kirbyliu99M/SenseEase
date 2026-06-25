@@ -12,8 +12,8 @@
   #define DistRoot SourcePath + "..\dist\beta-v1.1-auto"
 #endif
 #define MyAppName      "SenseEase"
-#define MyAppVersion   "1.1.0"
-#define MyAppVerName   "SenseEase Beta V1.1"
+#define MyAppVersion   "1.2.0"
+#define MyAppVerName   "SenseEase Beta V1.2"
 #define MyAppPublisher "ATCC A02_SenseEase"
 #define MyAppExeName   "SenseEase.App.exe"
 #define IconSource     SourcePath + "..\src\SenseEase.App\Resources\AppIcon.ico"
@@ -49,7 +49,7 @@ LZMAUseSeparateProcess=yes
 DiskSpanning=yes
 DiskSliceSize=2100000000
 OutputDir={#SourcePath}
-OutputBaseFilename=SenseEase-Beta-V1.1-Auto
+OutputBaseFilename=SenseEase-Beta-V1.2-Auto
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -59,7 +59,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Base: the self-contained app + sidecar; carve out \packs (re-added Check-gated below).
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\packs\*"
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\packs\*,\runtimes\win-x64\native\vulkan\*"
 ; Intel OpenVINO GenAI pack (host + INT4 IR) — Intel boxes only.
 Source: "{#DistRoot}\packs\intel-ov\*"; DestDir: "{app}\packs\intel-ov"; Check: IsIntelCpu; Flags: ignoreversion recursesubdirs createallsubdirs
 ; AMD FastFlowLM runtime — AMD-NPU boxes only. FlmServerLauncher.FindExe probes {app}\packs\amd-flm\flm FIRST.

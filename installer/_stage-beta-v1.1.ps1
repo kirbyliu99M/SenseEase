@@ -3,17 +3,17 @@
 #   py   = OV Python host + IR        cpp  = OV C++ host + IR
 #   amd  = FLM runtime + Q4NX         auto = OV(Python) host + IR + FLM + Q4NX (runtime auto-select)
 #   powershell -File installer\_stage-beta-v1.1.ps1 -Variant py|cpp|amd|auto
-param([Parameter(Mandatory)][ValidateSet("py","cpp","amd","auto")][string]$Variant)
+param([Parameter(Mandatory)][ValidateSet("py","cpp","amd","auto")][string]$Variant, [string]$Ver = "v1.2")
 $ErrorActionPreference = "Stop"
 $repo    = "C:\Users\kirby\Desktop\SenseEase APP"
-$base    = "$repo\dist\beta-v1.1-base"
+$base    = "$repo\dist\beta-$Ver-base"
 $ir      = "C:\Users\kirby\Desktop\SenseEase-Debug-intel-2\models\Qwen3-4B-Instruct-2507-ov-int4"
 $pyHost  = "C:\Users\kirby\ovhost-build\dist\ovgenai-host"
 $cppHost = "C:\Users\kirby\ovhost-build\ovgenai-host-cpp"
 $flmSrc  = "C:\Program Files\flm"
 $q4nxSrc = "$repo\models\Qwen3-4B-NPU2"
 $scSrc   = "$repo\tools\head-tracker-sidecar\dist\head_tracker"
-$dest    = "$repo\dist\beta-v1.1-$Variant"
+$dest    = "$repo\dist\beta-$Ver-$Variant"
 
 function RC($src, $dst, $xf) {
   New-Item -ItemType Directory -Path $dst -Force | Out-Null

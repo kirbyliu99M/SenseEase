@@ -23,8 +23,8 @@
 #endif
 
 #define MyAppName      "SenseEase"
-#define MyAppVersion   "1.1.0"
-#define MyAppVerName   "SenseEase Beta V1.1"
+#define MyAppVersion   "1.2.0"
+#define MyAppVerName   "SenseEase Beta V1.2"
 #define MyAppPublisher "ATCC A02_SenseEase"
 #define MyAppExeName   "SenseEase.App.exe"
 #define IconSource     SourcePath + "..\src\SenseEase.App\Resources\AppIcon.ico"
@@ -73,7 +73,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; + packs\intel-ov\model (the INT4 IR). Single backend, installed unconditionally.
 ; NOTE: do NOT exclude *.xml — the OpenVINO IR topology files (openvino_model.xml + tokenizer/detokenizer)
 ; live under packs\intel-ov\model and MUST ship, else the host loads weights-only and fails (Intel field bug).
-Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe"
+; Trim the Vulkan native pack (llama.cpp/ggml-vulkan) — it leaks into the publish via a .csproj content
+; rule but Vulkan is trimmed in every Beta V1.2 SKU (OV/FLM hosts only). Saves ~100 MB.
+Source: "{#DistRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,createdump.exe,\runtimes\win-x64\native\vulkan\*"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
