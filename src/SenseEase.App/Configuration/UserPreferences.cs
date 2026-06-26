@@ -265,7 +265,7 @@ public sealed class UserPreferences
 
     /// <summary>When the weekly welcome recap was last shown (UTC). Null = never. Drives the once-per-ISO-week
     /// gate (<see cref="SenseEase.App.ViewModels.WeeklyRecap.IsDue"/>): the recap fires on the first chat-open
-    /// of each new ISO week (Monday-anchored). Additive  old prefs files roll forward (null). Stamped on show.</summary>
+    /// of each new ISO week (Monday-anchored). Additive — old prefs files roll forward (null). Stamped on show.</summary>
     [JsonPropertyName("last_weekly_recap_shown_utc")]
     public DateTime? LastWeeklyRecapShownUtc { get; set; }
 
