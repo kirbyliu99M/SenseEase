@@ -302,6 +302,14 @@ public partial class SettingsWindow : Window
         get => ContentHost.OpenEventLog;
         set => ContentHost.OpenEventLog = value;
     }
+
+    /// <summary>Health-report card (Kirby 2026-06-26): pass-through for the action that opens the in-app
+    /// <c>HealthReportWindow</c>. Wired by MainWindow; unset on the no-MainViewModel path (card stays hidden).</summary>
+    public Action? OpenHealthReport
+    {
+        get => ContentHost.OpenHealthReport;
+        set => ContentHost.OpenHealthReport = value;
+    }
     /// <summary>FEAT-08 (CW-10, B1b UI half): pass-through for the live head-tracking
     /// health read (the one-line status caption in the 頭部追蹤與隱私 group). Wired by
     /// the host (MainWindow) to the MainViewModel's <see cref="SidecarHeadPoseReader"/>

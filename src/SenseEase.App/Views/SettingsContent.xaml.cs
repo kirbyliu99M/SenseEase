@@ -100,6 +100,12 @@ public partial class SettingsContent : UserControl
     /// in <see cref="OnLoaded"/>.</summary>
     public Action? OpenEventLog { get; set; }
 
+    /// <summary>Health-report card (Kirby 2026-06-26): host action that opens the in-app
+    /// <c>HealthReportWindow</c> (replaces the old HTML/JSON export). Wired by the host that owns the
+    /// MainViewModel; null on the no-MainViewModel popup path, where the card hides itself in
+    /// <see cref="OnLoaded"/>.</summary>
+    public Action? OpenHealthReport { get; set; }
+
     /// <summary>FEAT-08 (CW-10, B1b UI half): host-provided read of the live
     /// head-tracking health (<see cref="HeadTrackingHealth"/>) for the one-line
     /// status caption in the 頭部追蹤與隱私 group. Wired by BOTH hosts (MainWindow's
@@ -186,6 +192,8 @@ public partial class SettingsContent : UserControl
         // (it needs the MainViewModel-backed window). Hidden in the notification
         // card's quick-Settings popup, which has no MainViewModel.
         EventLogCard.Visibility = OpenEventLog is null ? Visibility.Collapsed : Visibility.Visible;
+        // Health-report card: same gate — only where the host wired the MainViewModel-backed window.
+        HealthReportCard.Visibility = OpenHealthReport is null ? Visibility.Collapsed : Visibility.Visible;
 
         RefreshFromPreferences();
         UserPreferences.Changed += OnPreferencesChangedExternally;
@@ -374,12 +382,35 @@ public partial class SettingsContent : UserControl
     {
         if (_wiring) return;
         bool desired = ToggleHeadTrackingEnabled.IsChecked == true;
+        // Auto-restart (Kirby 2026-06-26): head-tracking binds at construction, so a change can only take
+        // effect after a restart. Instead of surfacing a "Restart needed" chip for the user to find + click,
+        // restart AUTOMATICALLY here — confirm, then auto close + relaunch. Declining REVERTS the toggle, so
+        // there is never a pending state and the chip never shows (RestartButton/UpdateRestartChip stay as a
+        // harmless, now-unreachable fallback). Toggling back to the app-start value mid-session is a genuine
+        // no-op change, so skip the prompt for it.
+        if (!ShouldShowRestartChip(desired))   // back to the launched value → nothing to apply
+        {
+            UserPreferences.Current.HeadTrackingEnabled = desired;
+            UserPreferences.Current.Save();
+            AppConfig.HeadTrackingEnabled = desired;
+            return;
+        }
+        if (!ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "變更頭部追蹤需要重新啟動 SenseEase 才能套用。要立即重啟嗎？",
+                    "Changing head-tracking needs a restart to take effect. Restart SenseEase now?")))
+        {
+            // Declined → revert the toggle (no persist, no pending state, no chip).
+            _wiring = true;
+            ToggleHeadTrackingEnabled.IsChecked = !desired;
+            _wiring = false;
+            return;
+        }
         UserPreferences.Current.HeadTrackingEnabled = desired;
         UserPreferences.Current.Save();
         AppConfig.HeadTrackingEnabled = desired;
-        // UX-08: a flip toward (or back to) the app-start value updates the pending
-        // chip — flipping back to the launched value hides it again (no fake restart).
-        UpdateRestartChip();
+        RestartApp();   // auto close + relaunch to apply
     }
 
     /// <summary>Beta-1 D-16 (2026-06-14): per-app attribution consent toggle.
@@ -401,85 +432,12 @@ public partial class SettingsContent : UserControl
             = desired;
     }
 
-    /// <summary>Beta-1 D-17 / health-report redesign §8 (2026-06-21): export a de-identified health report
-    /// the user can read or hand to a clinician. Produces a self-contained HTML report (key indicators +
-    /// inline-SVG charts + an on-device-narrated plain-language summary) via <see cref="ClinicalReportService"/>,
-    /// and KEEPS the raw <see cref="ClinicalExportService"/> JSON beside it (the HTML augments, does not
-    /// replace, the data file — Kirby 2026-06-21). Both artifacts are de-identified (numbers + categories,
-    /// dates only). The narrative reuses the already-loaded chatbot model when available and silently falls
-    /// back to deterministic prose otherwise — so a cold model never blocks or fails the export. User-
-    /// initiated, so a failure is reported, not swallowed.</summary>
-    private async void OnExportClinicalClicked(object sender, RoutedEventArgs e)
-    {
-        var dlg = new Microsoft.Win32.SaveFileDialog
-        {
-            Title        = LocalizationManager.Current.Pick("匯出健康報告", "Export health report"),
-            Filter       = LocalizationManager.Current.Pick("健康報告 (*.html)", "Health report (*.html)") + "|*.html",
-            FileName     = $"senseease-health-report-{DateTime.UtcNow:yyyyMMdd}.html",
-            AddExtension = true,
-            DefaultExt   = ".html",
-        };
-        if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
-
-        var owner     = Window.GetWindow(this);
-        string htmlPath = dlg.FileName;
-        string jsonPath = Path.ChangeExtension(htmlPath, ".json");
-        bool english    = LocalizationManager.Current.IsEnglish;
-        // #21: optional window scope (All / last 90 / last 30) from the export-range selector. Null ⇒ all.
-        DateTime? sinceUtc = ExportRangeCombo?.SelectedIndex switch
-        {
-            1 => DateTime.UtcNow.AddDays(-90),
-            2 => DateTime.UtcNow.AddDays(-30),
-            _ => null,
-        };
-
-        Mouse.OverrideCursor = Cursors.Wait;
-        try
-        {
-            var symptomStore = new FileSymptomEventStore(AppConfig.SymptomLogPath);
-
-            // ONE composed dataset → the JSON data record + the HTML export (Kirby 2026-06-21: "JSON is the
-            // data recording, HTML is the export"). The narrator reuses the host's loaded model when warm. The
-            // onset + satisfaction readers keep the App→Infrastructure boundary clean (Infra can't see AppConfig):
-            //   • onset (idea #2): the per-launch first-discomfort-signal log;
-            //   • satisfaction (#7): the score-only CSAT mean (the free-text comment is never read).
-            var reportSvc = new ClinicalReportService(
-                symptomStore,
-                new DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath),
-                new FileHabituationProfileStore(AppConfig.HabituationProfilePath),
-                GetChatbotService?.Invoke(),
-                onsetReader: () => new SenseEase.App.Services.SessionOnsetLog().ReadAll(),
-                satisfactionReader: () =>
-                {
-                    var c = new SenseEase.App.Services.NpsService().ComputeCsat();
-                    return c is { } v
-                        ? new SenseEase.Core.Inference.SatisfactionSummary
-                          { MeanScore = Math.Round(v.Mean, 2), ScaleMax = 5, ResponseCount = v.Count }
-                        : null;
-                });
-            await reportSvc.WriteAsync(htmlPath, jsonPath, english, DateTime.UtcNow, sinceUtc);
-
-            Mouse.OverrideCursor = null;
-            ThemedDialog.Notify(owner,
-                LocalizationManager.Current.Pick(
-                    "已匯出去識別化的健康報告：可閱讀的 HTML 報告，並在旁附上 JSON 數據紀錄（僅含數字與類別）。",
-                    "Exported your de-identified health report — the readable HTML export, with the JSON data record beside it (numbers and categories only)."),
-                DialogKind.Info);
-        }
-        catch
-        {
-            Mouse.OverrideCursor = null;
-            ThemedDialog.Notify(owner,
-                LocalizationManager.Current.Pick(
-                    "匯出失敗。請再試一次，或改存到其他位置（例如桌面）。",
-                    "Export failed. Please try again, or save to another location (such as your Desktop)."),
-                DialogKind.Error);
-        }
-        finally
-        {
-            Mouse.OverrideCursor = null;
-        }
-    }
+    /// <summary>Open the in-app health-report CARD window (Kirby 2026-06-26) — replaces the old HTML/JSON file
+    /// export entirely. NO file is generated: the host (MainWindow) reads the on-disk stores, computes the
+    /// de-identified card numbers via <c>HealthCardDataBuilder</c>, and shows <c>HealthReportWindow</c> (the
+    /// same separate-window pattern as the event log). No-op when the host hasn't wired OpenHealthReport (the
+    /// no-MainViewModel popup path), where the card is collapsed.</summary>
+    private void OnOpenHealthReportClicked(object sender, RoutedEventArgs e) => OpenHealthReport?.Invoke();
 
     /// <summary>UX-08 (B1b): show the Restart-needed chip ONLY when the live
     /// head-tracking toggle differs from the value the app launched with (a real
@@ -725,7 +683,15 @@ public partial class SettingsContent : UserControl
                     "重啟 SenseEase 以套用變更？",
                     "Restart SenseEase to apply changes?")))
             return;
+        RestartApp();
+    }
 
+    /// <summary>Auto close + relaunch (Kirby 2026-06-26, extracted from the old chip handler): spawns a
+    /// detached cmd that waits 2 s — long enough for <see cref="Application.Shutdown"/> → App.OnExit to
+    /// release the single-instance mutex — then starts a fresh instance, and shuts this one down. Failure
+    /// paths notify rather than silently strand. Used by the head-tracking auto-restart and the legacy chip.</summary>
+    private void RestartApp()
+    {
         try
         {
             // Environment.ProcessPath is the canonical .NET 6+ way to find
@@ -811,11 +777,13 @@ public partial class SettingsContent : UserControl
                 LocalizationManager.Current.Pick(
                     "確定要重設偏好設定嗎？\n\n" +
                     "將還原成預設值：外觀（自動）、語言（繁體中文）、通知與背景開關，以及通知卡片的位置。\n" +
-                    "不會刪除你的資料，也不會影響漸進適應進度。\n\n此動作無法復原。",
+                    "不會刪除你的資料，也不會影響漸進適應進度。\n" +
+                    "歡迎畫面會再次出現。\n\n此動作無法復原。",
                     "Reset preferences?\n\n" +
                     "Will restore to defaults: appearance (Auto), language (Traditional Chinese), " +
                     "the notification & background toggles, and the notification-card position.\n" +
-                    "This does not delete your data and does not affect Adaptive Training progress.\n\n" +
+                    "This does not delete your data and does not affect Adaptive Training progress.\n" +
+                    "The welcome introduction will show again.\n\n" +
                     "This cannot be undone.")))
             return;
 
@@ -841,12 +809,20 @@ public partial class SettingsContent : UserControl
         // Let the host repaint dependent surfaces (bar / tray) for the reset toggles.
         PreferencesChanged?.Invoke(this, EventArgs.Empty);
 
-        ThemedDialog.Notify(
-            Window.GetWindow(this),
-            LocalizationManager.Current.Pick(
-                "偏好設定已重設為預設值。",
-                "Preferences have been reset to defaults."),
-            DialogKind.Info);
+        // Kirby 2026-06-26: this "simple reset" is also a factory-reset path — drop the
+        // first-run flag so the welcome introduction returns. (Q4.5-safe: it never touches
+        // the habituation store; only the prefs file + the first-run flag are rewritten.)
+        AppConfig.ResetFirstRun();
+
+        // Theme/language already live-applied above; the welcome is the only piece gated at
+        // startup, so offer a restart to surface it now. Declining keeps the freshly-reset
+        // session running and defers the welcome to the next manual launch.
+        if (ThemedDialog.Confirm(
+                Window.GetWindow(this),
+                LocalizationManager.Current.Pick(
+                    "偏好設定已重設為預設值，歡迎畫面會在下次開啟時再次出現。\n\n要立即重新啟動 SenseEase 嗎？",
+                    "Preferences have been reset to defaults, and the welcome introduction will show again.\n\nRestart SenseEase now?")))
+            RestartApp();
     }
 
     private void OnClearAllDataClicked(object sender, RoutedEventArgs e)
@@ -862,11 +838,13 @@ public partial class SettingsContent : UserControl
                 LocalizationManager.Current.Pick(
                     "確定要清除 SenseEase 為你建立的所有資料並重設嗎？\n\n" +
                     "將刪除：行為紀錄、分析索引、長期觀察、模型診斷追蹤、對話紀錄、感受紀錄、舊版校正紀錄。\n" +
-                    "會保留：漸進適應進度與偏好設定。\n\n此動作無法復原。",
+                    "會保留：漸進適應進度與偏好設定。\n" +
+                    "歡迎畫面會再次出現。\n\n此動作無法復原。",
                     "Clear all the data SenseEase built about you and reset?\n\n" +
                     "Will delete: behaviour log, analysis index, longitudinal observations, " +
                     "model diagnostic trace, chat transcript, check-in history, legacy calibration history.\n" +
-                    "Will keep: your Adaptive Training progress and preferences.\n\n" +
+                    "Will keep: your Adaptive Training progress and preferences.\n" +
+                    "The welcome introduction will show again.\n\n" +
                     "This cannot be undone."),
                 DialogKind.Warning))
             return;
@@ -875,16 +853,29 @@ public partial class SettingsContent : UserControl
         {
             int stillLocked = ClearAllUserData();
 
-            ThemedDialog.Notify(
-                Window.GetWindow(this),
-                stillLocked == 0
-                    ? LocalizationManager.Current.Pick(
-                        "已清除所有使用者資料。",
-                        "All user data cleared.")
-                    : LocalizationManager.Current.Pick(
+            if (stillLocked == 0)
+            {
+                // Full clear succeeded → the app is now back at its fresh / welcome stage.
+                // The welcome introduction is gated at startup (AppConfig.IsFirstRun), so it
+                // only reappears on a fresh launch; offer to restart now so it shows at once
+                // (and the live view-models drop their now-stale in-memory state). Declining
+                // simply defers the welcome to the user's next manual launch.
+                if (ThemedDialog.Confirm(
+                        Window.GetWindow(this),
+                        LocalizationManager.Current.Pick(
+                            "已清除所有使用者資料，歡迎畫面會在下次開啟時再次出現。\n\n要立即重新啟動 SenseEase 嗎？",
+                            "All user data cleared, and the welcome introduction will show again.\n\nRestart SenseEase now?")))
+                    RestartApp();
+            }
+            else
+            {
+                ThemedDialog.Notify(
+                    Window.GetWindow(this),
+                    LocalizationManager.Current.Pick(
                         $"已清除大部分資料，但有 {stillLocked} 個檔案仍在使用中（可能是防毒掃描），暫時無法移除。請稍候再試一次。",
                         $"Cleared most of your data, but {stillLocked} file(s) were still in use (possibly an antivirus scan) and couldn't be removed. Please try again in a moment."),
-                stillLocked == 0 ? DialogKind.Info : DialogKind.Warning);
+                    DialogKind.Warning);
+            }
         }
         catch (Exception ex)
         {
@@ -950,6 +941,12 @@ public partial class SettingsContent : UserControl
 
         // Learning-loop Part D / Idea #2 (2026-06-21): the per-session first-discomfort-signal onset log.
         if (!BestEffortDelete(AppConfig.SessionOnsetLogPath)) failed++;
+
+        // Kirby 2026-06-26 "total factory reset": a full clear must return the app to its
+        // welcome stage. Drop the first-run flag so the onboarding welcome shows again on the
+        // next launch (AppConfig already notes that a manual %LOCALAPPDATA% wipe does this; the
+        // in-app clear now matches). Counts toward the locked-file tally for an honest result.
+        if (!BestEffortDelete(AppConfig.FirstRunFlagPath)) failed++;
 
         // W-E (2026-06-20): the overlay-consent decline cooldown is BEHAVIOURAL data, not a kept
         // preference — clear it (the asked/accepted/declined/ignored rows in symptom_log are deleted

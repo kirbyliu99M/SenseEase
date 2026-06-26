@@ -1006,6 +1006,29 @@ public partial class MainWindow : Window
         _eventLogWindow.Activate();
     }
 
+    private HealthReportWindow? _healthReportWindow;
+    /// <summary>Health-report CARD window (Kirby 2026-06-26): the in-app replacement for the old HTML/JSON
+    /// export. Reads the on-disk stores, computes the de-identified card numbers via HealthCardDataBuilder
+    /// (NOTHING is written to disk), and shows the window — same owner rule as the event log. Recomputes fresh
+    /// each open (cheap) so the numbers reflect the latest data, replacing any stale instance.</summary>
+    private void ShowHealthReportWindow()
+    {
+        var events   = new SenseEase.Infrastructure.Storage.FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
+        var behavior = new SenseEase.Infrastructure.Storage.DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath).ReadAll();
+        var snap     = new SenseEase.Infrastructure.Storage.FileHabituationProfileStore(AppConfig.HabituationProfilePath).Load();
+        var data     = SenseEase.Infrastructure.Reporting.HealthCardDataBuilder.Build(
+            events, behavior, snap?.Profile, snap?.CurrentVimsTier, DateTime.UtcNow);
+
+        Window owner = (_settingsWindow is { IsLoaded: true } sw) ? sw : this;
+        var existing = _healthReportWindow;
+        var win = new HealthReportWindow(data) { Owner = owner };
+        _healthReportWindow = win;
+        win.Closed += (_, _) => { if (ReferenceEquals(_healthReportWindow, win)) _healthReportWindow = null; };
+        existing?.Close();   // guarded ReferenceEquals above means the stale window's Closed won't null the new one
+        win.Show();
+        win.Activate();
+    }
+
     private void ShowSettingsWindow()
     {
         if (_settingsWindow is not null && _settingsWindow.IsLoaded)
@@ -1025,6 +1048,7 @@ public partial class MainWindow : Window
         _settingsWindow.GetRevealHotkey         = () => Configuration.UserPreferences.Current.RevealHotkey;
         _settingsWindow.SetRevealHotkey         = _ => (Application.Current as App)?.ReRegisterRevealHotkey();
         _settingsWindow.OpenEventLog            = ShowEventLogWindow;
+        _settingsWindow.OpenHealthReport        = ShowHealthReportWindow;   // Kirby 2026-06-26: in-app card, no files
         // FEAT-08 (CW-10, B1b UI half): same live head-tracking health read as the console
         // 設定 tab so the tray/gear Settings window's status caption is honest too (both hosts).
         _settingsWindow.GetHeadTrackingHealth   = GetHeadTrackingHealth;

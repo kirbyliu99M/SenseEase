@@ -235,11 +235,16 @@ public sealed class ClinicalExportTests
     [Fact]
     public void SerialisedJson_LeaksNoRawAppName_OnlyDeIdentifiedCategories()
     {
-        // THE privacy red line (D-17): a doctor-facing file must carry de-identified categories +
-        // numbers, never a raw app name. Serialise a real export and assert the app names are gone.
-        var svc = new ClinicalExportService(new FileSymptomEventStore(Path.Combine(Path.GetTempPath(), "unused.jsonl")));
+        // THE privacy red line (D-17): the de-identified export must carry categories + numbers, never a
+        // raw app name. Serialise a real export (snake_case, the data-record shape) and assert app names are
+        // gone. (2026-06-26: serialised directly now that the report-export subsystem / ClinicalExportService
+        // is removed — the pure ClinicalExportBuilder + this de-identification guard remain.)
         var export = ClinicalExportBuilder.Build(Sample());
-        string json = svc.ToJson(export);
+        string json = System.Text.Json.JsonSerializer.Serialize(export, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+        });
 
         Assert.Contains("video", json);              // de-identified category present …
         Assert.Contains("game", json);

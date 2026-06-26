@@ -60,6 +60,23 @@ public class SettingsClearAndRestartChipTests
         Assert.False(File.Exists(onsetLog),    "session-onset log must be deleted (learning-loop Part D / Idea #2)");
     }
 
+    // ── Kirby 2026-06-26: clear-all returns the app to its first-run / welcome stage ──
+
+    [Fact]
+    public void ClearAllUserData_ResetsFirstRunFlag_SoWelcomeReturns()
+    {
+        TestDataRootFixture.UseClassSubdir(nameof(SettingsClearAndRestartChipTests) + "_firstrun");
+
+        // Simulate a user who has already completed onboarding (flag present ⇒ no welcome).
+        AppConfig.MarkFirstRunComplete();
+        Assert.False(AppConfig.IsFirstRun, "precondition: onboarding completed before the clear");
+
+        SettingsContent.ClearAllUserData();
+
+        // A full clear is a factory reset: the welcome introduction must show again next launch.
+        Assert.True(AppConfig.IsFirstRun, "clear-all must drop the first-run flag so the welcome returns");
+    }
+
     // ── UX-09 Q4.5: clear-all leaves the habituation offset / progress intact ──
 
     [Fact]

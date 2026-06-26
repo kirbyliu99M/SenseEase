@@ -1,0 +1,159 @@
+<Window x:Class="SenseEase.App.Views.HealthReportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:SenseEase.App.Localization"
+        Title="{loc:T Zh='SenseEase — 健康報告', En='SenseEase — Health Report'}"
+        Width="430" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False" FontFamily="Segoe UI"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.BitmapScalingMode="HighQuality">
+    <!-- Health-report CARD window (Kirby 2026-06-26): the in-app, one-page replacement for the old
+         file-generating HTML/JSON report. Frameless themed-glass card (mirrors EventLogWindow's chrome),
+         3 hero stats + a calm condition badge + a daily-protection sparkline. NO file is written — the data
+         is computed in memory by HealthCardDataBuilder and populated into the named elements in code-behind.
+         Calm-indigo brand: a single Accent.Aura, glass surface, ClearType, NO alarm tone. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/SenseEase.App;component/Theme/SenseEaseTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="GlassCloseBtn" TargetType="Button">
+                <Setter Property="Width" Value="32"/><Setter Property="Height" Value="32"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisible}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <Border x:Name="bd" Width="28" Height="28" CornerRadius="14"
+                                        Background="{TemplateBinding Background}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="&#x2715;" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{TemplateBinding Foreground}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#1A8B8F9E"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- One hero stat tile: a centred icon slot, big number/badge slot, label, tiny description. -->
+            <Style x:Key="StatTile" TargetType="Border">
+                <Setter Property="Background" Value="{DynamicResource SurfaceMuted}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource CardBorder}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="13"/>
+                <Setter Property="Padding" Value="11,13"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid x:Name="RootGrid" SizeChanged="OnRootSizeChanged">
+        <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}"
+                BorderThickness="1" CornerRadius="16" RenderTransformOrigin="0.5,0.4">
+            <Border.RenderTransform><ScaleTransform x:Name="SlabScale"/></Border.RenderTransform>
+            <Grid Margin="18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Title row (drag handle + close) -->
+                <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,16"
+                      MouseLeftButtonDown="OnTitleBarMouseDown">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse Width="13" Height="13" Margin="0,0,9,0" Fill="{DynamicResource Accent}"/>
+                        <TextBlock VerticalAlignment="Center" Style="{StaticResource Type.Heading}"
+                                   Text="{loc:T Zh='健康報告', En='Health Report'}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Style="{StaticResource GlassCloseBtn}" Click="OnCloseClicked"
+                            ToolTip="{loc:T Zh='關閉', En='Close'}"
+                            AutomationProperties.Name="{loc:T Zh='關閉', En='Close'}"/>
+                </Grid>
+
+                <!-- Range caption -->
+                <TextBlock Grid.Row="1" x:Name="RangeText" Margin="0,-6,0,12"
+                           FontSize="11.5" Foreground="{DynamicResource TextTertiary}"
+                           Text="{loc:T Zh='近 30 天', En='Last 30 days'}"/>
+
+                <!-- 3 hero stats -->
+                <UniformGrid Grid.Row="2" Columns="3" Margin="0,0,0,4">
+                    <Border Style="{StaticResource StatTile}" Margin="0,0,5,0">
+                        <StackPanel>
+                            <TextBlock x:Name="ProtectedNum" Text="—" FontSize="27" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{loc:T Zh='我們守護你的次數', En='Times we protected you'}"
+                                       FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimary}" Margin="0,7,0,0"/>
+                            <TextBlock Text="{loc:T Zh='我們緩和畫面晃動的次數。', En='Sessions we eased on-screen motion.'}"
+                                       FontSize="10" TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource StatTile}" Margin="5,0,5,0">
+                        <StackPanel>
+                            <TextBlock x:Name="ShieldedNum" Text="—" FontSize="27" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{loc:T Zh='緩和的劇烈晃動', En='Intense moments eased'}"
+                                       FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimary}" Margin="0,7,0,0"/>
+                            <TextBlock Text="{loc:T Zh='依你的舒適輪廓估算。', En='Estimated from your comfort profile.'}"
+                                       FontSize="10" TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource StatTile}" Margin="5,0,0,0">
+                        <StackPanel>
+                            <Border x:Name="ConditionBadge" CornerRadius="999" Padding="10,5" HorizontalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="ConditionDot" Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ConditionText" Text="—" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="{loc:T Zh='你的暈動狀況', En='Your VIMS condition'}"
+                                       FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimary}" Margin="0,7,0,0"/>
+                            <TextBlock x:Name="ConditionDesc" FontSize="10" TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- Daily-protection trend -->
+                <Border Grid.Row="3" Style="{StaticResource StatTile}" Margin="0,11,0,0">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="{loc:T Zh='每日守護', En='Daily protection'}" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}"/>
+                            <TextBlock Grid.Column="1" Text="{loc:T Zh='近 30 天', En='last 30 days'}"
+                                       FontSize="10.5" Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Bottom"/>
+                        </Grid>
+                        <Grid Height="58">
+                            <Path x:Name="SparkFill" Fill="{DynamicResource AccentSoft}" Stretch="None"/>
+                            <Path x:Name="SparkLine" Stroke="{DynamicResource Accent}" StrokeThickness="2"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stretch="None"/>
+                            <TextBlock x:Name="TrendEmpty" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       FontSize="12" Foreground="{DynamicResource TextTertiary}" Visibility="Collapsed"
+                                       Text="{loc:T Zh='尚無資料 — 持續使用 SenseEase 就會出現', En='No data yet — keep using SenseEase'}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

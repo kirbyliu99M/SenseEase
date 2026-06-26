@@ -239,6 +239,18 @@ public static class AppConfig
         catch { /* best-effort — worst case the banner shows again next launch */ }
     }
 
+    // Total-reset helper (Kirby 2026-06-26): drop the first-run flag so the welcome
+    // introduction shows again on the next launch — the missing piece that made an
+    // in-app "factory reset" impossible. Wired to the Settings reset actions
+    // (Reset preferences + Clear all my data and reset). The flag's mere ABSENCE is
+    // the entire first-run signal, so deleting it is the whole operation. Best-effort:
+    // a failed delete just means the welcome may not reappear (identical to today).
+    public static void ResetFirstRun()
+    {
+        try { if (File.Exists(FirstRunFlagPath)) File.Delete(FirstRunFlagPath); }
+        catch { /* best-effort — worst case the welcome simply doesn't reappear */ }
+    }
+
     // Phase 3: habituation progress — persisted so re-habituation survives restarts.
     public static string HabituationStatePath => Path.Combine(
         DataRoot, "SenseEase", "habituation.json");
