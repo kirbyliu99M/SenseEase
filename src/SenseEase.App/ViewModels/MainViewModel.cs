@@ -1079,7 +1079,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             suppressWarmup: () => SenseEase.App.Services.SystemPowerStatus.OnBattery() && (_powerSaveActiveLookup?.Invoke() ?? false),
             externalReadyBudget: llmReadyBudget,
             managedIsOvHost: ovManagedPath);
-        ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented);
+        ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented,
+            // Pause-release (2026-06-26): hand the chatbot VM the concrete host-release call so a pause frees the
+            // ~3 GB LLM host RAM (the OV NPU host has idle-unload disabled, so nothing else would release it).
+            releaseModelForPause: _llm.ReleaseForPause);
         // Live-apply-on-consent: remember a chat delta the user wanted while the overlay was off, to apply it
         // the moment protection kicks in this session (see ApplyHeldDeltaOnConsentKickIn).
         ChatbotVm.OnHeldDeltaForConsent = NoteHeldDeltaForConsent;

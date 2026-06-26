@@ -165,6 +165,54 @@ public class LocalLlmChatbotServiceExternalBackendTests
     public void ShouldTearDownUnreadyManagedHost_TruthTable(bool compiling, bool owned, bool exited, bool expected)
         => Assert.Equal(expected, LocalLlmChatbotService.ShouldTearDownUnreadyManagedHost(compiling, owned, exited));
 
+    [Theory]
+    // Pause-release (2026-06-26): free an owned host's RAM ONLY when it is fully ready AND we own the process.
+    [InlineData(true,  true,  true)]   // ready + we launched it      → release (frees the ~3 GB)
+    [InlineData(true,  false, false)]  // ready but REUSED/env host    → leave (not ours to kill)
+    [InlineData(false, true,  false)]  // owned but NOT ready (compiling/unloaded) → leave (cache-safe)
+    [InlineData(false, false, false)]  // not ready + reused           → leave
+    public void ShouldReleaseOwnedHostForPause_TruthTable(bool isLoaded, bool owned, bool expected)
+        => Assert.Equal(expected, LocalLlmChatbotService.ShouldReleaseOwnedHostForPause(isLoaded, owned));
+
+    [Fact]
+    public async Task ReleaseForPause_ReusedHost_NotKilled_StaysLoaded()
+    {
+        // An env-override / reused host is NOT ours (we never launched it → no owned process). Pause-release
+        // must leave it completely alone — killing a host another process owns would break it.
+        using var host = new FakeOpenAiHost(18245, (path, res) =>
+        {
+            if (path == "/health") return (200, "{\"status\":\"ready\",\"device\":\"NPU\"}");
+            return (404, "{}");
+        });
+        using var svc = new LocalLlmChatbotService(
+            modelPath: "C:/nonexistent/senseease-test-model.gguf",
+            externalBaseUrl: host.BaseUrl, externalModelName: "qwen3-4b",
+            externalReadyBudget: TimeSpan.FromSeconds(2));
+        await svc.LoadAsync();
+        Assert.True(svc.IsModelLoaded);
+
+        svc.ReleaseForPause();                          // we don't own this host → must be a no-op
+
+        Assert.True(svc.IsModelLoaded);                 // still loaded — the reused host was left untouched
+    }
+
+    [Fact]
+    public async Task ReleaseForPause_WhileNotReady_IsNoOp()
+    {
+        // A still-compiling host keeps IsModelLoaded=false; pause-release must not act on it (cache-safety:
+        // never interrupt the cold NPU compile + blob export). With no host up at all, it's likewise inert.
+        using var svc = new LocalLlmChatbotService(
+            modelPath: "C:/nonexistent/senseease-test-model.gguf",
+            externalBaseUrl: "http://127.0.0.1:1",      // nothing listens → never ready
+            externalReadyBudget: TimeSpan.Zero);
+        await svc.LoadAsync();
+        Assert.False(svc.IsModelLoaded);
+
+        svc.ReleaseForPause();                          // must not throw, must stay a no-op
+
+        Assert.False(svc.IsModelLoaded);
+    }
+
     /// <summary>A throwaway loopback OpenAI-ish host for readiness tests: dispatches by request path through a
     /// caller-supplied responder (returns (statusCode, jsonBody)). Loopback prefix needs no admin/URL ACL.</summary>
     private sealed class FakeOpenAiHost : IDisposable

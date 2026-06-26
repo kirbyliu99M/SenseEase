@@ -33,6 +33,7 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private readonly Dispatcher _dispatcher;
     private readonly Func<bool> _isOverlayVisible;
     private readonly Func<bool>? _isOverlayConsented; // W-G: overlay-consent gate for chat-driven actuation
+    private readonly Action? _releaseModelForPause;   // pause-release: MainViewModel's `_llm.ReleaseForPause` (concrete-only)
     private readonly FileChatHistoryStore _historyStore;
     private CancellationTokenSource _streamCts = new();
 
@@ -241,13 +242,18 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         IAdjustmentLog adjustmentLog,
         Func<bool> isOverlayVisible,
         IEventLogStore? eventLog = null,
-        Func<bool>? isOverlayConsented = null)
+        Func<bool>? isOverlayConsented = null,
+        Action? releaseModelForPause = null)
     {
         _chatbot = chatbot;
         _engine = engine;
         _adjustmentLog = adjustmentLog;
         _eventLog = eventLog;
         _isOverlayConsented = isOverlayConsented;
+        // Pause-release (2026-06-26): supplied by MainViewModel as `_llm.ReleaseForPause` — a concrete-only
+        // lifecycle call kept OFF the IChatbotService surface (the VM holds only the interface). Null in tests
+        // and headless hosts (release is then a no-op).
+        _releaseModelForPause = releaseModelForPause;
         // Production: bound to the WPF UI thread's dispatcher.
         // Headless tests: Application.Current is null, so we fall back to the
         // CALLING thread's dispatcher (xunit's). Async methods that call
@@ -409,6 +415,43 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
             });
         }
+    }
+
+    // ── Pause-release (2026-06-26): bring the LLM host into the app's full-teardown-on-pause idiom ──────────
+    // The OV NPU host is ~3 GB and idle-unload is disabled for it (decision #6), so on a pause it would stay
+    // resident unless explicitly released. PowerSave already tears down the sidecar + WGC; these mirror that.
+
+    /// <summary>Pause: gate new chat requests AND release the host's RAM (best-effort, cache-safe — the service
+    /// skips a still-compiling host). If a turn is streaming, the service's request lock is held so the release
+    /// is SKIPPED here and re-fired when the turn ends (see <see cref="SendAsync"/>'s finally).</summary>
+    public void PauseAndReleaseModel()
+    {
+        IsPaused = true;
+        TryReleaseModelForPause();
+    }
+
+    /// <summary>Resume: un-gate requests and — unless suppressed (e.g. on battery) — warm-reload the host now so
+    /// the first post-resume message is fast (~6 s warm; the NPU blob persists). When <paramref name="warmReload"/>
+    /// is false the host lazy-reloads on the next message instead. Re-arms the one-shot prewarm latch so the
+    /// reload can re-fire after the pause-release cleared it.</summary>
+    public void ResumeFromPause(bool warmReload)
+    {
+        IsPaused = false;
+        // IsModelLoaded is read lock-free here (it's mutated under the service's locks). The read is benign:
+        // a stale `true` (a deferred release hasn't landed yet) just SKIPS the proactive warm-reload, and the
+        // host then lazy-reloads on the next message via EnsureModelLoadedAsync → LoadAsync — no stuck state.
+        if (warmReload && !_chatbot.IsModelLoaded)
+        {
+            System.Threading.Interlocked.Exchange(ref _modelInitStarted, 0);  // re-arm so Prewarm re-fires
+            Prewarm();
+        }
+    }
+
+    /// <summary>Best-effort call into the concrete service's ReleaseForPause (supplied by MainViewModel). No-op
+    /// in tests / headless hosts where the callback is null. Never throws.</summary>
+    private void TryReleaseModelForPause()
+    {
+        try { _releaseModelForPause?.Invoke(); } catch { /* RAM release is best-effort */ }
     }
 
     // ── UX-07: calm, plain, single-language status / failure copy ───────────
@@ -944,6 +987,12 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
                 if (placeholder is not null && Messages.Contains(placeholder))
                     Messages.Remove(placeholder);
                 IsGenerating = false;
+                // Pause-release deferral: if the app was paused mid-turn, the host couldn't be released then
+                // (this turn held the request lock). Now the turn is done — re-fire the release. Done on the UI
+                // thread (where IsPaused is written, so no stale cross-thread read could spuriously release a
+                // resumed host) so the ~3 GB frees for the rest of the pause, not at the next message. No-op
+                // when not paused.
+                if (IsPaused) TryReleaseModelForPause();
             });
         }
     }

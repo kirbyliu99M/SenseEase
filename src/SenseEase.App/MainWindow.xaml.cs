@@ -1523,7 +1523,11 @@ public partial class MainWindow : Window
         // the DISABLE (resume) path at the bottom of this method, ordered AFTER
         // the existing resume steps so the snapshot revalidation runs against a
         // fully-resumed pipeline.
-        if (enabled) _viewModel.ChatbotVm.IsPaused = true;
+        // RAM-release (2026-06-26): PauseAndReleaseModel ALSO frees the LLM host's ~3 GB (the OV NPU host has
+        // idle-unload disabled, so a pause would otherwise leave it fully resident) — bringing the chatbot into
+        // the same full-teardown-on-pause idiom as the sidecar + WGC. Cache-safe: a still-compiling host is
+        // never killed; resume warm-reloads (~6 s).
+        if (enabled) _viewModel.ChatbotVm.PauseAndReleaseModel();
 
         // Drive WGC provider via the VM pass-through. When the VM isn't
         // currently routed to WGC the pass-through is a no-op for ticks,
@@ -1657,7 +1661,10 @@ public partial class MainWindow : Window
         // guard, confirm, warning, or nag (Q3=B).
         if (!enabled)
         {
-            _viewModel.ChatbotVm.IsPaused = false;
+            // RAM-release resume: un-gate + warm-reload the host now so the first post-resume message is fast
+            // (~6 s warm; the NPU blob persists) — EXCEPT on battery, where we stay lazy (reload on the next
+            // message) to honour the same battery-conservation rule the prefix-warmup uses.
+            _viewModel.ChatbotVm.ResumeFromPause(warmReload: !SenseEase.App.Services.SystemPowerStatus.OnBattery());
             _viewModel.RevalidateActiveProposalAfterResume();
         }
     }

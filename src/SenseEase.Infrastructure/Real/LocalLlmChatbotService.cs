@@ -1772,27 +1772,74 @@ public sealed class LocalLlmChatbotService : IChatbotService
             {
                 // Re-check under the locks — state may have changed since the lock-free fast path above.
                 if (!IsModelLoaded || !IdleWindowElapsed()) return;
-                try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
-                try { _serverProcess?.Dispose(); } catch { }
-                _serverProcess = null;
-                IsModelLoaded = false;
-                ActiveBackend = "lexicon";
-                // Reset external mode so the next LoadAsync re-runs the managed starter (relaunch flm) instead
-                // of re-connecting to the port we just killed. Harmless for the local path (already null).
-                _externalBaseUrl = null;
-                _externalModelName = null;
-                _externalBackendLabel = null;
-                LogDiag("LLM backend unloaded (idle) — frees memory; next message re-loads on demand.");
-                // Mirror the load-failure cleanup: drop the per-process key + bearer so a re-load mints fresh.
-                if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
-                    LlamaSessionKey.Set(null);
-                _apiKey = null;
-                _http.DefaultRequestHeaders.Authorization = null;
+                PerformOwnedHostKill("LLM backend unloaded (idle) — frees memory; next message re-loads on demand.");
             }
             finally { _lock.Release(); }
         }
         finally { _loadLock.Release(); }
     }
+
+    /// <summary>Kill the host process WE OWN + reset all load state, freeing its RAM (the NPU host is ~3 GB).
+    /// CALLER MUST hold <see cref="_loadLock"/> AND <see cref="_lock"/> and have re-checked the precondition.
+    /// Shared by the idle-unload poll and the explicit pause-release. Mirrors the load-failure cleanup: drops
+    /// the per-process H9 bearer so a re-load mints a fresh one; clears external mode so the next LoadAsync
+    /// re-runs the managed starter (relaunch) rather than reconnecting to the port we just killed.</summary>
+    private void PerformOwnedHostKill(string reason)
+    {
+        try { _serverProcess?.Kill(entireProcessTree: true); } catch { }
+        try { _serverProcess?.Dispose(); } catch { }
+        _serverProcess = null;
+        IsModelLoaded = false;
+        ActiveBackend = "lexicon";
+        _externalBaseUrl = null;
+        _externalModelName = null;
+        _externalBackendLabel = null;
+        LogDiag(reason);
+        if (_apiKey is not null && string.Equals(LlamaSessionKey.Current, _apiKey, StringComparison.Ordinal))
+            LlamaSessionKey.Set(null);
+        _apiKey = null;
+        _http.DefaultRequestHeaders.Authorization = null;
+    }
+
+    /// <summary>Pause-release (2026-06-26): free the RAM of a host WE LAUNCHED when the app is PAUSED — even on
+    /// the OV path where idle-unload is deliberately disabled (decision #6), so the ~3 GB NPU host would
+    /// otherwise stay fully resident for the whole pause. The app's pause already tears down the head-tracking
+    /// sidecar + WGC capture; this brings the largest RAM consumer into the same full-teardown-on-pause idiom.
+    /// Applies to ALL owned backends (OV, a launched FastFlowLM, the bundled Vulkan llama-server).
+    ///
+    /// CACHE-SAFE (keystone of commit 011451a): gated on <see cref="IsModelLoaded"/>, so a host still cold-
+    /// COMPILING — which is pinned with <c>IsModelLoaded=false</c> (see <see cref="TryStartManagedBackendAsync"/>)
+    /// — is NEVER killed; its in-progress NPU compile + cache-blob export are preserved, so resume stays warm.
+    /// OWNERSHIP-guarded: a reused / env-override host (<c>_serverProcess</c> null) is never touched — not ours
+    /// to kill. Best-effort + non-blocking: if a load or a chat turn is in flight the kill is SKIPPED (the
+    /// caller re-fires the release when the turn ends — see ChatbotViewModel). Idempotent (a second call no-ops
+    /// because <c>IsModelLoaded</c> is already false). The next message / resume-prewarm re-loads on demand
+    /// (~6 s warm, the blob persists).</summary>
+    public void ReleaseForPause()
+    {
+        if (!ShouldReleaseOwnedHostForPause(IsModelLoaded, _serverProcess is not null)) return;
+        if (!_loadLock.Wait(0)) return;            // a load/launch is in flight → skip (turn-end retry)
+        try
+        {
+            if (!_lock.Wait(0)) return;            // a chat request holds the lock → skip (turn-end retry)
+            try
+            {
+                // Re-check under the locks — never kill a host that started compiling or was torn down meanwhile.
+                if (!ShouldReleaseOwnedHostForPause(IsModelLoaded, _serverProcess is not null)) return;
+                PerformOwnedHostKill("LLM backend released (app paused) — frees memory; resume re-loads (warm).");
+            }
+            finally { _lock.Release(); }
+        }
+        finally { _loadLock.Release(); }
+    }
+
+    /// <summary>Pure decision for the pause-release: free a host only when it is fully READY
+    /// (<paramref name="isLoaded"/> — a still-compiling host keeps <c>IsModelLoaded=false</c>, so this also
+    /// enforces the cache-safety guard for free) AND we OWN the process (<paramref name="haveOwnedProcess"/> —
+    /// a reused / env-override host has <c>_serverProcess</c> null → not ours to kill). Internal for unit
+    /// coverage.</summary>
+    internal static bool ShouldReleaseOwnedHostForPause(bool isLoaded, bool haveOwnedProcess)
+        => isLoaded && haveOwnedProcess;
 
     // Test seams (idle-unload timing): stamp "now" as the last activity + read whether the idle window has
     // elapsed, so the 10-min unload decision is verifiable with an injected clock and no real server.
