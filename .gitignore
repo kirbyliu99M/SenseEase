@@ -49,6 +49,12 @@ models/mistral-7b/onnx/*
 # large model artifacts - keep out of git
 models/Ministral-3-3B-Instruct-2512-GGUF/
 models/gemma-4-E4B-it-GGUF/
+# OpenVINO INT4 IR + AMD Q4NX NPU pack — multi-GB weights shipped via the installer, NEVER git (2026-06-26).
+# The *.gguf/*.onnx patterns above did NOT cover the OV IR's openvino_model.bin/.xml, so a stray `git add models/`
+# could have committed the 2.2 GB IR. Ignore the whole dirs (the small conversion recipe lives in models/recipes/).
+models/Qwen3-4B-Instruct-2507-ov-int4/
+models/Qwen3-4B-NPU2/
+models/**/*.bin
 # smoke-test screenshots
 /chat_*.png
 /persistence_smoke.png

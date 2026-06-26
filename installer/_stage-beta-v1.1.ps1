@@ -7,7 +7,9 @@ param([Parameter(Mandatory)][ValidateSet("py","cpp","amd","auto")][string]$Varia
 $ErrorActionPreference = "Stop"
 $repo    = "C:\Users\kirby\Desktop\SenseEase APP"
 $base    = "$repo\dist\beta-$Ver-base"
-$ir      = "C:\Users\kirby\Desktop\SenseEase-Debug-intel-2\models\Qwen3-4B-Instruct-2507-ov-int4"
+# OV INT4 IR — now lives IN the workspace (migrated out of the retired SenseEase-Debug-intel-2 dev folder).
+$ir      = "$repo\models\Qwen3-4B-Instruct-2507-ov-int4"
+# Host BUILD outputs still live under ~\ovhost-build (NOT the retired dev folder, NOT yet in-workspace).
 $pyHost  = "C:\Users\kirby\ovhost-build\dist\ovgenai-host"
 $cppHost = "C:\Users\kirby\ovhost-build\ovgenai-host-cpp"
 $flmSrc  = "C:\Program Files\flm"
@@ -24,6 +26,10 @@ function RC($src, $dst, $xf) {
 }
 
 if (-not (Test-Path $base)) { throw "publish base not found: $base (run dotnet publish first)" }
+# Fail loudly if the OV IR is missing or weights-only (the missing-.xml lexicon bug). Only the OV variants need it.
+if (($Variant -in @('py', 'cpp', 'auto')) -and -not (Test-Path "$ir\openvino_model.xml")) {
+  throw "OV IR not found or incomplete at: $ir (expected openvino_model.xml + .bin). Place the INT4 IR in the workspace models\ folder."
+}
 Write-Host "=== staging '$Variant' -> $dest ==="
 if (Test-Path $dest) { [System.IO.Directory]::Delete($dest, $true) }
 New-Item -ItemType Directory -Path $dest -Force | Out-Null

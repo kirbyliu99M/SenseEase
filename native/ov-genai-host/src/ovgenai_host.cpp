@@ -1,8 +1,8 @@
 // ovgenai_host.cpp — OpenAI-compatible HTTP host backed by OpenVINO GenAI LLMPipeline.
 //
 // Production C++ sidecar for SenseEase's Intel OpenVINO NPU/iGPU LLM backend. This is a
-// 1:1 behavioural port of the validated reference `genai_host.py` (in the Intel deliverable
-// _NPU_DELIVERABLES/scripts/), which passed the 622-case NLU eval. It speaks the same OpenAI
+// 1:1 behavioural port of the validated reference `genai_host.py` (now vendored at
+// native/ov-genai-host-py/), which passed the 622-case NLU eval. It speaks the same OpenAI
 // contract the app's external-server HTTP client already uses, on 127.0.0.1:<port>.
 //
 // NPU has no batching -> requests are serialized. Greedy decoding on NPU. On a persistent

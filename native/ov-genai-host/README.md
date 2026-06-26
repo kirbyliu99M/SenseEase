@@ -7,7 +7,7 @@ of `Qwen3-4B-Instruct-2507`. It replaces the retired ggml-openvino GGUF "NPU" pa
 (unusable at ~0.25 tok/s / ~100 s load).
 
 This C++ sidecar is a **1:1 behavioural port** of the validated reference
-`genai_host.py` (Intel deliverable `_NPU_DELIVERABLES/scripts/`), which passed the
+`genai_host.py` (vendored at [`../ov-genai-host-py`](../ov-genai-host-py)), which passed the
 622-case NLU eval (99.8–100% deliverability, ~90.5% effective accuracy = the FLM build).
 
 ## Contract & behaviour
