@@ -892,16 +892,17 @@ public partial class MainWindow : Window
             // first": don't queue a discomfort check-in into the chat while the user is still being asked to
             // start the overlay. The next spike after they answer surfaces the check-in (Kirby 2026-06-20).
             if (_viewModel.ConsentPending) return;
-            // Proactive check-in is opt-in via the Settings toggle ONLY. The contextual first-run consent
-            // overlay (ShowConsentOverlay / CheckInOverlayHost) was RETIRED 2026-06-21 — it rendered only
-            // inside the now-hidden console and could never be seen on the shell boot, so it's a relic.
-            // Unset AND Declined both mean "not opted in" → no prompt; the user enables proactive check-ins
-            // from the Settings toggle (ProactiveCheckInsConsent.Enabled).
-            if (UserPreferences.Current.ProactiveCheckInsConsent != ProactiveCheckInConsent.Enabled) return;
+            // Opt-out (Kirby 2026-06-27, restoring pre-46bb74a8 behaviour): the check-in shows on a spike
+            // for everyone EXCEPT users who turned it off in Settings (which writes "Declined"). The default
+            // Unset is ALLOWED — only an explicit Declined blocks. (The old first-run consent overlay
+            // ShowConsentOverlay / CheckInOverlayHost stays retired: it rendered only inside the now-hidden
+            // console; here the chat rating row IS the ask, and it renders in the visible popup.)
+            if (!UserPreferences.Current.ProactiveCheckInsAllowed) return;
             if (!_checkInGovernor.ShouldPrompt()) return;
 
             // FMS owner-migration (2026-06-19): the recurring check-in lives in the CHAT — raise the rating
-            // row straight away (already opted in via Settings); context captured at spike time.
+            // row straight away (context captured at spike time). The popup is NOT auto-revealed; the user
+            // finds the queued card when they next open the chat.
             RaiseChatFmsCheckIn(FriendlyForegroundContext());
         }
         catch { /* a feedback prompt must never crash the spike handler */ }
@@ -947,8 +948,9 @@ public partial class MainWindow : Window
     // ShowConsentOverlay / ShowCheckInOverlay / OnCheckInOverlayDismiss / HideCheckInOverlay + the
     // in-window CheckInOverlayHost (XAML) + OnCheckInScrimClick are removed. The contextual first-run
     // opt-in rendered ONLY inside the now-hidden console, so it could never be seen on the shell boot
-    // (a relic). Proactive check-ins are now opt-in via the Settings toggle alone
-    // (ProactiveCheckInsConsent.Enabled), after which MaybeShowSpikeCheckIn → RaiseChatFmsCheckIn.
+    // (a relic). The overlay stays retired; proactive check-ins are now OPT-OUT (2026-06-27): the chat
+    // rating row raised by MaybeShowSpikeCheckIn → RaiseChatFmsCheckIn IS the ask, gated only by
+    // ProactiveCheckInsAllowed (everyone except an explicit Settings-toggle "Declined").
 
     /// <summary>The localized foreground-app CATEGORY for the check-in copy, or null to use
     /// app-agnostic copy. Honours D-16: <c>WindowsActivityFilter.CurrentForegroundKey</c> is null

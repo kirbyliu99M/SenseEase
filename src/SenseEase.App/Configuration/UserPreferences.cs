@@ -336,9 +336,11 @@ public sealed class UserPreferences
     /// <summary>Consent for proactive, event-triggered discomfort check-ins — the contextual
     /// "lots of motion just now — how are you feeling?" prompt surfaced after a pressure spike.
     /// Tri-state, string-serialised like <see cref="ThemeModeRaw"/> for tolerant forward-compat.
-    /// Default "Unset" — STRICTLY opt-in: the first eligible spike shows a one-time opt-in toast,
-    /// never a check-in, until the user chooses. Rolls forward like every other additive field —
-    /// old v=1..3 files load cleanly with the field absent (defaults to Unset), so no version bump.</summary>
+    /// Default "Unset" = ALLOWED (opt-out, restoring pre-46bb74a8 semantics): a contextual check-in
+    /// surfaces on a pressure spike for everyone EXCEPT users who explicitly turn it off in Settings
+    /// (which writes "Declined"). Read <see cref="ProactiveCheckInsAllowed"/> at the gate — only
+    /// "Declined" blocks. Rolls forward like every other additive field — old v=1..3 files load cleanly
+    /// with the field absent (defaults to Unset), so no version bump.</summary>
     [JsonPropertyName("proactive_checkins_consent")]
     public string ProactiveCheckInsConsentRaw { get; set; } = nameof(ProactiveCheckInConsent.Unset);
 
@@ -355,6 +357,16 @@ public sealed class UserPreferences
             : ProactiveCheckInConsent.Unset;
         set => ProactiveCheckInsConsentRaw = value.ToString();
     }
+
+    /// <summary>Opt-out gate for the spike-triggered contextual check-in (Kirby 2026-06-27, restoring
+    /// the pre-46bb74a8 semantics): ALLOWED unless the user explicitly turned it off
+    /// (<see cref="ProactiveCheckInConsent.Declined"/>). So the default
+    /// <see cref="ProactiveCheckInConsent.Unset"/> and <see cref="ProactiveCheckInConsent.Enabled"/>
+    /// both allow; only <c>Declined</c> blocks. Single source of truth shared by the spike gate
+    /// (<c>MainWindow.MaybeShowSpikeCheckIn</c>) and the Settings toggle hydration, so they can't drift.</summary>
+    [JsonIgnore]
+    public bool ProactiveCheckInsAllowed =>
+        ProactiveCheckInsConsent != ProactiveCheckInConsent.Declined;
 
     /// <summary>B5 (auto-adaptation): opt-in consent for the deterministic AdaptationGate to AUTO-APPLY
     /// small, bounded protection adjustments derived from the chatbot's retrospective analysis (validated

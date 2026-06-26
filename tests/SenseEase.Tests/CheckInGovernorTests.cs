@@ -109,4 +109,14 @@ public sealed class ProactiveCheckInConsentPrefsTests
     public void TypedGetter_IsCaseInsensitive()
         => Assert.Equal(ProactiveCheckInConsent.Enabled,
             new UserPreferences { ProactiveCheckInsConsentRaw = "enabled" }.ProactiveCheckInsConsent);
+
+    // Opt-out gate (2026-06-27, restoring the spike check-in): ALLOWED unless explicitly Declined.
+    // Single source of truth read by both MainWindow.MaybeShowSpikeCheckIn and the Settings toggle.
+    [Theory]
+    [InlineData(ProactiveCheckInConsent.Unset, true)]    // default → shows on spike
+    [InlineData(ProactiveCheckInConsent.Enabled, true)]  // explicit on
+    [InlineData(ProactiveCheckInConsent.Declined, false)] // explicit off → the only block
+    public void ProactiveCheckInsAllowed_BlocksOnlyDeclined(ProactiveCheckInConsent consent, bool expected)
+        => Assert.Equal(expected,
+            new UserPreferences { ProactiveCheckInsConsent = consent }.ProactiveCheckInsAllowed);
 }

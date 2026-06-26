@@ -257,10 +257,11 @@ public partial class SettingsContent : UserControl
             TogglePerAppAttribution.IsChecked =
                 UserPreferences.Current.PerAppAttributionEnabled;
 
-            // Phase-1: hydrate the proactive contextual check-in opt-in. Checked == Enabled; both
-            // Unset (not yet asked) and Declined render unchecked. Guarded by _wiring.
+            // Phase-1: hydrate the proactive contextual check-in toggle. OPT-OUT (2026-06-27): checked ==
+            // ALLOWED (the default Unset and Enabled both render ON); only an explicit Declined is unchecked.
+            // Same single source of truth (ProactiveCheckInsAllowed) the spike gate reads. Guarded by _wiring.
             ToggleProactiveCheckIns.IsChecked =
-                UserPreferences.Current.ProactiveCheckInsConsent == ProactiveCheckInConsent.Enabled;
+                UserPreferences.Current.ProactiveCheckInsAllowed;
 
             // B5: hydrate the auto-adaptation opt-in. Checked == Enabled; Unset/Declined render unchecked.
             ToggleAdaptiveAutoTune.IsChecked =
@@ -320,8 +321,8 @@ public partial class SettingsContent : UserControl
     private void OnToggleProactiveCheckInsChanged(object sender, RoutedEventArgs e)
     {
         if (_wiring) return;
-        // Settings is the manual control: checked == Enabled, unchecked == Declined (an explicit
-        // "no", which also stops the first-run consent toast from reappearing).
+        // Settings is the manual off-switch for the opt-out check-in: checked == Enabled (explicit on),
+        // unchecked == Declined (the explicit "no" that blocks the spike gate via ProactiveCheckInsAllowed).
         UserPreferences.Current.ProactiveCheckInsConsent = ToggleProactiveCheckIns.IsChecked == true
             ? ProactiveCheckInConsent.Enabled
             : ProactiveCheckInConsent.Declined;
