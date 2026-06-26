@@ -263,6 +263,12 @@ public sealed class UserPreferences
     [JsonPropertyName("last_overlay_decline_utc")]
     public DateTime? LastOverlayDeclineUtc { get; set; }
 
+    /// <summary>When the weekly welcome recap was last shown (UTC). Null = never. Drives the once-per-ISO-week
+    /// gate (<see cref="SenseEase.App.ViewModels.WeeklyRecap.IsDue"/>): the recap fires on the first chat-open
+    /// of each new ISO week (Monday-anchored). Additive  old prefs files roll forward (null). Stamped on show.</summary>
+    [JsonPropertyName("last_weekly_recap_shown_utc")]
+    public DateTime? LastWeeklyRecapShownUtc { get; set; }
+
     /// <summary>Running count of explicit overlay-consent declines (prompt-fatigue analytics). Additive;
     /// reset by "Clear all my data". RESERVED — written on each decline but READ by no runtime path as of
     /// B6 (2026-06-21); only <see cref="LastOverlayDeclineUtc"/> drives the re-prompt cooldown. A decline is

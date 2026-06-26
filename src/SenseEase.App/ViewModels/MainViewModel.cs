@@ -1105,7 +1105,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChatbotVm = new ChatbotViewModel(_llm, _engine, _adjustmentLog, () => OverlayVisible, _log, isOverlayConsented: () => IsOverlayConsented,
             // Pause-release (2026-06-26): hand the chatbot VM the concrete host-release call so a pause frees the
             // ~3 GB LLM host RAM (the OV NPU host has idle-unload disabled, so nothing else would release it).
-            releaseModelForPause: _llm.ReleaseForPause);
+            releaseModelForPause: _llm.ReleaseForPause,
+            // Weekly recap (2026-06-27): the chatbot VM posts a once-per-week welcome summary on chat-open; it
+            // reads last week's protections + condition via this builder (same aggregate as the health card).
+            weeklyRecapBuilder: BuildWeeklyRecapData);
         // Live-apply-on-consent: remember a chat delta the user wanted while the overlay was off, to apply it
         // the moment protection kicks in this session (see ApplyHeldDeltaOnConsentKickIn).
         ChatbotVm.OnHeldDeltaForConsent = NoteHeldDeltaForConsent;
@@ -2377,6 +2380,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// passed inside the strings stay as-is per the no-translate exception list.</summary>
     private static string Loc(string zh, string en)
         => SenseEase.App.Localization.LocalizationManager.Current.Pick(zh, en);
+
+    /// <summary>Weekly recap (2026-06-27): build LAST WEEK's de-identified summary the same way the in-app
+    /// health card does (<see cref="SenseEase.Infrastructure.Reporting.HealthCardDataBuilder"/>) but over a
+    /// 7-day window, so the recap and the report always agree. Pure read of the on-disk stores (mirrors
+    /// <c>MainWindow.ShowHealthReportWindow</c>); null on any failure so the recap silently no-shows. Wired into
+    /// the chatbot VM as <c>weeklyRecapBuilder</c>; called off the UI thread.</summary>
+    private static SenseEase.Infrastructure.Reporting.HealthCardData? BuildWeeklyRecapData()
+    {
+        try
+        {
+            var events   = new SenseEase.Infrastructure.Storage.FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
+            var behavior = new SenseEase.Infrastructure.Storage.DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath).ReadAll();
+            var snap     = new SenseEase.Infrastructure.Storage.FileHabituationProfileStore(AppConfig.HabituationProfilePath).Load();
+            return SenseEase.Infrastructure.Reporting.HealthCardDataBuilder.Build(
+                events, behavior, snap?.Profile, snap?.CurrentVimsTier, DateTime.UtcNow, windowDays: 7);
+        }
+        catch { return null; }
+    }
 
     private void AppendLog(string category, string message, SenseState? state = null)
     {

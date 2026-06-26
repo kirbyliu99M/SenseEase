@@ -34,6 +34,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     private readonly Func<bool> _isOverlayVisible;
     private readonly Func<bool>? _isOverlayConsented; // W-G: overlay-consent gate for chat-driven actuation
     private readonly Action? _releaseModelForPause;   // pause-release: MainViewModel's `_llm.ReleaseForPause` (concrete-only)
+    private readonly Func<SenseEase.Infrastructure.Reporting.HealthCardData?>? _weeklyRecapBuilder; // weekly recap: last-week aggregate (MainViewModel-wired)
+    private readonly Func<DateTime> _utcNow;          // injectable clock for the weekly-recap ISO-week gate (testable)
+    private int _weeklyRecapClaimed;                  // 0/1: once-per-session guard for the weekly recap
+    private const int WeeklyRecapTimeoutSeconds = 15; // best-effort LLM budget for the recap; falls back instantly
     private readonly FileChatHistoryStore _historyStore;
     private CancellationTokenSource _streamCts = new();
 
@@ -243,7 +247,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         Func<bool> isOverlayVisible,
         IEventLogStore? eventLog = null,
         Func<bool>? isOverlayConsented = null,
-        Action? releaseModelForPause = null)
+        Action? releaseModelForPause = null,
+        Func<SenseEase.Infrastructure.Reporting.HealthCardData?>? weeklyRecapBuilder = null,
+        Func<DateTime>? utcNow = null)
     {
         _chatbot = chatbot;
         _engine = engine;
@@ -254,6 +260,10 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         // lifecycle call kept OFF the IChatbotService surface (the VM holds only the interface). Null in tests
         // and headless hosts (release is then a no-op).
         _releaseModelForPause = releaseModelForPause;
+        // Weekly recap (2026-06-27): MainViewModel supplies the last-week aggregate builder (it owns the store
+        // read); null in tests/headless ⇒ the recap is inert. Clock is injectable for the ISO-week gate.
+        _weeklyRecapBuilder = weeklyRecapBuilder;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         // Production: bound to the WPF UI thread's dispatcher.
         // Headless tests: Application.Current is null, so we fall back to the
         // CALLING thread's dispatcher (xunit's). Async methods that call
@@ -381,7 +391,68 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// NPU spin-up overlaps the user reading the greeting + typing. The first <see cref="SendAsync"/> then
     /// just awaits the already-running load instead of paying the full cold start. A no-op once started;
     /// errors are handled inside InitModelAsync (→ lexicon fallback), so fire-and-forget is safe.</summary>
-    public void Prewarm() => _ = EnsureModelLoadedAsync();
+    public void Prewarm()
+    {
+        _ = EnsureModelLoadedAsync();
+        _ = MaybeShowWeeklyRecapAsync();   // weekly recap: cheap once-per-week gate, fire-and-forget
+    }
+
+    /// <summary>Weekly welcome recap (2026-06-27): on the FIRST chat-open of a new ISO week (Monday-anchored),
+    /// post a one-line assistant greeting recapping last week's protections + condition. Reuses the same
+    /// aggregate the in-app health card shows (<see cref="WeeklyRecap"/> + the MainViewModel-wired builder), so
+    /// the two never disagree. Best-effort: the LLM writes the line (warm), falling back instantly to a
+    /// deterministic sentence so a cold/slow model never blocks the chat or empties the bubble. Once per session
+    /// (Interlocked guard) AND once per ISO week (persisted <c>LastWeeklyRecapShownUtc</c>); a brand-new user's
+    /// empty first week is skipped WITHOUT stamping, so the recap debuts the first week there's real data.</summary>
+    private async Task MaybeShowWeeklyRecapAsync()
+    {
+        if (_weeklyRecapBuilder is null) return;
+        // Atomic once-per-session claim: held for the REST OF THE SESSION (never released) — a second chat-open
+        // can't re-fire it; the next session (new VM instance) re-evaluates the persisted once-per-week gate.
+        if (System.Threading.Interlocked.CompareExchange(ref _weeklyRecapClaimed, 1, 0) != 0) return;
+        try
+        {
+            DateTime nowUtc = _utcNow();
+            if (!WeeklyRecap.IsDue(nowUtc.ToLocalTime(),
+                                   UserPreferences.Current.LastWeeklyRecapShownUtc?.ToLocalTime())) return;
+            // Gate passed — read the stores + aggregate off the UI thread (the builder touches disk).
+            var data = await Task.Run(() => { try { return _weeklyRecapBuilder!(); } catch { return null; } })
+                .ConfigureAwait(false);
+            if (WeeklyRecap.IsEmpty(data)) return;   // empty first week → don't post, don't stamp (retries next week)
+            string text = await ComposeWeeklyRecapTextAsync(data!).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(text)) return;
+            _dispatcher.Invoke(() => Messages.Add(new ChatMessageViewModel(text, ChatRole.Assistant)));
+            // Stamp on SHOW (chat bubbles aren't dismissed) so a second open the same week can't re-post; the
+            // recap bubble is transient by design (NOT persisted to chat_history — it's a weekly greeting).
+            UserPreferences.Current.LastWeeklyRecapShownUtc = nowUtc;
+            UserPreferences.Current.Save();
+        }
+        catch (Exception ex)
+        {
+            // best-effort; the weekly recap must NEVER break chat-open. Route the failure to the Event Log
+            // (PathRedactor-scrubbed) so a field issue is diagnosable instead of silently swallowed.
+            LogModelDiagnostic($"weekly recap failed: {ex.GetType().Name}: {ex.Message}", null);
+        }
+    }
+
+    /// <summary>Compose the recap line: try the LLM (warm, history-free, time-boxed), else the deterministic
+    /// fallback. The LLM is given ONLY the count + condition word as facts and forbidden to invent anything.</summary>
+    private async Task<string> ComposeWeeklyRecapTextAsync(SenseEase.Infrastructure.Reporting.HealthCardData data)
+    {
+        bool english = LocalizationManager.Current.IsEnglish;
+        string fallback = WeeklyRecap.FallbackText(data.TimesProtected, data.Condition, english);
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WeeklyRecapTimeoutSeconds));
+            string? gen = await _chatbot.CompleteShortAsync(
+                WeeklyRecap.LlmSystem(english),
+                WeeklyRecap.LlmUser(data.TimesProtected, data.Condition, english),
+                cts.Token).ConfigureAwait(false);
+            gen = (gen ?? string.Empty).Trim();
+            return string.IsNullOrEmpty(gen) ? fallback : gen;
+        }
+        catch { return fallback; }
+    }
 
     private async Task InitModelAsync()
     {
