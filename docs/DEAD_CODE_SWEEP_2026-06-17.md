@@ -10,12 +10,12 @@ item was a false positive that survived (the `MockInferenceEngine` accessor bund
 `AutoAdaptTriggerDeltaPp` / `LoadedCalibrationCount` are test-consumed). Treat as high-confidence
 *candidates*, confirm before deleting.
 
-## ⚠️ MED — wire-or-retire: free-text NLU feedback subsystem (unwired)
-A complete pipeline exists in the VM but **no XAML binds it** — the flag-on-but-inert class.
-- `MainViewModel`: `AnalyzeFeedbackCommand`, `FeedbackText`, `NluResponse`/`NluResponseVisible`,
-  `SubmitFeedbackAsync`, `_nlu = new ChatbotNluService(...)` (`MainViewModel.cs:1102,1176,1595,1606,1888-1936`)
-- `ChatbotNluService(string modelPath)` ctor (`ChatbotNluService.cs:16`)
-- **Action:** decide — surface it in the UI, or retire the whole subsystem.
+## ✅ MED — RETIRED 2026-06-27: free-text NLU feedback subsystem (was unwired)
+A complete pipeline existed in the VM but no XAML ever bound it — a redundant, unreachable duplicate of the
+live chatbot NLU path (both ran over the same `LocalLlmChatbotService`). **RETIRED** in the redteam follow-up:
+deleted `MainViewModel.{AnalyzeFeedbackCommand, FeedbackText, NluResponse, NluResponseVisible,
+SubmitFeedbackAsync, _nlu, AppendAdjustment}` + the whole `ChatbotNluService.cs` + `INluService.cs`. The shared
+`NluResult` / `FeedbackLexicon` / engine apply-methods stay (used by the live chatbot). Decision = retire.
 
 ## Unwired intentions (built, never connected)
 - `EventLogEntry.ForegroundKey` — **known-deferred (B3.0 foundation)**; consumer is the *paused* B3.2

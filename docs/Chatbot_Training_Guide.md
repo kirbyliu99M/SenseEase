@@ -245,8 +245,7 @@ ANTI-RULES（反規則）：
 
 ## 14. 上線前回歸清單（對本專案）
 - 對照檔案：
-  - `src/SenseEase.Infrastructure/Real/MistralChatbotService.cs`（系統提示、JSON 契約、override 解析點）。
-  - `src/SenseEase.Infrastructure/Real/ChatbotNluService.cs`（INluService adapter + 回退）。
+  - `src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs`（系統提示、JSON 契約、override 解析點）。
   - `src/SenseEase.Infrastructure/Nlp/FeedbackLexicon.cs`（lexicon 回退）。
   - `src/SenseEase.Core/Models/NluResult.cs`（解析後欄位）。
   - `src/SenseEase.App/ViewModels/ChatbotViewModel.cs`（套用 delta + override 區塊處理）。

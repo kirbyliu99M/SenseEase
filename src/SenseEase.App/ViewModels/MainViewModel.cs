@@ -868,13 +868,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private readonly INluService _nlu;
-
-    // CW-11/EXIT-04: the single owned LocalLlmChatbotService instance. ChatbotVm holds
-    // it as IChatbotService and ChatbotNluService wraps it with _ownsChatbot=false, so
-    // NEITHER disposes it — the only place that reaps the ~2 GB llama-server child
-    // (beyond the JobObject backstop) is DisposeServices, which disposes THIS reference
-    // exactly once on the app-exit path.
+    // CW-11/EXIT-04: the single owned LocalLlmChatbotService instance. ChatbotVm holds it
+    // as IChatbotService and does NOT dispose it — the only place that reaps the ~2 GB
+    // llama-server child (beyond the JobObject backstop) is DisposeServices, which disposes
+    // THIS reference exactly once on the app-exit path.
     private readonly LocalLlmChatbotService _llm;
 
     private readonly DispatcherTimer _idleTimer; // steps the engine with OFI=0 so pressure decays if WGC stalls
@@ -1046,8 +1043,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             () => SenseEase.App.Localization.LocalizationManager.Current.IsEnglish;
 
         // CW-11/EXIT-04: keep the owned reference so DisposeServices can terminate the
-        // llama-server child deterministically on quit. ChatbotVm + _nlu both share this
-        // instance without owning its lifetime (see _llm field doc).
+        // llama-server child deterministically on quit. ChatbotVm shares this instance
+        // without owning its lifetime (see _llm field doc).
         // Model selection (2026-06-19): the active model (env/pref → Qwen) drives the path + per-model
         // stop tokens + server flags. Mistral fallback removed — if the model can't load, chat drops to
         // the deterministic lexicon path (no second bundled model).
@@ -1166,10 +1163,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // invitation/recalibrate banners and the LLM-calibration session are gone (dead,
         // unreachable UI). The engine's CalibrationProcessor / CalibrationResult plumbing
         // and the User-Model LLM client are kept.
-        // ChatbotNluService(LocalLlmChatbotService) sets _ownsChatbot=false, so disposing
-        // _nlu does NOT dispose _llm — MainViewModel owns that single dispose (EXIT-04).
-        _nlu = new ChatbotNluService(_llm);
-
         _sensing = ProviderFor(AppConfig.Mode);
         // First-run: defer the WGC capture start (the Windows yellow border) until the welcome card is
         // dismissed. Read IsFirstRun HERE — before ShellController.MaybeShowWelcome marks first-run complete.
@@ -1245,8 +1238,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // is the canonical profile string "RESILIENT"/"TYPICAL"/"SENSITIVE".
         SelectProfileCommand = new RelayCommand(o => OnUserProfileSelected(o as string ?? string.Empty));
         ToggleOverlayCommand = new RelayCommand(_ => OverlayVisible = !OverlayVisible);
-        AnalyzeFeedbackCommand = new RelayCommand(async _ => await SubmitFeedbackAsync(),
-                                                  _ => !string.IsNullOrWhiteSpace(FeedbackText));
         ToggleHabituationCommand = new RelayCommand(_ =>
         {
             _engine.SetHabituationPaused(!HabituationPaused);
@@ -1703,24 +1694,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         UpdateFromState(_engine.Current);
         return ResolveDisplayedTier(CurrentState.VimsTier);
     }
-
-    private string _feedbackText = string.Empty;
-    public string FeedbackText
-    {
-        get => _feedbackText;
-        set
-        {
-            if (Set(ref _feedbackText, value))
-                ((RelayCommand)AnalyzeFeedbackCommand).RaiseCanExecuteChanged();
-        }
-    }
-
-    private string _nluResponse = string.Empty;
-    public string NluResponse { get => _nluResponse; private set => Set(ref _nluResponse, value); }
-
-    public Visibility NluResponseVisible =>
-        string.IsNullOrEmpty(_nluResponse) ? Visibility.Collapsed : Visibility.Visible;
-
 
     public ObservableCollection<EventLogEntry> EventLog { get; } = new();
     public SenseState CurrentState { get; private set; }
@@ -2199,7 +2172,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ICommand ResetStateCommand { get; }
     public ICommand ToggleOverlayCommand { get; }
-    public ICommand AnalyzeFeedbackCommand { get; }
     public ICommand ToggleHabituationCommand { get; }
     public ICommand SelectProfileCommand { get; }
 
@@ -2221,8 +2193,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _spikeDetector.Reset();
         UpdateFromState(_engine.Current);
         _adjustmentLog.Append(new AdjustmentRecord { Parameter = "Reset", Source = "reset" });
-        NluResponse = string.Empty;
-        OnPropertyChanged(nameof(NluResponseVisible));
         AppendLog("System", Loc("狀態已重設。", "State reset."), CurrentState);
     }
 
@@ -2393,69 +2363,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (agg is not null) _behaviorWriter.Write(agg);
         }
         catch { /* best-effort */ }
-    }
-
-    // ?? Feedback ???????????????????????????????????????????????????????????
-
-    private async Task SubmitFeedbackAsync()
-    {
-        if (string.IsNullOrWhiteSpace(FeedbackText)) return;
-        string utterance = FeedbackText.Trim();
-        NluResult result = await _nlu.InterpretAsync(utterance);
-        if (result.Intent == "ResetRequest")
-        {
-            _engine.ResetPersonalization();
-            _adjustmentLog.Append(new AdjustmentRecord { Parameter = "Reset", Source = "reset", Utterance = utterance });
-        }
-        else
-        {
-            if (result.FovDelta != 0)
-            {
-                int oldOffset = _engine.UserFovOffset;
-                // D5: see ChatbotViewModel — a non-complaint (preference) tightening is neutral.
-                _engine.ApplyUserFeedback(result.FovDelta, isDeliberatePreference: result.Intent != "ReportDiscomfort");
-                int newOffset = _engine.UserFovOffset;
-                if (newOffset != oldOffset)
-                {
-                    _adjustmentLog.Append(new AdjustmentRecord
-                    {
-                        Parameter = "FovRadius", Delta = newOffset - oldOffset,
-                        OldValue = oldOffset, NewValue = newOffset,
-                        Source = "user", Utterance = utterance,
-                    });
-                }
-            }
-            if (result.MaskDepthDelta != 0 || result.GridVisibilityDelta != 0 || result.FeatherWidthDelta != 0)
-            {
-                var before = _engine.Current.Shader.Clone();
-                _engine.ApplyShaderAdjustment(result.MaskDepthDelta, result.GridVisibilityDelta, result.FeatherWidthDelta);
-                var after = _engine.Current.Shader.Clone();
-                AppendAdjustment("MaskDepth",      result.MaskDepthDelta,      before.MaskDepth,      after.MaskDepth,      utterance);
-                AppendAdjustment("GridVisibility", result.GridVisibilityDelta, before.GridVisibility, after.GridVisibility, utterance);
-                AppendAdjustment("FeatherWidth",   result.FeatherWidthDelta,   before.FeatherWidth,   after.FeatherWidth,   utterance);
-            }
-        }
-        UpdateFromState(_engine.Current);
-        NluResponse = result.Response;
-        OnPropertyChanged(nameof(NluResponseVisible));
-        // review #3: the Feedback box is a second self-harm entry point — when the
-        // safety floor trips, persist the redacted placeholder, never the raw text
-        // (the event log is now durable on disk; mirrors the chatbot path's H2).
-        string loggedUtterance = SafetyFloor.Trips(utterance, out _)
-            ? SafetyFloor.RedactedPlaceholder
-            : utterance;
-        AppendLog("Feedback", $"\"{loggedUtterance}\" -> {result.Intent}", CurrentState);
-    }
-
-    private void AppendAdjustment(string parameter, double delta, double oldValue, double newValue, string utterance)
-    {
-        if (delta == 0) return;
-        _adjustmentLog.Append(new AdjustmentRecord
-        {
-            Parameter = parameter, Delta = delta,
-            OldValue = oldValue, NewValue = newValue,
-            Source = "user", Utterance = utterance,
-        });
     }
 
     // ?? Log ????????????????????????????????????????????????????????????????
@@ -2733,9 +2640,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         // CW-11/EXIT-04: terminate the llama-server child deterministically on quit.
-        // ChatbotVm + _nlu share this instance but neither owns its lifetime, so the
-        // single dispose lives here on the app-exit path (dispose ONCE — never from a
-        // ChatbotViewModel/NLU teardown). LocalLlmChatbotService.Dispose() Kills the
+        // ChatbotVm shares this instance but does not own its lifetime, so the single
+        // dispose lives here on the app-exit path (dispose ONCE — never from a
+        // ChatbotViewModel teardown). LocalLlmChatbotService.Dispose() Kills the
         // child process tree + clears the shared LlamaSessionKey; the JobObject stays
         // the backstop, not the mechanism.
         try { _llm.Dispose(); } catch { }
