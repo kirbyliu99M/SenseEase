@@ -160,7 +160,5 @@ public class HabituationProfileTests
         var p = HabituationProfileParams.Resilient;
         Assert.Equal(120.0, p.StableWindowSeconds);
         Assert.Equal( 30.0, p.StepIntervalSeconds);
-        Assert.Equal( 90.0, p.PostSpikePauseLowSeconds);
-        Assert.Equal(120.0, p.PostSpikePauseMidSeconds);
     }
 }

@@ -123,8 +123,6 @@ public sealed class HabituationProfileParams
 
     public double StableWindowSeconds       => StableWindowMs       / 1000.0;
     public double StepIntervalSeconds       => StepIntervalMs       / 1000.0;
-    public double PostSpikePauseLowSeconds  => PostSpikePauseLowMs  / 1000.0;
-    public double PostSpikePauseMidSeconds  => PostSpikePauseMidMs  / 1000.0;
 
     private HabituationProfileParams(
         int stableWindowMs, int stepIntervalMs, double stepMagnitudePp,

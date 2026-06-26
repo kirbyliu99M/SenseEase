@@ -28,10 +28,6 @@ public class FeedbackLexiconBoundaryTests
     public void EmbeddedTired_DoesNotClassifyDiscomfort()
         => Assert.NotEqual("ReportDiscomfort", FeedbackLexicon.Classify("I retired last year").intent);
 
-    [Fact]
-    public void EmbeddedAr_IsNotAContextTrigger()
-        => Assert.False(FeedbackLexicon.HasContextTrigger("my car broke down"));
-
     // ── genuine uses of the same words still match ──
     [Theory]
     [InlineData("I'm ok now")]
@@ -43,10 +39,6 @@ public class FeedbackLexiconBoundaryTests
     [Fact]
     public void GenuineTired_StillDiscomfort()
         => Assert.Equal("ReportDiscomfort", FeedbackLexicon.Classify("I'm so tired").intent);
-
-    [Fact]
-    public void GenuineAr_StillContextTrigger()
-        => Assert.True(FeedbackLexicon.HasContextTrigger("I use AR a lot"));
 
     [Fact]
     public void So_StillCountsAsSeverityAdverb()

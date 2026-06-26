@@ -34,14 +34,20 @@ A complete pipeline exists in the VM but **no XAML binds it** — the flag-on-bu
   snapshot refactor).
 - 5-star comfort path (superseded by FMS slider): `MainViewModel.RecordComfortRating` →
   `ComfortRatingScale.BuildMeasuredReport` → `StarsToFms`.
-- Members: `LevelChangeCause.UserPlusMinus`; `HabituationProfileParams.PostSpikePauseLow/MidSeconds`;
+- Members: `LevelChangeCause.UserPlusMinus`;
   `SetGrid.Set0GridVisibility`; `PendingSetMoveVm.Band/Shape`; `SenseState.EyeTrackingEnabled`;
-  `MainViewModel.Engine` getter; `FeedbackLexicon.HasContextTrigger` + `ContextTriggers`;
+  `MainViewModel.Engine` getter;
   `UserActivityModeDetector.OverrideMode`; `SidecarHeadPoseReader.ConsumeDroppedMalformedCount`;
   `CalibrationSource.Llm*` / `CalibrationPath.Llm*`.
-- Dead XAML (`NotificationCardWindow.xaml`): `x:Name` `ProposalHeaderText` (:226), `SetMoveHeaderText`
-  (:342), `ChatStatusScroll` (:751); unused brush `ComfortSteadyWeak` (`SenseEaseTheme.xaml:57`,
-  `Palette.Dark.xaml:38`).
+  - **REMOVED 2026-06-27** (redteam cleanup): `HabituationProfileParams.PostSpikePauseLow/MidSeconds`
+    (engine uses the `*Ms` variants) + `FeedbackLexicon.HasContextTrigger` + `ContextTriggers` (test-only) —
+    deleted along with their tests.
+- Dead XAML (`NotificationCardWindow.xaml`): `x:Name` `ProposalHeaderText` (:226); unused brush
+  `ComfortSteadyWeak` (`SenseEaseTheme.xaml:57`, `Palette.Dark.xaml:38`).
+  - **CORRECTION 2026-06-27** (redteam re-verify): `SetMoveHeaderText` (:341) + `ChatStatusScroll` (:750)
+    were OVERTURNED — they are **LIVE, not dead**. `SetMoveHeaderText` is a live localized `{loc:T}` header
+    binding target; `ChatStatusScroll`'s `MaxHeight` enforces the reply scroll-cap UX. Do NOT delete; stop
+    re-flagging them.
 
 ## ⛔ Governance — do NOT delete without sign-off
 - `CalibrationProcessor` private chain (`DeriveBaseProfile`/`EscalateOneLevel`/`ClassifyCompleteness`/

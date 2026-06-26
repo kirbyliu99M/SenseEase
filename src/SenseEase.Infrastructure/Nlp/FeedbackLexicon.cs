@@ -110,15 +110,6 @@ internal static class FeedbackLexicon
         "unbearable", "can't take it", "absolutely", "completely"
     };
 
-    private static readonly string[] ContextTriggers =
-    {
-        "vr", "ar", "headset", "quest", "vision pro", "虛擬實境", "混合實境",
-        "螢幕", "screen", "display", "用電腦", "用手機",
-        "在車上", "坐車", "搭捷運", "on the bus", "in the car",
-        "滾動", "捲動", "scroll", "scrolling", "快速切換", "switching",
-        "一直看", "看很久", "long time", "hours", "staring"
-    };
-
     private static readonly string[] DarkerKeywords =
     { "太亮", "刺眼", "再暗", "暗一點", "更暗", "太刺", "太亮了", "亮", "too bright", "darker", "dim it", "more dark" };
 
@@ -251,12 +242,6 @@ internal static class FeedbackLexicon
                 Math.Clamp(md, -SenseDefaults.MaxShaderDeltaPerCall, SenseDefaults.MaxShaderDeltaPerCall),
                 Math.Clamp(gv, -SenseDefaults.MaxShaderDeltaPerCall, SenseDefaults.MaxShaderDeltaPerCall),
                 Math.Clamp(fw, -SenseDefaults.MaxShaderDeltaPerCall, SenseDefaults.MaxShaderDeltaPerCall));
-    }
-
-    public static bool HasContextTrigger(string? text)
-    {
-        string t = Normalize(text);
-        return ContainsAny(t, ContextTriggers);
     }
 
     // ── Followup question builder ────────────────────────────────────────────────────
