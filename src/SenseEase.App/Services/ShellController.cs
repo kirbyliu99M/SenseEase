@@ -231,7 +231,10 @@ public sealed class ShellController : IShellController
 
         var win = new WelcomeBubbleWindow();
         _welcome = win;
-        win.Dismissed += (_, _) => HideWelcome();
+        // First-run privacy gate (Kirby 2026-06-26): dismissing the welcome is the trigger that STARTS WGC
+        // sensing — capture (the Windows yellow border) was deferred at boot so it never appears during
+        // onboarding. Non-first-run boots already sense (StartSensingAfterWelcome is then a no-op).
+        win.Dismissed += (_, _) => { HideWelcome(); _vm.StartSensingAfterWelcome(); };
         win.ContentRendered += (_, _) => PositionWelcome();
         win.SizeChanged += (_, _) => { PositionWelcome(); _exclude.Update(); };
         win.IsVisibleChanged += (_, e) =>

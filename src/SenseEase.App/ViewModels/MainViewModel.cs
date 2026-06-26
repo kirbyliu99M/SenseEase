@@ -50,6 +50,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     //              so the Start/Stop/OpticalFlowSampled wiring stays provider-agnostic).
     private readonly WgcSensingProvider _wgcSensing = new();
     private ISensingProvider _sensing;
+    // First-run privacy gate (Kirby 2026-06-26): on a fresh install DEFER starting WGC capture (the Windows
+    // yellow capture border) until the user dismisses the one-time welcome card — sensing must not begin
+    // before that onboarding acknowledgement. Captured ONCE in the ctor from AppConfig.IsFirstRun (BEFORE
+    // ShellController.MaybeShowWelcome marks first-run complete on display); the welcome's Dismissed event
+    // then calls StartSensingAfterWelcome(). False on every later boot ⇒ sensing starts at the ctor as before.
+    private bool _deferSensingForWelcome;
     /// <summary>Pop-up sprint Task 1: pass-through for the WGC bar exclude rect.
     /// MainWindow's validation-mode startup uses this to feed the BarStub's
     /// monitor-coords rectangle into the OFI pipeline. Null = no mask (default).</summary>
@@ -68,6 +74,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// paused) without tearing down the GraphicsCaptureSession.</summary>
     public void SetWgcPaused(bool paused)
     {
+        // First-run defer guard: while sensing is held for the welcome card, a stray Resume (e.g. a power-save
+        // toggle during onboarding) must NOT start the capture session early — the welcome dismissal is the
+        // sole start trigger until then. Pausing is always honored.
+        if (!paused && _deferSensingForWelcome) return;
         if (paused) _wgcSensing.Pause();
         else        _wgcSensing.Resume();
         // D3: power-save is the highest-priority liveness signal (an intentional
@@ -89,6 +99,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// accumulated while WGC was paused. Lives on the VM because the
     /// SpikeDetector is owned here, not on the provider.</summary>
     public void ResetSpikeDetector() => _spikeDetector.Reset();
+
+    /// <summary>First-run privacy gate (Kirby 2026-06-26): start WGC capture now that the user has dismissed
+    /// the one-time welcome card — the deferred boot (see <see cref="_deferSensingForWelcome"/>) skipped the
+    /// ctor's <c>_sensing.Start()</c> so the Windows yellow capture border never appeared during onboarding.
+    /// Idempotent: a no-op when not deferred (every non-first-run boot) or once already started. Called by the
+    /// host (<c>ShellController</c>) on the welcome bubble's Dismissed event.</summary>
+    public void StartSensingAfterWelcome()
+    {
+        if (!_deferSensingForWelcome) return;
+        _deferSensingForWelcome = false;
+        _sensing.Start();
+    }
+
+    /// <summary>Test hook (InternalsVisibleTo SenseEase.Tests): true while the first-run welcome gate is
+    /// holding WGC capture un-started.</summary>
+    internal bool SensingDeferredForTests => _deferSensingForWelcome;
 
     /// <summary>Path Z UX iter 2: ensure WGC is the active provider. Public
     /// entry point for the card's Engage button — "啟動保護" should always
@@ -1145,6 +1171,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _nlu = new ChatbotNluService(_llm);
 
         _sensing = ProviderFor(AppConfig.Mode);
+        // First-run: defer the WGC capture start (the Windows yellow border) until the welcome card is
+        // dismissed. Read IsFirstRun HERE — before ShellController.MaybeShowWelcome marks first-run complete.
+        _deferSensingForWelcome = AppConfig.IsFirstRun;
 
 
         // Fires every 300 ms to keep the LeakyIntegrator decaying when no real samples arrive.
@@ -1236,7 +1265,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // _sensing mode and only fires while WGC is actually running; the event is
         // already marshalled to this (UI) thread by the provider.
         _wgcSensing.SensingHealthChanged += OnSensingHealthChanged;
-        _sensing.Start();
+        // First-run: hold WGC capture (no yellow border) until the welcome card is dismissed; the host then
+        // calls StartSensingAfterWelcome(). Every later boot starts sensing here exactly as before.
+        if (!_deferSensingForWelcome) _sensing.Start();
 
         // Auto Driver/Passenger mode wiring. The detector polls OS-level input idleness
         // (Win32 GetLastInputInfo) at 1 Hz and pushes mode transitions through the
