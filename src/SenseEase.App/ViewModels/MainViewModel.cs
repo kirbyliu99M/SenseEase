@@ -2381,11 +2381,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static string Loc(string zh, string en)
         => SenseEase.App.Localization.LocalizationManager.Current.Pick(zh, en);
 
-    /// <summary>Weekly recap (2026-06-27): build LAST WEEK's de-identified summary the same way the in-app
-    /// health card does (<see cref="SenseEase.Infrastructure.Reporting.HealthCardDataBuilder"/>) but over a
-    /// 7-day window, so the recap and the report always agree. Pure read of the on-disk stores (mirrors
-    /// <c>MainWindow.ShowHealthReportWindow</c>); null on any failure so the recap silently no-shows. Wired into
-    /// the chatbot VM as <c>weeklyRecapBuilder</c>; called off the UI thread.</summary>
+    /// <summary>Weekly recap (2026-06-27): read the on-disk stores (mirrors <c>MainWindow.ShowHealthReportWindow</c>)
+    /// and build LAST WEEK's de-identified summary via <see cref="WeeklyRecap.BuildPriorWeek"/> — the PREVIOUS ISO
+    /// week, not a rolling 7-day window, so the "last week" claim is honest whatever weekday chat is first opened
+    /// (ultrareview bug_001). Same <see cref="SenseEase.Infrastructure.Reporting.HealthCardDataBuilder"/> the
+    /// health card uses (so they agree); null on any failure so the recap silently no-shows. Called off the UI thread.</summary>
     private static SenseEase.Infrastructure.Reporting.HealthCardData? BuildWeeklyRecapData()
     {
         try
@@ -2393,8 +2393,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var events   = new SenseEase.Infrastructure.Storage.FileSymptomEventStore(AppConfig.SymptomLogPath).ReadAll();
             var behavior = new SenseEase.Infrastructure.Storage.DailyBehaviorAggregateWriter(AppConfig.BehaviorLogPath).ReadAll();
             var snap     = new SenseEase.Infrastructure.Storage.FileHabituationProfileStore(AppConfig.HabituationProfilePath).Load();
-            return SenseEase.Infrastructure.Reporting.HealthCardDataBuilder.Build(
-                events, behavior, snap?.Profile, snap?.CurrentVimsTier, DateTime.UtcNow, windowDays: 7);
+            return WeeklyRecap.BuildPriorWeek(events, behavior, snap?.Profile, snap?.CurrentVimsTier, DateTime.UtcNow);
         }
         catch { return null; }
     }

@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using SenseEase.Core.Models;
 using SenseEase.Infrastructure.Reporting;
 
 namespace SenseEase.App.ViewModels;
@@ -32,6 +35,56 @@ public static class WeeklyRecap
     /// profile condition. Skip (and DON'T stamp) so the recap debuts the first week there's real data.</summary>
     public static bool IsEmpty(HealthCardData? d)
         => d is null || (d.TimesProtected == 0 && d.Condition == VimsCondition.Unknown);
+
+    /// <summary>Monday 00:00 of the ISO week containing <paramref name="utc"/> (ISO weeks start Monday). The
+    /// previous ISO week is then <c>[result-7d, result)</c>.</summary>
+    public static DateTime IsoWeekMondayUtc(DateTime utc)
+    {
+        utc = utc.ToUniversalTime();
+        int offsetFromMonday = ((int)utc.DayOfWeek + 6) % 7;   // .NET DayOfWeek has Sun=0 → Mon→0 … Sun→6
+        return utc.Date.AddDays(-offsetFromMonday);
+    }
+
+    /// <summary>Build LAST WEEK's de-identified summary — the PREVIOUS ISO week (Mon→Sun immediately before
+    /// <paramref name="nowUtc"/>'s week), so the recap's "last week" claim is honest no matter which weekday the
+    /// user first opens chat (ultrareview bug_001). <see cref="HealthCardDataBuilder"/> has only a LOWER bound,
+    /// so we exclude this-week-and-later rows here, then anchor the builder's lower bound at the prior Monday —
+    /// the effective window is exactly <c>[prevMonday, thisMonday)</c>. Undated rows are kept (fail-open,
+    /// mirroring the builder). Pure (no I/O, clock passed in) → golden-testable.</summary>
+    public static HealthCardData BuildPriorWeek(
+        IEnumerable<SymptomEvent>? events,
+        IEnumerable<DailyBehaviorAggregate>? behavior,
+        string? profile,
+        int? currentVimsTier,
+        DateTime nowUtc)
+    {
+        DateTime thisMonday = IsoWeekMondayUtc(nowUtc);                          // exclusive upper bound
+        string cutoff = thisMonday.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+        var lastWeekEvents = (events ?? Enumerable.Empty<SymptomEvent>())
+            .Where(e => e is not null && UtcDateBefore(e!.TsUtc, cutoff))
+            .ToList();
+        var lastWeekBehavior = (behavior ?? Enumerable.Empty<DailyBehaviorAggregate>())
+            .Where(b => b is not null && (string.IsNullOrWhiteSpace(b!.Date)
+                                          || string.CompareOrdinal(b.Date, cutoff) < 0))
+            .ToList();
+
+        // Lower bound = thisMonday-7 = the prior Monday; combined with the upper exclusion above ⇒ the prior ISO week.
+        return HealthCardDataBuilder.Build(
+            lastWeekEvents, lastWeekBehavior, profile, currentVimsTier, thisMonday, windowDays: 7);
+    }
+
+    /// <summary>True if <paramref name="tsUtc"/>'s UTC date is strictly before <paramref name="cutoffDate"/>
+    /// (yyyy-MM-dd). Empty/unparseable ⇒ true (fail-open — never silently drop an undated row, mirroring
+    /// HealthCardDataBuilder.OnOrAfterDate).</summary>
+    private static bool UtcDateBefore(string? tsUtc, string cutoffDate)
+    {
+        if (string.IsNullOrWhiteSpace(tsUtc)) return true;
+        if (!DateTime.TryParse(tsUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var t))
+            return true;
+        return string.CompareOrdinal(
+            t.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), cutoffDate) < 0;
+    }
 
     /// <summary>The deterministic recap sentence — the instant fallback when the LLM is cold/slow/unavailable,
     /// and the floor the LLM output is judged against. Honest: only the count + the coarse condition.</summary>
