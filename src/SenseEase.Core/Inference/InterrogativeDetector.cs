@@ -94,6 +94,41 @@ public static class InterrogativeDetector
         return false;
     }
 
+    // "How do I…?" app how-to openers — START-anchored in English, so a symptom-LED help request
+    // ("I'm dizzy, how do I get relief?") is NOT caught (it doesn't begin with one). Asking the bot HOW to
+    // change a setting ("how do I make the dark edges less strong?") is a QUESTION to be answered, never a
+    // discomfort report — so it must not actuate. The caller pairs this with a NO-named-symptom check, so a
+    // named symptom (which should actuate) is never rerouted by this.
+    private static readonly string[] EnglishHowToOpeners =
+    {
+        "how do i", "how can i", "how could i", "how would i", "how do you", "how can you",
+        "how to ", "is there a way", "is there any way",
+    };
+
+    // CJK how-to markers (no reliable leading anchor in CJK, so matched anywhere — the caller's
+    // no-named-symptom gate keeps "我頭暈，怎麼辦" actuating because it names a symptom).
+    private static readonly string[] CjkHowToMarkers = { "怎麼", "怎么", "如何", "怎樣", "怎样", "該怎", "该怎" };
+
+    /// <summary>True iff the message ASKS HOW to do something ("how do I make the edges less strong?",
+    /// "怎麼讓邊緣不要那麼深?") rather than REPORTING a symptom. Paired with
+    /// <c>FeedbackLexicon.MentionsSpecificSymptom</c> by the gate so an app how-to with no named symptom is
+    /// answered conversationally (never actuating / never a false "I changed it"), while a symptom + help
+    /// request still actuates. English is START-anchored; CJK markers match anywhere. Null/blank ⇒ false.</summary>
+    public static bool IsHowToInquiry(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        string t = text.Trim();
+
+        foreach (string m in CjkHowToMarkers)
+            if (t.Contains(m, StringComparison.Ordinal)) return true;
+
+        string lower = t.ToLowerInvariant();
+        foreach (string opener in EnglishHowToOpeners)
+            if (lower.StartsWith(opener, StringComparison.Ordinal)) return true;
+
+        return false;
+    }
+
     // Uncertainty / hedging markers — the user NAMES a symptom but signals DOUBT about it ("I feel dizzy? I
     // don't know", "maybe a bit nauseous", "好像有點暈，不確定"). Distinct from IsSymptomInquiry (which asks the
     // BOT to assess): here the user hedges their OWN report. The caller pairs this with a specific-symptom

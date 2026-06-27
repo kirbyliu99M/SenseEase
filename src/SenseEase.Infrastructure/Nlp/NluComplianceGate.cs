@@ -127,6 +127,20 @@ internal static class NluComplianceGate
             followupQuestion = null;
             followupOptions = null;
         }
+        // App HOW-TO question, not a discomfort report (eval U2, 2026-06-27): "how do I make the dark edges
+        // less strong?" — the small model tags it ReportDiscomfort and narrates a change it never made. It
+        // names NO symptom and merely ASKS HOW, so it must neither actuate nor get a symptom picker: route it
+        // to the conversational lane (Unknown), where the whitelist below zeroes the deltas and the reply is
+        // action-honesty-scrubbed (a false "I've softened the edges" → the honest no-op line, which itself
+        // points at the strength control). Gated on !MentionsSpecificSymptom so a symptom + help-request
+        // ("I'm dizzy, can you help?") is untouched and still actuates. Must precede the unnamed-symptom
+        // picker below (a how-to is not vague unease — a picker would be the wrong reply).
+        else if (intent == "ReportDiscomfort"
+            && !FeedbackLexicon.MentionsSpecificSymptom(userText)
+            && InterrogativeDetector.IsHowToInquiry(userText))
+        {
+            intent = "Unknown";
+        }
         // Inverse of the promote: a discomfort report that names NO specific symptom is the
         // card-policy "discomfort + unnamed symptom" case — ASK which sensation instead of actuating
         // on a guess. Tester: "I don't know, but I feel weird with my eyes" silently cut the FOV. The

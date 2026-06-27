@@ -55,6 +55,24 @@ internal static class ReplyComplianceScrubber
         "我會將", "我會幫你", "我會保持", "我會讓", "我已將", "我已把", "已設為", "調到最", "已調到", "保護已",
     };
 
+    // Paraphrase backstop (eval U2, 2026-06-27): first-person / stative CHANGE claims the substring list above
+    // misses (no "i've" prefix, present/future tense, or a stative result). PRECISE to claims — (a) requires an
+    // "I"/"let me" subject, and (b) the stative form keys only on the overlay's CONCRETE elements — so ADVICE
+    // ("you can soften the edges", "to soften the edges, drag the control") never matches. Consulted only when
+    // NOTHING actuated this turn, so a stray hit just yields the honest no-op line (no real change to hide).
+    private static readonly Regex EnActionClaimRx = new(
+        @"\b(?:" +
+            @"i(?:'ve| have| just)?\s+(?:softened|eased|dimmed|reduced|lowered|faded|adjusted|calmed|steadied|lightened|toned down|turned down|dialed back)" +
+            @"|(?:i'll|i will|let me)\s+(?:soften|ease|dim|reduce|lower|fade|adjust|calm|steady|lighten|tone down|turn down|dial back)" +
+        @")\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex EnStativeChangeRx = new(
+        @"\b(?:the\s+)?(?:dark\s+)?(?:edges?|borders?|grid|overlay|vignette|frame|background|darkness)\s+" +
+        @"(?:are|is|look|looks|seem|seems)\s+(?:now\s+|a\s+(?:bit|little)\s+|slightly\s+)*" +
+        @"(?:softer|gentler|lighter|calmer|dimmer|weaker|smoother|less\s+[a-z]+)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     // ── R6: bodily-state assertions/predictions forbidden in an Analyze reply (unless the user said so).
     private static readonly string[] EnBoundary =
     {
@@ -179,7 +197,8 @@ internal static class ReplyComplianceScrubber
         string lower = reply.ToLowerInvariant();
         foreach (string p in EnActionClaim) if (lower.Contains(p, StringComparison.Ordinal)) return true;
         foreach (string p in ZhActionClaim) if (reply.Contains(p, StringComparison.Ordinal)) return true;
-        return false;
+        // Paraphrase backstop for the verbs/forms the substring list misses (eval U2).
+        return EnActionClaimRx.IsMatch(reply) || EnStativeChangeRx.IsMatch(reply);
     }
 
     private static string DropSentences(string reply, string[] enPhrases, string[] zhPhrases)
