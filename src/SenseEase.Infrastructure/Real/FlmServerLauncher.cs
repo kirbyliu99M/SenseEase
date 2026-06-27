@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,6 +33,53 @@ public static class FlmServerLauncher
 
     // One short-lived probe client for the readiness GETs; the per-call timeout is enforced via a linked CTS.
     private static readonly HttpClient _probe = new() { Timeout = TimeSpan.FromSeconds(8) };
+
+    // ── FLM context length (the memory lever) ──────────────────────────────────────────────────────
+    // FastFlowLM pre-allocates the ENTIRE KV cache when it loads the model, so --ctx-len is effectively a
+    // memory dial. Measured on Qwen3-4B-Instruct-2507 (NPU, 2026-06-28): 8192 ≈ 4.8 GB, 16384 ≈ 6.0 GB,
+    // 32768 ≈ 8.2 GB resident. FLM's 32768 DEFAULT OOMs a 16 GB box → the model never loads and the chatbot
+    // silently drops to the lexicon (field-reported on a 16 GB AMD test box). Size the default to the
+    // machine's RAM so a 16 GB box stays safe while a 32 GB box keeps headroom; SENSEEASE_FLM_CTX_LEN lets
+    // the field override either way (e.g. drop further on a heavily-loaded box) without a rebuild.
+    internal const int CtxLenSmallRam = 8192;   // ≤16 GB boxes: ~4.8 GB footprint — the safe floor (= the Vulkan --ctx-size cap)
+    internal const int CtxLenRoomy    = 16384;  // >16 GB boxes: ~6.0 GB footprint — comfortable headroom over the ~4 k-token prompt
+    private const long SmallRamThresholdBytes = 17L * 1024 * 1024 * 1024;  // a "16 GB" box reports ~15.x GB usable
+
+    /// <summary>Pick the FLM <c>--ctx-len</c>: an explicit (sane) <c>SENSEEASE_FLM_CTX_LEN</c> wins; else size
+    /// to the machine's RAM so FLM's 32768 default can't OOM a 16 GB box. Pure → unit-testable. Unknown RAM
+    /// (probe failed ⇒ <paramref name="totalPhysicalBytes"/> ≤ 0) fails to the SAFE FLOOR, never the larger cache.</summary>
+    internal static int ChooseCtxLen(long totalPhysicalBytes, string? envOverride)
+    {
+        if (int.TryParse(envOverride, out int n) && n >= 1024 && n <= 131072) return n;  // explicit field override
+        if (totalPhysicalBytes <= 0) return CtxLenSmallRam;                               // unknown → safe floor
+        return totalPhysicalBytes <= SmallRamThresholdBytes ? CtxLenSmallRam : CtxLenRoomy;
+    }
+
+    private static int ResolveCtxLen()
+    {
+        long total; try { total = TotalPhysicalBytes(); } catch { total = 0; }
+        return ChooseCtxLen(total, Environment.GetEnvironmentVariable("SENSEEASE_FLM_CTX_LEN"));
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MEMORYSTATUSEX
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile,
+                     ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+    /// <summary>Total physical RAM in bytes via GlobalMemoryStatusEx; 0 if the call fails (→ safe floor).</summary>
+    private static long TotalPhysicalBytes()
+    {
+        var m = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
+        return GlobalMemoryStatusEx(ref m) ? (long)m.ullTotalPhys : 0L;
+    }
 
     /// <summary>Relative path, under the app's own install dir, where the Phase-3 AMD pack drops the bundled
     /// FastFlowLM runtime. A per-user install (<c>PrivilegesRequired=lowest</c>) can write neither
@@ -172,9 +220,11 @@ public static class FlmServerLauncher
     {
         try
         {
+            int ctxLen = ResolveCtxLen();
+            trace?.Invoke($"FLM: serve {modelTag} --ctx-len {ctxLen} (RAM-sized; set SENSEEASE_FLM_CTX_LEN to override)");
             var p = new Process
             {
-                StartInfo = new ProcessStartInfo(exe, $"serve {modelTag} --port {port}")
+                StartInfo = new ProcessStartInfo(exe, $"serve {modelTag} --port {port} --ctx-len {ctxLen}")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
