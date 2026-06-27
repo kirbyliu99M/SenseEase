@@ -312,6 +312,7 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         InitializeComponent();
         SourceInitialized += OnSourceInitialized;
         Loaded            += OnLoaded;
+        Closed            += (_, _) => SenseEase.App.Services.SystemSurfaceZGuard.Stop();
         SizeChanged       += (_, _) =>
         {
             EnsureFieldBitmap(); MarkFieldDirty(); RenderFieldIfDirty();
@@ -334,6 +335,11 @@ public partial class OverlayWindow : Window, IOverlayRenderer
         // itself does not activate). NOTE: WPF forbids ShowActivated="False" on a Maximized
         // window, so WS_EX_NOACTIVATE — the Win32-authoritative path — is what we rely on.
         ClickThrough.EnableSystemUiClickThrough(this);
+
+        // Keep native menus / the IME 中 UI / the taskbar above the overlay (they'd otherwise be buried by the
+        // ~1/s topmost re-assert — see the lift call in ApplyState). Started here so the WinEvent callbacks land
+        // on this UI thread. Best-effort; a hook failure never affects the overlay.
+        SenseEase.App.Services.SystemSurfaceZGuard.Start();
 
         // Fade the overlay in so it doesn't pop harshly.
         Opacity = 0;
@@ -364,6 +370,11 @@ public partial class OverlayWindow : Window, IOverlayRenderer
             // SAME synchronous tick so no frame ever paints with the overlay over our UI. No separate clock ⇒
             // no race ⇒ no flicker (the one thing the old ~60 Hz keeper could not do). Touches only our own
             // windows, never the overlay's Z — so the overlay can't be pushed to the back.
+            //
+            // Same tick, same reason, for FOREIGN system surfaces we must not bury: native menus (incl. the
+            // right-click menu off the IME 中 tray icon), the IME candidate UI, and the taskbar/tray. Lifted
+            // FIRST so SenseEase's own windows (re-lifted just below) still end up on top of them.
+            SenseEase.App.Services.SystemSurfaceZGuard.LiftAboveOverlay();
             SenseEase.App.Services.OverlayZOrder.ReassertAboveOverlay();
         }
 
