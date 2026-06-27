@@ -3,7 +3,7 @@
 #   py   = OV Python host + IR        cpp  = OV C++ host + IR
 #   amd  = FLM runtime + Q4NX         auto = OV(Python) host + IR + FLM + Q4NX (runtime auto-select)
 #   powershell -File installer\_stage-beta-v1.1.ps1 -Variant py|cpp|amd|auto
-param([Parameter(Mandatory)][ValidateSet("py","cpp","amd","auto")][string]$Variant, [string]$Ver = "v1.3")
+param([Parameter(Mandatory)][ValidateSet("py","cpp","amd","auto")][string]$Variant, [string]$Ver = "v1.3.1")
 $ErrorActionPreference = "Stop"
 $repo    = "C:\Users\kirby\Desktop\SenseEase APP"
 $base    = "$repo\dist\beta-$Ver-base"
