@@ -23,8 +23,8 @@
 #endif
 
 #define MyAppName      "SenseEase"
-#define MyAppVersion   "1.3.1"
-#define MyAppVerName   "SenseEase Beta V1.3.1"
+#define MyAppVersion   "1.3.2"
+#define MyAppVerName   "SenseEase Beta V1.3.2"
 #define MyAppPublisher "ATCC A02_SenseEase"
 #define MyAppExeName   "SenseEase.App.exe"
 #define IconSource     SourcePath + "..\src\SenseEase.App\Resources\AppIcon.ico"

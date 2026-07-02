@@ -12,8 +12,8 @@
   #define DistRoot SourcePath + "..\dist\beta-v1.1-amd"
 #endif
 #define MyAppName      "SenseEase"
-#define MyAppVersion   "1.3.1"
-#define MyAppVerName   "SenseEase Beta V1.3.1 (AMD)"
+#define MyAppVersion   "1.3.2"
+#define MyAppVerName   "SenseEase Beta V1.3.2 (AMD)"
 #define MyAppPublisher "ATCC A02_SenseEase"
 #define MyAppExeName   "SenseEase.App.exe"
 #define IconSource     SourcePath + "..\src\SenseEase.App\Resources\AppIcon.ico"
@@ -49,7 +49,7 @@ LZMAUseSeparateProcess=yes
 DiskSpanning=yes
 DiskSliceSize=2100000000
 OutputDir={#SourcePath}
-OutputBaseFilename=SenseEase-Beta-V1.3.1-AMD
+OutputBaseFilename=SenseEase-Beta-V1.3.2-AMD
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
