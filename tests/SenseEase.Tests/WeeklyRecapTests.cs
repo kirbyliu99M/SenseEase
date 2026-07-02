@@ -137,4 +137,38 @@ public class WeeklyRecapTests
         var data = WeeklyRecap.BuildPriorWeek(null, new List<DailyBehaviorAggregate>(), null, null, now);
         Assert.True(WeeklyRecap.IsEmpty(data));   // no data → recap skips, doesn't stamp
     }
+
+    // ── IsDue install-week gate: debut in the SECOND week of use (2026-06-28) ─────────────────────
+    // ISO weeks: Mon 2026-06-15 = week A; 06-22/24/26 = week B (A+1); Mon 06-29 = week C (A+2).
+    [Fact]
+    public void IsDue_InstallWeek_NotDue_EvenIfNeverShown()
+        // firstRun Mon 06-22 (B); now Wed 06-24 (same B) → suppressed despite lastShown null.
+        => Assert.False(WeeklyRecap.IsDue(new DateTime(2026, 6, 24), lastShownLocal: null,
+                                          firstRunLocal: new DateTime(2026, 6, 22)));
+
+    [Fact]
+    public void IsDue_InstallDay_NotDue()
+        => Assert.False(WeeklyRecap.IsDue(new DateTime(2026, 6, 22), null, new DateTime(2026, 6, 22)));
+
+    [Fact]
+    public void IsDue_SecondWeek_IsDue()
+        // firstRun Wed 06-24 (B); now Mon 06-29 (C) → the debut week.
+        => Assert.True(WeeklyRecap.IsDue(new DateTime(2026, 6, 29), null, new DateTime(2026, 6, 24)));
+
+    [Fact]
+    public void IsDue_InstallWeek_SuppressesAnOtherwiseDueRecap()
+        // Would be due (now B ≠ lastShown A) but it is still the install week (firstRun B) → NOT due.
+        => Assert.False(WeeklyRecap.IsDue(new DateTime(2026, 6, 24), new DateTime(2026, 6, 15),
+                                          new DateTime(2026, 6, 22)));
+
+    [Fact]
+    public void IsDue_Upgrader_OldInstall_UnaffectedByGate()
+        // firstRun months ago; now B, lastShown A → gate passes, normal weekly cadence → due.
+        => Assert.True(WeeklyRecap.IsDue(new DateTime(2026, 6, 24), new DateTime(2026, 6, 15),
+                                         new DateTime(2026, 5, 1)));
+
+    [Fact]
+    public void IsDue_UnknownFirstRun_GateIsNoOp()
+        // firstRun null (legacy/empty flag) → the install-week gate does nothing → falls back to the week check.
+        => Assert.True(WeeklyRecap.IsDue(new DateTime(2026, 6, 24), lastShownLocal: null, firstRunLocal: null));
 }

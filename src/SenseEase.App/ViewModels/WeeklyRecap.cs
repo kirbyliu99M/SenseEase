@@ -21,9 +21,16 @@ public static class WeeklyRecap
 {
     /// <summary>Due on the FIRST chat-open of a new ISO week (ISO weeks start Monday, so this is Monday-anchored
     /// but still fires if the user first opens chat on Tue/Wed…). Compare LOCAL times so it follows the user's
-    /// calendar Monday, not UTC. <paramref name="lastShownLocal"/> null ⇒ never shown ⇒ due.</summary>
-    public static bool IsDue(DateTime nowLocal, DateTime? lastShownLocal)
+    /// calendar Monday, not UTC. <paramref name="lastShownLocal"/> null ⇒ never shown ⇒ due.
+    ///
+    /// <para>The recap DEBUTS in the user's SECOND week of use: it is never due during the install/first-run ISO
+    /// week (<paramref name="firstRunLocal"/> — there is no full prior week to recap yet, and greeting a
+    /// day-one user with "last week" is wrong). <paramref name="firstRunLocal"/> null (unknown install week —
+    /// legacy/empty flag, or a long-standing user) ⇒ this gate is a no-op, so upgraders keep the recap and the
+    /// empty-first-week skip still guards genuine new users.</para></summary>
+    public static bool IsDue(DateTime nowLocal, DateTime? lastShownLocal, DateTime? firstRunLocal = null)
     {
+        if (firstRunLocal is { } fr && WeekKey(nowLocal) == WeekKey(fr)) return false;   // install week → not yet
         if (lastShownLocal is not { } last) return true;
         return WeekKey(nowLocal) != WeekKey(last);
     }

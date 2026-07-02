@@ -402,8 +402,9 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
     /// aggregate the in-app health card shows (<see cref="WeeklyRecap"/> + the MainViewModel-wired builder), so
     /// the two never disagree. Best-effort: the LLM writes the line (warm), falling back instantly to a
     /// deterministic sentence so a cold/slow model never blocks the chat or empties the bubble. Once per session
-    /// (Interlocked guard) AND once per ISO week (persisted <c>LastWeeklyRecapShownUtc</c>); a brand-new user's
-    /// empty first week is skipped WITHOUT stamping, so the recap debuts the first week there's real data.</summary>
+    /// (Interlocked guard) AND once per ISO week (persisted <c>LastWeeklyRecapShownUtc</c>); it never fires
+    /// during the install ISO week (<c>AppConfig.FirstRunUtc</c>), so it debuts in the SECOND week of use, and a
+    /// brand-new user's empty first week is skipped WITHOUT stamping so the recap debuts the first real-data week.</summary>
     private async Task MaybeShowWeeklyRecapAsync()
     {
         if (_weeklyRecapBuilder is null) return;
@@ -413,8 +414,11 @@ public sealed class ChatbotViewModel : INotifyPropertyChanged
         try
         {
             DateTime nowUtc = _utcNow();
+            // Once per ISO week, AND never during the install week — the recap debuts in the user's SECOND week
+            // of use (first-run timestamp from the flag; null ⇒ gate no-op for upgraders/unknown installs).
             if (!WeeklyRecap.IsDue(nowUtc.ToLocalTime(),
-                                   UserPreferences.Current.LastWeeklyRecapShownUtc?.ToLocalTime())) return;
+                                   UserPreferences.Current.LastWeeklyRecapShownUtc?.ToLocalTime(),
+                                   SenseEase.App.Configuration.AppConfig.FirstRunUtc?.ToLocalTime())) return;
             // Gate passed — read the stores + aggregate off the UI thread (the builder touches disk).
             var data = await Task.Run(() => { try { return _weeklyRecapBuilder!(); } catch { return null; } })
                 .ConfigureAwait(false);

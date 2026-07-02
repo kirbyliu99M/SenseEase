@@ -221,9 +221,10 @@ public static class AppConfig
 
     // First-run flag. Touched once after the user completes (or skips) the
     // setup-demo calibration. Used to drive the welcome banner on the dashboard:
-    // banner is shown only when the flag file does NOT exist. Flag file is empty
-    // — its presence is the entire signal. Stored alongside adjustments.jsonl
-    // so a user clearing %LocalAppData%\SenseEase\ also resets first-run state.
+    // banner is shown only when the flag file does NOT exist. The file CONTENT is the
+    // first-run UTC timestamp (round-trip "o" format), read via FirstRunUtc to gate the
+    // weekly recap to the SECOND week of use; presence-vs-absence alone drives IsFirstRun.
+    // Stored alongside adjustments.jsonl so clearing %LocalAppData%\SenseEase\ also resets it.
     public static string FirstRunFlagPath => Path.Combine(
         DataRoot, "SenseEase", "first-run-complete.flag");
 
@@ -237,6 +238,26 @@ public static class AppConfig
             File.WriteAllText(FirstRunFlagPath, DateTime.UtcNow.ToString("o"));
         }
         catch { /* best-effort — worst case the banner shows again next launch */ }
+    }
+
+    /// <summary>The UTC timestamp stamped into the first-run flag when onboarding completed (≈ first use).
+    /// Null when the flag is absent (not yet onboarded) or its contents don't parse (e.g. a legacy empty flag
+    /// from before the timestamp was written) — in which case the weekly-recap install-week gate is a harmless
+    /// no-op (a long-standing user is already past their install week; the recap's empty-week skip still guards).</summary>
+    public static DateTime? FirstRunUtc
+    {
+        get
+        {
+            try
+            {
+                if (!File.Exists(FirstRunFlagPath)) return null;
+                string s = File.ReadAllText(FirstRunFlagPath).Trim();
+                return DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                           System.Globalization.DateTimeStyles.RoundtripKind, out var t)
+                       ? t.ToUniversalTime() : (DateTime?)null;
+            }
+            catch { return null; }
+        }
     }
 
     // Total-reset helper (Kirby 2026-06-26): drop the first-run flag so the welcome
