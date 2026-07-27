@@ -18,16 +18,43 @@ compile and no backend branch in the renderer. **The Ultra 7 and AMD boxes have 
 too** — it is latent there because they sit at a low tier, where the frozen aperture is drawn
 near-transparent.
 
-**Defect B — durable stuck-at-level-5 (this is what made Ultra 5 look broken).**
-On a genuine fresh install `ApplyAutoProfilingStartDefaults` seeds `VimsTier = 5` and holds
-it 60 s. Displayed tier is `Math.Max(naturalTier, PersistentOverlayBaselineTier)`, so during
-the hold **the slider cannot go below 5**. Any nudge in that window — off 5 and back, or the
-± pills — makes `SetIntensityLevel` persist `persistent_overlay_baseline_tier = 5` and
-`persistent_overlay_enabled = true` in `%LOCALAPPDATA%\SenseEase\user-preferences.json`.
-That is a hard floor on every later boot, and nothing automatic lowers it.
+**Defect B — "stuck at level 5, cannot weaken" (re-diagnosed 2026-07-28 against field state).**
 
-The user's attempt to weaken protection is what makes it permanent. That is the whole
-"stuck at level 5, had to reset the app" report.
+Field capture from the affected Ultra 5 box:
+`prefs: enabled=False baseline_tier=1` · `profile: tier=5 paused=True`
+
+There is **no durable on-disk stuck-at-5**. Both freeze mechanisms are session-scoped and a
+process restart clears them. The symptom is the product of two things:
+
+1. **The tier-5 seed re-fires on any failed profile load.**
+   `ApplyAutoProfilingStartDefaults` runs on *every* launch and seeds `VimsTier = 5` + a 60 s
+   hold whenever `_profileExistedAtLoad` is false — i.e. whenever
+   `FileHabituationProfileStore.Load()` returns null. That happens if the profile is absent,
+   malformed, has an out-of-range `schema_version`, is a refused v1 downgrade, **or is still
+   locked after 4 read retries** (`AtomicJsonWriter.TryRead`). AV file-locking reproduces a
+   fresh install on a correctly-staged box. The hold does always expire after 60 s.
+
+2. **The strength slider is structurally incapable of weakening protection.**
+   `SetIntensityLevel` writes only a *floor*, and display is
+   `ResolveDisplayedTier = max(naturalTier, baseline)`. Dragging **below** the engine's
+   natural tier is a guaranteed no-op. With natural tier seeded at 5, every attempt to
+   weaken did nothing — which is exactly the reported symptom, and it is by-design behaviour
+   rather than a glitch.
+
+The field prefs reading `enabled=False, baseline_tier=1` are **the fossil of the user
+dragging the slider to minimum** — that is precisely what the `target <= 1` branch writes.
+They are evidence of the attempt to weaken, not evidence the floor was innocent.
+
+Two corrections to earlier analysis, recorded so they are not repeated:
+- `current_vims_tier: 5` in the profile is **write-only** — never re-applied on load. A stale
+  5 there is a fossil, not a live floor.
+- `externally_paused: true` is the **shipped default** (`habituation_enabled` defaults false;
+  the engine ctor pauses unconditionally). It freezes only the habituation *offset* therapy —
+  it does **not** freeze the tier and does **not** stop protection. Do not "fix" it.
+
+Related genuine defect, not the match here: the slider's `target <= 1` branch clears
+`PersistentOverlayEnabled` **without** calling `SetAutoLevelHold(false)`, orphaning an
+invisible session freeze that pins tier **6**.
 
 ## Pre-demo staging
 
@@ -51,6 +78,21 @@ What it does:
 
 **Acceptance check — do not skip.** Launch and confirm it reads **Lv.01 at rest, not Lv.05**.
 If it reads Lv.05, staging did not take; do not proceed.
+
+### The biggest remaining demo risk: AV file-lock
+
+Staging works by making `Load()` succeed. It returns null — and the tier-5 seed fires anyway
+— if the profile is still locked after 4 read retries. Trend Micro and similar transiently
+lock files under `%LOCALAPPDATA%` at launch, which reproduces a fresh-install seed on a box
+that is staged perfectly. **Add an AV exclusion for `%LOCALAPPDATA%\SenseEase` before the
+demo**, and launch-and-check more than once — this failure is intermittent by nature, so a
+single passing check does not clear it.
+
+### Rehearse this: the slider cannot lower below the auto tier
+
+Display is `max(auto tier, slider)`. If demo content drives the auto tier up, dragging the
+slider down does nothing — structurally, not as a bug. If your script has anyone reducing
+protection live, rehearse that exact moment or it will read on stage as a broken control.
 
 Staging a post-onboarding profile is legitimate for a *demo* — it is the state a real user
 occupies after onboarding. It is **not** evidence any bug is fixed, and must never be cited

@@ -71,19 +71,32 @@ if (-not (Test-Path $root)) {
 # Field values mirror what the runtime itself writes (MockInferenceEngine.cs:767 ->
 # HabituationProfile.Adapting / "auto_profiling_default"). schema_version 3 is the
 # current supported version (FileHabituationProfileStore.SupportedSchemaVersion).
-# externally_paused MUST be false: a paused engine would make the demo look calm for
-# the wrong reason (that is what invalidated an earlier field test).
+# externally_paused is set TRUE to match the shipped default (habituation_enabled=false).
+# The value is inert either way - the flag is write-only and re-derived from prefs on
+# every boot - but writing false would misleadingly suggest therapy had been enabled.
+# The ONLY thing that matters here is that the file exists and PARSES, because that is
+# what makes _profileExistedAtLoad true and suppresses the tier-5 seed.
 if ((Test-Path $profilePath) -and -not $Force) {
   Say "[1] habituation_profile.json already present - leaving it (use -Force to replace)"
-  # A pre-existing profile still suppresses the tier-5 seed, so it is fine to keep.
-  # But externally_paused=true would mean the ENGINE IS PAUSED - the demo would look
-  # calm for the wrong reason (this is what invalidated an earlier field test).
+  # A pre-existing profile suppresses the tier-5 seed, so keeping it is fine.
+  # NOTE: externally_paused=true is the SHIPPED DEFAULT, not a fault. UserPreferences
+  # defaults habituation_enabled=false, the engine ctor pauses unconditionally, and the
+  # flag is write-only (re-derived from prefs each boot). Pausing freezes only the
+  # habituation OFFSET therapy - it does NOT freeze the tier and does NOT stop
+  # protection. Do not "fix" it.
+  # What DOES matter is whether the file PARSES: Load() returning null is what triggers
+  # the tier-5 seed.
   try {
     $existing = [System.IO.File]::ReadAllText($profilePath) | ConvertFrom-Json
-    Say ("      existing: profile={0} tier={1} paused={2}" -f $existing.profile, $existing.current_vims_tier, $existing.externally_paused)
-    if ($existing.externally_paused -eq $true) {
-      Say "      *** WARNING: externally_paused = TRUE - the engine is PAUSED."
-      Say "      *** Protection will not engage. Re-run with -Force to replace this profile."
+    Say ("      existing: profile={0} tier={1} paused={2} schema={3}" -f $existing.profile, $existing.current_vims_tier, $existing.externally_paused, $existing.schema_version)
+    if ($existing.schema_version -lt 1 -or $existing.schema_version -gt 3) {
+      Say "      *** WARNING: schema_version out of range [1,3] -> Load() returns null"
+      Say "      *** -> the tier-5 seed WILL fire. Re-run with -Force."
+    }
+    # current_vims_tier is write-only (never re-applied on load), so a stale 5 here is a
+    # fossil, not a live floor. Report it but do not treat it as a fault.
+    if ($existing.current_vims_tier -ge 5) {
+      Say "      note: current_vims_tier=$($existing.current_vims_tier) is a FOSSIL (write-only, never re-applied)."
     }
   } catch {
     Say "      *** WARNING: could not parse the existing profile: $($_.Exception.Message)"
@@ -105,7 +118,7 @@ if ((Test-Path $profilePath) -and -not $Force) {
   "severe_strike_limit": 2,
   "severe_strike_limit_override": null,
   "engine_state": "RUNNING",
-  "externally_paused": false,
+  "externally_paused": true,
   "awaiting_user_confirm": false,
   "last_spike_at_iso": null,
   "next_step_eligible_at_iso": null,
@@ -177,6 +190,16 @@ if ($DryRun) {
 Say ""
 Say "NEXT: launch SenseEase and confirm it reads Lv.01 AT REST (not Lv.05)."
 Say "      If it reads Lv.05, staging did not take - do not proceed to the demo."
+Say ""
+Say "*** BIGGEST REMAINING DEMO RISK: AV FILE-LOCK ***"
+Say "      This staging works by making FileHabituationProfileStore.Load() succeed."
+Say "      Load() returns null - and the tier-5 seed fires anyway - if the profile is"
+Say "      absent, malformed, out-of-range schema, OR STILL LOCKED after 4 read retries."
+Say "      Trend Micro (and similar) transiently lock files in %LOCALAPPDATA% at launch,"
+Say "      which reproduces a fresh-install seed on a box that is staged correctly."
+Say "      Before the demo: add an AV exclusion for $root, or launch the app once well"
+Say "      before you present and confirm Lv.01. Test it more than once - this failure"
+Say "      is INTERMITTENT by nature."
 Say ""
 Say "ON STAGE - use '/feather 95' then '/feather 10' in the chat box to show the"
 Say "      aperture RESIZE (~3x clear-hole radius). It is session-only, persists"
