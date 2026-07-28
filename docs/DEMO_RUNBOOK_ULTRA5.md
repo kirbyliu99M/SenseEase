@@ -26,13 +26,12 @@ Field capture from the affected Ultra 5 box:
 There is **no durable on-disk stuck-at-5**. Both freeze mechanisms are session-scoped and a
 process restart clears them. The symptom is the product of two things:
 
-1. **The tier-5 seed re-fires on any failed profile load.**
+1. **The tier-5 seed fires on any failed profile load — including a plain fresh install.**
    `ApplyAutoProfilingStartDefaults` runs on *every* launch and seeds `VimsTier = 5` + a 60 s
    hold whenever `_profileExistedAtLoad` is false — i.e. whenever
-   `FileHabituationProfileStore.Load()` returns null. That happens if the profile is absent,
-   malformed, has an out-of-range `schema_version`, is a refused v1 downgrade, **or is still
-   locked after 4 read retries** (`AtomicJsonWriter.TryRead`). AV file-locking reproduces a
-   fresh install on a correctly-staged box. The hold does always expire after 60 s.
+   `FileHabituationProfileStore.Load()` returns null: profile absent (**the fresh-install case,
+   and the likely one here**), malformed, out-of-range `schema_version`, refused v1 downgrade,
+   or still locked after 5 read retries. The hold does always expire after 60 s.
 
 2. **The strength slider is structurally incapable of weakening protection.**
    `SetIntensityLevel` writes only a *floor*, and display is
@@ -79,14 +78,19 @@ What it does:
 **Acceptance check — do not skip.** Launch and confirm it reads **Lv.01 at rest, not Lv.05**.
 If it reads Lv.05, staging did not take; do not proceed.
 
-### The biggest remaining demo risk: AV file-lock
+### Why the seed fired in the first place
 
-Staging works by making `Load()` succeed. It returns null — and the tier-5 seed fires anyway
-— if the profile is still locked after 4 read retries. Trend Micro and similar transiently
-lock files under `%LOCALAPPDATA%` at launch, which reproduces a fresh-install seed on a box
-that is staged perfectly. **Add an AV exclusion for `%LOCALAPPDATA%\SenseEase` before the
-demo**, and launch-and-check more than once — this failure is intermittent by nature, so a
-single passing check does not clear it.
+The boring and sufficient explanation: it was a **fresh install**, so `Load()` returned null
+because there was genuinely no profile yet. Writing a valid one is what suppresses the seed.
+`Load()` also returns null on a malformed file or an out-of-range `schema_version` — which is
+what the script's parse check covers.
+
+`AtomicJsonWriter.TryRead` additionally returns null if the file is *still* locked after 5
+attempts / ~400 ms of backoff — the on-access-AV case its retry loop was explicitly written
+for ([AtomicJsonWriter.cs:118-127](../src/SenseEase.Infrastructure/Storage/AtomicJsonWriter.cs)).
+That path is real but **already hardened, and has not been observed on any box in this
+investigation.** An AV exclusion for `%LOCALAPPDATA%\SenseEase` is free insurance if you want
+it; it is *not* a diagnosis, and it should not displace the ordinary acceptance check.
 
 ### Rehearse this: the slider cannot lower below the auto tier
 
