@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "appVersion": "1.3.2",
+  "privateStore": {
+    "repo": "kirbyliu99M/SenseEase-deps",
+    "tag": "deps-v1.3.2",
+    "note": "PRIVATE GitHub repo holding the non-redownloadable artifacts as release assets. Access is via `gh auth login`; no token is stored in this repo."
+  },
+  "components": [
+    {
+      "id": "qwen3-gguf",
+      "description": "Qwen3-4B-Instruct-2507 Q4_K_M GGUF - chat model for the Vulkan llama-server fallback (every PC)",
+      "type": "file",
+      "dest": "models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sha256": "8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc",
+      "url": "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "license": "Apache-2.0 (Qwen)"
+    },
+    {
+      "id": "face-landmarker",
+      "description": "MediaPipe face_landmarker.task (float16) - head-tracking sidecar model",
+      "type": "file",
+      "dest": "face_landmarker.task",
+      "copies": [ "tools/head-tracker-sidecar/face_landmarker.task" ],
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
+      "asset": "face_landmarker.task",
+      "license": "Apache-2.0 (Google MediaPipe)",
+      "note": "The public URL is a moving 'latest' alias; if its hash no longer matches, the private backup is used."
+    },
+    {
+      "id": "qwen3-ov-int4",
+      "description": "Qwen3-4B-Instruct-2507 INT4 OpenVINO IR - Intel NPU/iGPU model (OpenVINO GenAI host)",
+      "type": "dir",
+      "dest": "models/Qwen3-4B-Instruct-2507-ov-int4",
+      "treeHash": "930c57998a9d1d838d8600258bfa8816477a7cf1ea3d9b1fa96ab113667171be",
+      "asset": "qwen3-ov-int4.tar",
+      "rebuild": "models/recipes/convert_2507.sh (optimum-cli export openvino, int4 sym g128); validate with models/recipes/validate_2507.py",
+      "license": "Apache-2.0 (Qwen)"
+    },
+    {
+      "id": "qwen3-npu2-q4nx",
+      "description": "Qwen3-4B-Instruct-2507 Q4NX - AMD Ryzen AI NPU model for FastFlowLM v0.9.43",
+      "type": "dir",
+      "dest": "models/Qwen3-4B-NPU2",
+      "treeHash": "88e88368ff4204cfa91ecd3f0ad5c618d7f486da92c9f7192543dc0463e09193",
+      "asset": "qwen3-npu2-q4nx.tar",
+      "note": "Pinned to FLM v0.9.43. The current Hugging Face copy (FastFlowLM/Qwen3-4B-Instruct-2507-NPU2) is a newer, different build.",
+      "license": "Apache-2.0 weights; FastFlowLM format - check the FastFlowLM license before redistributing"
+    },
+    {
+      "id": "native-runtimes",
+      "description": "runtimes/win-x64/native: llama.cpp b9294 Vulkan build + the custom ggml-openvino llama-server (OpenVINO 2026.2.0)",
+      "type": "dir",
+      "dest": "runtimes/win-x64/native",
+      "treeHash": "b15e1a5f060b5ba1c753836e66e2e062d1411bc1b8b245527cd016fdc76e6b75",
+      "asset": "native-runtimes.tar",
+      "rebuild": "vulkan/: extract llama-b9294-bin-win-vulkan-x64.zip from https://github.com/ggml-org/llama.cpp/releases/tag/b9294 ; openvino/: installer/build-openvino-llama-server.bat",
+      "license": "MIT (llama.cpp); Apache-2.0 (OpenVINO)"
+    },
+    {
+      "id": "ovgenai-host-py",
+      "description": "OpenVINO GenAI host, Python/PyInstaller build (used by the OV-Python and Auto packages)",
+      "type": "dir",
+      "dest": "%USERPROFILE%/ovhost-build/dist/ovgenai-host",
+      "treeHash": "3145579e172d3711370a72790c6fde9f1a60f1720a64bd09e57f64f2df3d11c3",
+      "asset": "ovgenai-host-py.tar",
+      "rebuild": "native/ov-genai-host-py (ovgenai-host.spec + host_requirements.txt)",
+      "license": "Apache-2.0 (OpenVINO GenAI); bundled Python runtime"
+    },
+    {
+      "id": "ovgenai-host-cpp",
+      "description": "OpenVINO GenAI host, C++ build (used by the OV-Cpp package)",
+      "type": "dir",
+      "dest": "%USERPROFILE%/ovhost-build/ovgenai-host-cpp",
+      "treeHash": "451de082b483e9871b93063ac469f5be28f72b934d2225bd7ba40e7d38612abe",
+      "asset": "ovgenai-host-cpp.tar",
+      "rebuild": "native/ov-genai-host (CMake; needs the OpenVINO GenAI 2026.2.1 dev archive, see its README)",
+      "license": "Apache-2.0 (OpenVINO GenAI)"
+    },
+    {
+      "id": "fastflowlm",
+      "description": "FastFlowLM v0.9.43 runtime (flm.exe + NPU kernels) - AMD Ryzen AI NPU backend",
+      "type": "dir",
+      "dest": "C:/Program Files/flm",
+      "treeHash": "1972504b81170659a9ab88d205eccd56f173c68dc23fa76421ce71c6b0ddf9cb",
+      "asset": "fastflowlm-0.9.43.tar",
+      "requiresAdmin": true,
+      "note": "Normally installed with FastFlowLM's own installer. Restore needs an elevated shell.",
+      "license": "FastFlowLM license - check before redistributing; keep in the PRIVATE store only"
+    },
+    {
+      "id": "head-tracker-sidecar",
+      "description": "head_tracker.exe PyInstaller build (MediaPipe head-pose sidecar)",
+      "type": "dir",
+      "dest": "tools/head-tracker-sidecar/dist/head_tracker",
+      "packFrom": "dist/beta-v1.3.2-amd/tools/head-tracker-sidecar/dist/head_tracker",
+      "treeHash": "1dc6ad15fac451a0aa8de467c23d70257d633a4d7cf66ce21515053cbc45c7b9",
+      "asset": "head-tracker-sidecar.tar",
+      "rebuild": "tools/head-tracker-sidecar (pyinstaller head_tracker.spec, requirements.txt)",
+      "license": "Apache-2.0 (MediaPipe); bundled Python runtime"
+    }
+  ]
+}

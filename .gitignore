@@ -22,6 +22,8 @@ dist/
 # under installer/ — only the compiled binary + its checksum are ignored.
 installer/*.exe
 installer/*.sha256
+# Per-version installer output folders (multi-GB .exe/.bin slices + build logs) — built by installer/_build_v13*.ps1
+installer/beta-v*/
 
 # PyInstaller working directory for the head-tracker sidecar build (regenerable).
 tools/head-tracker-sidecar/build/
