@@ -63,12 +63,12 @@ The system delivers four integrated subsystems. A **sensing layer** (感測層) 
 The headline outcomes are:
 
 - **G_final GO** — the final go/no-go gate (G1–G7 advisor gates plus the M8 safety review) cleared with no locked-decision violations across the head-tracking sprint arc.
-- **UVHS PASS** — the User-Visual-Hard-Stop protocol (4 anti-cheat clauses, see §13.2) passed verification, including the clause-5 orthogonal-probe requirement satisfied by the `WgcDiagLog` monotonic-sequence sink. The feathering fix (§8.5) was UVHS-confirmed against the WebGL reference.
+- **UVHS PASS** — the User-Visual-Hard-Stop protocol (4 anti-cheat clauses, see §13.2) passed verification, including the clause-5 orthogonal-probe requirement satisfied by the `WgcDiagLog` monotonic-sequence sink. The feathering fix of that sprint (the asymmetric radius envelope, since superseded by the single-pass field renderer — §8.5) was UVHS-confirmed against the WebGL reference.
 - **~1500+ tests** — `[Fact]`/`[Theory]` attribute count under `tests/` (the suite is not run under the AV build-hang constraint, so the figure is a floor — the 2026-06-23 count was ~1491 across 172 `.cs` files). The old POC figure was ~1058; Beta-1 added the symptom / FMS / clinical-report / health-report / chatbot-eval-gate families, and Beta-V1.1 added the `OvGenAiHostLauncher`, consent-gate (`ConsentGateTests` / `ConsentBubbleWindowTests`), and companion-eval families. Per-layer notes in §13.5.
 - **Alpha-2 core live** — `AppConfig.AdaptiveFitSelectorEnabled = true` ([AppConfig.cs:268](src/SenseEase.App/Configuration/AppConfig.cs)) and `AppConfig.AutoProfilingEnabled = true` ([AppConfig.cs:294](src/SenseEase.App/Configuration/AppConfig.cs)) since commit `c1461a9`.
 - **M1 OFI calibration data is real** — `baseline/wgc-mad-calibration.csv` now carries reduced rows from a real capture on the developer's hardware (idle + 1080p video), partially closing the old audit-D1 gap (§5.2.6).
 
-**Revision note (2026-06-08).** This revision supersedes the 2026-06-04 audit edition. The largest changes since: (a) the engine tier scale moved from **1–10 to a native 1–12 scale** with a 5-band「動態感」cool-blue label, retiring the Grey/Amber/Red model (§2.8, §6.4); (b) the **explicit calibration subsystem was deleted** (CalibrationWindow, Q1–Q5 cards, the calibration chatbot service, the demo-video loop) and replaced by **auto-profiling** (§2.5, §9a); (c) the **Adaptive-Fit selector** (50-set grid) and (d) the **User-Model** subsystem (UM1–UM5) landed (§6a, §11a); (e) the **SafetyFloor was extracted to Core** and hardened (H1–H3, §11.1); (f) the **feathering "halo/comet-tail"** artefact was root-caused and fixed with an asymmetric radius envelope (§8.5); (g) the chatbot **model now lazy-loads** and the unused CUDA backend (~148 MB) was dropped (§10.2). Several 2026-06-04 audit items are now resolved (D1 partial, F1, C1, C7/F2, A4 grid-off, C3 safety parity, E3 schema test) and are marked CLOSED in §13.6.
+**Revision note (2026-06-08).** This revision supersedes the 2026-06-04 audit edition. The largest changes since: (a) the engine tier scale moved from **1–10 to a native 1–12 scale** with a 5-band「動態感」cool-blue label, retiring the Grey/Amber/Red model (§2.8, §6.4); (b) the **explicit calibration subsystem was deleted** (CalibrationWindow, Q1–Q5 cards, the calibration chatbot service, the demo-video loop) and replaced by **auto-profiling** (§2.5, §9a); (c) the **Adaptive-Fit selector** (50-set grid) and (d) the **User-Model** subsystem (UM1–UM5) landed (§6a, §11a); (e) the **SafetyFloor was extracted to Core** and hardened (H1–H3, §11.1); (f) the **feathering "halo/comet-tail"** artefact was root-caused and fixed with an asymmetric radius envelope (since replaced by the one-clock single-pass field renderer, §8.4–8.5); (g) the chatbot **model now lazy-loads** and the unused CUDA backend (~148 MB) was dropped (§10.2). Several 2026-06-04 audit items are now resolved (D1 partial, F1, C1, C7/F2, A4 grid-off, C3 safety parity, E3 schema test) and are marked CLOSED in §13.6.
 
 The remainder is organised as follows. §2 grounds each architectural commitment in theory. §3–§4 cover system and project structure. §5–§9 walk the data path from camera and screen to painted pixel, with **§5 (OFI)** and **§6 (VIMS pressure)** carrying the document's primary technical weight. §6a covers the Adaptive-Fit selector. §10–§11 cover the LLM integration and §11a the User-Model. §12 enumerates every load-bearing parameter. §13 records validation and roadmap. §14 is the bibliography; §15 the file index.
 
@@ -188,7 +188,7 @@ The head-tracking module addresses foveal targeting by driving `(cx, cy)` from a
 
 The IPC schema is the eight-field `SidecarHeadPoseReader.SidecarFrameDto` (`t_ms`, `cx`, `cy`, `luma`, `face_detected`, `face_present`, plus debug-only `yaw_deg`, `pitch_deg`) — all scalar / boolean; no landmarks, blendshapes, or pixel data. The OBS-3 allowlist is now pinned by a reflection-based schema test (was audit E3 — CLOSED).
 
-There are two follow-mode policies the user can choose: **Balanced** (mask centre clamped to `[0.10, 0.90]`) and **Full follow** (1:1). The **feathering halo fix** (§8.5) is the load-bearing companion to head-follow: without it, head motion makes the mask's soft edge "breathe" and produces a halo/comet-tail.
+There are two follow-mode policies the user can choose: **Balanced** (mask centre clamped to `[0.10, 0.90]`) and **Full follow** (1:1). The **feathering halo prevention** (§8.5 — one smoothing clock, one per-pixel field, frozen hole size) is the load-bearing companion to head-follow: without it, head motion makes the mask's soft edge "breathe" and produces a halo/comet-tail.
 
 ### 2.7 Efference-Copy and the Driver–Passenger Asymmetry / 傳出複本與駕駛–乘客不對稱
 
@@ -840,6 +840,8 @@ FOV_radius = clamp(ComputeFovRadiusPercent(P) + _userFovOffset + _habituation.Ha
 
 The discrete `VimsTier` is computed in parallel from the same pressure scalar but drives the visual mask colour/alpha lookup in `OverlayWindow.VimsLevels[]`, NOT the FOV radius.
 
+**FOV radius does not drive the rendered geometry (by design).** `FovRadiusPercent` is a **display / telemetry value**: it is logged, shown in the UI, fed to OFI self-attenuation (§5.8.1) and quoted in chatbot replies, but `OverlayWindow` never reads it. The size of the clear aperture is set **only** by the Shape axis / `FeatherWidth` (§8.3.3, §8.4), and the tier sets **only** colour and depth. Consequently a low tier masks the same *area* as a high tier, only fainter — this is intended, not a regression (confirmed 2026-10-12). Do not "re-wire" FOV into the renderer from this section.
+
 ### 8.3 Shader Knobs — `ShaderParams` / 著色器參數
 
 Three normalised `[0, 1]` shader knobs, all clamped `[0, 1]` in `ShaderParams.Clamp()`:
@@ -853,68 +855,81 @@ Three normalised `[0, 1]` shader knobs, all clamped `[0, 1]` in `ShaderParams.Cl
 `FeatherWidth`'s `0.50` is the *default initialiser*, not an upper bound (the bound is `[0, 1]`).
 
 #### 8.3.1 `MaskDepth`
-Drives the peripheral attenuation depth in the radial gradient, encoded as `Color.FromScRgb(MaskDepth, 0, 0, 0)`. When the Adaptive-Fit selector is ON, the per-set `PeakMaskAlpha` override (§6a.5) supersedes the static level alpha.
+A bounded multiplier on the tier's peak alpha (`OverlayWindow.ResolveEffectivePeakAlpha`):
+
+```
+ceiling   = MaskPeakAlphaOverride ≥ 0 ? override : VimsLevels[tier].Alpha     // Adaptive-Fit set (§6a.5) wins
+effective = min(ceiling × (1 + (MaskDepth − 0.74) × 1.15), ceiling)            // OverlayMaskDepthMultiplierSpan
+if MaskActive: effective = max(effective, min(0.20, ceiling))                  // OverlayMaskEffectiveAlphaFloor
+```
+
+At the 0.74 default the multiplier is exactly 1.0, so the rendered depth equals the table. `MaskDepth` can only make the mask *shallower* than the tier ceiling, never deeper, and never below the 0.20 floor while the mask is on (the floor never lifts a tier above its own table value, so L1 stays 0.00).
 
 #### 8.3.2 `GridVisibility` — Chang–Hain anchor grid
-Scales the *opacity ceiling* of the static anchor-grid layer in `OverlayWindow.ApplyGridIntensity`:
+Scales the *opacity ceiling* of the full-resolution vector anchor grid in `OverlayWindow.ApplyGridIntensity`:
 
 ```
-ceiling = GridVisibility > 0 ? min(1.0, 0.40 + 0.80 × GridVisibility) : 0.0     // grid-off fix
-target  = clamp(tierFraction × ceiling × (0.55 + 0.45 × smoothedIntensity), 0, ceiling)
-tierFraction = (VimsTier − 1) / 11      // 0 at L1, 1 at L12
+ceiling          = GridVisibility > 0 ? min(1.0, 0.40 + 0.80 × GridVisibility) : 0.0   // grid-off fix
+gridTierFraction = clamp((VimsTier − 4) / (12 − 4), 0, 1)                             // GridOnsetTier = 4
+intensityTerm    = PersistentBaselineSteady ? 0.55 : 0.55 + 0.45 × smoothedIntensity
+target           = min(clamp(gridTierFraction × ceiling × intensityTerm, 0, ceiling), 0.40)  // GridOpacityCap
 ```
 
-The grid never appears at L1; it ramps in linearly with level and is amplified by current pressure-driven intensity. **Grid-off fix (was audit A4):** `GridVisibility == 0` now floors the ceiling to a true `0.0` (was `0.40`), so `/grid off` (§11a) fully hides the grid.
+The grid is fully invisible at **L1–L3**, ramps in from L4, and reaches full strength at L12; the 0.40 cap keeps the on-screen line alpha around 0.40 × 130/255 ≈ 0.20 (clearly half-transparent). The steady-baseline branch uses a constant intensity so the grid does not pulse on sensing noise. `target` is forced to 0 when the user turns the anchor grid off in quick settings (`AnchorGridEnabled`). **Grid-off fix (was audit A4):** `GridVisibility == 0` floors the ceiling to a true `0.0`, so `/grid off` (§11a) fully hides the grid. The 280 ms opacity animation is re-aimed only on a tier/visibility/steady change or a drift of ≥ `GridOpacityRetargetQuantum`.
 
 #### 8.3.3 `FeatherWidth`
-Drives the inner edge offset of the radial gradient: `InnerEdgeOffset = 1.0 − FeatherWidth`.
-
-### 8.4 Radial Gradient Brush / 徑向漸層筆刷
-
-```xml
-<RadialGradientBrush GradientOrigin="{Binding Cx},{Binding Cy}" Center="{Binding Cx},{Binding Cy}"
-                     RadiusX="{Binding FovRadiusFraction}" RadiusY="{Binding FovRadiusFraction}">
-  <GradientStop Offset="0.0" Color="#00000000" />
-  <GradientStop Offset="{Binding InnerEdgeOffset}" Color="#00000000" />
-  <GradientStop Offset="1.0" Color="{Binding MaskDepthColor}" />
-</RadialGradientBrush>
-```
-
-The mask centre `(cx, cy)` is fed either from head-tracking or hardcoded to `(0.5, 0.5)`.
-
-### 8.5 Feathering Halo Fix — Asymmetric Radius Envelope / 羽化光暈修正 — 不對稱半徑包絡 (commit `f381a43`)
-
-**Root cause.** The FOV mask brush uses `MappingMode.RelativeToBoundingBox`. Its *dynamic radius* (corner reach) is recomputed raw every render frame from head position ([OverlayWindow.xaml.cs:635-638](src/SenseEase.App/Views/OverlayWindow.xaml.cs)):
+Slides the **start** of the clear→dim ramp (`OverlayWindow.ResolveFeatherStart`); the ramp **end** is fixed:
 
 ```
-farthestCorner = sqrt(max(cx,1−cx)² + max(cy,1−cy)²)
-targetRadius   = max(BrushRadius (0.85), farthestCorner × BrushRadiusCornerMargin (1.10))
+featherStart = clamp(0.35 − (FeatherWidth − 0.50) × 2 × 0.20, 0.05, FeatherEnd − 0.05)   // OverlayFeatherStartSpan
+FeatherEnd   = 0.55                                                                      // OverlayWindow.FeatherEnd
 ```
 
-Because the brush is relative-to-bounding-box, applying this raw per frame makes the `0.35→0.95` smoothstep feather band **translate AND scale in screen pixels** as the head moves — the soft edge "breathes," perceived as a halo / comet-tail. (In Gestalt terms: a common-fate violation + perceptual scission from independently-timed translucent strata.)
+A wider feather pulls the start inward (a softer, longer band and a smaller fully clear hole); a narrower feather pushes it outward. At the 0.50 default the band is **0.35 → 0.55**. The end was pulled in from 0.95 to 0.55 by the 2026-06-20 hotfix: the wide band quantised into concentric contour lines that swept with the head and smeared into ghosting (殘影); the narrow band gives a sharp clean→dim edge at the cost of a slightly firmer periphery. (Some code comments and `SenseDefaults` summaries still say "pinned at 0.95"; the code uses 0.55.) This is the **only** input that changes the size of the clear aperture (§8.2).
 
-**The fix — asymmetric half-life envelope on the radius only** ([OverlayWindow.xaml.cs:662-669](src/SenseEase.App/Views/OverlayWindow.xaml.cs)):
+### 8.4 Single-Pass Field Renderer / 單次逐像素場渲染器 (Beta A1 + A2)
+
+The overlay draws **two surfaces**, split by spatial frequency (class summary in [OverlayWindow.xaml.cs](src/SenseEase.App/Views/OverlayWindow.xaml.cs)):
+
+1. **The field (low frequency).** The peripheral dim *and* the cell-fill tint are computed together, per pixel, into one premultiplied-BGRA `WriteableBitmap` at reduced resolution (`OverlayFieldDownscale = 4` per axis, sized from physical device pixels and stepped down further above `OverlayFieldMaxFieldPixels = 480 000`), then bilinear-upscaled through `FieldImage`. A smooth gradient plus a flat tint loses nothing visible at quarter resolution.
+2. **The anchor grid (high frequency).** Real WPF `Line` shapes in `GridCanvas` at full resolution, world-locked at pixel origin. Its see-through hole comes from an `ImageBrush` `OpacityMask` over a **second** reduced-res bitmap written in the **same** per-pixel pass, so the grid window and the field share their geometry exactly (same circle, same feather, same frame).
+
+**Per-pixel geometry** (`CornerNormR`, `EffectiveCornerDenom`, `ResolveFieldAlpha`):
 
 ```
-halfLifeMs = (targetRadius > _smoothedRadius) ? OverlayRadiusAttackHalfLifeMs (25)   // grow → near-instant
-                                              : OverlayRadiusReleaseHalfLifeMs (600); // shrink → slow
-factor = 1 − exp(−dtMs · ln2 / halfLifeMs)
-_smoothedRadius += factor · (targetRadius − _smoothedRadius)
+r      = dist_aspect((px,py), (cx,cy)) / RestCornerDenom(aspect)     // OverlayFieldCornerGrowthDamping = 0.0
+window = smootherstep((r − featherStart) / (FeatherEnd − featherStart))   // 0 inside featherStart, 1 beyond FeatherEnd
+maskA  = gamma(window × effectivePeak)                                // OverlayFieldGamma = 2.2
+cellA  = gamma(CellFillAlpha (120/255) × cellStrength × window)       // cellStrength = the grid target (§8.3.2)
+pixel  = tier colour @ maskA  over  #08080A @ cellA                   // src-over, premultiplied
 ```
 
-Fast **attack** (≈25 ms) means a newly-fixated corner is covered almost instantly (preserves the M5 UX-iter-3 corner reach); slow **release** (≈600 ms) means the edge never pumps while the head moves. **Center follow stays fully responsive** — only the radius is smoothed. The ~165 Hz `CompositionTarget.Rendering` pump owns the envelope; the ~3.3 Hz engine-tick path snaps to target only when no pump ran within `PumpOwnershipWindowMs = 250` (preserves pre-envelope unit-test behaviour). Inactive snaps to the v0.9 baseline `0.85` immediately. The grid OpacityMask mirrors the same eased radius. Constants at [SenseDefaults.cs:61-62](src/SenseEase.Core/Configuration/SenseDefaults.cs).
+- **Distance is aspect-corrected**, so the clear hole is a circle on screen, not an ellipse in UV.
+- **The hole's size is frozen.** With damping 0.0 the normaliser is always the rest-centre half-diagonal, so moving the centre toward an edge never enlarges the hole or the feather band. Only the **centre** follows the head. At an extreme gaze the far corner's `r` exceeds 1 and saturates to full dim, so protection is never weakened.
+- **Smootherstep** (6t⁵ − 15t⁴ + 10t³, continuous second derivative) replaced smoothstep to remove Mach-band contour lines at shallow tiers. The window is read from a LUT indexed by r², rebuilt only when `featherStart` changes.
+- **Centre input.** `(cx, cy)` is the head pose after **one** One-Euro filter (`OverlayOneEuroFcMin = 1.0` Hz, `OverlayOneEuroBeta = 0.015`, `OverlayOneEuroDCutoff = 1.0`), clamped to `[0.10, 0.90]` in Balanced mode or `[0, 1]` in Full follow (§2.6). With head tracking inactive the centre is `(0.5, 0.5)`. The field is re-rendered only when the pose moves by more than `OverlayFieldMotionEpsilon` (active) or `FieldEpsilon` (parked), and only the dirty band of rows is recomputed.
+- **Colour and depth** come from `ResolveMaskParams`: tier colour + peak alpha from `VimsLevels[]` (or the Adaptive-Fit override), cross-faded per tick by `MaskSmoothingFactor`, snapped to target within half an 8-bit code, then bounded by `MaskDepth` (§8.3.1). While the persistent baseline is steady, colour and alpha snap straight to the baseline tier (no cross-fade chase).
 
-**Status.** This is **Phase 1** (P1) — shipped, UVHS-confirmed ("visual fatigue greatly reduced, no lag"). The fuller redesign — unifying all strata onto one motion clock (A1) and a single-pass per-pixel field matching the WebGL reference (A2) — is **designed-not-done**, gated behind a 165 Hz perf spike, and documented in `docs/BETA_FEATHERING_COHERENCE_PLAN.md`.
+### 8.5 Feathering Halo — How the Current Renderer Prevents It / 羽化光暈 — 現行渲染器的防治方式
+
+**The artefact.** With head tracking on, the mask's soft edge used to "breathe": the feather band translated *and* rescaled in screen pixels as the head moved, perceived as a halo / comet-tail. In Gestalt terms it was a common-fate violation: several translucent strata (mask, cell-fill, grid window) moved on independently-timed clocks.
+
+**The current fix is structural, not a smoothing envelope.**
+- **One clock (A1, `3762a42`).** A single One-Euro filter on the head pose is the only smoothing stage. Centre, field and grid window all derive from that one value in the same frame. One-Euro smooths hard when the head is near-still and opens up when it moves fast, which supplies the "fast attack, slow settle" behaviour the old radius envelope provided.
+- **One field (A2, `e5d418e`).** Mask and cell-fill are one per-pixel pass, and the grid window is written from the same pass (UVHS round 8). There is no second brush to fall out of step.
+- **Frozen hole size** (`OverlayFieldCornerGrowthDamping = 0.0`, round-9 ruling). Nothing grows or zooms as the gaze approaches a corner. The standing motion principle is that following the user's head is the *only* permitted motion.
+- **Sharp edge** (`FeatherEnd = 0.55`, 2026-06-20), so the band is too narrow to show sweeping contours.
+
+**History.** The first fix (`f381a43`, Phase 1, UVHS-confirmed in the head-tracking sprint) smoothed a `RelativeToBoundingBox` `RadialGradientBrush` radius with an asymmetric 25 ms / 600 ms half-life envelope (`_smoothedRadius`). That brush and envelope were **deleted** by A1/A2; there is no envelope renderer to restore. `OverlayRadiusAttackHalfLifeMs` / `OverlayRadiusReleaseHalfLifeMs` and `OverlayBrushRadiusCornerMargin` are still declared in `SenseDefaults` but nothing reads them (§12.1.4). The design rationale is in `docs/BETA_FEATHERING_COHERENCE_PLAN.md`.
 
 ### 8.6 Animations — Actual Durations / 動畫實際時長
 
 | Animation | Duration | Location |
 |---|---|---|
 | Window opacity fade-in | 380 ms | `OverlayWindow.xaml.cs` |
-| Grid opacity per-tick anim | 280 ms | `OverlayWindow.xaml.cs` |
-| Escape-hatch fade-down / up | 250 / 500 ms | `OverlayWindow.xaml.cs` |
+| Grid opacity anim (re-aimed on change, §8.3.2) | 280 ms | `OverlayWindow.xaml.cs` |
 
-The FOV mask colour/alpha cross-fade between levels is a per-tick exponential ease with `MaskSmoothingFactor = 0.25` ([SenseDefaults.cs:47](src/SenseEase.Core/Configuration/SenseDefaults.cs)), ~250 ms convergence at the ~15 Hz tick rate. (These four ms literals remain inline — promotion to `SenseDefaults` is a Beta polish item.)
+The mask colour/alpha cross-fade between levels is a per-tick exponential ease with `MaskSmoothingFactor = 0.25` ([SenseDefaults.cs:48](src/SenseEase.Core/Configuration/SenseDefaults.cs)), ~250 ms convergence at the ~15 Hz state cadence (`WgcCaptureIntervalMs = 66`). The escape-hatch fade-down / fade-up animations were removed with the escape hatch (D-10). (The two ms literals above remain inline — promotion to `SenseDefaults` is a Beta polish item.)
 
 ### 8.7 Exclude-rect Coupling / 排除矩形耦合
 
@@ -1496,12 +1511,23 @@ All load-bearing parameters live in [src/SenseEase.Core/Configuration/SenseDefau
 
 | Constant | Value | Purpose | Source |
 |---|---|---|---|
-| `MaskSmoothingFactor` | 0.25 | Overlay cross-fade EMA | `:47` |
-| `OverlayBrushRadius` | 0.85 | Baseline radial brush radius | `:49` |
-| `OverlayBrushRadiusCornerMargin` | 1.10 | Dynamic-radius corner margin | `:51` |
-| `OverlayRadiusAttackHalfLifeMs` | 25.0 | Feathering attack (grow) half-life | `:61` |
-| `OverlayRadiusReleaseHalfLifeMs` | 600.0 | Feathering release (shrink) half-life | `:62` |
-| `ChartTriggerLine` | = `TriggerPressure` | Dashboard chart line (SSOT) | `:45` |
+| `MaskSmoothingFactor` | 0.25 | Overlay tier colour/alpha cross-fade EMA | `:48` |
+| `OverlayBrushRadius` | 0.85 | Frozen grid-window / parked field radius | `:50` |
+| `OverlayOneEuroFcMin` / `Beta` / `DCutoff` | 1.0 / 0.015 / 1.0 | The single head-pose smoothing clock (§8.5) | `:85-97` |
+| `OverlayFieldDownscale` | 4 | Field bitmap downscale per axis (§8.4) | `:119` |
+| `OverlayFieldGamma` | 2.2 | Falloff gamma before 8-bit encode | `:140` |
+| `OverlayMaskDepthMultiplierSpan` | 1.15 | `MaskDepth` → peak-alpha multiplier span (§8.3.1) | `:153` |
+| `OverlayMaskEffectiveAlphaFloor` | 0.20 | Always-on mask depth floor | `:159` |
+| `OverlayFeatherStartSpan` | 0.20 | `FeatherWidth` → ramp-start travel (§8.3.3) | `:168` |
+| `OverlayFieldCornerGrowthDamping` | 0.0 | Corner-approach hole growth; 0 = size frozen (§8.4) | `:209` |
+| `GridOnsetTier` | 4 | Grid invisible below this tier (§8.3.2) | `:236` |
+| `GridOpacityCap` | 0.40 | Grid opacity ceiling (§8.3.2) | `:244` |
+| `OverlayWindow.FeatherEnd` | 0.55 | Feather-ramp end (in `OverlayWindow.xaml.cs`, not `SenseDefaults`) | — |
+| `OverlayBrushRadiusCornerMargin` | 1.10 | **Unused** — retired corner-coverage rescale, kept for the record | `:52` |
+| `OverlayRadiusAttackHalfLifeMs` | 25.0 | **Unused** — deleted Phase-1 radius envelope (§8.5 history) | `:62` |
+| `OverlayRadiusReleaseHalfLifeMs` | 600.0 | **Unused** — deleted Phase-1 radius envelope (§8.5 history) | `:63` |
+
+(`ChartTriggerLine` was removed with the Eye-Care live chart; see the `SenseDefaults.cs:45` tombstone.)
 
 #### 12.1.5 Chatbot Delta Bounds — Single Source of Truth / 聊天增減量界限
 
