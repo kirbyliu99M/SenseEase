@@ -18,7 +18,7 @@ Version stamped 1.0.0 in `Directory.Build.props` + `installer/SenseEase-v0.11.is
 
 ## [Unreleased — Beta waves B0/B1a/B1b/B2]
 
-Beta improvement-plan implementation. Detailed record: [Improvement_plan_BETA.md](Improvement_plan_BETA.md).
+Beta improvement-plan implementation. Detailed record: Improvement_plan_BETA.md (retired, see [PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md)).
 All 15 product-owner decisions (D-1 through D-15) were ratified 2026-06-11.
 
 ### Added

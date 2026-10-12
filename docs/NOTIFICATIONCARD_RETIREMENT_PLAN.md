@@ -15,12 +15,12 @@ claims CONFIRMED — the adversary could not refute any.
 
 | Card function | Status | New home (or why dead) |
 |---|---|---|
-| Status / band readout | ✅ re-homed | PopupBar `barNeonRim` + `SetTier` ([PopupBarWindow.xaml:709](src/SenseEase.App/Views/PopupBarWindow.xaml:709)) |
+| Status / band readout | ✅ re-homed | PopupBar `barNeonRim` + `SetTier` ([PopupBarWindow.xaml:709](../src/SenseEase.App/Views/PopupBarWindow.xaml#L709)) |
 | Intensity `[− Lv.N +]` | ✅ re-homed | `IntensitySlider` → `SetIntensityLevel` (same engine path) |
 | Pause / Resume | ✅ re-homed | `PlayPauseButton` → `PlayPauseCommand` → same `ApplyPowerSave` |
 | Settings gear | ✅ re-homed | `SettingsBtn` → `SettingsFlyout` |
 | Chat / input / send | ✅ re-homed | `ChatPanel` / `ChatInput` (same `ChatbotViewModel`) |
-| FMS / spike check-in | ✅ re-homed | `FmsButtons` ← `MaybeShowSpikeCheckIn` → `RaiseChatFmsCheckIn` ([MainWindow.xaml.cs:1016](src/SenseEase.App/MainWindow.xaml.cs:1016)) |
+| FMS / spike check-in | ✅ re-homed | `FmsButtons` ← `MaybeShowSpikeCheckIn` → `RaiseChatFmsCheckIn` ([MainWindow.xaml.cs:1016](../src/SenseEase.App/MainWindow.xaml.cs#L1016)) |
 | Numeric telemetry | ⚫ dead | was already hidden on the card |
 | Mute "don't show 6h" | ⚫ dead | button `Collapsed`/`IsHitTestVisible=False` |
 | Engage "緩和畫面" | ⚫ dead | `Collapsed`; obsolete (continuous engine intervention) |
@@ -35,19 +35,19 @@ claims CONFIRMED — the adversary could not refute any.
 A normal user can trigger an Accept/Decline/Defer proposal **today**, via two ungated paths:
 - the LLM emitting `[PROFILE_OVERRIDE]` — directive is in the active system prompt + GBNF grammar, and
   `max_tokens` was raised to 512 to stop truncating it ("re-enabled 2026-06-19",
-  [LocalLlmChatbotService.cs:949](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs:949));
-- the deterministic `HabituationProposalLexicon.TryDetect` fallback ([ChatbotViewModel.cs:804](src/SenseEase.App/ViewModels/ChatbotViewModel.cs:804)) — fires on the user's own text **even with the model down**.
+  [LocalLlmChatbotService.cs:949](../src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs#L949));
+- the deterministic `HabituationProposalLexicon.TryDetect` fallback ([ChatbotViewModel.cs:804](../src/SenseEase.App/ViewModels/ChatbotViewModel.cs#L804)) — fires on the user's own text **even with the model down**.
 
 Wiring is intact end-to-end and the card is the **only** display: `ProposalReceived`
-([ChatbotViewModel.cs:808](src/SenseEase.App/ViewModels/ChatbotViewModel.cs:808)) → `OnChatbotProposalReceived`
-([MainViewModel.cs:517](src/SenseEase.App/ViewModels/MainViewModel.cs:517)) → `ProposalSurfaceRequested`
-→ `OnProposalSurfaceRequested` opens the card ([MainWindow.xaml.cs:1689](src/SenseEase.App/MainWindow.xaml.cs:1689)) → card events → `Accept/Decline/Defer/ExpireActiveProposal` ([MainViewModel.cs:371-413](src/SenseEase.App/ViewModels/MainViewModel.cs:371)).
+([ChatbotViewModel.cs:808](../src/SenseEase.App/ViewModels/ChatbotViewModel.cs#L808)) → `OnChatbotProposalReceived`
+([MainViewModel.cs:517](../src/SenseEase.App/ViewModels/MainViewModel.cs#L517)) → `ProposalSurfaceRequested`
+→ `OnProposalSurfaceRequested` opens the card ([MainWindow.xaml.cs:1689](../src/SenseEase.App/MainWindow.xaml.cs#L1689)) → card events → `Accept/Decline/Defer/ExpireActiveProposal` ([MainViewModel.cs:371-413](../src/SenseEase.App/ViewModels/MainViewModel.cs#L371)).
 **Not** superseded by the B5 auto-tune (that's consent-gated default-OFF, tighten/sensitivity-only, never shows a picker). The W-G consent gate zeroes engine deltas but does **not** gate the proposal emission.
 
 → **Deleting the card silently drops a reachable, shipping feature.**
 
 ### BLOCKER 2 — the crisis panel's A1 invariant does not travel
-The SafetyFloor crisis line is re-homed as plain chat text ([ChatbotViewModel.cs:456](src/SenseEase.App/ViewModels/ChatbotViewModel.cs:456)) with **no crisis flag**. The popup's fresh-outside-click light-dismiss ([PopupBarWindow.xaml.cs:492-495](src/SenseEase.App/Views/PopupBarWindow.xaml.cs:492)) collapses the whole bar — and it runs *before* the `IsChatOpen` guard (:507), so an open crisis chat does **not** protect it. The card's dedicated gate (`_crisisActive` → `IsDismissableByIdleOrProximity`, [NotificationCardWindow.xaml.cs:1081](src/SenseEase.App/Views/NotificationCardWindow.xaml.cs:1081)) is being deleted with it.
+The SafetyFloor crisis line is re-homed as plain chat text ([ChatbotViewModel.cs:456](../src/SenseEase.App/ViewModels/ChatbotViewModel.cs#L456)) with **no crisis flag**. The popup's fresh-outside-click light-dismiss ([PopupBarWindow.xaml.cs:492-495](../src/SenseEase.App/Views/PopupBarWindow.xaml.cs#L492)) collapses the whole bar — and it runs *before* the `IsChatOpen` guard (:507), so an open crisis chat does **not** protect it. The card's dedicated gate (`_crisisActive` → `IsDismissableByIdleOrProximity`, [NotificationCardWindow.xaml.cs:1081](../src/SenseEase.App/Views/NotificationCardWindow.xaml.cs#L1081)) is being deleted with it.
 
 → **A single desktop click would dismiss the crisis hotline numbers — exactly what A1 forbids. Safety regression.** Re-homing A1 (~40–60 LOC) is **mandatory** for any retirement path.
 
@@ -60,8 +60,8 @@ The SafetyFloor crisis line is re-homed as plain chat text ([ChatbotViewModel.cs
    scroll away. Add a regression test (no light-dismiss / no idle-fade / no truncation while crisis-active).
 2. **Proposal channel — DECIDED 2026-06-21: DROP (product cut).** Decommission the interactive
    propose-confirm path: delete the `[PROFILE_OVERRIDE]` prompt directive + GBNF grammar block
-   ([LocalLlmChatbotService.cs:256-322,433](src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs:256)),
-   the deterministic `HabituationProposalLexicon` + its invocation ([ChatbotViewModel.cs:804](src/SenseEase.App/ViewModels/ChatbotViewModel.cs:804)),
+   ([LocalLlmChatbotService.cs:256-322,433](../src/SenseEase.Infrastructure/Real/LocalLlmChatbotService.cs#L256)),
+   the deterministic `HabituationProposalLexicon` + its invocation ([ChatbotViewModel.cs:804](../src/SenseEase.App/ViewModels/ChatbotViewModel.cs#L804)),
    the `ProposalReceived` wiring (`MainViewModel.OnChatbotProposalReceived` :517 + `ProposalSurfaceRequested`),
    and the `HabituationOverrideProcessor`/`Applicator`. Keep the engine's habituation mechanism itself —
    only the **chatbot-initiated picker** is removed. *Rationale (Kirby): habituation is governed by the
@@ -70,11 +70,11 @@ The SafetyFloor crisis line is re-homed as plain chat text ([ChatbotViewModel.cs
 
 **Wave 2 — DELETE (only after Wave 1 lands green):**
 3. Remove `NotificationCardWindow.xaml(.cs)`, `NotificationCardController.cs`, the `_cardWindow` field,
-   `ShowNotificationCardForCurrentTier` + its 4 callers ([:195](src/SenseEase.App/MainWindow.xaml.cs:195), :1603, :1645, :1691), and the card proposal/set-move wiring (:1697–1762).
+   `ShowNotificationCardForCurrentTier` + its 4 callers ([:195](../src/SenseEase.App/MainWindow.xaml.cs#L195), :1603, :1645, :1691), and the card proposal/set-move wiring (:1697–1762).
 4. Coupled cleanup: the already-dead persistent-bar path — `StartPersistentBar` (:1542+), the
    `_persistentBar.Clicked` handler (:1603), `PersistentBarWindow.*`, and `AppConfig.PersistentBarEnabled`.
 5. Let the **dormant** set-move die (or give it a home if you want the "step up protection" suggestion —
-   minor, optional). Optionally stop the engine queuing dead set-moves ([MockInferenceEngine.cs:1136](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs:1136)).
+   minor, optional). Optionally stop the engine queuing dead set-moves ([MockInferenceEngine.cs:1136](../src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs#L1136)).
 6. Re-run the suite. `AdaptiveFitProposeConfirmTests` stays green (engine-only). Retire the
    `NotificationCardWindow`/`Controller` UI tests.
 

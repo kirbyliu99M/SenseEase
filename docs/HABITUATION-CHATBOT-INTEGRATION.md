@@ -10,7 +10,7 @@ This document is for engineers maintaining the chatbot ↔ engine seam. End-user
 behavior lives in [POPUP-OVERLAY.md](POPUP-OVERLAY.md) and
 [CALIBRATION.md](CALIBRATION.md). Cross-sprint integration risks +
 lessons learned: see
-[POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md).
+POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md)).
 System-wide safety design: see [SAFETY-PROVISIONS.md](SAFETY-PROVISIONS.md).
 
 ---

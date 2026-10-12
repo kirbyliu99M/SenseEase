@@ -2,9 +2,9 @@
 
 **Status:** Alpha-1. This document states the security model, the data SenseEase
 holds, the hardening that has landed, and the items still open before the public
-cut. It is the companion to [ALPHA_SECURITY_BACKLOG.md](ALPHA_SECURITY_BACKLOG.md)
+cut. It is the companion to ALPHA_SECURITY_BACKLOG.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md))
 (item-level tracking) and the master plan's §6.1 / §6.5 audit gates
-([Alpha_1_MASTERPLAN.md](Alpha_1_MASTERPLAN.md)).
+(Alpha_1_MASTERPLAN.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md))).
 
 > **One-line posture:** SenseEase is a **local-only** desktop app. No user data
 > leaves the machine. The camera is **off by default**. Vision (head-tracking)
@@ -138,7 +138,7 @@ manual smoke-test that can't be run from CI:
 | **Installer hygiene (H25/H28/H49)** | Trim unused runtime backends (~500 MB), uninstall removes `%LOCALAPPDATA%\SenseEase\` + the HKCU Run key. |
 | **Uninstall / kill-switch (H53)** | Optional recall channel. |
 
-See [ALPHA_SECURITY_BACKLOG.md](ALPHA_SECURITY_BACKLOG.md) for the full item list
+See ALPHA_SECURITY_BACKLOG.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md)) for the full item list
 and acceptance criteria; §6.1 of the master plan defines the audit gate.
 
 ---

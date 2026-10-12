@@ -1,7 +1,7 @@
 # SenseEase — Beta-1 Upgrade Plan
 
-**Status:** ACTIVE (current plan, from 2026-06-14). Supersedes [Improvement_plan_BETA.md](Improvement_plan_BETA.md) (now legacy).
-**Inputs:** the max-effort beta-gate review ([docs/BETA_GATE_REVIEW_2026-06-14.md](docs/BETA_GATE_REVIEW_2026-06-14.md) — 64 findings: 1 blocker, 21 high, 21 medium, 21 low; 59 confirmed) + a 6-theme web-grounded research dossier.
+**Status:** ACTIVE (current plan, from 2026-06-14). Supersedes Improvement_plan_BETA.md (retired, see [PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md)) (now legacy).
+**Inputs:** the max-effort beta-gate review (docs/BETA_GATE_REVIEW_2026-06-14.md (retired, see [PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md)) — 64 findings: 1 blocker, 21 high, 21 medium, 21 low; 59 confirmed) + a 6-theme web-grounded research dossier.
 **Decision authority:** Kirby, 2026-06-14. New ratified decisions **D-16…D-21** below carry the same weight as D-1…D-15 (recorded in the legacy plan §1.5).
 
 Expert testing passed; the app is cleared to move toward Beta. This plan defines the path to get there.
@@ -59,7 +59,7 @@ Export presents measured and estimated **separately**; they are never merged int
 ## 3. Phase detail
 
 ### Phase 0 — Fix bugs (stabilize first)
-Full list + verifier reasoning in [docs/BETA_GATE_REVIEW_2026-06-14.md](docs/BETA_GATE_REVIEW_2026-06-14.md). Fix the "protection silently fails" cluster first (most dangerous for a clinical tool):
+Full list + verifier reasoning in docs/BETA_GATE_REVIEW_2026-06-14.md (retired, see [PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md)). Fix the "protection silently fails" cluster first (most dangerous for a clinical tool):
 
 - **🔴 BLOCKER #1** — Resolution/DPI/orientation change freezes WGC sensing to OFI→0 and the liveness watchdog is blind (keys off `_lastPollAt`, not `_lastFrameProcessedAt`) → VIMS protection silently off forever. [WgcSensingProvider.cs:830](src/SenseEase.Infrastructure/Real/WgcSensingProvider.cs#L830)
 - **#5** Vestibular personalization never reaches actual protection (mask/FOV/tier still use hardcoded `TriggerPressure=85`). [MockInferenceEngine.cs:1959](src/SenseEase.Infrastructure/Mock/MockInferenceEngine.cs#L1959)

@@ -157,7 +157,7 @@ The opt-in is the first layer of user control. The second layer is
 - A `Follow mode` radio group: `Balanced` (default) /
   `Full follow` (opt-in). Runtime-changeable (the overlay reads the
   mode per frame). See
-  [head-tracking-sprint-state.md](../../.claude/memory/head-tracking-sprint-state.md)
+  head-tracking-sprint-state.md (maintainer notes, not in the repository)
   M5.1-B for the clinical rationale.
 - An `Enable temporary transparency` checkbox (the Ctrl+Ctrl
   double-tap escape hatch). Runtime-changeable.
@@ -198,7 +198,7 @@ disable all protection** (mask / sidecar / chatbot / adaptive fit), with
 is the clean off-state of the control; the user re-enables from the bar or
 Settings at any time (a visible off-state affordance, *not* a nag). This is
 the unified Disable specified in
-[`SenseEase-Adaptive-Fit-Layer-v1.md` §7](SenseEase-Adaptive-Fit-Layer-v1.md);
+`SenseEase-Adaptive-Fit-Layer-v1.md` §7 (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md));
 the behaviour lands in **P2 (Alpha-1)** — until P2 ships, the current
 escape-hatch code (below) stands.
 
@@ -219,7 +219,7 @@ See also [SAFETY-PROVISIONS.md §3.1](SAFETY-PROVISIONS.md).
 > The full-Disable ruling above replaces that "always-on for diagnosed users"
 > position; the escape-hatch code remains as-is until P2 unifies it under the
 > single Disable control. The
-> [POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md)
+> POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md))
 > "tunable cap rather than binary disable" follow-up is moot under this ruling.
 
 ---
@@ -233,7 +233,7 @@ the Python sidecar's CPU thread, the 50 TOPS XDNA 2 NPU is not
 engaged at all.
 
 M7 measured 15.00 Hz mean sidecar throughput under LLM-hot full load
-(see [baseline/m7-perf-report.md](../baseline/m7-perf-report.md)).
+(see baseline/m7-perf-report.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md))).
 The NPU is therefore no longer load-bearing for the prototype's
 viability — it is a v1.0 smoothness optimisation, not a perf rescue.
 
@@ -383,10 +383,10 @@ If any of these checks fail, treat it as a release blocker per
   — sidecar-internal privacy rules (OBS-3 source of truth).
 - [tools/head-tracker-sidecar/PERF.md](../tools/head-tracker-sidecar/PERF.md)
   — perf measurement methodology.
-- [baseline/m7-perf-report.md](../baseline/m7-perf-report.md) — final
+- baseline/m7-perf-report.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md)) — final
   three-layer perf verdict.
 - [docs/SAFETY-PROVISIONS.md](SAFETY-PROVISIONS.md) — broader safety
   posture (vestibular protections, chatbot guardrails).
-- [docs/POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md)
+- docs/POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md))
   — cross-sprint risks (including the escape-hatch × vestibular
   interaction).

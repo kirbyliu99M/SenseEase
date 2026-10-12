@@ -31,7 +31,7 @@ End-to-end proof: two app chat turns produced distinct, correct replies on the N
 - `models/Qwen3-4B-Instruct-2507-ov-int4/` (copied into the build's `models\`) — the NPU-ready INT4 IR. **~2.2 GB.**
 - `tools/genai-llm-host/genai_host.py` (and `_NPU_DELIVERABLES/scripts/`) — the validated OpenVINO GenAI host.
 - `_NPU_DELIVERABLES/runtime_dlls/openvino_genai.dll`, `openvino_tokenizers.dll` — the two runtime DLLs **not currently shipped** (the app already ships the rest of the OpenVINO 2026.2 runtime + NPU plugin).
-- `_NPU_DELIVERABLES/scripts/convert_2507.sh` — the one-time GGUF-checkpoint → INT4 IR conversion recipe. See [CONVERT_MODEL.md](CONVERT_MODEL.md).
+- `_NPU_DELIVERABLES/scripts/convert_2507.sh` — the one-time GGUF-checkpoint → INT4 IR conversion recipe. See [OV_MODEL_CONVERSION.md](../OV_MODEL_CONVERSION.md).
 - `_NPU_DELIVERABLES/host_requirements.txt` — exact Python env that runs the host today.
 - [SOURCE_CHANGES_intel_flm.md](SOURCE_CHANGES_intel_flm.md), [VERIFICATION.md](VERIFICATION.md).
 

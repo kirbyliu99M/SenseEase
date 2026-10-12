@@ -267,7 +267,7 @@ v1.0 candidate: proposal carries a propose-time fingerprint
 (power_save_active, current_tier, habituation_level snapshot); accept-
 time compares against current state and surfaces an "older context"
 warning before enabling Accept. See
-[POPUP-AND-HABITUATION-INTEGRATION-AUDIT §9](POPUP-AND-HABITUATION-INTEGRATION-AUDIT.md#9-known-cross-sprint-risks)
+POPUP-AND-HABITUATION-INTEGRATION-AUDIT §9 (retired, see [PROJECT_HISTORY.md](PROJECT_HISTORY.md))
 for the cross-sprint analysis.
 
 ---
