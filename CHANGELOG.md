@@ -5,6 +5,64 @@ All notable changes to SenseEase are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 the sprint-seal git tag pattern (`v0.<sprint>` and `v0.<sprint>.<hotfix>`).
 The authoritative version reference is `git tag` — this file is the human-readable summary.
+Beta releases are tagged `Beta-V1.x` (1.0.0 and 1.3.0 are untagged: bump commits `dc4d203` and `183cc11`).
+
+## [1.3.2 — Beta V1.3.2] — 2026-07-02 (`Beta-V1.3.2`, `2f3f41e`)
+
+### Changed
+- The weekly recap in chat now first appears in the **second** week of use, not right after install
+  (there is no prior week to summarise yet).
+
+## [1.3.1 — Beta V1.3.1] — 2026-06-28 (`Beta-V1.3.1`, `82486ce`)
+
+### Fixed
+- **Overlay z-order:** native menus, the IME 中 toolbar and the taskbar now stay above the overlay
+  (`SystemSurfaceZGuard`).
+- **AMD NPU memory:** FastFlowLM `--ctx-len` is sized to installed RAM, so a 16 GB machine no longer runs out of memory.
+- **Chat honesty (U2):** answering an app how-to question never claims a setting change that was not made.
+
+## [1.3.0 — Beta V1.3] — 2026-06-27 (`183cc11`, untagged)
+
+### Added
+- **In-app health card** replaces the file-export HTML/JSON health report (no files written); also
+  factory-reset-to-welcome and auto-restart of head tracking when it is toggled.
+- **Weekly recap** on chat-open: one message summarising the prior ISO week (times protected and a calm condition word).
+- **Onboarding:** screen sensing waits until the welcome card is dismissed, so no capture border shows before the user starts.
+
+### Changed
+- **LLM host lifecycle:** the local chat host releases its RAM while protection is paused and warm-reloads on resume;
+  the OpenVINO NPU compile cache is kept between launches, so the ~5.5-minute first compile happens once.
+- The spike-triggered comfort check-in card is restored as **opt-out** (it had been silently blocked for default users).
+
+### Removed
+- The unreachable NLU free-text feedback subsystem and other confirmed-dead members.
+
+## [1.2.0 — Beta V1.2] — 2026-06-26 (`Beta-V1.2`, `78cb319`)
+
+### Changed
+- **Chat no longer changes the overlay before consent.** When protection is off or not yet consented, requested
+  adjustments are held, the reply says they apply once protection starts, and they are applied live at that moment.
+- **Consent:** restored baselines are gated on this session's consent, the session end is reachable, and consent is one tap.
+- "Graded exposure" is renamed **"Adaptive Training"** in the English UI.
+- Installer: the unused Vulkan binaries are trimmed from the 4-package build.
+
+## [1.1.0 — Beta V1.1] — 2026-06-25 (`Beta-V1.1`, `3268299`)
+
+### Added
+- **Comfort Companion:** the chatbot is reframed from a symptom classifier into a comfort assistant
+  (charter Phase A, `docs/CHATBOT_CHARTER.md`), gated on the chatbot eval.
+- **Intel OpenVINO GenAI host:** a native C++ sidecar serving the INT4 OpenVINO model on the Intel NPU / iGPU,
+  with `/health` readiness, NPU-to-iGPU fallback, prefix caching and a warm first turn on chat-open.
+- **Four installer packages:** OV-Cpp, OV-Python, AMD (FastFlowLM) and Auto, each hardware-gated, with disk spanning
+  for the >4.2 GB offline bundle; the AMD package bundles the FastFlowLM runtime and Q4NX model.
+
+### Fixed
+- **Intel crash on CPUs without AVX-512:** the OpenVINO llama-server is rebuilt with `GGML_NATIVE=OFF`.
+- Intel field-test fixes: chunked request bodies that arrived empty, `--fit off`, OpenVINO-to-Vulkan fallback,
+  a 120 s per-request timeout, and a smaller system prompt that fits the NPU's 6144-token window.
+- Chat safety: prompt-injection refusal takes precedence over discomfort context; intent-label and jargon hardening.
+- Installer: OpenVINO IR `.xml` topology files are no longer excluded; robocopy exit codes are handled.
+- Integrity manifest entries are matched by path suffix rather than bare file name.
 
 ## [1.0.0 — Beta V1.0] — 2026-06-23
 
