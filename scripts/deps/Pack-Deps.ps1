@@ -71,12 +71,25 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI (gh
 Invoke-Exe gh @('repo', 'view', $store.repo, '--json', 'name') -Quiet | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Creating PRIVATE repo $($store.repo)"
-    Invoke-Exe gh @('repo', 'create', $store.repo, '--private',
+    Invoke-Exe gh @('repo', 'create', $store.repo, '--private', '--add-readme',
                     '--description', 'SenseEase non-redownloadable build dependencies (private)') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'gh repo create failed' }
 }
 $vis = Invoke-Exe gh @('repo', 'view', $store.repo, '--json', 'visibility', '--jq', '.visibility') | Select-Object -First 1
 if ($vis -ne 'PRIVATE') { throw "Refusing to upload: $($store.repo) is '$vis', not PRIVATE." }
+
+# A release needs a tag, and a tag needs a commit: GitHub rejects releases in an EMPTY repo
+# (HTTP 422 "Repository is empty"). Give an empty store a README as its first commit.
+$empty = Invoke-Exe gh @('repo', 'view', $store.repo, '--json', 'isEmpty', '--jq', '.isEmpty') | Select-Object -First 1
+if ($empty -eq 'true') {
+    Write-Host 'Store repo is empty - adding a README as its first commit'
+    $readme = "# SenseEase dependency store (private)`n`nRelease assets only: the non-redownloadable build dependencies of SenseEase.`n" +
+              "Restore with scripts/deps/Restore-Deps.ps1 in the main repository. Keep this repository PRIVATE.`n"
+    $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($readme))
+    Invoke-Exe gh @('api', '-X', 'PUT', "repos/$($store.repo)/contents/README.md",
+                    '-f', 'message=Initial commit: README', '-f', "content=$b64") | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the first commit in the store repo' }
+}
 
 Invoke-Exe gh @('release', 'view', $store.tag, '-R', $store.repo) -Quiet | Out-Null
 if ($LASTEXITCODE -ne 0) {
