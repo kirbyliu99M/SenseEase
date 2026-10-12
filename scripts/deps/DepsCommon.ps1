@@ -7,6 +7,28 @@ $script:RepoRoot     = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:ManifestPath = Join-Path $PSScriptRoot 'deps.manifest.json'
 $script:PartSize     = 1900MB   # GitHub release assets must be < 2 GiB each
 
+# Run a native program (gh, tar, curl). Windows PowerShell 5.1 turns ANY stderr line of a native command
+# into an ErrorRecord, which under $ErrorActionPreference='Stop' aborts the script even on success or on an
+# expected "not found" probe. So run with 'Continue', return stdout lines, print stderr (unless -Quiet),
+# and leave the real exit code in $LASTEXITCODE for the caller to check.
+function Invoke-Exe {
+    param([string]$Exe, [string[]]$ArgList, [switch]$Quiet)
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out  = & $Exe @ArgList 2>&1
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $old }
+    $stdout = @()
+    foreach ($o in $out) {
+        if ($o -is [System.Management.Automation.ErrorRecord]) {
+            if (-not $Quiet) { Write-Host ('    ' + $o.ToString()) }
+        } else { $stdout += [string]$o }
+    }
+    $global:LASTEXITCODE = $code
+    return $stdout
+}
+
 function Read-DepsManifest {
     Get-Content -Raw -Path $script:ManifestPath | ConvertFrom-Json
 }

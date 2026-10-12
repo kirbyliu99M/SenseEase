@@ -37,7 +37,7 @@ function Get-PrivateSums {
     if ($script:sums) { return $script:sums }
     $f = Join-Path $WorkDir 'SHA256SUMS'
     if (-not (Test-Path $f)) {
-        & gh release download $store.tag -R $store.repo -p 'SHA256SUMS' -D $WorkDir --clobber
+        Invoke-Exe gh @('release', 'download', $store.tag, '-R', $store.repo, '-p', 'SHA256SUMS', '-D', $WorkDir, '--clobber') | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Could not read SHA256SUMS from $($store.repo)@$($store.tag) (gh auth login? access to the private repo?)" }
     }
     $map = @{}
@@ -58,7 +58,7 @@ function Get-PrivateAsset([string]$asset) {
         $local = Join-Path $WorkDir $n
         if ((Test-Path $local) -and (Get-Sha256 $local) -eq $map[$n]) { continue }
         Write-Host "    downloading $n"
-        & gh release download $store.tag -R $store.repo -p $n -D $WorkDir --clobber
+        Invoke-Exe gh @('release', 'download', $store.tag, '-R', $store.repo, '-p', $n, '-D', $WorkDir, '--clobber') | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "gh release download failed for $n" }
         if ((Get-Sha256 $local) -ne $map[$n]) { throw "Checksum mismatch for $n" }
     }
@@ -85,7 +85,7 @@ function Restore-File($c) {
     $ok   = $false
     if ($c.url) {
         Write-Host "    downloading $($c.url)"
-        & curl.exe -L --fail --retry 3 -s -o $tmp $c.url
+        Invoke-Exe curl.exe @('-L', '--fail', '--retry', '3', '-s', '-o', $tmp, $c.url) | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Get-Sha256 $tmp) -eq $c.sha256) { $ok = $true }
         elseif ($LASTEXITCODE -eq 0) { Write-Warning "    public file no longer matches the pinned SHA-256" }
     }
@@ -110,7 +110,7 @@ function Restore-Dir($c) {
     if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }   # our own temp dir only
     New-Item -ItemType Directory -Force -Path $staging | Out-Null
     Write-Host "    extracting"
-    & (Get-Tar) -x -f $archive -C $staging
+    Invoke-Exe (Get-Tar) @('-x', '-f', $archive, '-C', $staging) | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "tar failed for $archive" }
     if ((Get-TreeHash $staging) -ne $c.treeHash) { throw "Extracted $($c.id) does not match its tree hash" }
     Backup-Existing $dest

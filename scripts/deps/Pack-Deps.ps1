@@ -42,7 +42,7 @@ foreach ($c in $manifest.components) {
         Copy-Item -Path $src -Destination $out
     } else {
         if ((Get-TreeHash $src) -ne $c.treeHash) { throw "$($c.id): local folder does not match the manifest tree hash" }
-        & (Get-Tar) -c -f $out -C $src .
+        Invoke-Exe (Get-Tar) @('-c', '-f', $out, '-C', $src, '.') | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "tar failed for $($c.id)" }
     }
     if ((Get-Item $out).Length -gt $script:PartSize) {
@@ -67,25 +67,41 @@ if (-not $Upload) {
 }
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI (gh) is required for -Upload.' }
-& gh repo view $store.repo --json name 2>$null | Out-Null
+# Probe: a missing repo/release is expected on the first run, so its "not found" stays quiet.
+Invoke-Exe gh @('repo', 'view', $store.repo, '--json', 'name') -Quiet | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Creating PRIVATE repo $($store.repo)"
-    & gh repo create $store.repo --private --description 'SenseEase non-redownloadable build dependencies (private)'
+    Invoke-Exe gh @('repo', 'create', $store.repo, '--private',
+                    '--description', 'SenseEase non-redownloadable build dependencies (private)') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'gh repo create failed' }
 }
-$vis = (& gh repo view $store.repo --json visibility --jq '.visibility')
-if ($vis -ne 'PRIVATE') { throw "Refusing to upload: $($store.repo) is $vis, not PRIVATE." }
+$vis = Invoke-Exe gh @('repo', 'view', $store.repo, '--json', 'visibility', '--jq', '.visibility') | Select-Object -First 1
+if ($vis -ne 'PRIVATE') { throw "Refusing to upload: $($store.repo) is '$vis', not PRIVATE." }
 
-& gh release view $store.tag -R $store.repo 2>$null | Out-Null
+Invoke-Exe gh @('release', 'view', $store.tag, '-R', $store.repo) -Quiet | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    & gh release create $store.tag -R $store.repo --title "SenseEase dependencies $($store.tag)" `
-        --notes 'Backup of the non-redownloadable SenseEase build dependencies. Restore with scripts/deps/Restore-Deps.ps1.'
+    Invoke-Exe gh @('release', 'create', $store.tag, '-R', $store.repo,
+                    '--title', "SenseEase dependencies $($store.tag)",
+                    '--notes', 'Backup of the non-redownloadable SenseEase build dependencies. Restore with scripts/deps/Restore-Deps.ps1.') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
 }
+# Resume support: skip assets already uploaded with the same size (SHA256SUMS is always re-sent).
+$have = @{}
+Invoke-Exe gh @('release', 'view', $store.tag, '-R', $store.repo, '--json', 'assets',
+                '--jq', '.assets[] | [.name, .size] | @tsv') -Quiet | ForEach-Object {   # no embedded quotes: PS 5.1 mangles them for native args
+    $kv = $_ -split "`t"
+    if ($kv.Count -eq 2) { $have[$kv[0]] = [int64]$kv[1] }
+}
 $files = Get-ChildItem -Path $OutDir -File | Sort-Object Name
+$i = 0
 foreach ($f in $files) {
-    Write-Host "uploading $($f.Name)"
-    & gh release upload $store.tag $f.FullName -R $store.repo --clobber
-    if ($LASTEXITCODE -ne 0) { throw "upload failed: $($f.Name)" }
+    $i++
+    if ($f.Name -ne 'SHA256SUMS' -and $have.ContainsKey($f.Name) -and $have[$f.Name] -eq $f.Length) {
+        Write-Host ('skip      {0}/{1}  {2}  (already uploaded)' -f $i, $files.Count, $f.Name)
+        continue
+    }
+    Write-Host ('uploading {0}/{1}  {2}  ({3:N0} MB)  {4:HH:mm:ss}' -f $i, $files.Count, $f.Name, ($f.Length / 1MB), (Get-Date))
+    Invoke-Exe gh @('release', 'upload', $store.tag, $f.FullName, '-R', $store.repo, '--clobber') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "upload failed: $($f.Name) - re-run the same command to resume (uploads use --clobber)" }
 }
 Write-Host "Done: $($files.Count) files in $($store.repo)@$($store.tag)"
